@@ -51,7 +51,8 @@ cargo test --offline --release --test adversarial
 python3 scripts/run_mutations.py --report target/mutations-new.json
 ```
 
-The [recorded mutation campaign](mutation-report-final.json) detected all three mutants.
+The [recorded mutation campaign](mutation-report-isolated.json) detected all three mutants.
 The [earlier failed campaign](mutation-report-initial.json) remains available:
 its unchanged baseline exposed a harness build-cache isolation error, not an
-engine mutation result. Each new campaign uses its own build directory.
+engine mutation result. Each campaign builds inside its temporary workspace;
+build outputs are removed automatically while failure logs and reports remain.

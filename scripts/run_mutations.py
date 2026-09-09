@@ -20,7 +20,7 @@ MUTATIONS = [
 def run(workspace, log):
     with log.open("w") as output:
         result = subprocess.run(["cargo", "test", "--offline", "--manifest-path", str(workspace / "Cargo.toml"),
-                                 "--target-dir", str(ROOT / "target/mutation-build" / workspace.name), "--test", "subqueries"],
+                                 "--target-dir", str(workspace / "target"), "--test", "subqueries"],
                                 cwd=workspace, stdout=output, stderr=subprocess.STDOUT, timeout=180)
     text = log.read_text()
     if result.returncode == 0 and "test result: ok." in text:

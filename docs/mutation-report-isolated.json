@@ -1,0 +1,36 @@
+{
+  "recorded_at": "2026-09-09T14:47:39.413355+00:00",
+  "results": [
+    {
+      "name": "scalar-cardinality",
+      "file": "src/execution/subquery.rs",
+      "before": "if self.value.is_some() {",
+      "after": "if false {",
+      "status": "killed",
+      "log": "target/mutation-logs/20260909T144739478805/scalar-cardinality.log",
+      "log_sha256": "dbe0f0f6d1d5c63278ae1b332522fdfa66f21c9660984a2201477e7fa79ea775"
+    },
+    {
+      "name": "membership-null",
+      "file": "src/execution/subquery.rs",
+      "before": "if needle.is_null() || candidate.is_null() {",
+      "after": "if false {",
+      "status": "killed",
+      "log": "target/mutation-logs/20260909T144739478805/membership-null.log",
+      "log_sha256": "dbc101b10e6ff2f254d0c1e5721fbc10cb828373178049c5329f7d174d489643"
+    },
+    {
+      "name": "exists-negation",
+      "file": "src/execution/subquery.rs",
+      "before": "SubqueryRequest::Exists { negated } => return Ok(Some(Value::Boolean(!negated)))",
+      "after": "SubqueryRequest::Exists { negated } => return Ok(Some(Value::Boolean(negated)))",
+      "status": "killed",
+      "log": "target/mutation-logs/20260909T144739478805/exists-negation.log",
+      "log_sha256": "17618e66a322684b9585d56a23d30a3d3aeb92e011534174d2debd55073d5363"
+    }
+  ],
+  "passed": true,
+  "scope": "Three explicit semantic mutants and the unchanged subquery conformance suite. Compile errors and timeouts do not count as detected semantic faults. This is not a whole-engine mutation-coverage result.",
+  "source_sha256": "1e01ee96756adb33dcca09dceea97beb7c0b37b845193b4b0f75f3a4a2a5b4af",
+  "baseline": "survived"
+}

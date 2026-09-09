@@ -122,7 +122,7 @@ the remaining allocator, crash simulation, concurrency and coverage work.
 
 The [validation record](parity-validation.json) records 144 passing Cargo tests,
 13 Python harness tests, 18 release execution/adversarial tests, formatting and
-Clippy. The [final mutation campaign](mutation-report-final.json) starts with an
+Clippy. The [final mutation campaign](mutation-report-isolated.json) starts with an
 unchanged passing baseline and detects all three injected semantic faults.
 The C++ performance and full upstream parity gates remain failed, as recorded
 above. Local conformance success cannot override those acceptance failures.
