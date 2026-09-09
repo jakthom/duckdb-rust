@@ -1,0 +1,555 @@
+{
+  "correctness": "passed",
+  "iterations": 9,
+  "max_intermediate_rows": 2048,
+  "order": "alternating adapters per iteration",
+  "results": [
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 3390084,
+      "mode": 2,
+      "samples_ns": [
+        4298166,
+        4118875,
+        3769791,
+        3520167,
+        3390084,
+        3360416,
+        3145125,
+        3141250,
+        3194834
+      ],
+      "type": "BIGINT",
+      "width": 0
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 3464417,
+      "mode": 2,
+      "samples_ns": [
+        4350417,
+        3970875,
+        3806583,
+        3497708,
+        3464417,
+        3257792,
+        3258375,
+        3079625,
+        3130083
+      ],
+      "type": "BIGINT",
+      "width": 0
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 3370375,
+      "mode": 3,
+      "samples_ns": [
+        3399000,
+        3370375,
+        3284208,
+        3489583,
+        3397916,
+        3310834,
+        3383292,
+        3278375,
+        3306584
+      ],
+      "type": "BIGINT",
+      "width": 0
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 3360625,
+      "mode": 3,
+      "samples_ns": [
+        3346583,
+        3366750,
+        3290708,
+        3471708,
+        3408875,
+        3324541,
+        3360625,
+        3306833,
+        3466208
+      ],
+      "type": "BIGINT",
+      "width": 0
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 4822583,
+      "mode": 5,
+      "samples_ns": [
+        4822583,
+        4668000,
+        4922792,
+        4676542,
+        4807084,
+        4917083,
+        4697458,
+        4884375,
+        4892958
+      ],
+      "type": "BIGINT",
+      "width": 0
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 5478958,
+      "mode": 5,
+      "samples_ns": [
+        5477375,
+        5694417,
+        5442417,
+        5478958,
+        5424166,
+        5461250,
+        5502291,
+        5492916,
+        5507750
+      ],
+      "type": "BIGINT",
+      "width": 0
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 5141375,
+      "mode": 5,
+      "samples_ns": [
+        5097459,
+        5235875,
+        5141375,
+        5068000,
+        5109958,
+        5115333,
+        5202334,
+        5176417,
+        5212208
+      ],
+      "type": "BIGINT",
+      "width": 1
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 5414584,
+      "mode": 5,
+      "samples_ns": [
+        5475000,
+        5409375,
+        5386333,
+        5432667,
+        5345375,
+        5291541,
+        5414584,
+        5504416,
+        5441459
+      ],
+      "type": "BIGINT",
+      "width": 1
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 7395291,
+      "mode": 5,
+      "samples_ns": [
+        7346000,
+        7396958,
+        7518666,
+        7328750,
+        8329083,
+        9767833,
+        7340833,
+        7278875,
+        7395291
+      ],
+      "type": "BIGINT",
+      "width": 7
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 5542750,
+      "mode": 5,
+      "samples_ns": [
+        5555042,
+        5469500,
+        5438375,
+        5841583,
+        5594584,
+        5520209,
+        5542750,
+        5616125,
+        5452583
+      ],
+      "type": "BIGINT",
+      "width": 7
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 8384417,
+      "mode": 4,
+      "samples_ns": [
+        8409333,
+        8491834,
+        8380833,
+        8336167,
+        8320416,
+        8595542,
+        8384417,
+        8343709,
+        8480417
+      ],
+      "type": "BIGINT",
+      "width": 9
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 5476375,
+      "mode": 4,
+      "samples_ns": [
+        5443667,
+        5430500,
+        5493250,
+        5476375,
+        5395208,
+        5505250,
+        5581916,
+        5549292,
+        5409166
+      ],
+      "type": "BIGINT",
+      "width": 9
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 12225291,
+      "mode": 5,
+      "samples_ns": [
+        12297291,
+        12261916,
+        12113833,
+        12117791,
+        12066167,
+        12193458,
+        12225291,
+        12343792,
+        12251125
+      ],
+      "type": "BIGINT",
+      "width": 17
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 6283667,
+      "mode": 5,
+      "samples_ns": [
+        6271542,
+        6174500,
+        6411625,
+        6239875,
+        6228792,
+        6424541,
+        6283667,
+        6313709,
+        6395916
+      ],
+      "type": "BIGINT",
+      "width": 17
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 19093750,
+      "mode": 4,
+      "samples_ns": [
+        19093750,
+        18847333,
+        19409000,
+        19110250,
+        18987666,
+        18901667,
+        19361500,
+        19131291,
+        19072417
+      ],
+      "type": "BIGINT",
+      "width": 31
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 6547625,
+      "mode": 4,
+      "samples_ns": [
+        6490375,
+        6626708,
+        6593542,
+        6547625,
+        6594500,
+        6544959,
+        6622917,
+        6492833,
+        6508084
+      ],
+      "type": "BIGINT",
+      "width": 31
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 34137834,
+      "mode": 5,
+      "samples_ns": [
+        34098917,
+        34168042,
+        34457917,
+        34006750,
+        34027625,
+        34359000,
+        33815959,
+        34423000,
+        34137834
+      ],
+      "type": "BIGINT",
+      "width": 63
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 5622291,
+      "mode": 5,
+      "samples_ns": [
+        5514500,
+        5651916,
+        5622291,
+        5576833,
+        5610292,
+        5514000,
+        5718500,
+        5687125,
+        5678334
+      ],
+      "type": "BIGINT",
+      "width": 63
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-scalar"
+        ]
+      ],
+      "median_ns": 65400500,
+      "mode": 5,
+      "samples_ns": [
+        69609375,
+        65113458,
+        65273542,
+        65865458,
+        65400500,
+        65231834,
+        65323667,
+        65787208,
+        65484084
+      ],
+      "type": "HUGEINT",
+      "width": 127
+    },
+    {
+      "adapters": [
+        [
+          "segment-decoder",
+          "duckdb-bitpacking-word"
+        ]
+      ],
+      "median_ns": 6117167,
+      "mode": 5,
+      "samples_ns": [
+        6040375,
+        6117167,
+        6172375,
+        6052167,
+        6135000,
+        6015709,
+        6183834,
+        6129750,
+        6112375
+      ],
+      "type": "HUGEINT",
+      "width": 127
+    }
+  ],
+  "rows": 500000,
+  "segment_rows": 2048,
+  "selection_budget": {
+    "comparisons": [
+      {
+        "mode": 2,
+        "type": "BIGINT",
+        "width": 0,
+        "within_budget": true,
+        "word_to_scalar_median": 1.0219265953292014
+      },
+      {
+        "mode": 3,
+        "type": "BIGINT",
+        "width": 0,
+        "within_budget": true,
+        "word_to_scalar_median": 0.9971071468308422
+      },
+      {
+        "mode": 5,
+        "type": "BIGINT",
+        "width": 0,
+        "within_budget": true,
+        "word_to_scalar_median": 1.136104448591139
+      },
+      {
+        "mode": 5,
+        "type": "BIGINT",
+        "width": 1,
+        "within_budget": true,
+        "word_to_scalar_median": 1.053139286669422
+      },
+      {
+        "mode": 5,
+        "type": "BIGINT",
+        "width": 7,
+        "within_budget": true,
+        "word_to_scalar_median": 0.7494972138351284
+      },
+      {
+        "mode": 4,
+        "type": "BIGINT",
+        "width": 9,
+        "within_budget": true,
+        "word_to_scalar_median": 0.6531610963529128
+      },
+      {
+        "mode": 5,
+        "type": "BIGINT",
+        "width": 17,
+        "within_budget": true,
+        "word_to_scalar_median": 0.5139891557591554
+      },
+      {
+        "mode": 4,
+        "type": "BIGINT",
+        "width": 31,
+        "within_budget": true,
+        "word_to_scalar_median": 0.34291980360065466
+      },
+      {
+        "mode": 5,
+        "type": "BIGINT",
+        "width": 63,
+        "within_budget": true,
+        "word_to_scalar_median": 0.16469384085703856
+      },
+      {
+        "mode": 5,
+        "type": "HUGEINT",
+        "width": 127,
+        "within_budget": true,
+        "word_to_scalar_median": 0.09353394851721317
+      }
+    ],
+    "max_word_to_scalar_median": 1.25,
+    "passed": true
+  },
+  "suite": "compression",
+  "warmups": 3,
+  "wire_codec": 6,
+  "recorded_at": "2026-09-09T13:26:58.270665+00:00",
+  "source_sha256": "836172181523e8c26d29a6b8db03113d477adfc7d3158c965f8f883ca251ca53",
+  "binary_sha256": "93b457d864fffa56c991b161088d9cbb581acefc6b0e68c12faf5b0770d54659",
+  "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+  "scope": "In-memory DuckDB bitpacking segments; checked registry dispatch, allocation, physical type checks and full-value correctness included. No file I/O or DuckDB performance comparison."
+}

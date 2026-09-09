@@ -1,0 +1,281 @@
+mod constant;
+
+use super::{
+    Blocks,
+    binary::{Reader, corrupt},
+    columns,
+};
+use crate::{
+    catalog::{CatalogMut, ColumnDefinition, TableDefinition, TableName},
+    common::{DataType, Error, Result, Value},
+    storage::table::Snapshot,
+};
+
+pub(super) fn load(
+    blocks: &Blocks,
+    decoders: &crate::storage::compression::DecoderRegistry,
+    types: std::sync::Arc<crate::common::type_registry::TypeRegistry>,
+) -> Result<Snapshot> {
+    let mut snapshot = Snapshot::new(types);
+    if blocks.root == u64::MAX {
+        return Ok(snapshot);
+    }
+    let mut reader = blocks.metadata((blocks.root, 0))?;
+    reader.field(100)?;
+    for _ in 0..reader.length()? {
+        reader.field(99)?;
+        let kind = reader.unsigned()?;
+        reader.field(100)?;
+        if !reader.boolean()? {
+            return Err(corrupt("null catalog entry"));
+        }
+        let schema = create_base(&mut reader, kind)?;
+        match kind {
+            2 => {
+                snapshot.create_schema(&schema, schema.eq_ignore_ascii_case("main"))?;
+                reader.end()?;
+                reader.end()?;
+            }
+            1 => {
+                let definition = table_definition(&mut reader, schema)?;
+                reader.field(101)?;
+                let pointer = reader.pointer()?;
+                reader.field(102)?;
+                let total = reader.length()?;
+                if reader.optional(103)? {
+                    for _ in 0..reader.length()? {
+                        block_pointer(&mut reader)?;
+                    }
+                }
+                if reader.optional(104)? {
+                    indexes(&mut reader)?;
+                }
+                if reader.optional(105)? {
+                    reader.unsigned()?;
+                }
+                reader.end()?;
+                let rows = columns::read_table(blocks, decoders, pointer, &definition, total)?;
+                let name = definition.name.clone();
+                snapshot.create_table(definition, false)?;
+                snapshot.restore_rows(
+                    &name,
+                    rows,
+                    total as u64,
+                    &crate::parallel::QueryContext::background(),
+                )?;
+            }
+            _ => {
+                return Err(Error::Unsupported(format!(
+                    "DuckDB catalog entry type {kind}"
+                )));
+            }
+        }
+    }
+    reader.end()?;
+    Ok(snapshot)
+}
+
+pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
+    let name = if reader.optional(100)? {
+        reader.string()?
+    } else {
+        return Err(corrupt("column without a name"));
+    };
+    reader.field(101)?;
+    let data_type = logical_type(reader)?;
+    let default = if reader.optional(102)? && reader.boolean()? {
+        constant::read(reader, 0)?.cast(&data_type)?
+    } else {
+        Value::Null
+    };
+    reader.field(103)?;
+    if reader.unsigned()? != 0 {
+        return Err(Error::Unsupported("generated DuckDB column".into()));
+    }
+    reader.field(104)?;
+    reader.unsigned()?;
+    reader.end()?;
+    Ok(ColumnDefinition {
+        default,
+        ..ColumnDefinition::new(name, data_type)
+    })
+}
+
+pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
+    reader.field(100)?;
+    let data_type = match reader.unsigned()? {
+        1 => DataType::Null,
+        10 => DataType::Boolean,
+        11 => DataType::TinyInt,
+        12 => DataType::SmallInt,
+        13 => DataType::Integer,
+        14 => DataType::BigInt,
+        15 => DataType::Date,
+        22 => DataType::Float,
+        23 => DataType::Double,
+        25 => DataType::Varchar,
+        50 => DataType::HugeInt,
+        id => return Err(Error::Unsupported(format!("DuckDB logical type {id}"))),
+    };
+    reader.end()?;
+    Ok(data_type)
+}
+
+pub(super) fn constraints(reader: &mut Reader, table: &mut TableDefinition) -> Result<()> {
+    for _ in 0..reader.length()? {
+        if !reader.boolean()? {
+            return Err(corrupt("null constraint"));
+        }
+        reader.field(100)?;
+        match reader.unsigned()? {
+            1 => {
+                reader.field(200)?;
+                let index = reader.length()?;
+                table
+                    .columns
+                    .get_mut(index)
+                    .ok_or_else(|| corrupt("constraint column outside table"))?
+                    .nullable = false;
+            }
+            3 => {
+                let primary = reader.optional(200)? && reader.boolean()?;
+                reader.field(201)?;
+                let index = reader.unsigned()?;
+                let mut key = Vec::new();
+                if reader.optional(202)? {
+                    for _ in 0..reader.length()? {
+                        let name = reader.string()?;
+                        key.push(
+                            table
+                                .columns
+                                .iter()
+                                .position(|c| c.name.eq_ignore_ascii_case(&name))
+                                .ok_or_else(|| corrupt("unknown constraint column"))?,
+                        );
+                    }
+                }
+                if key.is_empty() {
+                    key.push(
+                        usize::try_from(index).map_err(|_| corrupt("constraint index overflow"))?,
+                    );
+                }
+                for &index in &key {
+                    let column = table
+                        .columns
+                        .get_mut(index)
+                        .ok_or_else(|| corrupt("constraint outside table"))?;
+                    if primary {
+                        column.nullable = false;
+                    }
+                }
+                table.unique_keys.push(crate::catalog::UniqueKey {
+                    columns: key,
+                    primary,
+                });
+            }
+            kind => return Err(Error::Unsupported(format!("DuckDB constraint type {kind}"))),
+        }
+        reader.end()?;
+    }
+    Ok(())
+}
+
+pub(super) fn block_pointer(reader: &mut Reader) -> Result<(i64, usize)> {
+    reader.field(100)?;
+    let id = reader.signed()?;
+    let offset = reader.optional_unsigned(101, 0)?;
+    reader.end()?;
+    Ok((
+        id,
+        usize::try_from(offset).map_err(|_| corrupt("block offset overflow"))?,
+    ))
+}
+
+fn indexes(reader: &mut Reader) -> Result<()> {
+    for _ in 0..reader.length()? {
+        if reader.optional(100)? {
+            reader.string()?;
+        }
+        reader.optional_unsigned(101, 0)?;
+        if reader.optional(102)? {
+            for _ in 0..reader.length()? {
+                reader.optional_unsigned(100, 0)?;
+                if reader.optional(101)? {
+                    for _ in 0..reader.length()? {
+                        reader.unsigned()?;
+                    }
+                }
+                if reader.optional(102)? {
+                    for _ in 0..reader.length()? {
+                        block_pointer(reader)?;
+                    }
+                }
+                for field in [103, 104, 105] {
+                    if reader.optional(field)? {
+                        for _ in 0..reader.length()? {
+                            reader.unsigned()?;
+                        }
+                    }
+                }
+                reader.end()?;
+            }
+        }
+        reader.end()?;
+    }
+    Ok(())
+}
+
+pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<String> {
+    reader.field(100)?;
+    if reader.unsigned()? != kind {
+        return Err(corrupt("catalog type mismatch"));
+    }
+    if reader.optional(101)? {
+        reader.string()?;
+    }
+    let schema = if reader.optional(102)? {
+        reader.string()?
+    } else {
+        "main".into()
+    };
+    for field in [103, 104] {
+        if reader.optional(field)? && reader.boolean()? {
+            return Err(Error::Unsupported(
+                "temporary or internal catalog entry".into(),
+            ));
+        }
+    }
+    reader.field(105)?;
+    reader.unsigned()?;
+    if reader.optional(106)? && !reader.string()?.is_empty() {
+        return Err(Error::Unsupported(
+            "persisted DuckDB catalog SQL text".into(),
+        ));
+    }
+    Ok(schema)
+}
+
+pub(super) fn table_definition(reader: &mut Reader, schema: String) -> Result<TableDefinition> {
+    let name = if reader.optional(200)? {
+        reader.string()?
+    } else {
+        return Err(corrupt("table without a name"));
+    };
+    reader.field(201)?;
+    reader.field(100)?;
+    let mut definitions = Vec::new();
+    for _ in 0..reader.length()? {
+        definitions.push(column(reader)?);
+    }
+    reader.end()?;
+    let mut definition = TableDefinition {
+        name: TableName::new(schema, name),
+        columns: definitions,
+        unique_keys: Vec::new(),
+    };
+    if reader.optional(202)? {
+        constraints(reader, &mut definition)?;
+    }
+    reader.end()?;
+    Ok(definition)
+}

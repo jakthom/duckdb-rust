@@ -1,0 +1,1077 @@
+{
+  "batch_size": 256,
+  "correctness": "passed",
+  "iterations": 5,
+  "max_intermediate_rows": 10000000,
+  "results": [
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 6365708,
+          "first_batch_ns": 45208,
+          "rows": 50000,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6288375,
+          "first_batch_ns": 39833,
+          "rows": 50000,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6369709,
+          "first_batch_ns": 42834,
+          "rows": 50000,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6250250,
+          "first_batch_ns": 40667,
+          "rows": 50000,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6277458,
+          "first_batch_ns": 32667,
+          "rows": 50000,
+          "sum": 1249975000
+        }
+      ],
+      "sql": "SELECT i FROM t",
+      "workload": "scan"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 6638417,
+          "first_batch_ns": 52875,
+          "rows": 2942,
+          "sum": 73545587
+        },
+        {
+          "elapsed_ns": 6596000,
+          "first_batch_ns": 46375,
+          "rows": 2942,
+          "sum": 73545587
+        },
+        {
+          "elapsed_ns": 6730292,
+          "first_batch_ns": 41584,
+          "rows": 2942,
+          "sum": 73545587
+        },
+        {
+          "elapsed_ns": 6634292,
+          "first_batch_ns": 50125,
+          "rows": 2942,
+          "sum": 73545587
+        },
+        {
+          "elapsed_ns": 6752083,
+          "first_batch_ns": 41792,
+          "rows": 2942,
+          "sum": 73545587
+        }
+      ],
+      "sql": "SELECT i FROM t WHERE i%17=0",
+      "workload": "filter"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 6078792,
+          "first_batch_ns": 6077500,
+          "rows": 1,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6106959,
+          "first_batch_ns": 6105875,
+          "rows": 1,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6201750,
+          "first_batch_ns": 6198834,
+          "rows": 1,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6151834,
+          "first_batch_ns": 6146334,
+          "rows": 1,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6768667,
+          "first_batch_ns": 6763958,
+          "rows": 1,
+          "sum": 1249975000
+        }
+      ],
+      "sql": "SELECT sum(i) FROM t",
+      "workload": "aggregate"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 7958,
+          "first_batch_ns": 7208,
+          "rows": 1,
+          "sum": 25000
+        },
+        {
+          "elapsed_ns": 6875,
+          "first_batch_ns": 6166,
+          "rows": 1,
+          "sum": 25000
+        },
+        {
+          "elapsed_ns": 13500,
+          "first_batch_ns": 12709,
+          "rows": 1,
+          "sum": 25000
+        },
+        {
+          "elapsed_ns": 6375,
+          "first_batch_ns": 5708,
+          "rows": 1,
+          "sum": 25000
+        },
+        {
+          "elapsed_ns": 6083,
+          "first_batch_ns": 5500,
+          "rows": 1,
+          "sum": 25000
+        }
+      ],
+      "sql": "SELECT i FROM t WHERE i=25000",
+      "workload": "point"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 35167,
+          "first_batch_ns": 28458,
+          "rows": 256,
+          "sum": 32640
+        },
+        {
+          "elapsed_ns": 34500,
+          "first_batch_ns": 27875,
+          "rows": 256,
+          "sum": 32640
+        },
+        {
+          "elapsed_ns": 34625,
+          "first_batch_ns": 28000,
+          "rows": 256,
+          "sum": 32640
+        },
+        {
+          "elapsed_ns": 34458,
+          "first_batch_ns": 27875,
+          "rows": 256,
+          "sum": 32640
+        },
+        {
+          "elapsed_ns": 34458,
+          "first_batch_ns": 27875,
+          "rows": 256,
+          "sum": 32640
+        }
+      ],
+      "sql": "SELECT i FROM t",
+      "workload": "first_batch"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "materializing"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 7572166,
+          "first_batch_ns": 5418958,
+          "rows": 50000,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 7609417,
+          "first_batch_ns": 5484667,
+          "rows": 50000,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 7594042,
+          "first_batch_ns": 5475292,
+          "rows": 50000,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 7377792,
+          "first_batch_ns": 5323042,
+          "rows": 50000,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 8126708,
+          "first_batch_ns": 5948250,
+          "rows": 50000,
+          "sum": 1249975000
+        }
+      ],
+      "sql": "SELECT i FROM t",
+      "workload": "scan"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "materializing"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 6665750,
+          "first_batch_ns": 6498750,
+          "rows": 2942,
+          "sum": 73545587
+        },
+        {
+          "elapsed_ns": 7035166,
+          "first_batch_ns": 6906333,
+          "rows": 2942,
+          "sum": 73545587
+        },
+        {
+          "elapsed_ns": 6876709,
+          "first_batch_ns": 6752500,
+          "rows": 2942,
+          "sum": 73545587
+        },
+        {
+          "elapsed_ns": 6466084,
+          "first_batch_ns": 6345667,
+          "rows": 2942,
+          "sum": 73545587
+        },
+        {
+          "elapsed_ns": 6809041,
+          "first_batch_ns": 6677791,
+          "rows": 2942,
+          "sum": 73545587
+        }
+      ],
+      "sql": "SELECT i FROM t WHERE i%17=0",
+      "workload": "filter"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "materializing"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 5967916,
+          "first_batch_ns": 5965125,
+          "rows": 1,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 5848625,
+          "first_batch_ns": 5847875,
+          "rows": 1,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6186709,
+          "first_batch_ns": 6183875,
+          "rows": 1,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6168416,
+          "first_batch_ns": 6167375,
+          "rows": 1,
+          "sum": 1249975000
+        },
+        {
+          "elapsed_ns": 6111750,
+          "first_batch_ns": 6110833,
+          "rows": 1,
+          "sum": 1249975000
+        }
+      ],
+      "sql": "SELECT sum(i) FROM t",
+      "workload": "aggregate"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "materializing"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 7708,
+          "first_batch_ns": 7083,
+          "rows": 1,
+          "sum": 25000
+        },
+        {
+          "elapsed_ns": 10958,
+          "first_batch_ns": 10333,
+          "rows": 1,
+          "sum": 25000
+        },
+        {
+          "elapsed_ns": 6667,
+          "first_batch_ns": 6125,
+          "rows": 1,
+          "sum": 25000
+        },
+        {
+          "elapsed_ns": 6334,
+          "first_batch_ns": 5750,
+          "rows": 1,
+          "sum": 25000
+        },
+        {
+          "elapsed_ns": 6334,
+          "first_batch_ns": 5792,
+          "rows": 1,
+          "sum": 25000
+        }
+      ],
+      "sql": "SELECT i FROM t WHERE i=25000",
+      "workload": "point"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "remove-true-filters"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "materializing"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "samples": [
+        {
+          "elapsed_ns": 6379000,
+          "first_batch_ns": 5712208,
+          "rows": 256,
+          "sum": 32640
+        },
+        {
+          "elapsed_ns": 6181958,
+          "first_batch_ns": 5515875,
+          "rows": 256,
+          "sum": 32640
+        },
+        {
+          "elapsed_ns": 6162291,
+          "first_batch_ns": 5497291,
+          "rows": 256,
+          "sum": 32640
+        },
+        {
+          "elapsed_ns": 6070667,
+          "first_batch_ns": 5424167,
+          "rows": 256,
+          "sum": 32640
+        },
+        {
+          "elapsed_ns": 6037167,
+          "first_batch_ns": 5371792,
+          "rows": 256,
+          "sum": 32640
+        }
+      ],
+      "sql": "SELECT i FROM t",
+      "workload": "first_batch"
+    }
+  ],
+  "rows": 50000,
+  "suite": "execution",
+  "warmups": 1,
+  "recorded_at": "2026-09-08T23:30:59.124245+00:00",
+  "source_sha256": "25c6c9723cc786dfb74297929711af8c80c76fe781c85865f591937c9db88860",
+  "binary_sha256": "85885f6d5d3b2ed89cf34747c2563c15b052b2670f3fe046775f34986fa00c89",
+  "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+  "scope": "In-memory, prepared SQL with rebinding, serial execution, validation included; no DuckDB performance comparison."
+}

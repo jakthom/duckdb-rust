@@ -1,0 +1,100 @@
+{
+  "recorded_at": "2026-09-09T03:22:36.387296+00:00",
+  "max_ratio": 1.25,
+  "baseline": {
+    "report": "docs/operator-seam-baseline.json",
+    "report_sha256": "425447462a9416cdabbaef60b2340749595fa3ecc7b3ad353a5a4ab0d9ed2514",
+    "source_sha256": "ba174880ca9d055c97f5aadb395feeb8982a24c2df52bdcfff50ad2d0c21268d",
+    "binary_sha256": "d26f736f091b72884349e04b859cffbf709bdb10ee79e2f1428a33f0b2d4e926"
+  },
+  "current": {
+    "report": "docs/wal-seam-baseline.json",
+    "report_sha256": "efdc5157f888e7b16cdf7192c41d99ed7a0152bb2ee5c48daccd50d9cda289ea",
+    "source_sha256": "2dd8bb030ea19b56b441fdda0efa0a8c8b3a0a79de5c6fa4ef89b941815eb12b",
+    "binary_sha256": "7207284320eb1920e2f3975dec06ab9fcffa2dd76719e34ca87970b4aa6130cf"
+  },
+  "comparisons": [
+    {
+      "workload": "scan",
+      "executor": "pull",
+      "baseline_median_ns": 3473708,
+      "current_median_ns": 3598709,
+      "ratio": 1.035984889921663,
+      "passed": true
+    },
+    {
+      "workload": "filter",
+      "executor": "pull",
+      "baseline_median_ns": 5834125,
+      "current_median_ns": 6527042,
+      "ratio": 1.1187696526899922,
+      "passed": true
+    },
+    {
+      "workload": "aggregate",
+      "executor": "pull",
+      "baseline_median_ns": 6382125,
+      "current_median_ns": 6452083,
+      "ratio": 1.0109615527743503,
+      "passed": true
+    },
+    {
+      "workload": "point",
+      "executor": "pull",
+      "baseline_median_ns": 7125,
+      "current_median_ns": 6459,
+      "ratio": 0.9065263157894737,
+      "passed": true
+    },
+    {
+      "workload": "first_batch",
+      "executor": "pull",
+      "baseline_median_ns": 18292,
+      "current_median_ns": 17708,
+      "ratio": 0.968073474743057,
+      "passed": true
+    },
+    {
+      "workload": "scan",
+      "executor": "materializing",
+      "baseline_median_ns": 4525208,
+      "current_median_ns": 4774000,
+      "ratio": 1.0549791302410851,
+      "passed": true
+    },
+    {
+      "workload": "filter",
+      "executor": "materializing",
+      "baseline_median_ns": 5749959,
+      "current_median_ns": 6612333,
+      "ratio": 1.149979156373115,
+      "passed": true
+    },
+    {
+      "workload": "aggregate",
+      "executor": "materializing",
+      "baseline_median_ns": 6462625,
+      "current_median_ns": 6388416,
+      "ratio": 0.9885172046962342,
+      "passed": true
+    },
+    {
+      "workload": "point",
+      "executor": "materializing",
+      "baseline_median_ns": 6542,
+      "current_median_ns": 6875,
+      "ratio": 1.0509018648731274,
+      "passed": true
+    },
+    {
+      "workload": "first_batch",
+      "executor": "materializing",
+      "baseline_median_ns": 3050542,
+      "current_median_ns": 2937375,
+      "ratio": 0.9629026579538981,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "scope": "Per-workload median comparison of serial in-memory execution; five samples do not establish a statistical confidence interval or a broader workload acceptance result."
+}

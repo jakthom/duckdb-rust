@@ -1,0 +1,106 @@
+[package]
+name = "duckdb-rust"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "An experimental, composable database engine implemented in Rust"
+
+[lib]
+name = "duckdb_rust"
+
+[[bin]]
+name = "duckdb-rust"
+path = "tools/shell/main.rs"
+
+[[bin]]
+name = "sqllogictest"
+path = "test/runner/main.rs"
+
+[[bin]]
+name = "duckdb-rust-benchmark"
+path = "benchmark/main.rs"
+
+[[test]]
+name = "contracts"
+path = "test/contracts.rs"
+
+[[test]]
+name = "sql"
+path = "test/sql.rs"
+
+[[test]]
+name = "compatibility"
+path = "test/compatibility.rs"
+
+[[test]]
+name = "indexes"
+path = "test/component/indexes.rs"
+
+[[test]]
+name = "execution"
+path = "test/component/execution.rs"
+
+[[test]]
+name = "compression"
+path = "test/component/compression.rs"
+
+[[test]]
+name = "floating"
+path = "test/component/floating.rs"
+
+[[test]]
+name = "casts"
+path = "test/component/casts.rs"
+
+[[test]]
+name = "types"
+path = "test/component/types.rs"
+
+[[test]]
+name = "optimizer"
+path = "test/component/optimizer.rs"
+
+[[test]]
+name = "dates"
+path = "test/component/dates.rs"
+
+[[test]]
+name = "operators"
+path = "test/component/operators.rs"
+
+[[test]]
+name = "recovery"
+path = "test/component/recovery.rs"
+
+[[test]]
+name = "logging"
+path = "test/component/logging.rs"
+
+[[test]]
+name = "checkpointing"
+path = "test/component/checkpointing.rs"
+
+[[test]]
+name = "subqueries"
+path = "test/component/subqueries.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_json = { version = "1.0.150", features = ["arbitrary_precision"] }
+sqlparser = { version = "0.62.0", default-features = false, features = ["std"] }
+thiserror = "2.0.18"
+crc32fast = "1.5.0"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+flate2 = "1.1.9"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"

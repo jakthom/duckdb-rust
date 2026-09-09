@@ -1,0 +1,5 @@
+/target/
+*.ddb
+*.ddb.lock
+__pycache__/
+*.py[cod]

@@ -1,0 +1,1678 @@
+{
+  "batch_size": 256,
+  "correctness": "passed",
+  "iterations": 9,
+  "order": "alternating adapters each iteration",
+  "results": [
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-dynamic-programming"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-dynamic-programming",
+      "samples": [
+        {
+          "elapsed_ns": 17315625,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 16975458,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 17001708,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 16795750,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 17583583,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 17419125,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 17341166,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 17159959,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 16785417,
+          "input_rows": 50000,
+          "matched": 50000
+        }
+      ],
+      "workload": "exact_unicode"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-greedy",
+      "samples": [
+        {
+          "elapsed_ns": 1579500,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1564625,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1630083,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1573292,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1574875,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1564833,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1568917,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1582834,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1584500,
+          "input_rows": 50000,
+          "matched": 50000
+        }
+      ],
+      "workload": "exact_unicode"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-dynamic-programming"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-dynamic-programming",
+      "samples": [
+        {
+          "elapsed_ns": 13791083,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 13857375,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 13732583,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 13676375,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 13640417,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 14139084,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 13868250,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 13769625,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 13730333,
+          "input_rows": 50000,
+          "matched": 50000
+        }
+      ],
+      "workload": "unicode_wildcards"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-greedy",
+      "samples": [
+        {
+          "elapsed_ns": 2026792,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1871292,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1890208,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1899833,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1868709,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1923709,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1959250,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1895584,
+          "input_rows": 50000,
+          "matched": 50000
+        },
+        {
+          "elapsed_ns": 1906083,
+          "input_rows": 50000,
+          "matched": 50000
+        }
+      ],
+      "workload": "unicode_wildcards"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-dynamic-programming"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-dynamic-programming",
+      "samples": [
+        {
+          "elapsed_ns": 9463166,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 9512375,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 9433041,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 12679875,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 9580792,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 9416834,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 9467833,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 9515833,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 9330959,
+          "input_rows": 50000,
+          "matched": 0
+        }
+      ],
+      "workload": "early_mismatch"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-greedy",
+      "samples": [
+        {
+          "elapsed_ns": 757833,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 865041,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 752334,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 754583,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 757708,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 769792,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 777875,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 759500,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 757791,
+          "input_rows": 50000,
+          "matched": 0
+        }
+      ],
+      "workload": "early_mismatch"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-dynamic-programming"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-dynamic-programming",
+      "samples": [
+        {
+          "elapsed_ns": 76187084,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 76025333,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 76013458,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 75965208,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 76089417,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 76099917,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 76216208,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 76011417,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 79465041,
+          "input_rows": 50000,
+          "matched": 0
+        }
+      ],
+      "workload": "suffix_retries"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-greedy",
+      "samples": [
+        {
+          "elapsed_ns": 44959291,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 44998417,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 48601625,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 45439541,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 45095375,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 45266041,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 45550875,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 45494667,
+          "input_rows": 50000,
+          "matched": 0
+        },
+        {
+          "elapsed_ns": 45303000,
+          "input_rows": 50000,
+          "matched": 0
+        }
+      ],
+      "workload": "suffix_retries"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-dynamic-programming"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-dynamic-programming",
+      "samples": [
+        {
+          "elapsed_ns": 28247542,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 28647417,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 27756542,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 28271875,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 27830833,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 27841583,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 28113875,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 27846500,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 27908333,
+          "input_rows": 50000,
+          "matched": 45454
+        }
+      ],
+      "workload": "sql_like_filter"
+    },
+    {
+      "adapters": [
+        [
+          "transactions",
+          "optimistic-snapshot"
+        ],
+        [
+          "catalog",
+          "snapshot-catalog"
+        ],
+        [
+          "storage",
+          "snapshot-table"
+        ],
+        [
+          "indexes",
+          "hash-equality"
+        ],
+        [
+          "types",
+          "gregorian-date"
+        ],
+        [
+          "types",
+          "primitive-types"
+        ],
+        [
+          "durability",
+          "memory"
+        ],
+        [
+          "casts",
+          "gregorian-date-cast"
+        ],
+        [
+          "casts",
+          "primitive-cast"
+        ],
+        [
+          "casts",
+          "structural-cast"
+        ],
+        [
+          "operators",
+          "checked-numeric-arithmetic"
+        ],
+        [
+          "operators",
+          "gregorian-date-arithmetic"
+        ],
+        [
+          "operators",
+          "like-greedy"
+        ],
+        [
+          "operators",
+          "string-concatenate"
+        ],
+        [
+          "physical_planner",
+          "native-physical"
+        ],
+        [
+          "scan_filter",
+          "fused-scan-filter"
+        ],
+        [
+          "join_algorithm",
+          "hash"
+        ],
+        [
+          "join_algorithm",
+          "nested-loop"
+        ],
+        [
+          "optimizer",
+          "pipeline"
+        ],
+        [
+          "optimizer_pass",
+          "simplify-expressions"
+        ],
+        [
+          "optimizer_pass",
+          "key-lookup"
+        ],
+        [
+          "parser",
+          "sqlparser-duckdb"
+        ],
+        [
+          "binder",
+          "sql-binder"
+        ],
+        [
+          "executor",
+          "pull"
+        ],
+        [
+          "expressions",
+          "scalar-expression"
+        ],
+        [
+          "subqueries",
+          "streaming-subqueries"
+        ],
+        [
+          "scheduler",
+          "inline"
+        ]
+      ],
+      "operator_adapter": "like-greedy",
+      "samples": [
+        {
+          "elapsed_ns": 12878541,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 12603000,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 12626916,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 12601000,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 12438042,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 12526000,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 12647125,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 12668000,
+          "input_rows": 50000,
+          "matched": 45454
+        },
+        {
+          "elapsed_ns": 12330375,
+          "input_rows": 50000,
+          "matched": 45454
+        }
+      ],
+      "workload": "sql_like_filter"
+    }
+  ],
+  "rows": 50000,
+  "selection_budget": {
+    "comparisons": [
+      {
+        "greedy_over_dynamic_median": 0.09177615167961649,
+        "passed": true,
+        "workload": "exact_unicode"
+      },
+      {
+        "greedy_over_dynamic_median": 0.13797274798696407,
+        "passed": true,
+        "workload": "unicode_wildcards"
+      },
+      {
+        "greedy_over_dynamic_median": 0.08004292006417942,
+        "passed": true,
+        "workload": "early_mismatch"
+      },
+      {
+        "greedy_over_dynamic_median": 0.5953916035392938,
+        "passed": true,
+        "workload": "suffix_retries"
+      },
+      {
+        "greedy_over_dynamic_median": 0.45158555331843003,
+        "passed": true,
+        "workload": "sql_like_filter"
+      }
+    ],
+    "max_ratio": 1.25,
+    "passed": true
+  },
+  "suite": "operators",
+  "warmups": 3,
+  "recorded_at": "2026-09-09T13:27:11.791373+00:00",
+  "source_sha256": "836172181523e8c26d29a6b8db03113d477adfc7d3158c965f8f883ca251ca53",
+  "binary_sha256": "93b457d864fffa56c991b161088d9cbb581acefc6b0e68c12faf5b0770d54659",
+  "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+  "scope": "Checked bound LIKE operations and prepared SQL filtering; inputs and database setup precede timing, validation and correctness checks are included. No DuckDB performance comparison."
+}
