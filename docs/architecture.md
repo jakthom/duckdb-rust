@@ -22,12 +22,12 @@ This describes the implementation, separately from the accepted [rewrite princip
 | SQL frontend | `Parser`; SQL to syntax tree | DuckDB dialect through the Rust `sqlparser` crate |
 | Binding | `Binder`; syntax and transaction catalog to typed statements | SQL binder only; alternative frontends can submit typed statements |
 | Logical contract | `BoundStatement`, `LogicalPlan`, `BoundExpr`; schema, ordinals, types and operation semantics | Validation before execution and after optimization; malformed plan tests |
-| Optimization | `Optimizer`; owned `ValidatedPlan` transformation | Identity and configurable pass pipeline; expression simplification and index selection, with validation after each pass; no cost model |
+| Optimization | `Optimizer`; owned `ValidatedPlan` transformation | Identity and configurable pass pipeline; expression simplification, index selection and conservative EXISTS decorrelation, with validation after each pass; no cost model |
 | Physical planning | `PhysicalPlanner` / `PhysicalOperator` | Native compiler only; immutable shared plans open independent `BatchStream` state; delivery modes are visible in EXPLAIN |
-| Join algorithms | `JoinAlgorithm`; supported predicates and SQL join semantics | Hash and nested-loop algorithms run the same tests |
+| Join algorithms | `JoinAlgorithm`; supported predicates, independent cursors and SQL join semantics | Hash and nested-loop algorithms share contracts; hash semi/anti joins stream probes over a bounded build |
 | Casts | `CastFunction` / `CastRegistry` / `BoundCast`; exact source/target/mode selection, retained adapters, checked physical values and errors | Standard-library and checked-digit integer parsers share conformance and SQL/storage paths |
 | Scalar operators | `OperatorRegistry` / `OperatorFunction` / `BoundOperator`; overload selection, explicit casts, retained effects and checked results | Numeric/date arithmetic and concatenation; dynamic-programming and greedy LIKE implementations share contracts and SQL callers |
-| Expressions | `ExpressionEvaluator` / `EvaluationContext`; typed values, explicit outer rows and relational dependencies, NULL/error and evaluation behavior | Scalar evaluator only; resource-only contexts reject nested query execution |
+| Expressions | `ExpressionEvaluator` / `EvaluationContext`; typed scalar and batch results, explicit outer rows and relational dependencies, NULL/error and evaluation behavior | Scalar and batched evaluators share SQL, replacement, overflow, lazy-branch and effect tests; resource-only contexts reject nested query execution |
 | Subquery execution | `SubqueryExecutor`; scalar cardinality, existence and typed membership over fresh physical streams | Streaming and materializing adapters share SQL, scope, type, mutation, cancellation and independent file checks |
 | Functions | `ScalarFunction`, `AggregateFunction`, aggregate states; registration and signatures | Ordinary registration used by built-ins and test function; no binary extension loader |
 | Execution | `Executor` / `ResultSink`; demand, owned chunks, early stop and completion | Pull and eager materialization adapters run the same complete-result contracts |
@@ -45,6 +45,26 @@ A declared interface alone is not a proven seam. The table records implementatio
 Connections require exclusive mutable access for execution. Batch callbacks run synchronously within that borrow and may retain their owned chunks; the statement snapshot stays alive for the complete call. Successful early stop restores an explicit transaction or finishes the implicit read transaction. Consumer errors and cancellation use the ordinary aborted-transaction rules. A failed batch query may already have delivered a prefix, which is not a successful result. Multiple connections share a database; query results own their data and outlive both connection and database. Vectors keep selected values alive through shared ownership and validate cardinality and selected positions. Vector constructors and table mutations require physically typed values; they never perform implicit SQL conversions.
 
 Each transaction starts with a copy-on-write snapshot. Row IDs are stable within a table's transaction history, are not reused after deletion, and positional fetch preserves requested order, duplicates and missing positions. IDs are not durable external identities across file reopen. Key lookup uses only an advertised index and returns ascending matching IDs and rows. An unavailable key returns `Unsupported` without scanning. Index factories are selected when constructing the transaction bundle, and table/index replacements are published atomically. Reopen rebuilds runtime indexes from decoded rows. These access methods do not imply selective file I/O.
+
+Published snapshot tables retain immutable columns and sorted row identities.
+Bulk scans return owning contiguous views; single-row demand constructs just the
+requested row. A private writer materializes rows once, applies changes, validates
+constraints and seals columns before publication. The two representations replace
+each other; there is no duplicate row/column cache or cached query result. The
+snapshot format still describes logical rows independently of this layout. This
+removes repeated transposition during scans, but incremental column mutation and
+measurement of write, memory and cold-read costs remain open.
+
+Vector construction validates physical values and establishes a conservative
+proof when every value is non-NULL. Slices and selections preserve that proof;
+adapters cannot assert it unchecked. A flat vector retains its original allocation
+through shared ownership. Scalar operators and type comparisons have checked batch
+interfaces with scalar defaults. The default batched expression evaluator uses
+retained adapters only for trees proved total and without effects. Operators must
+explicitly supply the proof for their signature and known arguments. Lazy branches,
+casts, relational dependencies and expressions without a proof preserve scalar
+evaluation order. Batch boundaries check schema, cardinality, logical payloads,
+NULL propagation and cancellation, including values a filter would reject.
 
 The optimizer obtains catalog and access capabilities from the same statement snapshot. Its independently selected passes own plan transformations; built-in traversal consumes inputs without copying subtrees. Equality lookup currently accepts conjunctions of column/constant comparisons and retains the complete predicate. It declines expressions whose skipped evaluation could suppress errors or effects. SQL UPDATE and DELETE still scan, and indexes rebuild after every table mutation. Range seeks, expression indexes, index DDL, incremental maintenance, and costing remain open.
 
@@ -287,9 +307,20 @@ that streaming consumption can satisfy. Neither adapter commits data. Invalid
 logical payloads and late cancellation remain errors at the expression boundary;
 EXISTS must return a non-NULL Boolean.
 
-This is dependent execution, without decorrelation, correlated-key result reuse,
-membership hash builds, spill or parallel subquery scheduling. Work can still
-repeat scans per outer row. General LATERAL references, ANY/ALL and row-valued
+`DecorrelateExists` can replace a direct EXISTS/NOT EXISTS filter with a semi/anti
+join. Both relations must be plain table scans; the inner predicate must equate
+an inner column to a pure, total expression of the immediately enclosing row.
+The proof comes from `BoundExpr` and the retained operator adapters. Casts,
+potential overflow, effects, deeper captures, local residuals and inner
+LIMIT/OFFSET/DISTINCT retain dependent execution. Optional `TableStorage::row_count`
+metadata must establish that both visible inputs fit the row budget; unavailable
+metadata and single-row outer inputs also retain dependent execution. Metadata
+reads cannot scan rows and must include the transaction's own changes. Each
+prepared execution rebinds against its current snapshot.
+
+Other shapes still repeat dependent scans per outer row. There is no correlated
+result cache, IN membership hash build, spill or parallel subquery scheduling.
+General LATERAL references, ANY/ALL and row-valued
 comparisons, correlated LIMIT/range arguments, compound grouped captures and
 aggregates that bind entirely to an outer query scope remain unfinished. The
 latter are rejected explicitly rather than evaluated in the wrong scope. Broader
@@ -298,13 +329,21 @@ conformance work. The local caches are not a global memory budget.
 
 ## Execution limits
 
+`QueryResult::rows` owns a fully materialized `RowCollection`, with row-major
+values in one contiguous allocation. Indexing and borrowed iteration return row
+slices; they allocate no row vectors and perform no query work. Consuming
+iteration transfers owned row vectors, and `into_rows` explicitly collects them
+when a caller needs `Vec<Row>`. Zero-column rows retain their cardinality. This
+keeps result ownership and complete materialization without allocating a separate
+vector for every returned row. Batch streaming remains a separate API.
+
 Physical operators open independent local streams. Each next call specifies a maximum batch size, and the boundary validates cardinality and schema. Empty batches are forbidden; exhaustion and errors are permanent. Scans, values, range, filters, projections, limits, distinct and unions advance on demand. Limits reduce upstream demand and avoid opening unused inputs. Filter selection retains immutable vector storage. Pure column projections select owned vector views directly, preserving cardinality even for zero output columns; flat and dictionary payloads remain shared. Identity projections forward chunks through the same checked stream boundaries. Computed projections use the selected expression evaluator. Stream setup validates every declared type and retains only the additional logical validators requested by the type's capability.
 
 `NativePhysicalPlanner::with_scan_filters` selects `ScanFilterStrategy::Fused`
 (the default) or `Separate`, recorded in adapter metadata. Fusion applies only
 to a filter directly above a logical table scan. `TableScan` delivers an owned
 `ScanBatch` of stable row identities and values. Single-row requests retain a
-row representation; bulk requests write columns directly from stored rows.
+row representation; bulk requests share views of the published columns.
 Conversions occur when execution requests columns or collection requests rows.
 Fusion validates input schema and
 logical payloads before evaluating predicates; physical types are checked by
@@ -322,7 +361,24 @@ Failed states are discarded, and each adapter must preserve NULLs, overflow and
 cancellation. These changes address measured C++ regressions; acceptance still
 depends on the recorded comparisons.
 
-Aggregation consumes batches into group states. Sorting and joins still collect their inputs, and blocking operators expose that delivery mode in EXPLAIN. No spilling is implemented. The default pull executor drives chunks into an explicit result sink; the eager alternative collects before delivery. Ordinary query results use a collecting sink, while the batch API can consume more total rows than the intermediate row limit. A sink can finish early, releasing the cursor and retained state. The eager alternative can discover later errors before its first delivery.
+`JoinAlgorithm::open` accepts a validated `JoinPlan` and opens an independent
+cursor. Its default collects both inputs and invokes the materialized algorithm.
+`HashJoin` accepts equality between pure, total expressions local to each input.
+For semi/anti joins it builds canonical right-side keys once and probes left
+batches through the selected expression evaluator. It retains duplicates and
+order on the left, excludes NULL equality matches, and does not open the right
+input until the first left batch exists. Build cardinality is checked; owned
+selected chunks survive cursor destruction. The retained equality type owns key
+semantics. Other hash joins and the nested-loop adapter retain explicit
+materialization. Join build work remains visible as blocking delivery in EXPLAIN.
+
+Aggregation consumes batches into group states, and sorting collects its input.
+No spilling is implemented. The default pull executor drives chunks into an
+explicit result sink; the eager alternative collects before delivery. Ordinary
+query results use a collecting sink, while the batch API can consume more total
+rows than the intermediate row limit. A sink can finish early, releasing the
+cursor and retained state. The eager alternative can discover later errors before
+its first delivery.
 
 Row limits cover batches, explicit collections, groups, and distinct sets; they are not a global memory budget. Index construction and table access check cancellation cooperatively. The configured batch size is a default demand, which operators can reduce. These paths still evaluate scalar Value objects and perform representation copies; they do not establish vector-kernel efficiency. Strings, parser work, checkpoint encoding and allocation are not charged to a shared byte budget. Cancellation is cooperative at execution checks, not guaranteed to interrupt parsing, filesystem calls or durable publication.
 
@@ -437,6 +493,20 @@ This replaces the old separate negation/arithmetic/LIKE execution branches.
 `DataType` describes logical identity. Extension metadata contains a registered family name and integer, string or child-type parameters. `Value::Extension` holds an owning shared payload and its complete declared type. Metadata and payloads are immutable through shared references; validation occurs when externally supplied values enter a bound plan, table, conversion or operator result. Both use shared allocations so the 64-bit primitive `Value` remains 32 bytes and `DataType` stays at most 16 bytes. A regression test enforces those representation budgets.
 
 A `TypeRegistry` selects an ordinary `TypeAdapter` for each family, including all primitive families. `BoundType` retains the adapter and complete metadata. Its contract checks physical identity, logical validity where required, cancellation, total comparison and canonical equality keys. Adapters declare whether physical representation establishes validity or a logical validator is required. Canonical components are framed, including NULLs, so composite keys are unambiguous. Equal values must have identical keys; key bytes need not sort in SQL order. Resource/error results remain errors. Metadata is limited to depth 64, 4,096 nodes and 16 MiB; individual returned keys and extension payloads are also bounded to 16 MiB. These checks do not constitute global allocation accounting.
+
+`TypeAdapter::write_key` appends through a bounded `KeyWriter` into its caller's
+reusable allocation. Adapters cannot inspect or modify earlier components.
+`BoundType::append_key` owns NULL framing and lengths, and rolls back the complete
+component on errors or cancellation. A failed write remains failed even if an
+adapter discards the error. Primitive, DATE and both ASCII implementations use
+this same contract. Join probes reuse a scratch key without allocating per row.
+
+`BoundType::for_each_key` validates a complete column before invoking its
+consumer, then visits canonical keys in row order with NULLs represented
+explicitly. The consumer borrows each key only for that callback and copies keys
+it retains. Vector construction supplies the physical-validity proof, avoiding
+repeated scalar validation during a join probe. Logical validation, selected
+type semantics, resource errors and cancellation remain part of the boundary.
 
 Snapshot transactions own the selected type registry. Custom transaction bundles must supply their registry, and the database builder rejects an independently supplied registry with such a bundle. Binding and execution receive the bundle's selection through the query context. Binary/IN expressions and indexes retain bound type behavior; grouping, DISTINCT, joins and sorting obtain behavior through the same registry. Index lookup retains its construction-time semantics even if the supplied resource context carries another registry. Adapter value semantics may use the context for cancellation/resources, and must not change based on other adapters in that context.
 

@@ -102,6 +102,67 @@ impl<'a> PreparedExpression<'a> {
         }
         context.expressions.evaluate(self.expression, row, &frame)
     }
+    pub fn evaluate_batch(
+        &self,
+        input: &crate::common::vector::DataChunk,
+        context: &ExecutionContext<'_>,
+    ) -> Result<crate::common::vector::Vector> {
+        let output = if self.dependencies.is_empty() {
+            context
+                .expressions
+                .evaluate_batch(self.expression, input, context)?
+        } else {
+            let mut row = Vec::with_capacity(input.columns().len());
+            let mut values = Vec::with_capacity(input.len());
+            for index in 0..input.len() {
+                input.read_row(index, &mut row)?;
+                values.push(self.evaluate(&row, context)?);
+            }
+            crate::common::vector::Vector::flat(self.expression.data_type.clone(), values)?
+        };
+        if output.len() != input.len() {
+            return Err(crate::Error::Internal(
+                "expression batch cardinality differs from input".into(),
+            ));
+        }
+        context
+            .query
+            .types()
+            .bind(&self.expression.data_type)?
+            .validate_vector(&output, context.query)?;
+        Ok(output)
+    }
+    pub fn select_batch(
+        &self,
+        input: &crate::common::vector::DataChunk,
+        context: &ExecutionContext<'_>,
+    ) -> Result<Vec<usize>> {
+        use crate::common::{DataType, Error};
+        if self.expression.data_type != DataType::Boolean {
+            return Err(Error::Internal("filter predicate must be Boolean".into()));
+        }
+        let boolean = context.query.types().bind(&DataType::Boolean)?;
+        let selected = if self.dependencies.is_empty() && !boolean.requires_logical_validation() {
+            context
+                .expressions
+                .select_batch(self.expression, input, context)?
+        } else {
+            super::super::expression_executor::select_boolean(
+                &self.evaluate_batch(input, context)?,
+                input.len(),
+                context.query,
+            )?
+        };
+        if selected.last().is_some_and(|index| *index >= input.len())
+            || selected.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(Error::Internal(
+                "predicate selection must contain ordered distinct input positions".into(),
+            ));
+        }
+        context.query.check()?;
+        Ok(selected)
+    }
 }
 fn collect<'a>(expression: &'a BoundExpr, output: &mut Vec<&'a BoundExpr>) {
     expression.visit_children(&mut |child| collect(child, output));

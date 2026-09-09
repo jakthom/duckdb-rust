@@ -1,11 +1,7 @@
 //! Incremental access retains the statement's row identities and visibility.
 use super::RowId;
 use crate::{
-    common::{
-        DataType, Error, Result, Row,
-        type_registry::BoundType,
-        vector::{DataChunk, Vector},
-    },
+    common::{DataType, Error, Result, Row, type_registry::BoundType, vector::DataChunk},
     parallel::QueryContext,
 };
 
@@ -61,6 +57,14 @@ impl ScanBatch {
         match self.0 {
             BatchData::Single { row, types, .. } => DataChunk::from_rows(&types, &[row]),
             BatchData::Columns { data, .. } => Ok(data),
+        }
+    }
+    /// Borrow columns when the producer already uses a column representation.
+    /// Single-row consumers can continue using `read_row` without conversion.
+    pub fn data(&self) -> Option<&DataChunk> {
+        match &self.0 {
+            BatchData::Columns { data, .. } => Some(data),
+            BatchData::Single { .. } => None,
         }
     }
     /// A single row is borrowed directly; column input fills the caller's
@@ -169,8 +173,10 @@ pub fn next_batch(
 }
 
 pub(crate) struct SnapshotScan<'a> {
-    pub rows: std::collections::btree_map::Iter<'a, RowId, Row>,
+    pub ids: &'a [RowId],
+    pub data: &'a DataChunk,
     pub types: std::sync::Arc<[DataType]>,
+    pub position: usize,
     pub finished: bool,
 }
 
@@ -181,39 +187,21 @@ impl TableScan for SnapshotScan<'_> {
         }
         let result = (|| {
             let max_rows = context.batch_demand(max_rows)?;
-            let count = max_rows.min(self.rows.len());
+            let count = max_rows.min(self.ids.len() - self.position);
             if count == 0 {
                 return Ok(None);
             }
             if count == 1 {
-                let (&id, row) = self.rows.next().expect("nonempty snapshot cursor");
-                return ScanBatch::single(id, row.clone(), self.types.clone()).map(Some);
+                let id = self.ids[self.position];
+                let mut row = Vec::with_capacity(self.types.len());
+                self.data.read_row(self.position, &mut row)?;
+                self.position += 1;
+                return ScanBatch::single(id, row, self.types.clone()).map(Some);
             }
-            let mut ids = Vec::with_capacity(count);
-            let mut columns = self
-                .types
-                .iter()
-                .map(|_| Vec::with_capacity(count))
-                .collect::<Vec<_>>();
-            for _ in 0..max_rows {
-                context.check()?;
-                let Some((&id, row)) = self.rows.next() else {
-                    break;
-                };
-                if row.len() != columns.len() {
-                    return Err(Error::Internal("row width differs from schema".into()));
-                }
-                ids.push(id);
-                for (column, value) in columns.iter_mut().zip(row) {
-                    column.push(value.clone());
-                }
-            }
-            let columns = columns
-                .into_iter()
-                .zip(self.types.iter())
-                .map(|(values, data_type)| Vector::flat(data_type.clone(), values))
-                .collect::<Result<_>>()?;
-            ScanBatch::new(ids, DataChunk::new(columns, count)?).map(Some)
+            let ids = self.ids[self.position..self.position + count].to_vec();
+            let data = self.data.slice(self.position, count)?;
+            self.position += count;
+            ScanBatch::new(ids, data).map(Some)
         })();
         if !matches!(result, Ok(Some(_))) {
             self.finished = true;

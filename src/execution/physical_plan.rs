@@ -4,7 +4,7 @@ use super::{
     ExecutionContext,
     operator::{
         aggregate::aggregate,
-        join::{HashJoin, JoinAlgorithm, NestedLoopJoin},
+        join::{HashJoin, JoinAlgorithm, JoinPlan, NestedLoopJoin},
         order::sort,
     },
     stream::{self, Stream},
@@ -320,12 +320,7 @@ impl PhysicalOperator for Operator {
                 let mut input = stream::open(input.as_ref(), context)?;
                 stream::from_fn(move |max_rows| {
                     while let Some(batch) = input.next(max_rows)? {
-                        let mut selected = Vec::new();
-                        for (index, row) in batch.rows().enumerate() {
-                            if predicate.evaluate(&row, context)?.as_bool()? == Some(true) {
-                                selected.push(index);
-                            }
-                        }
+                        let selected = predicate.select_batch(&batch, context)?;
                         if !selected.is_empty() {
                             return batch.select(&selected).map(Some);
                         }
@@ -440,15 +435,16 @@ impl PhysicalOperator for Operator {
                 kind,
                 condition,
                 algorithm,
-            } => stream::deferred(schema, context, move || {
-                algorithm.join(
-                    &stream::collect(left.as_ref(), context)?,
-                    &stream::collect(right.as_ref(), context)?,
-                    *kind,
+            } => algorithm.open(
+                JoinPlan {
+                    left: left.as_ref(),
+                    right: right.as_ref(),
+                    kind: *kind,
                     condition,
-                    context,
-                )
-            }),
+                    schema,
+                },
+                context,
+            )?,
             Node::Aggregate(input, groups, aggregates) => {
                 stream::deferred(schema, context, move || {
                     let mut input = stream::open(input.as_ref(), context)?;

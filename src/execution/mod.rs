@@ -193,14 +193,14 @@ impl Executor for MaterializingExecutor {
 }
 
 pub(crate) struct CollectingSink<'a> {
-    pub rows: Vec<Row>,
+    pub rows: crate::common::RowCollection,
     pub query: &'a QueryContext,
 }
 impl ResultSink for CollectingSink<'_> {
     fn consume(&mut self, chunk: DataChunk) -> Result<StreamControl> {
         self.query
             .check_rows(self.rows.len().saturating_add(chunk.len()))?;
-        self.rows.extend(chunk.rows());
+        self.rows.append(&chunk)?;
         Ok(StreamControl::Continue)
     }
 }

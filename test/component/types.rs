@@ -21,6 +21,9 @@ use duckdb_rust::{
 };
 use std::{cmp::Ordering, sync::Arc};
 
+#[path = "types/keys.rs"]
+mod keys;
+
 fn composition(adapter: Arc<dyn TypeAdapter>) -> Result<(Arc<TypeRegistry>, CastRegistry)> {
     let mut types = TypeRegistry::builtins();
     types.register(ascii::FAMILY, adapter)?;
@@ -180,6 +183,14 @@ fn registered_values_work_through_sql_relational_operators_and_private_restart()
                         c.query("SELECT count(*) FROM items JOIN samples ON items.k=samples.k")?
                             .rows,
                         vec![vec![Value::Integer(3)]]
+                    );
+                    assert_eq!(
+                        c.query("SELECT n FROM items WHERE EXISTS(SELECT 1 FROM samples WHERE samples.k=items.k)")?.rows,
+                        vec![vec![Value::Integer(1)], vec![Value::Integer(2)]]
+                    );
+                    assert_eq!(
+                        c.query("SELECT count(*) FROM samples WHERE NOT EXISTS(SELECT 1 FROM items WHERE items.k=samples.k)")?.rows,
+                        vec![vec![Value::Integer(1)]]
                     );
                     assert_eq!(
                         c.query("SELECT count(DISTINCT k), count(*) FROM samples")?

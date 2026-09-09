@@ -1,6 +1,8 @@
 pub mod cast;
 mod date;
 mod error;
+mod row_collection;
+pub use row_collection::RowCollection;
 
 pub use date::Date;
 pub mod type_registry;

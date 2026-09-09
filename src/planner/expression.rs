@@ -90,6 +90,35 @@ pub struct BoundSubquery {
 }
 
 impl BoundExpr {
+    /// A conservative proof for a validated scalar tree: evaluation is pure and
+    /// has no data-dependent errors for any valid input. Resource exhaustion and
+    /// cancellation remain possible. False means unknown, not necessarily unsafe.
+    /// Consumers must separately establish the row scope and NULL semantics.
+    pub fn is_pure_and_total(&self) -> bool {
+        match &self.kind {
+            ExprKind::Literal(_) | ExprKind::Column(_) | ExprKind::OuterColumn { .. } => true,
+            ExprKind::Unary(_, inner) => inner.is_pure_and_total(),
+            ExprKind::Binary(op, left, right, _) if !matches!(op, BinaryOp::And | BinaryOp::Or) => {
+                left.is_pure_and_total() && right.is_pure_and_total()
+            }
+            ExprKind::Operator(function, arguments) => {
+                let effects = function.effects();
+                !effects.volatile
+                    && !effects.external_access
+                    && arguments.iter().all(Self::is_pure_and_total)
+                    && function.is_total(
+                        &arguments
+                            .iter()
+                            .map(|argument| match &argument.kind {
+                                ExprKind::Literal(value) => Some(value),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+            }
+            _ => false,
+        }
+    }
     /// Visit immediate scalar children without copying them. Relational inputs
     /// of a subquery have their own row scope and are not scalar children.
     pub fn visit_children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {

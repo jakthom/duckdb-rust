@@ -39,10 +39,10 @@ impl Snapshot {
             for (&old, &new) in &mapping.rows {
                 context.check()?;
                 let row = destination.rows.get(&new).ok_or_else(invalid)?;
-                let source = &source.rows[&old];
+                let source = source.rows.get(&old).ok_or_else(invalid)?;
                 if !seen.insert(new)
                     || source.len() != row.len()
-                    || !source.iter().zip(row).all(|(a, b)| match (a, b) {
+                    || !source.iter().zip(row.iter()).all(|(a, b)| match (a, b) {
                         (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
                         (Value::Double(a), Value::Double(b)) => a.to_bits() == b.to_bits(),
                         _ => a == b,

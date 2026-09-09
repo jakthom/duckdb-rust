@@ -92,32 +92,10 @@ impl AggregateState for State {
         if self.name == "sum" && self.data_type != DataType::HugeInt {
             return super::update_aggregate_rows(self, arguments, context);
         }
-        let mut sum = if self.value.is_null() {
-            0
-        } else {
-            self.value.as_i128()?
-        };
-        for (index, value) in column.values().enumerate() {
-            if index % 1024 == 0 {
-                context.check()?;
-            }
-            if value.is_null() {
-                continue;
-            }
-            self.count = self
-                .count
-                .checked_add(1)
-                .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
-            if self.name == "sum" {
-                sum = sum
-                    .checked_add(value.as_i128()?)
-                    .ok_or_else(|| Error::Execution("sum overflow".into()))?;
-            }
+        if self.name == "sum" && self.sum_dense(column, context)? {
+            return Ok(());
         }
-        if self.name == "sum" && self.count != 0 {
-            self.value = Value::Integer(sum);
-        }
-        context.check()
+        self.update_column(column, context)
     }
     fn update(&mut self, args: &[Value], context: &crate::parallel::QueryContext) -> Result<()> {
         let value = args.first().cloned().unwrap_or(Value::Integer(1));
@@ -135,10 +113,12 @@ impl AggregateState for State {
         if value.is_null() {
             return Ok(());
         }
-        self.count = self
-            .count
-            .checked_add(1)
-            .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+        if self.name != "sum" {
+            self.count = self
+                .count
+                .checked_add(1)
+                .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+        }
         match self.name {
             "count" => {}
             "sum" | "avg" => {
@@ -193,5 +173,113 @@ impl AggregateState for State {
             "avg" if self.count > 0 => Ok(Value::Double(self.value.as_f64()? / self.count as f64)),
             _ => Ok(self.value),
         }
+    }
+}
+
+impl State {
+    /// A narrow, non-NULL column admits a range proof for every accumulator
+    /// prefix. The fallback preserves exact overflow timing near either bound,
+    /// for HUGEINT input and for columns without the required physical views.
+    fn sum_dense(
+        &mut self,
+        column: &crate::common::vector::Vector,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<bool> {
+        let Some(bits) = column.data_type().integer_bits().filter(|bits| *bits <= 64) else {
+            return Ok(false);
+        };
+        let Some(values) = column.flat_values().filter(|_| column.all_valid()) else {
+            return Ok(false);
+        };
+        let mut sum = match self.value {
+            Value::Null => 0,
+            Value::Integer(value) => value,
+            _ => return Ok(false),
+        };
+        let Some(bound) = (1_i128 << (bits - 1)).checked_mul(values.len() as i128) else {
+            return Ok(false);
+        };
+        if sum.checked_add(bound).is_none() || sum.checked_sub(bound).is_none() {
+            return Ok(false);
+        }
+        for block in values.chunks(1024) {
+            context.check()?;
+            let part: i128 = block
+                .iter()
+                .map(|value| match value {
+                    Value::Integer(value) => (*value as i64) as i128,
+                    _ => unreachable!("validated non-NULL narrow integer column"),
+                })
+                .sum();
+            sum += part;
+        }
+        if !values.is_empty() {
+            self.value = Value::Integer(sum);
+        }
+        context.check()?;
+        Ok(true)
+    }
+    fn update_column(
+        &mut self,
+        column: &crate::common::vector::Vector,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<()> {
+        if let Some(values) = column.flat_values() {
+            self.update_values(values.iter(), context)
+        } else {
+            self.update_values(column.values(), context)
+        }
+    }
+    fn update_values<'a>(
+        &mut self,
+        values: impl Iterator<Item = &'a Value>,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<()> {
+        if self.name == "count" {
+            for (index, value) in values.enumerate() {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                if !value.is_null() {
+                    self.count = self
+                        .count
+                        .checked_add(1)
+                        .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+                }
+            }
+        } else {
+            let mut seen = !self.value.is_null();
+            let mut sum = match self.value {
+                Value::Null => 0,
+                Value::Integer(value) => value,
+                _ => {
+                    return Err(Error::Internal(
+                        "integer sum state differs from binding".into(),
+                    ));
+                }
+            };
+            for (index, value) in values.enumerate() {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                let value = match value {
+                    Value::Null => continue,
+                    Value::Integer(value) => *value,
+                    _ => {
+                        return Err(Error::Internal(
+                            "integer sum argument differs from binding".into(),
+                        ));
+                    }
+                };
+                sum = sum
+                    .checked_add(value)
+                    .ok_or_else(|| Error::Execution("sum overflow".into()))?;
+                seen = true;
+            }
+            if seen {
+                self.value = Value::Integer(sum);
+            }
+        }
+        context.check()
     }
 }

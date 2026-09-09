@@ -32,10 +32,14 @@ pub(crate) fn filtered<'a>(
             // including rows the filter will reject.
             batch.validate(&validators, context.query)?;
             let mut selected = Vec::new();
-            for index in 0..batch.len() {
-                let input = batch.read_row(index, &mut row)?;
-                if predicate.evaluate(input, context)?.as_bool()? == Some(true) {
-                    selected.push(index);
+            if let Some(data) = batch.data() {
+                selected = predicate.select_batch(data, context)?;
+            } else {
+                for index in 0..batch.len() {
+                    let input = batch.read_row(index, &mut row)?;
+                    if predicate.evaluate(input, context)?.as_bool()? == Some(true) {
+                        selected.push(index);
+                    }
                 }
             }
             if !selected.is_empty() {

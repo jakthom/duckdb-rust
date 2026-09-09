@@ -1,5 +1,7 @@
 mod key_lookup;
 pub use key_lookup::UseKeyLookup;
+mod decorrelate_exists;
+pub use decorrelate_exists::DecorrelateExists;
 mod simplify_expressions;
 pub use simplify_expressions::SimplifyExpressions;
 mod validated_plan;
@@ -58,7 +60,11 @@ pub struct PipelineOptimizer {
 
 impl Default for PipelineOptimizer {
     fn default() -> Self {
-        Self::new(vec![Arc::new(SimplifyExpressions), Arc::new(UseKeyLookup)])
+        Self::new(vec![
+            Arc::new(SimplifyExpressions),
+            Arc::new(UseKeyLookup),
+            Arc::new(DecorrelateExists),
+        ])
     }
 }
 

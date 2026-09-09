@@ -1,14 +1,44 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{borrow::Cow, collections::HashMap, fmt::Debug};
 
-use super::super::{DataSet, ExecutionContext};
+use super::super::{
+    DataSet, ExecutionContext,
+    physical_plan::PhysicalOperator,
+    stream::{self, Stream},
+};
 use crate::{
     common::{Result, Row, Value},
-    planner::{BoundExpr, ExprKind, expression::BinaryOp, logical::JoinKind},
+    planner::{BoundExpr, ExprKind, Schema, logical::JoinKind},
 };
+
+mod keys;
+mod semi;
+use keys::EqualityKeys;
+
+/// Borrowed, validated join description. Both children observe the same query
+/// snapshot. Semi/anti output has the left schema; other kinds concatenate them.
+pub struct JoinPlan<'a> {
+    pub left: &'a dyn PhysicalOperator,
+    pub right: &'a dyn PhysicalOperator,
+    pub kind: JoinKind,
+    pub condition: &'a BoundExpr,
+    pub schema: &'a Schema,
+}
 
 pub trait JoinAlgorithm: Debug + Send + Sync {
     fn name(&self) -> &'static str;
     fn supports(&self, condition: &BoundExpr, left_width: usize) -> bool;
+    /// Open a fresh cursor without reading rows. Its next calls honor demand,
+    /// cancellation, owned output and terminal errors as specified by BatchStream.
+    /// Algorithms may retain a bounded build side and stream the probe side.
+    /// The default explicitly collects both inputs through the same checked
+    /// operator boundary and uses the materialized join implementation.
+    fn open<'a>(
+        &'a self,
+        plan: JoinPlan<'a>,
+        context: &'a ExecutionContext<'a>,
+    ) -> Result<Stream<'a>> {
+        Ok(materialized(self, plan, context))
+    }
     fn join(
         &self,
         left: &DataSet,
@@ -17,6 +47,22 @@ pub trait JoinAlgorithm: Debug + Send + Sync {
         condition: &BoundExpr,
         context: &ExecutionContext<'_>,
     ) -> Result<Vec<Row>>;
+}
+
+fn materialized<'a, T: JoinAlgorithm + ?Sized>(
+    algorithm: &'a T,
+    plan: JoinPlan<'a>,
+    context: &'a ExecutionContext<'a>,
+) -> Stream<'a> {
+    stream::deferred(plan.schema, context, move || {
+        algorithm.join(
+            &stream::collect(plan.left, context)?,
+            &stream::collect(plan.right, context)?,
+            plan.kind,
+            plan.condition,
+            context,
+        )
+    })
 }
 
 #[derive(Debug, Default)]
@@ -51,7 +97,20 @@ impl JoinAlgorithm for HashJoin {
         "hash"
     }
     fn supports(&self, condition: &BoundExpr, left_width: usize) -> bool {
-        equality_keys(condition, left_width).is_some()
+        EqualityKeys::bind(condition, left_width).is_some()
+    }
+    fn open<'a>(
+        &'a self,
+        plan: JoinPlan<'a>,
+        context: &'a ExecutionContext<'a>,
+    ) -> Result<Stream<'a>> {
+        if matches!(plan.kind, JoinKind::Semi | JoinKind::Anti)
+            && let Some(keys) = EqualityKeys::bind(plan.condition, plan.left.schema().len())
+        {
+            semi::open(plan, keys, context)
+        } else {
+            Ok(materialized(self, plan, context))
+        }
     }
     fn join(
         &self,
@@ -61,49 +120,49 @@ impl JoinAlgorithm for HashJoin {
         condition: &BoundExpr,
         context: &ExecutionContext<'_>,
     ) -> Result<Vec<Row>> {
-        let Some((l, r)) = equality_keys(condition, left.schema.len()) else {
+        let Some(keys) = EqualityKeys::bind(condition, left.schema.len()) else {
             return Err(crate::Error::Unsupported(
-                "hash join requires equal-typed column equality".into(),
+                "hash join requires equal-typed pure total keys from each input".into(),
             ));
         };
-        let data_type = context.query.types().bind(&left.schema[l].data_type)?;
+        let data_type = &keys.data_type;
         let mut index: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
         for (i, row) in right.rows.iter().enumerate() {
             context.query.check()?;
-            if row[r].is_null() {
+            let value = key_value(&keys.right, row, context)?;
+            if value.is_null() {
                 continue;
             }
             let mut key = Vec::new();
-            data_type.append_key(&row[r], &mut key, context.query)?;
+            data_type.append_key(&value, &mut key, context.query)?;
             index.entry(key).or_default().push(i);
         }
         join_candidates(left, right, kind, condition, context, |row| {
-            if row[l].is_null() {
+            let value = key_value(&keys.left, row, context)?;
+            if value.is_null() {
                 return Ok(Vec::new());
             }
             let mut key = Vec::new();
-            data_type.append_key(&row[l], &mut key, context.query)?;
+            data_type.append_key(&value, &mut key, context.query)?;
             Ok(index.get(&key).cloned().unwrap_or_default())
         })
     }
 }
 
-fn equality_keys(condition: &BoundExpr, left_width: usize) -> Option<(usize, usize)> {
-    let ExprKind::Binary(BinaryOp::Equal, left, right, _) = &condition.kind else {
-        return None;
-    };
-    let (ExprKind::Column(l), ExprKind::Column(r)) = (&left.kind, &right.kind) else {
-        return None;
-    };
-    if left.data_type != right.data_type {
-        return None;
-    }
-    if *l < left_width && *r >= left_width {
-        Some((*l, *r - left_width))
-    } else if *r < left_width && *l >= left_width {
-        Some((*r, *l - left_width))
+fn key_value<'a>(
+    expression: &BoundExpr,
+    row: &'a Row,
+    context: &ExecutionContext<'_>,
+) -> Result<Cow<'a, Value>> {
+    if let ExprKind::Column(index) = expression.kind {
+        row.get(index)
+            .map(Cow::Borrowed)
+            .ok_or_else(|| crate::Error::Internal("join key outside input row".into()))
     } else {
-        None
+        context
+            .expressions
+            .evaluate(expression, row, context)
+            .map(Cow::Owned)
     }
 }
 

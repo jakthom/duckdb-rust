@@ -32,6 +32,12 @@ pub struct StorageCapabilities {
 /// All access observes transaction visibility and cooperative cancellation.
 pub trait TableStorage: Send {
     fn capabilities(&self) -> StorageCapabilities;
+    /// Exact visible cardinality from this statement's snapshot, including its
+    /// own writes. None means unavailable. This optional metadata operation must
+    /// not scan rows or retain state across snapshots; it has no external effects.
+    fn row_count(&self, _table: &TableName) -> Result<Option<usize>> {
+        Ok(None)
+    }
     fn key_columns(&self, table: &TableName) -> Result<Vec<Vec<usize>>>;
     fn open_scan(&self, table: &TableName) -> Result<Box<dyn scan::TableScan + '_>>;
     /// Explicit collection is for callers that need all rows simultaneously.

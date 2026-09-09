@@ -11,10 +11,12 @@ pub use result::{QueryResult, QuerySummary};
 use std::{path::Path, sync::Arc, time::Duration};
 
 use crate::{
-    common::{DataType, Error, Result, Row, Value, cast::CastRegistry, vector::DataChunk},
+    common::{
+        DataType, Error, Result, Row, RowCollection, Value, cast::CastRegistry, vector::DataChunk,
+    },
     execution::{
-        CollectingSink, DataSet, ExecutionContext, Executor, PullExecutor, StreamControl,
-        expression_executor::{ExpressionEvaluator, ScalarEvaluator},
+        CollectingSink, ExecutionContext, Executor, PullExecutor, StreamControl,
+        expression_executor::{BatchedEvaluator, ExpressionEvaluator},
         index::{HashIndexFactory, IndexFactory},
         physical_plan::{NativePhysicalPlanner, PhysicalPlanner},
         subquery::{PreparedSubqueries, StreamingSubqueries, SubqueryExecutor},

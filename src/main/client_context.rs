@@ -40,7 +40,7 @@ impl Services {
         let plan = self.optimize(plan, transaction, query)?;
         let plan = self.physical_planner.plan(&plan)?;
         let mut sink = CollectingSink {
-            rows: Vec::new(),
+            rows: RowCollection::new(plan.schema().len()),
             query,
         };
         let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
@@ -49,11 +49,11 @@ impl Services {
             &self.execution_context(transaction, query, &subquery_plans),
             &mut sink,
         )?;
-        Ok(DataSet {
-            schema: plan.schema().clone(),
+        Ok(QueryResult {
+            columns: plan.schema().clone(),
             rows: sink.rows,
-        }
-        .into())
+            affected_rows: 0,
+        })
     }
 
     pub(super) fn query_batches(
@@ -113,7 +113,10 @@ impl Services {
                     return Ok(QueryResult::command(0));
                 }
                 let rows = source
-                    .map(|plan| self.query(plan, transaction, query).map(|r| r.rows))
+                    .map(|plan| {
+                        self.query(plan, transaction, query)
+                            .map(|r| r.rows.into_rows())
+                    })
                     .transpose()?
                     .unwrap_or_default();
                 let name = definition.name.clone();
@@ -226,7 +229,7 @@ impl Services {
                 };
                 Ok(QueryResult {
                     columns: vec![Field::new("explain_value", DataType::Varchar)],
-                    rows: vec![vec![Value::Varchar(text)]],
+                    rows: RowCollection::from_rows(1, vec![vec![Value::Varchar(text)]])?,
                     affected_rows: 0,
                 })
             }

@@ -1,10 +1,12 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 mod layout;
 mod recovery;
+mod rows;
+use rows::Rows;
 
 use serde::{Deserialize, Serialize};
 
@@ -45,10 +47,7 @@ impl Snapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TableData {
     definition: TableDefinition,
-    // Table definitions are immutable. Share derived scan metadata across cursors.
-    #[serde(skip)]
-    scan_types: OnceLock<Arc<[crate::DataType]>>,
-    rows: BTreeMap<RowId, Row>,
+    rows: Rows,
     next_id: RowId,
     #[serde(skip)]
     indexes: Vec<Arc<dyn KeyIndex>>,
@@ -271,9 +270,8 @@ impl CatalogMut for Snapshot {
         }
         validate_definition(&definition, &self.types)?;
         let mut table = TableData {
-            scan_types: OnceLock::new(),
             definition,
-            rows: BTreeMap::new(),
+            rows: Rows::default(),
             next_id: 0,
             indexes: Vec::new(),
         };
@@ -338,7 +336,14 @@ impl TableData {
         context: &QueryContext,
     ) -> Result<()> {
         self.indexes = self.build_indexes(factory, context)?;
-        Ok(())
+        self.rows.seal(
+            self.definition
+                .columns
+                .iter()
+                .map(|column| column.data_type.clone())
+                .collect(),
+            context,
+        )
     }
     fn build_indexes(
         &self,
@@ -366,6 +371,9 @@ impl TableData {
 }
 
 impl TableStorage for Snapshot {
+    fn row_count(&self, table: &TableName) -> Result<Option<usize>> {
+        Ok(Some(self.get(table)?.rows.len()))
+    }
     fn capabilities(&self) -> StorageCapabilities {
         StorageCapabilities {
             mutable: true,
@@ -383,22 +391,7 @@ impl TableStorage for Snapshot {
             .collect())
     }
     fn open_scan(&self, table: &TableName) -> Result<Box<dyn super::scan::TableScan + '_>> {
-        let table = self.get(table)?;
-        Ok(Box::new(super::scan::SnapshotScan {
-            rows: table.rows.iter(),
-            types: table
-                .scan_types
-                .get_or_init(|| {
-                    table
-                        .definition
-                        .columns
-                        .iter()
-                        .map(|column| column.data_type.clone())
-                        .collect()
-                })
-                .clone(),
-            finished: false,
-        }))
+        Ok(Box::new(self.get(table)?.rows.scan()?))
     }
     fn fetch(
         &self,
@@ -411,7 +404,7 @@ impl TableStorage for Snapshot {
         ids.iter()
             .map(|id| {
                 context.check()?;
-                Ok(table.rows.get(id).cloned())
+                Ok(table.rows.get(id).map(rows::RowView::to_owned))
             })
             .collect()
     }
@@ -442,7 +435,7 @@ impl TableStorage for Snapshot {
                 table
                     .rows
                     .get(&id)
-                    .cloned()
+                    .map(rows::RowView::to_owned)
                     .map(|row| (id, row))
                     .ok_or_else(|| Error::Internal("index references an invisible row".into()))
             })

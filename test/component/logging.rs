@@ -52,7 +52,8 @@ fn values(path: &Path) -> Result<Vec<Vec<Value>>> {
     Ok(Database::open_read_only(path)?
         .connect()
         .query("SELECT * FROM t ORDER BY i")?
-        .rows)
+        .rows
+        .into_rows())
 }
 fn log(path: &Path) -> Vec<u8> {
     fs::read(path.with_extension("duckdb.wal")).unwrap_or_default()

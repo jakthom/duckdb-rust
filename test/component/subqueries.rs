@@ -19,6 +19,9 @@ mod contracts;
 #[path = "subqueries/failures.rs"]
 mod failures;
 
+#[path = "subqueries/decorrelation.rs"]
+mod decorrelation;
+
 fn adapters() -> [Arc<dyn SubqueryExecutor>; 2] {
     [
         Arc::new(StreamingSubqueries),

@@ -230,6 +230,9 @@ impl Transaction for SnapshotTransaction {
 }
 
 impl TableStorage for SnapshotTransaction {
+    fn row_count(&self, table: &TableName) -> Result<Option<usize>> {
+        self.snapshot.row_count(table)
+    }
     fn capabilities(&self) -> StorageCapabilities {
         StorageCapabilities {
             mutable: self.durability.writable(),

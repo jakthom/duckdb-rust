@@ -1,4 +1,5 @@
 use super::subquery::SubqueryRequest;
+mod batch;
 use crate::{
     common::{Error, Result, Row, Value},
     function::ArgumentEvaluation,
@@ -8,6 +9,8 @@ use crate::{
         expression::{BinaryOp, SubqueryKind, UnaryOp},
     },
 };
+pub(crate) use batch::select_boolean;
+pub use batch::{BatchedEvaluator, evaluate_expression_rows};
 
 /// Explicit expression inputs beyond the current row. Resource-only evaluation
 /// rejects relational dependencies. Execution supplies lexical outer rows and
@@ -56,6 +59,35 @@ pub trait ExpressionEvaluator: Send + Sync {
         row: &Row,
         context: &dyn EvaluationContext,
     ) -> Result<Value>;
+    /// Evaluate an owned result column with exactly the input cardinality.
+    /// Preserve row order, lazy branches, the first error and declared effects.
+    /// Batch evaluation may reorder only expressions proved total and without
+    /// effects. Demand is limited to the supplied rows; no input is retained.
+    /// The default preserves scalar behavior through the selected evaluator.
+    fn evaluate_batch(
+        &self,
+        expression: &BoundExpr,
+        input: &crate::common::vector::DataChunk,
+        context: &dyn EvaluationContext,
+    ) -> Result<crate::common::vector::Vector> {
+        evaluate_expression_rows(self, expression, input, context)
+    }
+    /// Select rows whose Boolean predicate is true, in strictly increasing
+    /// input order. NULL is not selected. The same error/effect rules apply as
+    /// batch evaluation. Consumers validate all returned positions. Adapters
+    /// may avoid materializing a Boolean value for each row.
+    fn select_batch(
+        &self,
+        expression: &BoundExpr,
+        input: &crate::common::vector::DataChunk,
+        context: &dyn EvaluationContext,
+    ) -> Result<Vec<usize>> {
+        select_boolean(
+            &self.evaluate_batch(expression, input, context)?,
+            input.len(),
+            context.query(),
+        )
+    }
 }
 
 #[derive(Default)]

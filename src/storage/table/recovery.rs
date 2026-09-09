@@ -111,8 +111,7 @@ impl RecoveryTarget for Snapshot {
                         if target
                             .rows
                             .get(id)
-                            .and_then(|row| row.get(*column))
-                            .is_none()
+                            .is_none_or(|row| row.get(*column).is_none())
                         {
                             return Err(Error::Corrupt(
                                 "WAL validity row or column out of bounds".into(),

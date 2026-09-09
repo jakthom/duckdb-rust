@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use super::{TypeAdapter, ValueValidation};
+use super::{KeyWriter, TypeAdapter, ValueValidation};
 use crate::{
     common::{DataType, Error, Result, Value},
     parallel::QueryContext,
@@ -46,8 +46,14 @@ impl TypeAdapter for DateType {
         context.check()?;
         Ok(left.as_date()?.cmp(&right.as_date()?))
     }
-    fn key(&self, _: &DataType, value: &Value, context: &QueryContext) -> Result<Vec<u8>> {
+    fn write_key(
+        &self,
+        _: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        context: &QueryContext,
+    ) -> Result<()> {
         context.check()?;
-        Ok(value.as_date()?.days().to_le_bytes().to_vec())
+        output.extend_from_slice(&value.as_date()?.days().to_le_bytes())
     }
 }

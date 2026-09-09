@@ -20,6 +20,10 @@ use std::sync::{
 
 #[path = "execution/batches.rs"]
 mod batches;
+#[path = "execution/expressions.rs"]
+mod expressions;
+#[path = "execution/joins.rs"]
+mod joins;
 
 fn ints(values: &[i128]) -> Row {
     values.iter().copied().map(Value::Integer).collect()

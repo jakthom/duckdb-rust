@@ -1,7 +1,10 @@
 //! Logical metadata is serializable independently of an implementation. A
 //! selected adapter supplies the semantics for every registered type family.
 pub mod ascii;
+mod batch;
 pub mod date;
+mod key;
+pub use key::KeyWriter;
 
 use std::{
     cmp::Ordering,
@@ -53,7 +56,31 @@ pub trait TypeAdapter: Debug + Send + Sync {
         right: &Value,
         context: &QueryContext,
     ) -> Result<Ordering>;
-    fn key(&self, data_type: &DataType, value: &Value, context: &QueryContext) -> Result<Vec<u8>>;
+    /// Compare equal-length validated columns in row order. NULL at either
+    /// input produces None; all other pairs produce their scalar ordering.
+    /// Output is owned and has exactly the input cardinality. Implementations
+    /// observe cancellation; the default uses this adapter's scalar method.
+    fn compare_batch(
+        &self,
+        data_type: &DataType,
+        left: &super::vector::Vector,
+        right: &super::vector::Vector,
+        context: &QueryContext,
+    ) -> Result<Vec<Option<Ordering>>> {
+        batch::compare_values(left, right, context, |a, b| {
+            self.compare(data_type, a, b, context)
+        })
+    }
+    /// Append the canonical bytes of one validated, non-NULL value. The writer
+    /// permits appends only and bounds key size; it cannot alter earlier keys.
+    /// Errors and cancellation discard this component, including partial writes.
+    fn write_key(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        context: &QueryContext,
+    ) -> Result<()>;
 }
 
 /// Retains the adapter selected for a complete type, including parameters.
@@ -99,32 +126,6 @@ impl BoundType {
         let result = self.adapter.compare(&self.data_type, left, right, context);
         context.check()?;
         result
-    }
-    /// Appends one self-delimiting component. Failure leaves the output intact.
-    pub fn append_key(
-        &self,
-        value: &Value,
-        output: &mut Vec<u8>,
-        context: &QueryContext,
-    ) -> Result<()> {
-        self.validate(value, context)?;
-        if value.is_null() {
-            output.push(0);
-            return Ok(());
-        }
-        let key = self.adapter.key(&self.data_type, value, context);
-        context.check()?;
-        let key = key?;
-        if key.len() > 16 * 1024 * 1024 {
-            return Err(Error::Resource("type key exceeds 16 MiB".into()));
-        }
-        output
-            .try_reserve(key.len() + 9)
-            .map_err(|_| Error::Resource("cannot allocate composite type key".into()))?;
-        output.push(1);
-        output.extend((key.len() as u64).to_le_bytes());
-        output.extend(key);
-        Ok(())
     }
 }
 
@@ -346,19 +347,30 @@ impl TypeAdapter for PrimitiveTypes {
         context.check()?;
         left.compare(right)
     }
-    fn key(&self, _: &DataType, value: &Value, context: &QueryContext) -> Result<Vec<u8>> {
-        context.check()?;
-        let size = match value {
-            Value::Varchar(text) => text.len().checked_add(9),
-            _ => Some(17),
+    fn compare_batch(
+        &self,
+        data_type: &DataType,
+        left: &super::vector::Vector,
+        right: &super::vector::Vector,
+        context: &QueryContext,
+    ) -> Result<Vec<Option<Ordering>>> {
+        if data_type.is_integer() {
+            batch::compare_values(left, right, context, |a, b| match (a, b) {
+                (Value::Integer(a), Value::Integer(b)) => Ok(a.cmp(b)),
+                _ => Err(Error::Internal("invalid integer comparison input".into())),
+            })
+        } else {
+            batch::compare_values(left, right, context, Value::compare)
         }
-        .filter(|&size| size <= 16 * 1024 * 1024)
-        .ok_or_else(|| Error::Resource("type key exceeds 16 MiB".into()))?;
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(size)
-            .map_err(|_| Error::Resource("cannot allocate primitive type key".into()))?;
-        value.append_primitive_key(&mut bytes)?;
-        Ok(bytes)
+    }
+    fn write_key(
+        &self,
+        _: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        context: &QueryContext,
+    ) -> Result<()> {
+        context.check()?;
+        value.append_primitive_key(output)
     }
 }

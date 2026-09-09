@@ -196,12 +196,14 @@ impl Value {
         }
     }
 
+    #[inline]
     pub fn is_null(&self) -> bool {
         matches!(self, Self::Null)
     }
 
     /// Whether this physical value fits a declared type without conversion.
     /// NULL is a valid placeholder for every type; nullability is separate.
+    #[inline]
     pub fn fits_type(&self, data_type: &DataType) -> bool {
         match self {
             Self::Null => true,
@@ -230,6 +232,7 @@ impl Value {
         }
     }
 
+    #[inline]
     pub fn as_i128(&self) -> Result<i128> {
         match self {
             Self::Integer(v) => Ok(*v),
@@ -300,19 +303,21 @@ impl Value {
     }
 
     /// Canonical keys for values already coerced to the same bound type.
-    pub(crate) fn append_primitive_key(&self, key: &mut Vec<u8>) -> Result<()> {
+    pub(crate) fn append_primitive_key(
+        &self,
+        key: &mut super::type_registry::KeyWriter<'_>,
+    ) -> Result<()> {
         match self {
-            Self::Null => key.push(0),
+            Self::Null => key.push(0)?,
             Self::Boolean(v) => {
-                key.push(1);
-                key.push(u8::from(*v));
+                key.extend_from_slice(&[1, u8::from(*v)])?;
             }
             Self::Integer(v) => {
-                key.push(2);
-                key.extend(v.to_le_bytes());
+                key.push(2)?;
+                key.extend_from_slice(&v.to_le_bytes())?;
             }
             Self::Float(v) => {
-                key.push(5);
+                key.push(5)?;
                 let bits = if *v == 0.0 {
                     0
                 } else if v.is_nan() {
@@ -320,10 +325,10 @@ impl Value {
                 } else {
                     v.to_bits()
                 };
-                key.extend(bits.to_le_bytes());
+                key.extend_from_slice(&bits.to_le_bytes())?;
             }
             Self::Double(v) => {
-                key.push(3);
+                key.push(3)?;
                 let bits = if *v == 0.0 {
                     0
                 } else if v.is_nan() {
@@ -331,7 +336,7 @@ impl Value {
                 } else {
                     v.to_bits()
                 };
-                key.extend(bits.to_le_bytes());
+                key.extend_from_slice(&bits.to_le_bytes())?;
             }
             Self::Date(_) | Self::Extension(_) => {
                 return Err(Error::Unsupported(
@@ -339,9 +344,9 @@ impl Value {
                 ));
             }
             Self::Varchar(v) => {
-                key.push(4);
-                key.extend((v.len() as u64).to_le_bytes());
-                key.extend(v.as_bytes());
+                key.push(4)?;
+                key.extend_from_slice(&(v.len() as u64).to_le_bytes())?;
+                key.extend_from_slice(v.as_bytes())?;
             }
         }
         Ok(())

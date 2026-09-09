@@ -1,9 +1,11 @@
 //! Owned operator overloads and checked execution, independent of SQL syntax.
 mod arithmetic;
+mod batch;
 mod date;
 mod string;
 
 pub use arithmetic::NumericArithmetic;
+pub use batch::evaluate_operator_rows;
 pub use date::DateArithmetic;
 pub use string::{Concatenate, DynamicLike, GreedyLike};
 
@@ -69,6 +71,26 @@ pub trait OperatorFunction: Debug + Send + Sync {
     fn effects(&self) -> FunctionEffects {
         FunctionEffects::default()
     }
+    /// Optional proof that all valid inputs consistent with these constants
+    /// produce a value (possibly NULL), without a data-dependent error. None
+    /// means an unknown argument. This does not waive cancellation or resource
+    /// limits. The default makes no proof; callers must also check effects.
+    fn is_total(&self, _signature: &OperatorSignature, _constants: &[Option<&Value>]) -> bool {
+        false
+    }
+    /// Owned results in input order, with the same scalar semantics and NULL
+    /// propagation. Inputs are already validated against the bound signature.
+    /// Do not retain input borrows. A failed batch is discarded; adapters must
+    /// observe cancellation during work. The default invokes this adapter's
+    /// scalar method once for each non-NULL argument row.
+    fn evaluate_batch(
+        &self,
+        signature: &OperatorSignature,
+        arguments: &crate::common::vector::DataChunk,
+        query: &QueryContext,
+    ) -> Result<crate::common::vector::Vector> {
+        evaluate_operator_rows(self, signature, arguments, query)
+    }
     fn evaluate(
         &self,
         signature: &OperatorSignature,
@@ -97,6 +119,16 @@ impl BoundOperator {
     }
     pub fn effects(&self) -> FunctionEffects {
         self.effects
+    }
+    pub fn is_total(&self, constants: &[Option<&Value>]) -> bool {
+        constants.len() == self.arguments.len()
+            && constants
+                .iter()
+                .zip(&self.arguments)
+                .all(|(value, data_type)| {
+                    value.is_none_or(|value| value.fits_type(data_type.data_type()))
+                })
+            && self.function.is_total(&self.signature, constants)
     }
     pub fn apply(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;

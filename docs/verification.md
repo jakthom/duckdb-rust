@@ -12,6 +12,32 @@ The checks here concern this Rust implementation. The source-system testing spec
 
 `cargo test --all-targets` runs the contract suite, native file compatibility cases, and the supported SQLLogicTest corpus. It requires no installed DuckDB engine. Interface tests vary adapters through `DatabaseBuilder` and the ordinary public contracts.
 
+The batch regression tests compare scalar and column evaluation across optimizer
+selections and batch sizes 1, 3 and 2048. They cover all signed integer widths,
+minimum/-1 overflow, division by zero, NULLs, constant/dictionary/sliced vectors,
+lazy branches, first-error order and function effects. Replacement operators
+control their own totality proofs; invalid operator, type and expression batches
+must fail before filtering can hide them. Storage checks retain batches across
+writes and snapshot destruction, preserve row-ID holes, and round-trip the
+logical snapshot format. The corresponding C++ performance reports retain every
+failed trial under the unchanged 1.0 limit.
+
+EXISTS decorrelation tests compare identity and pass pipelines, scalar and batch
+evaluation, hash and nested-loop joins, both subquery consumers, and batch sizes
+1, 3 and 2048. An independent row model checks signed remainders, duplicates,
+NULLs, ordinal remapping, ordering, outer limits and empty inputs. Plan checks
+require conservative fallback for throwing expressions, deeper correlation,
+inner limits and small row budgets. Prepared queries check own writes, rollback
+and older readers. Volatile calls retain their evaluation counts. Floating keys
+retain NaN and signed-zero equality; both registered ASCII adapters exercise
+case-insensitive semi/anti joins. Instrumented join cursors check one build per
+cursor, bounded demand, retained output, empty-outer laziness, invalid schemas,
+resource errors and cancellation. Key writers preserve existing components on
+partial errors, cancellation and swallowed size failures.
+Column key visitation matches scalar canonical keys across NULLs, slices and
+selections, validates the entire logical input before callbacks, and stops on
+consumer failure.
+
 The cast suite runs the standard-library and checked-digit parsers through the same registry contracts for all five signed integer types and explicit/assignment modes. It covers extrema, overflow, invalid text and 2,048 deterministic integer samples, retained adapter ownership, concurrent callers, NULL propagation, missing/duplicate registrations, malformed results, and cancellation even when an adapter returns a conversion error. The SQL matrix crosses both parsers, both index adapters and both checkpoint formats, checking defaults, INSERT/UPDATE, prepared parameters, indexed predicates, rollback and reopen. Typed plan, vector and storage boundaries reject hidden conversions. These cast tests establish the supported integer-text subset, not full DuckDB cast syntax; registered-type coverage is described separately below.
 
 The type suite compares two implementations of the same registered ASCII type across equality/order, canonical/composite keys, parameter identity, metadata limits, invalid payloads, retained index behavior and private-format restart. The SQL matrix varies both type adapters, both index adapters and hash/nested-loop joins; it covers grouping, DISTINCT/UNION, defaults, casts, prepared values, rollback and uniqueness. Missing registrations and unsupported native writes preserve file bytes. Malformed scalar-function and physical-operator payloads must return errors, including under TRY_CAST. On 64-bit hosts, representation tests limit primitive Value size to 32 bytes and logical metadata handles to 16 bytes.

@@ -91,8 +91,14 @@ impl TypeAdapter for MaterializedAscii {
     ) -> Result<Ordering> {
         Ok(folded(left, context)?.cmp(&folded(right, context)?))
     }
-    fn key(&self, _: &DataType, value: &Value, context: &QueryContext) -> Result<Vec<u8>> {
-        folded(value, context)
+    fn write_key(
+        &self,
+        _: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        context: &QueryContext,
+    ) -> Result<()> {
+        output.extend_from_slice(&folded(value, context)?)
     }
 }
 
@@ -136,15 +142,20 @@ impl TypeAdapter for StreamingAscii {
         }
         Ok(left.len().cmp(&right.len()))
     }
-    fn key(&self, _: &DataType, value: &Value, context: &QueryContext) -> Result<Vec<u8>> {
-        let mut key = Vec::with_capacity(bytes(value)?.len());
+    fn write_key(
+        &self,
+        _: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        context: &QueryContext,
+    ) -> Result<()> {
         for (i, byte) in bytes(value)?.iter().enumerate() {
             if i % 1024 == 0 {
                 context.check()?;
             }
-            key.push(byte.to_ascii_lowercase());
+            output.push(byte.to_ascii_lowercase())?;
         }
-        Ok(key)
+        Ok(())
     }
 }
 

@@ -41,7 +41,8 @@ full gate requires exact case identities and every scope obligation; a selected
 passing subset cannot satisfy it. A JSON-lines journal preserves each completed
 file even if the larger campaign stops before the final report.
 
-The [latest full campaign](upstream-parity-final.json) records 197 passed files,
+The [latest full campaign](upstream-parity-final.json), recorded before the
+subsequent performance changes, records 197 passed files,
 1,197 failures, 4,234 unsupported files, seven timeouts and three incomplete
 files. All 5,638 source identities have exactly one outcome. Its 14,583 passed
 SQL instances include prefixes of files that subsequently failed; they do not
@@ -86,22 +87,42 @@ aggregation and correlated EXISTS. Their measured Rust/C++ ratios were 2.679,
 other cases passed. Subsequent changes must be checked against the same C++
 baseline; unrelated performance improvement is not the objective.
 
-The [latest comparison](native-regressions-final.json) still fails those four
-cases. The changes remove intermediate scan row copies, preserve single-row
-delivery, feed simple global aggregates through a column batch interface, and
-avoid repeated correlated-query metadata/binding allocations.
+The [latest comparison](native-regressions-column-keys.json) passes all six
+measured workloads over 21 paired samples against the unchanged C++ release
+baseline and 1.0 limit.
+The benchmark queries, workers and comparison driver are unchanged. Results are
+fully materialized and every returned value is included in timed validation.
 
-| Still-regressing workload | Latest Rust/C++ median ratio | Required maximum |
-| --- | ---: | ---: |
-| Scan | 1.197 | 1.0 |
-| Filter | 5.856 | 1.0 |
-| Aggregate | 3.287 | 1.0 |
-| Correlated EXISTS | 62.517 | 1.0 |
+| Workload | C++ median (ms) | Rust median (ms) | Rust/C++ ratio | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Scan | 0.978583 | 0.192958 | 0.197 | 1.0 |
+| Filter | 0.670292 | 0.534458 | 0.797 | 1.0 |
+| Aggregate | 0.138000 | 0.052959 | 0.384 | 1.0 |
+| Point lookup | 0.122417 | 0.011250 | 0.092 | 1.0 |
+| LIMIT | 4.635709 | 0.012958 | 0.003 | 1.0 |
+| Correlated EXISTS | 2.268958 | 1.951458 | 0.860 | 1.0 |
 
-Every intermediate failed measurement is retained, including the column-only
-scan trial that made small correlated requests slower. The final representation
-keeps single-row input as a row and shares columns for bulk input. Narrowing
-these gaps does not satisfy the zero-regression requirement.
+Published snapshot columns eliminate repeated scan transposition; single-row
+demand retains row delivery. Checked batch expression and aggregate interfaces
+remove repeated scalar dispatch where purity and totality are established.
+Materialized results own contiguous row-major values. A conservative optimizer
+pass decorrelates eligible EXISTS filters into semi/anti joins, whose hash adapter
+builds once and streams probes using reusable keys from the retained type adapter.
+Column key visitation validates the input once before consuming any keys.
+The [architecture](architecture.md) records contracts and fallback conditions.
+
+All intermediate performance reports remain in `native-regressions-*.json`,
+including the column-only scan trial that slowed correlated requests, later SUM
+failures, the first semi-join trial with missing transaction metadata, and the
+[decorrelated run](native-regressions-decorrelated.json) that still failed by
+28.6%. An earlier nine-pair [reusable-key run](native-regressions-reusable-keys.json)
+passed, but its [21-pair confirmation](native-regressions-cleared.json) failed
+EXISTS by 2.5%; the filename does not indicate acceptance. An
+[inlining trial](native-regressions-inlined-keys.json) also failed and its hints
+were removed. The [previous checkpoint](native-regressions-final.json) failed scan,
+filter, aggregation and correlated EXISTS at 1.197, 5.856, 3.287 and 62.517 times
+C++ respectively. Passing the current six cases clears those measured
+regressions; it does not establish full performance parity.
 
 ```sh
 python3 scripts/compare_native.py --report target/native-new.json
@@ -120,15 +141,20 @@ the remaining allocator, crash simulation, concurrency and coverage work.
 
 ## Local validation
 
-The [validation record](parity-validation.json) records 144 passing Cargo tests,
-13 Python harness tests, 18 release execution/adversarial tests, formatting and
-Clippy. The [final mutation campaign](mutation-report-isolated.json) starts with an
-unchanged passing baseline and detects all three injected semantic faults.
-The C++ performance and full upstream parity gates remain failed, as recorded
-above. Local conformance success cannot override those acceptance failures.
+The [current validation record](regression-validation.json) records 162 passing
+Cargo tests, 13 Python harness tests, 52 release execution/subquery/type/adversarial
+tests, formatting and Clippy. It checks source and executable hashes against the
+performance and file-oracle reports. The six-case C++ performance gate passes;
+full upstream test and full performance acceptance remain unmet, as described
+above. Local conformance success cannot override those wider gaps.
 
-The [independent native-file check](reference-parity-batches.json) also passed
-37 top-level compatibility checks against DuckDB v1.3.0 after the batch changes,
+The [earlier validation](parity-validation.json) and
+[mutation campaign](mutation-report-isolated.json) retain their original source
+provenance. The latter detected all three injected semantic faults after an
+unchanged passing baseline; it was not rerun for this record.
+
+The [current independent native-file check](reference-regressions-verified.json)
+also passed 37 top-level compatibility checks against DuckDB v1.3.0,
 including continued reads and writes in both engines. This is a file/behavior
 oracle for the supported subset; the performance baseline remains the separately
 pinned C++ v2.0 development checkout.

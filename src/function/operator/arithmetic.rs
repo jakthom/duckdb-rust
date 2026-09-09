@@ -20,6 +20,70 @@ impl OperatorFunction for NumericArithmetic {
                 _ => false,
             }
     }
+    fn is_total(&self, signature: &OperatorSignature, constants: &[Option<&Value>]) -> bool {
+        use Operator::*;
+        if constants
+            .iter()
+            .any(|value| value.is_some_and(Value::is_null))
+        {
+            return true;
+        }
+        signature.result.is_floating()
+            || signature.operator == Plus
+            || (matches!(signature.operator, IntegerDivide | Modulo)
+                && matches!(constants.get(1), Some(Some(Value::Integer(value))) if *value != -1))
+    }
+    fn evaluate_batch(
+        &self,
+        signature: &OperatorSignature,
+        arguments: &crate::common::vector::DataChunk,
+        query: &QueryContext,
+    ) -> Result<crate::common::vector::Vector> {
+        use crate::common::vector::Vector;
+        use Operator::*;
+        // Fixed-width division uses the declared physical range. The -1 case
+        // keeps scalar overflow checks, including narrower integer minima.
+        if signature
+            .result
+            .integer_bits()
+            .is_some_and(|bits| bits <= 64)
+            && matches!(signature.operator, IntegerDivide | Modulo)
+            && let Some(Value::Integer(divisor)) = arguments.columns()[1].constant_value()
+            && let Ok(divisor) = i64::try_from(*divisor)
+            && divisor != -1
+        {
+            if divisor == 0 {
+                return Vector::constant(signature.result.clone(), Value::Null, arguments.len());
+            }
+            let magnitude = divisor.unsigned_abs();
+            let remainder_mask = (signature.operator == Modulo && magnitude.is_power_of_two())
+                .then_some(magnitude - 1);
+            let apply = |value: &Value| match value {
+                Value::Null => None,
+                Value::Integer(value) => {
+                    let value = *value as i64;
+                    Some(if let Some(mask) = remainder_mask {
+                        // Remainder keeps the numerator's sign. Unsigned
+                        // magnitude also handles the signed minimum exactly.
+                        let remainder = (value.unsigned_abs() & mask) as i64;
+                        if value < 0 { -remainder } else { remainder }
+                    } else if signature.operator == Modulo {
+                        value % divisor
+                    } else {
+                        value / divisor
+                    })
+                }
+                _ => unreachable!("validated integer vector"),
+            };
+            let column = &arguments.columns()[0];
+            if let Some(flat) = column.flat_values() {
+                return narrow_column(&signature.result, flat.iter(), apply, query);
+            } else {
+                return narrow_column(&signature.result, column.values(), apply, query);
+            }
+        }
+        evaluate_operator_rows(self, signature, arguments, query)
+    }
     fn evaluate(
         &self,
         signature: &OperatorSignature,
@@ -96,6 +160,35 @@ impl OperatorFunction for NumericArithmetic {
             return Err(overflow());
         }
         Ok(value)
+    }
+}
+
+fn narrow_column<'a>(
+    data_type: &DataType,
+    values: impl Iterator<Item = &'a Value>,
+    apply: impl Fn(&Value) -> Option<i64>,
+    query: &QueryContext,
+) -> Result<crate::common::vector::Vector> {
+    use crate::common::vector::Vector;
+    let values = values.enumerate().map(|(index, value)| {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        Ok(apply(value))
+    });
+    if data_type == &DataType::BigInt {
+        Vector::try_bigints(values)
+    } else {
+        Vector::flat(
+            data_type.clone(),
+            values
+                .map(|value| {
+                    value.map(|value| {
+                        value.map_or(Value::Null, |value| Value::Integer(value as i128))
+                    })
+                })
+                .collect::<Result<_>>()?,
+        )
     }
 }
 

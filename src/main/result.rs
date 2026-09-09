@@ -3,7 +3,7 @@ use super::*;
 #[derive(Debug, Clone)]
 pub struct QueryResult {
     pub columns: Schema,
-    pub rows: Vec<Row>,
+    pub rows: RowCollection,
     pub affected_rows: usize,
 }
 
@@ -11,18 +11,8 @@ impl QueryResult {
     pub(super) fn command(count: usize) -> Self {
         Self {
             columns: Vec::new(),
-            rows: Vec::new(),
+            rows: RowCollection::new(0),
             affected_rows: count,
-        }
-    }
-}
-
-impl From<DataSet> for QueryResult {
-    fn from(data: DataSet) -> Self {
-        Self {
-            columns: data.schema,
-            rows: data.rows,
-            affected_rows: 0,
         }
     }
 }

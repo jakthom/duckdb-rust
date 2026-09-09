@@ -175,6 +175,16 @@ fn demand_short_circuit_effects_and_resource_limits_are_explicit() -> Result<()>
             100,
             "correlated rows retain distinct evaluations"
         );
+        connection.execute("CREATE TABLE outer_keys(k BIGINT); INSERT INTO outer_keys VALUES(0),(1),(2); CREATE TABLE inner_keys(k BIGINT); INSERT INTO inner_keys VALUES(0),(1),(2)")?;
+        assert_eq!(
+            connection.query("SELECT count(*) FROM outer_keys t WHERE EXISTS(SELECT 1 FROM inner_keys u WHERE u.k=count_calls(t.k))")?.rows,
+            vec![vec![Value::Integer(3)]]
+        );
+        assert_eq!(
+            calls.swap(0, Ordering::SeqCst),
+            if index == 0 { 6 } else { 9 },
+            "volatile captured keys retain dependent evaluation order and demand"
+        );
         let limited = DatabaseBuilder::new()
             .subqueries(subqueries)
             .batch_size(1)

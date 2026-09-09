@@ -32,7 +32,7 @@ impl Default for DatabaseBuilder {
             optimizer: Arc::new(PipelineOptimizer::default()),
             physical_planner: Arc::new(NativePhysicalPlanner::default()),
             executor: Arc::new(PullExecutor),
-            expressions: Arc::new(ScalarEvaluator),
+            expressions: Arc::new(BatchedEvaluator),
             subqueries: Arc::new(StreamingSubqueries),
             scheduler: Arc::new(InlineScheduler),
             functions: FunctionRegistry::builtins(),
