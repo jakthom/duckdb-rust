@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     common::{
-        DataType, Row, Value,
+        DataType, Error, Value,
         type_registry::{TypeRegistry, ascii},
     },
     execution::{
@@ -11,14 +11,14 @@ use crate::{
     },
     parallel::QueryContext,
     planner::{ExprKind, Field},
-    storage::{RowId, checkpoint::MemoryDurability},
+    storage::{checkpoint::MemoryDurability, scan::ScanBatch},
     transaction::{SnapshotTransactions, TransactionManager},
 };
 use std::sync::Arc;
 
-struct SuppliedRows(Option<Vec<(RowId, Row)>>);
+struct SuppliedRows(Option<ScanBatch>);
 impl TableScan for SuppliedRows {
-    fn next(&mut self, _: usize, _: &QueryContext) -> Result<Option<Vec<(RowId, Row)>>> {
+    fn next(&mut self, _: usize, _: &QueryContext) -> Result<Option<ScanBatch>> {
         Ok(self.0.take())
     }
 }
@@ -45,16 +45,22 @@ fn rejected_scan_rows_still_require_valid_width_physical_and_logical_types() -> 
         kind: ExprKind::Literal(Value::Boolean(false)),
         data_type: DataType::Boolean,
     };
-    for (data_type, row) in [
-        (DataType::Integer, vec![]),
-        (DataType::Integer, vec![Value::Varchar("bad".into())]),
+    for (data_type, supplied_types, row) in [
+        (DataType::Integer, vec![], vec![]),
+        (
+            DataType::Integer,
+            vec![DataType::Varchar],
+            vec![Value::Varchar("bad".into())],
+        ),
         (
             ascii.clone(),
+            vec![ascii.clone()],
             vec![Value::extension(ascii, b"too long".to_vec())],
         ),
     ] {
         let schema = vec![Field::new("v", data_type)];
-        let scan = Box::new(SuppliedRows(Some(vec![(0, row)])));
+        let batch = crate::common::vector::DataChunk::from_rows(&supplied_types, &[row])?;
+        let scan = Box::new(SuppliedRows(Some(ScanBatch::new(vec![0], batch)?)));
         let mut stream = filtered(scan, &schema, &predicate, &context)?;
         assert!(matches!(stream.next(1), Err(Error::Internal(_))));
         assert!(stream.next(1)?.is_none(), "failed cursor is terminal");

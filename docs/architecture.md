@@ -302,13 +302,25 @@ Physical operators open independent local streams. Each next call specifies a ma
 
 `NativePhysicalPlanner::with_scan_filters` selects `ScanFilterStrategy::Fused`
 (the default) or `Separate`, recorded in adapter metadata. Fusion applies only
-to a filter directly above a logical table scan. It reads through `TableScan`,
-validates every input row's width and physical/logical types before evaluating
-the batch's predicates, and constructs vectors only for selected rows. It
+to a filter directly above a logical table scan. `TableScan` delivers an owned
+`ScanBatch` of stable row identities and values. Single-row requests retain a
+row representation; bulk requests write columns directly from stored rows.
+Conversions occur when execution requests columns or collection requests rows.
+Fusion validates input schema and
+logical payloads before evaluating predicates; physical types are checked by
+vector construction. Selected columns retain the input storage. It
 retains the separate operators' input demand, ordering, cancellation and terminal
 errors; it does not prefetch beyond demand or require a concrete storage adapter.
-Other input shapes retain the ordinary filter operator. This avoids constructing
-chunks for each rejected row when LIMIT or EXISTS requests one row at a time.
+Other input shapes retain the ordinary filter operator.
+
+`AggregateState::update_batch` accepts argument columns with explicit cardinality,
+including zero-column input for count(*). The default adapter retains scalar
+update order; integer sum and count consume columns directly. A single global
+aggregate with literal/column arguments uses this contract. Other expressions,
+filters, DISTINCT and interleaved aggregates retain their row evaluation order.
+Failed states are discarded, and each adapter must preserve NULLs, overflow and
+cancellation. These changes address measured C++ regressions; acceptance still
+depends on the recorded comparisons.
 
 Aggregation consumes batches into group states. Sorting and joins still collect their inputs, and blocking operators expose that delivery mode in EXPLAIN. No spilling is implemented. The default pull executor drives chunks into an explicit result sink; the eager alternative collects before delivery. Ordinary query results use a collecting sink, while the batch API can consume more total rows than the intermediate row limit. A sink can finish early, releasing the cursor and retained state. The eager alternative can discover later errors before its first delivery.
 

@@ -5,7 +5,7 @@ mod scalar;
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
 use crate::{
-    common::{DataType, Error, Result, Value},
+    common::{DataType, Error, Result, Value, vector::DataChunk},
     parallel::QueryContext,
 };
 
@@ -38,8 +38,29 @@ pub trait ScalarFunction: Debug + Send + Sync {
 }
 
 pub trait AggregateState: Send {
+    /// Failed updates invalidate the state; callers must discard it.
     fn update(&mut self, arguments: &[Value], context: &QueryContext) -> Result<()>;
+    /// Consume argument columns in row order, including NULLs. Zero columns
+    /// retain cardinality for count(*). Adapters may process columns directly,
+    /// preserving scalar update results/errors and cooperative cancellation.
+    fn update_batch(&mut self, arguments: &DataChunk, context: &QueryContext) -> Result<()> {
+        update_aggregate_rows(self, arguments, context)
+    }
     fn finish(self: Box<Self>) -> Result<Value>;
+}
+
+pub(crate) fn update_aggregate_rows<S: AggregateState + ?Sized>(
+    state: &mut S,
+    arguments: &DataChunk,
+    context: &QueryContext,
+) -> Result<()> {
+    let mut row = Vec::with_capacity(arguments.columns().len());
+    for index in 0..arguments.len() {
+        context.check()?;
+        arguments.read_row(index, &mut row)?;
+        state.update(&row, context)?;
+    }
+    context.check()
 }
 
 pub trait AggregateFunction: Debug + Send + Sync {

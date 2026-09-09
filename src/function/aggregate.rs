@@ -70,6 +70,55 @@ struct State {
 }
 
 impl AggregateState for State {
+    fn update_batch(
+        &mut self,
+        arguments: &crate::common::vector::DataChunk,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<()> {
+        if !matches!(self.name, "count" | "sum") || arguments.columns().len() > 1 {
+            return super::update_aggregate_rows(self, arguments, context);
+        }
+        context.check()?;
+        let Some(column) = arguments.columns().first() else {
+            if self.name != "count" {
+                return super::update_aggregate_rows(self, arguments, context);
+            }
+            self.count = self
+                .count
+                .checked_add(arguments.len() as i128)
+                .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+            return Ok(());
+        };
+        if self.name == "sum" && self.data_type != DataType::HugeInt {
+            return super::update_aggregate_rows(self, arguments, context);
+        }
+        let mut sum = if self.value.is_null() {
+            0
+        } else {
+            self.value.as_i128()?
+        };
+        for (index, value) in column.values().enumerate() {
+            if index % 1024 == 0 {
+                context.check()?;
+            }
+            if value.is_null() {
+                continue;
+            }
+            self.count = self
+                .count
+                .checked_add(1)
+                .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+            if self.name == "sum" {
+                sum = sum
+                    .checked_add(value.as_i128()?)
+                    .ok_or_else(|| Error::Execution("sum overflow".into()))?;
+            }
+        }
+        if self.name == "sum" && self.count != 0 {
+            self.value = Value::Integer(sum);
+        }
+        context.check()
+    }
     fn update(&mut self, args: &[Value], context: &crate::parallel::QueryContext) -> Result<()> {
         let value = args.first().cloned().unwrap_or(Value::Integer(1));
         if self.name == "first" {

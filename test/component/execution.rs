@@ -18,6 +18,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+#[path = "execution/batches.rs"]
+mod batches;
+
 fn ints(values: &[i128]) -> Row {
     values.iter().copied().map(Value::Integer).collect()
 }
@@ -361,12 +364,19 @@ fn evaluation_failure_never_reports_a_partial_result_as_success() -> Result<()> 
 
 struct InvalidScan(usize);
 impl duckdb_rust::storage::scan::TableScan for InvalidScan {
-    fn next(&mut self, _: usize, _: &QueryContext) -> Result<Option<Vec<(u64, Row)>>> {
-        Ok(Some(
-            (0..self.0)
-                .map(|id| (id as u64, ints(&[id as i128])))
-                .collect(),
-        ))
+    fn next(
+        &mut self,
+        _: usize,
+        _: &QueryContext,
+    ) -> Result<Option<duckdb_rust::storage::scan::ScanBatch>> {
+        let rows = (0..self.0)
+            .map(|id| ints(&[id as i128]))
+            .collect::<Vec<_>>();
+        duckdb_rust::storage::scan::ScanBatch::new(
+            (0..self.0 as u64).collect(),
+            DataChunk::from_rows(&[DataType::BigInt], &rows)?,
+        )
+        .map(Some)
     }
 }
 

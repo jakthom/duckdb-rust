@@ -71,7 +71,7 @@ pub fn run(rows: usize, iterations: usize) -> Result<serde_json::Value> {
     // Fixed before measurement: the word implementation may regress at most
     // 25% against the scalar median in any covered case. This narrow selection
     // budget does not establish engine or end-to-end file performance parity.
-    let budget = 1.25;
+    let budget = 1.0;
     for (mode, width, size) in [
         (2, 0, 8),
         (3, 0, 8),

@@ -2,9 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use super::super::{ExecutionContext, stream::BatchStream};
 use crate::{
-    common::{Result, Row},
+    common::{
+        Error, Result, Row,
+        vector::{DataChunk, Vector},
+    },
     function::AggregateState,
-    planner::{BoundExpr, logical::AggregateExpr},
+    planner::{BoundExpr, ExprKind, logical::AggregateExpr},
 };
 
 struct Group {
@@ -45,6 +48,19 @@ pub fn aggregate(
     aggregates: &[AggregateExpr],
     context: &ExecutionContext<'_>,
 ) -> Result<Vec<Row>> {
+    // A single aggregate over value access can consume columns without changing
+    // the order of effectful expressions or interleaved aggregate updates.
+    if groups.is_empty()
+        && let [aggregate] = aggregates
+        && !aggregate.distinct
+        && aggregate.filter.is_none()
+        && aggregate
+            .arguments
+            .iter()
+            .all(|argument| matches!(argument.kind, ExprKind::Column(_) | ExprKind::Literal(_)))
+    {
+        return ungrouped(input, aggregate, context);
+    }
     let group_types = groups
         .iter()
         .map(|g| context.query.types().bind(&g.data_type))
@@ -140,4 +156,41 @@ pub fn aggregate(
             Ok(row)
         })
         .collect()
+}
+
+fn ungrouped(
+    input: &mut dyn BatchStream,
+    aggregate: &AggregateExpr,
+    context: &ExecutionContext<'_>,
+) -> Result<Vec<Row>> {
+    let types = aggregate
+        .arguments
+        .iter()
+        .map(|argument| argument.data_type.clone())
+        .collect::<Vec<_>>();
+    let mut state = aggregate
+        .function
+        .create_state(&types, context.query.types())?;
+    while let Some(batch) = input.next(context.query.batch_size())? {
+        let columns = aggregate
+            .arguments
+            .iter()
+            .map(|argument| match &argument.kind {
+                ExprKind::Column(index) => batch
+                    .columns()
+                    .get(*index)
+                    .cloned()
+                    .ok_or_else(|| Error::Internal("aggregate column outside input".into())),
+                ExprKind::Literal(value) => {
+                    Vector::constant(argument.data_type.clone(), value.clone(), batch.len())
+                }
+                _ => Err(Error::Internal(
+                    "aggregate argument requires row evaluation".into(),
+                )),
+            })
+            .collect::<Result<_>>()?;
+        state.update_batch(&DataChunk::new(columns, batch.len())?, context.query)?;
+        context.query.check()?;
+    }
+    Ok(vec![vec![state.finish()?]])
 }

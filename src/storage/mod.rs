@@ -40,7 +40,7 @@ pub trait TableStorage: Send {
         let mut rows = Vec::new();
         while let Some(batch) = scan::next_batch(scan.as_mut(), context.batch_size(), context)? {
             context.check_rows(rows.len().saturating_add(batch.len()))?;
-            rows.extend(batch);
+            rows.extend(batch.rows());
         }
         Ok(rows)
     }

@@ -1,7 +1,7 @@
-//! Filter owned storage rows before constructing output vectors. This retains
-//! the unfused scan's demand and validation without chunks for rejected rows.
+//! Validate storage columns before filtering. Selected columns retain their
+//! input ownership, without copying accepted rows into new vectors.
 use crate::{
-    common::{Error, Result, type_registry::BoundType},
+    common::{Result, type_registry::BoundType},
     execution::{
         ExecutionContext,
         stream::{self, Stream},
@@ -20,38 +20,26 @@ pub(crate) fn filtered<'a>(
     predicate: &'a BoundExpr,
     context: &'a ExecutionContext<'a>,
 ) -> Result<Stream<'a>> {
-    let types = schema
+    let validators = schema
         .iter()
         .map(|field| context.query.types().bind(&field.data_type))
         .collect::<Result<Vec<BoundType>>>()?;
     let predicate = PreparedExpression::new(predicate);
+    let mut row = Vec::new();
     Ok(stream::from_fn(move |max_rows| {
-        while let Some(rows) = next_batch(scan.as_mut(), max_rows, context.query)? {
+        while let Some(batch) = next_batch(scan.as_mut(), max_rows, context.query)? {
             // Validate the entire input batch before evaluating its predicate,
             // including rows the filter will reject.
-            for (_, row) in &rows {
-                if row.len() != types.len() {
-                    return Err(Error::Internal("row width differs from schema".into()));
-                }
-                for (value, data_type) in row.iter().zip(&types) {
-                    data_type
-                        .validate(value, context.query)
-                        .map_err(|error| match error {
-                            Error::Conversion(_) => {
-                                Error::Internal("table scan returned an invalid value".into())
-                            }
-                            other => other,
-                        })?;
-                }
-            }
+            batch.validate(&validators, context.query)?;
             let mut selected = Vec::new();
-            for (_, row) in rows {
-                if predicate.evaluate(&row, context)?.as_bool()? == Some(true) {
-                    selected.push(row);
+            for index in 0..batch.len() {
+                let input = batch.read_row(index, &mut row)?;
+                if predicate.evaluate(input, context)?.as_bool()? == Some(true) {
+                    selected.push(index);
                 }
             }
             if !selected.is_empty() {
-                return stream::chunk(schema, &selected);
+                return batch.select(&selected).map(Some);
             }
         }
         Ok(None)

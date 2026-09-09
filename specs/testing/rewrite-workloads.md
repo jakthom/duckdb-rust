@@ -37,6 +37,11 @@ Record implementation revisions, adapter versions and configuration, hardware, d
 
 Report setup, planning, execution, conversion, and commit costs separately as well as end-to-end. Record samples and variability, errors and aborts, and correctness outcomes rather than reporting only the best throughput. Separate architectural dispatch/composition overhead from differences in algorithms or physical layouts.
 
-Set workload-specific performance targets and OLAP regression budgets before promotion; this specification deliberately invents no universal threshold. Preserve equivalent semantics and comparable configurations when comparing results. Label external data generators and benchmark suites with their actual prerequisites and any deviations; benchmark names alone do not establish conformance.
+The accepted [test and performance parity requirement](parity.md) sets a maximum
+cost/latency ratio of 1.0 against the pinned C++ implementation, with no throughput
+decrease, for every comparable workload. This supersedes previous 1.25 allowances
+and Rust-to-Rust promotion baselines. Preserve equivalent semantics and comparable
+configurations. Label external generators and suites with their prerequisites
+and deviations; benchmark names alone do not establish conformance.
 
 Promote a workload claim only when the required adapters exist, the applicable correctness and failure tests pass, and measurements meet its stated targets. Until then, describe it as an architectural capability under development, not production support.

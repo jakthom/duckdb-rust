@@ -269,15 +269,12 @@ impl PhysicalOperator for Operator {
             Node::Scan(table) => {
                 let mut scan = context.transaction.storage().open_scan(table)?;
                 stream::from_fn(move |max_rows| {
-                    let Some(rows) =
+                    let Some(batch) =
                         crate::storage::scan::next_batch(scan.as_mut(), max_rows, context.query)?
                     else {
                         return Ok(None);
                     };
-                    stream::chunk(
-                        schema,
-                        &rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>(),
-                    )
+                    batch.into_data().map(Some)
                 })
             }
             Node::FilteredScan(table, predicate) => super::operator::scan::filtered(

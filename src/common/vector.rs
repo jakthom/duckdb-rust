@@ -142,4 +142,19 @@ impl DataChunk {
                 .collect()
         })
     }
+    /// Replace a reusable row buffer without allocating a new row for each
+    /// evaluation. An invalid index leaves the supplied buffer unchanged.
+    pub fn read_row(&self, index: usize, row: &mut Row) -> Result<()> {
+        if index >= self.count {
+            return Err(Error::Internal("chunk row index out of bounds".into()));
+        }
+        row.clear();
+        row.extend(self.columns.iter().map(|column| {
+            column
+                .get(index)
+                .expect("validated chunk cardinality")
+                .clone()
+        }));
+        Ok(())
+    }
 }

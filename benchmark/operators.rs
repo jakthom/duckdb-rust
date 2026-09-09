@@ -131,11 +131,11 @@ pub fn run(rows: usize, iterations: usize, batch_size: usize) -> Result<serde_js
         };
         let ratio = median(&mut elapsed[1]) / median(&mut elapsed[0]);
         comparisons.push(
-            json!({"workload":workload,"greedy_over_dynamic_median":ratio,"passed":ratio<=1.25}),
+            json!({"workload":workload,"greedy_over_dynamic_median":ratio,"passed":ratio<=1.0}),
         );
     }
     let passed = comparisons.iter().all(|c| c["passed"] == true);
     Ok(
-        json!({"suite":"operators","rows":rows,"iterations":iterations,"batch_size":batch_size,"warmups":3,"order":"alternating adapters each iteration","results":results,"correctness":"passed","selection_budget":{"max_ratio":1.25,"comparisons":comparisons,"passed":passed}}),
+        json!({"suite":"operators","rows":rows,"iterations":iterations,"batch_size":batch_size,"warmups":3,"order":"alternating adapters each iteration","results":results,"correctness":"passed","selection_budget":{"max_ratio":1.0,"comparisons":comparisons,"passed":passed}}),
     )
 }

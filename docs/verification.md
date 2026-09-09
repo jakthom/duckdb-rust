@@ -1,5 +1,11 @@
 # Verification scope
 
+**Current acceptance is full C++ test parity and zero performance regressions
+against C++ DuckDB. Neither is achieved.** See [the parity report](testing-parity.md)
+and [the accepted requirement](../specs/testing/parity.md). The 1.25 budgets and
+previously accepted measurements below are historical; they do not satisfy the
+current requirement. Their original results and provenance remain unchanged.
+
 The checks here concern this Rust implementation. The source-system testing specifications describe a much larger suite and are not a report of tests passed by the rewrite.
 
 ## Automated checks

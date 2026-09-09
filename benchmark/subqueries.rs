@@ -89,10 +89,10 @@ pub fn run(rows: usize, iterations: usize, batch_size: usize) -> Result<serde_js
             results.push(json!({"workload":workload,"sql":sql,"adapters":databases[index].adapters(),"samples":samples[index],"median_ns":medians[index]}));
         }
         let ratio = medians[0] as f64 / medians[1] as f64;
-        comparisons.push(json!({"workload":workload,"streaming_over_materializing_median":ratio,"passed":ratio<=1.25}));
+        comparisons.push(json!({"workload":workload,"streaming_over_materializing_median":ratio,"passed":ratio<=1.0}));
     }
     let passed = comparisons.iter().all(|c| c["passed"] == true);
     Ok(
-        json!({"suite":"subqueries","rows":rows,"inner_rows":65,"iterations":iterations,"warmups":3,"batch_size":batch_size,"max_intermediate_rows":10000000,"order":"alternating adapters by sample","correctness":"passed","results":results,"selection_budget":{"max_ratio":1.25,"passed":passed,"comparisons":comparisons}}),
+        json!({"suite":"subqueries","rows":rows,"inner_rows":65,"iterations":iterations,"warmups":3,"batch_size":batch_size,"max_intermediate_rows":10000000,"order":"alternating adapters by sample","correctness":"passed","results":results,"selection_budget":{"max_ratio":1.0,"passed":passed,"comparisons":comparisons}}),
     )
 }

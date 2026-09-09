@@ -35,11 +35,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("baseline", type=Path)
     parser.add_argument("current", type=Path)
-    parser.add_argument("--max-ratio", type=float, default=1.25)
+    parser.add_argument("--max-ratio", type=float, default=1.0)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
-    if not 0 < args.max_ratio < float("inf"):
-        raise ValueError("the regression limit must be positive and finite")
+    if not 0 < args.max_ratio <= 1.0:
+        raise ValueError("the regression limit must be positive and cannot permit a slowdown")
     baseline, baseline_hash = read(args.baseline)
     current, current_hash = read(args.current)
     for field in ["suite", "rows", "iterations", "batch_size", "warmups", "max_intermediate_rows", "rustc", "platform"]:

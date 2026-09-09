@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE t AS SELECT i FROM range(50000) t(i); CREATE TABLE keyed(i BIGINT PRIMARY KEY); INSERT INTO keyed SELECT i FROM range(50000) t(i); CREATE TABLE u AS SELECT i FROM range(32) u(i)",
+  "workloads": [
+    {"name":"scan","sql":"SELECT i FROM t","rows":50000,"sum":"1249975000"},
+    {"name":"filter","sql":"SELECT i FROM t WHERE i%2=0","rows":25000,"sum":"624975000"},
+    {"name":"aggregate","sql":"SELECT sum(i) FROM t","rows":1,"sum":"1249975000"},
+    {"name":"point","sql":"SELECT i FROM keyed WHERE i=25000","rows":1,"sum":"25000"},
+    {"name":"limit","sql":"SELECT i FROM t LIMIT 256","rows":256,"sum":"32640"},
+    {"name":"correlated_exists","sql":"SELECT count(*) FROM t WHERE EXISTS(SELECT 1 FROM u WHERE u.i=t.i%64)","rows":1,"sum":"25008"}
+  ]
+}

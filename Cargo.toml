@@ -20,6 +20,14 @@ path = "test/runner/main.rs"
 name = "duckdb-rust-benchmark"
 path = "benchmark/main.rs"
 
+[[bin]]
+name = "duckdb-rust-measure"
+path = "benchmark/native.rs"
+
+[[bin]]
+name = "duckdb-rust-test-worker"
+path = "test/runner/worker.rs"
+
 [[test]]
 name = "contracts"
 path = "test/contracts.rs"
@@ -83,6 +91,10 @@ path = "test/component/checkpointing.rs"
 [[test]]
 name = "subqueries"
 path = "test/component/subqueries.rs"
+
+[[test]]
+name = "adversarial"
+path = "test/component/adversarial.rs"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive", "rc"] }

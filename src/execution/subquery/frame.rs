@@ -9,18 +9,39 @@ use crate::{
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 
 struct Binding {
-    _query: Arc<BoundSubquery>,
+    query: Arc<BoundSubquery>,
     value: Value,
+}
+#[derive(Default)]
+struct Bindings {
+    first: Option<Binding>,
+    others: BTreeMap<usize, Binding>,
+}
+impl Bindings {
+    fn get(&self, key: usize) -> Option<Value> {
+        self.first
+            .as_ref()
+            .filter(|binding| Arc::as_ptr(&binding.query) as usize == key)
+            .or_else(|| self.others.get(&key))
+            .map(|binding| binding.value.clone())
+    }
+    fn insert(&mut self, key: usize, binding: Binding) {
+        if self.first.is_none() {
+            self.first = Some(binding);
+        } else {
+            self.others.insert(key, binding);
+        }
+    }
 }
 pub(super) struct Frame<'a, 'b> {
     context: &'a ExecutionContext<'b>,
-    bindings: RefCell<BTreeMap<usize, Binding>>,
+    bindings: RefCell<Bindings>,
 }
 impl<'a, 'b> Frame<'a, 'b> {
     pub(super) fn new(context: &'a ExecutionContext<'b>) -> Self {
         Self {
             context,
-            bindings: RefCell::new(BTreeMap::new()),
+            bindings: RefCell::new(Bindings::default()),
         }
     }
 }
@@ -32,10 +53,7 @@ impl EvaluationContext for Frame<'_, '_> {
         self.context.outer_column(depth, column)
     }
     fn prepared_subquery(&self, query: &Arc<BoundSubquery>) -> Option<Value> {
-        self.bindings
-            .borrow()
-            .get(&(Arc::as_ptr(query) as usize))
-            .map(|binding| binding.value.clone())
+        self.bindings.borrow().get(Arc::as_ptr(query) as usize)
     }
     fn subquery(
         &self,
@@ -44,14 +62,14 @@ impl EvaluationContext for Frame<'_, '_> {
         row: &Row,
     ) -> Result<Value> {
         let key = Arc::as_ptr(query) as usize;
-        if let Some(binding) = self.bindings.borrow().get(&key) {
-            return Ok(binding.value.clone());
+        if let Some(value) = self.bindings.borrow().get(key) {
+            return Ok(value);
         }
         let value = self.context.subquery(query, request, row)?;
         self.bindings.borrow_mut().insert(
             key,
             Binding {
-                _query: query.clone(),
+                query: query.clone(),
                 value: value.clone(),
             },
         );

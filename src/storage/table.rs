@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 mod layout;
@@ -45,6 +45,9 @@ impl Snapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TableData {
     definition: TableDefinition,
+    // Table definitions are immutable. Share derived scan metadata across cursors.
+    #[serde(skip)]
+    scan_types: OnceLock<Arc<[crate::DataType]>>,
     rows: BTreeMap<RowId, Row>,
     next_id: RowId,
     #[serde(skip)]
@@ -268,6 +271,7 @@ impl CatalogMut for Snapshot {
         }
         validate_definition(&definition, &self.types)?;
         let mut table = TableData {
+            scan_types: OnceLock::new(),
             definition,
             rows: BTreeMap::new(),
             next_id: 0,
@@ -379,8 +383,20 @@ impl TableStorage for Snapshot {
             .collect())
     }
     fn open_scan(&self, table: &TableName) -> Result<Box<dyn super::scan::TableScan + '_>> {
+        let table = self.get(table)?;
         Ok(Box::new(super::scan::SnapshotScan {
-            rows: self.get(table)?.rows.iter(),
+            rows: table.rows.iter(),
+            types: table
+                .scan_types
+                .get_or_init(|| {
+                    table
+                        .definition
+                        .columns
+                        .iter()
+                        .map(|column| column.data_type.clone())
+                        .collect()
+                })
+                .clone(),
             finished: false,
         }))
     }

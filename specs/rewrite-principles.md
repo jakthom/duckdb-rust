@@ -53,6 +53,12 @@ Prefer the smallest structural changes that establish real seams, preserve usefu
 
 Keep the default analytical path efficient through suitable composition and dispatch choices. Establish measured overhead and regression budgets before accepting structural changes. No particular dispatch mechanism, zero-overhead claim, latency target, or production-readiness claim is settled by this principle.
 
+The user subsequently set the [acceptance requirement](testing/parity.md) to
+zero performance regressions against the C++ implementation and complete DuckDB
+test parity. Earlier measured 1.25 allowances are historical evidence, not active
+acceptance criteria. Work on performance should address regressions, without
+expanding into unrelated performance improvements.
+
 ### Interfaces are full contracts
 
 Each interface must specify the types and semantic invariants callers rely on, ownership and lifetimes, error behavior, concurrency and ordering, cancellation, resource accounting, configuration, and supported capabilities. Applicable contracts must also cover transaction visibility, durability, effects, serialization, and compatibility/version negotiation.
