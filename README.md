@@ -12,7 +12,7 @@ I'm experimenting. Playing. Having fun with databases, code, and science. Harnes
 
 - **Zero performance regressions:** 'nuff said. DuckDB is ridiculously fast and good. Why spend time making something worse in another language? Making things faster is a different story...
 - **DuckDB compatibility:** preserve DuckDB behavior and compatibility with its extension ecosystem as internals evolve.
-- **Spec-first:** design, arhitecture, contrats, and verification requirements were generated and thoroughly reviewed prior to any code being written.
+- **Spec-first:** design, architecture, contracts, testing, performance, and verification requirements were generated and thoroughly reviewed prior to any code being written.
 - **Pluggability:** Certain internals will shuffle behind explicit contracts, not just extension hooks. So the guts of the machine can be hot-swapped - not just the interfaces (via extensions).
 - **Measure. Experiment. Learn. Improve. Measure again...** because it's the way humanity advances.
 - **Open interop** with clean interfaces to file formats, storage engines, extensions, and other databases.
