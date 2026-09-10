@@ -42,6 +42,8 @@ impl AggregateFunction for Builtin {
             "sum" | "avg" if args[0].is_numeric() || args[0] == DataType::Null => {
                 Ok(if self.0 == "avg" || args[0].is_floating() {
                     DataType::Double
+                } else if args[0] == DataType::Bignum {
+                    DataType::Bignum
                 } else if let DataType::Decimal { scale, .. } = args[0] {
                     DataType::Decimal { width: 38, scale }
                 } else if args[0] == DataType::UHugeInt {
@@ -62,6 +64,9 @@ impl AggregateFunction for Builtin {
         args: &[DataType],
         types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Box<dyn AggregateState>> {
+        if self.0 == "sum" && args == [DataType::Bignum] {
+            return Ok(Box::new(super::bignum::BignumSum::default()));
+        }
         Ok(Box::new(State {
             name: self.0,
             data_type: self.return_type(args, types)?,
@@ -166,7 +171,10 @@ impl AggregateState for State {
             "count" => {}
             "sum" | "avg" => {
                 let value = if self.data_type == DataType::Double {
-                    Value::Double(value.as_f64()?)
+                    Value::Double(match &value {
+                        Value::Bignum(value) => value.to_f64(|| context.check())?,
+                        _ => value.as_f64()?,
+                    })
                 } else if let DataType::Decimal { width, scale } = self.data_type {
                     let Value::Decimal { value, .. } = value else {
                         return Err(Error::Internal("decimal aggregate argument".into()));

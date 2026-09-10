@@ -249,6 +249,7 @@ impl OperatorRegistry {
         temporal::register(&mut registry);
         string::register(&mut registry);
         super::binary_scalar::register_operators(&mut registry);
+        super::bignum::register_operators(&mut registry);
         registry
             .register_family("decimal", Arc::new(decimal::DecimalArithmetic))
             .expect("unique decimal operator family");

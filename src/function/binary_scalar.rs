@@ -20,6 +20,8 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "octet_length",
         "hex",
         "to_hex",
+        "bin",
+        "to_binary",
         "unhex",
         "from_hex",
     ] {
@@ -39,8 +41,10 @@ impl ScalarFunction for BinaryFunction {
         arguments: &[DataType],
         _: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Vec<DataType>> {
-        if matches!(self.0, "encode" | "unhex" | "from_hex" | "hex" | "to_hex")
-            && arguments.len() == 1
+        if matches!(
+            self.0,
+            "encode" | "unhex" | "from_hex" | "hex" | "to_hex" | "bin" | "to_binary"
+        ) && arguments.len() == 1
             && matches!(arguments[0], DataType::Enum(_))
         {
             return Ok(vec![DataType::Varchar]);
@@ -53,7 +57,7 @@ impl ScalarFunction for BinaryFunction {
         query: &QueryContext,
     ) -> Result<Option<Arc<dyn ScalarFunction>>> {
         query.check()?;
-        if arguments.len() == 1 && matches!(self.0, "hex" | "to_hex") {
+        if arguments.len() == 1 && matches!(self.0, "hex" | "to_hex" | "bin" | "to_binary") {
             return Ok(Some(Arc::new(Self(self.0, Some(arguments.data_type(0)?)))));
         }
         Ok(None)
@@ -74,7 +78,12 @@ impl ScalarFunction for BinaryFunction {
                 DataType::BigInt,
             ),
             "hex" | "to_hex" => (
-                matches!(input, DataType::Varchar | DataType::Blob) || input.is_integer(),
+                matches!(input, DataType::Varchar | DataType::Blob | DataType::Bignum)
+                    || input.is_integer(),
+                DataType::Varchar,
+            ),
+            "bin" | "to_binary" => (
+                matches!(input, DataType::Varchar | DataType::Bignum) || input.is_integer(),
                 DataType::Varchar,
             ),
             _ => return Err(Error::Internal("unknown binary scalar function".into())),
@@ -105,6 +114,25 @@ impl ScalarFunction for BinaryFunction {
             ("octet_length", Value::Blob(bytes)) => Ok(Value::Integer(bytes.len() as i128)),
             ("octet_length", Value::Bit(bits)) => Ok(Value::Integer(bits.bytes().len() as i128)),
             ("hex" | "to_hex", Value::Blob(bytes)) => encode_hex(bytes, query).map(Value::Varchar),
+            ("hex" | "to_hex", Value::Bignum(value)) => {
+                encode_hex(&value.to_native(|| query.check())?, query).map(Value::Varchar)
+            }
+            ("bin" | "to_binary", Value::Bignum(value)) => {
+                encode_binary(&value.to_native(|| query.check())?, query).map(Value::Varchar)
+            }
+            ("bin" | "to_binary", Value::Varchar(value)) => {
+                encode_binary(value.as_bytes(), query).map(Value::Varchar)
+            }
+            ("bin" | "to_binary", Value::Integer(value)) => Ok(Value::Varchar(
+                if *value < 0 && self.1 != Some(DataType::HugeInt) {
+                    format!("{:b}", *value as u64)
+                } else {
+                    format!("{value:b}")
+                },
+            )),
+            ("bin" | "to_binary", Value::Unsigned(value)) => {
+                Ok(Value::Varchar(format!("{value:b}")))
+            }
             ("hex" | "to_hex", Value::Varchar(text)) => {
                 encode_hex(text.as_bytes(), query).map(Value::Varchar)
             }
@@ -146,6 +174,27 @@ fn encode_hex(bytes: &[u8], query: &QueryContext) -> Result<String> {
         result.push(char::from(digits[usize::from(byte & 15)]));
     }
     Ok(result)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn encode_binary(bytes: &[u8], query: &QueryContext) -> Result<String> {
+    let mut text = String::new();
+    text.try_reserve_exact(
+        bytes
+            .len()
+            .checked_mul(8)
+            .ok_or_else(|| Error::Resource("binary text length overflow".into()))?,
+    )
+    .map_err(|_| Error::Resource("cannot allocate binary text".into()))?;
+    for (index, byte) in bytes.iter().enumerate() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        for bit in (0..8).rev() {
+            text.push(if byte & (1 << bit) == 0 { '0' } else { '1' });
+        }
+    }
+    Ok(text)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

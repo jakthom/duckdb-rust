@@ -260,3 +260,110 @@ fn bignum_casts_parameters_comparisons_keys_and_native_mutations_reopen() -> Res
     );
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn exact_bignum_operators_functions_grouping_and_windows_retain_bound_types() -> Result<()> {
+    use duckdb_rust::common::vector::DataChunk;
+    use duckdb_rust::function::operator::{Operator, OperatorRegistry};
+    let query = QueryContext::background();
+    let types = builtin_types();
+    let operators = OperatorRegistry::builtins();
+    let large = "340282366920938463463374607431768211456";
+    for operator in [Operator::Add, Operator::Subtract, Operator::Negate] {
+        let operation =
+            operators.bind(operator, &vec![DataType::Bignum; operator.arity()], &types)?;
+        let flat = Vector::flat(
+            DataType::Bignum,
+            vec![number(large), number("-1"), Value::Null, number("0")],
+        )?;
+        for vector in [
+            flat.clone(),
+            Arc::new(flat).select(vec![3, 0, 1, 0, 2])?,
+            Vector::constant(DataType::Bignum, number(large), 33)?,
+        ] {
+            let chunk = DataChunk::new(vec![vector.clone(); operator.arity()], vector.len())?;
+            assert_eq!(
+                operation
+                    .apply_batch(&chunk, &query)?
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                vector
+                    .values()
+                    .map(|value| operation.apply(&vec![value.clone(); operator.arity()], &query))
+                    .collect::<Result<Vec<_>>>()?
+            );
+        }
+    }
+    for expressions in [
+        Arc::new(duckdb_rust::execution::expression_executor::ScalarEvaluator)
+            as Arc<dyn duckdb_rust::execution::expression_executor::ExpressionEvaluator>,
+        Arc::new(duckdb_rust::execution::expression_executor::BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(duckdb_rust::optimizer::IdentityOptimizer)
+                as Arc<dyn duckdb_rust::optimizer::Optimizer>,
+            Arc::new(duckdb_rust::optimizer::PipelineOptimizer::default()),
+        ] {
+            let mut c = DatabaseBuilder::new()
+                .expressions(expressions.clone())
+                .optimizer(optimizer)
+                .batch_size(2)
+                .build()?
+                .connect();
+            assert_eq!(c.query("SELECT '340282366920938463463374607431768211455'::BIGNUM+1,1::BIGNUM+1.5::FLOAT,1::BIGNUM+1.5::DOUBLE,1::BIGNUM+1.5::DECIMAL(3,1),typeof(+(1::BIGNUM)),typeof(-(1::BIGNUM)),typeof(1::BIGNUM*2::BIGNUM),typeof(abs(1::BIGNUM)),typeof(round(1::BIGNUM)),typeof(trunc(1::BIGNUM)),sqrt(4::BIGNUM)")?.rows,
+                vec![vec![number(large),number("2"),Value::Double(2.5),Value::Double(2.5),Value::Varchar("DOUBLE".into()),Value::Varchar("BIGNUM".into()),Value::Varchar("DOUBLE".into()),Value::Varchar("DOUBLE".into()),Value::Varchar("DOUBLE".into()),Value::Varchar("DOUBLE".into()),Value::Double(2.0)]]);
+            assert_eq!(c.query("SELECT hex(1::BIGNUM),to_hex(-256::BIGNUM),bin(-1::BIGNUM),to_binary(1::BIGNUM),bin('a'),bin(-1::TINYINT),bin('340282366920938463463374607431768211455'::UHUGEINT)")?.rows,
+                vec![vec![Value::Varchar("80000101".into()),Value::Varchar("7FFFFDFEFF".into()),Value::Varchar("01111111111111111111111011111110".into()),Value::Varchar("10000000000000000000000100000001".into()),Value::Varchar("01100001".into()),Value::Varchar("1".repeat(64)),Value::Varchar("1".repeat(128))]]);
+            assert!(matches!(
+                c.query("SELECT coalesce(1::BIGNUM,1.5::DECIMAL(3,1))"),
+                Err(Error::Bind(_))
+            ));
+            assert!(matches!(
+                c.query("SELECT 1::BIGNUM=1.5::DECIMAL(3,1)"),
+                Err(Error::Conversion(_))
+            ));
+            c.execute("CREATE TABLE b(k INTEGER PRIMARY KEY,g INTEGER,v BIGNUM); INSERT INTO b VALUES (1,0,'340282366920938463463374607431768211456'),(2,0,1),(3,0,-1),(4,1,(-0.5::DOUBLE)::BIGNUM),(5,1,NULL)")?;
+            assert_eq!(
+                c.query(
+                    "SELECT g,sum(v),typeof(sum(v)),count(DISTINCT v) FROM b GROUP BY g ORDER BY g"
+                )?
+                .rows,
+                vec![
+                    vec![
+                        Value::Integer(0),
+                        number(large),
+                        Value::Varchar("BIGNUM".into()),
+                        Value::Integer(3)
+                    ],
+                    vec![
+                        Value::Integer(1),
+                        number("0"),
+                        Value::Varchar("BIGNUM".into()),
+                        Value::Integer(1)
+                    ]
+                ]
+            );
+            assert_eq!(c.query("SELECT sum(v) OVER(PARTITION BY g ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM b ORDER BY k")?.rows,
+                vec![vec![number(large)],vec![number("340282366920938463463374607431768211457")],vec![number("0")],vec![number("0")],vec![number("0")]]);
+            assert_eq!(c.query("SELECT sum(DISTINCT v) OVER(PARTITION BY g ORDER BY k ROWS UNBOUNDED PRECEDING) FROM b ORDER BY k")?.rows,
+                vec![vec![number(large)],vec![number("340282366920938463463374607431768211457")],vec![number(large)],vec![number("0")],vec![number("0")]]);
+            assert_eq!(
+                c.query("SELECT sum(v),sum(DISTINCT v),avg(v) FROM b WHERE false")?
+                    .rows,
+                vec![vec![Value::Null; 3]]
+            );
+            assert_eq!(
+                c.execute_params("SELECT $1+$2", &[number(large), number("1")])?[0].rows,
+                vec![vec![number("340282366920938463463374607431768211457")]]
+            );
+            c.execute("BEGIN; UPDATE b SET v=v+1; ROLLBACK; UPDATE b SET v=v-1 WHERE k=1")?;
+            assert_eq!(
+                c.query("SELECT v FROM b WHERE k=1")?.rows,
+                vec![vec![number("340282366920938463463374607431768211455")]]
+            );
+        }
+    }
+    Ok(())
+}

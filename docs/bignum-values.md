@@ -61,8 +61,27 @@ compression (16) and nested (17). Coverage reports 278 files, 2,452 functions,
 207 interface methods and no missing instrumentation. Exhaustive tracing
 compilation passes and removes its temporary telemetry.
 
-SQL exact arithmetic/SUM/window registration, remaining scalar functions,
-independent paired compatibility campaigns, mixed-family VARIANT/UNION support,
+The next integrable increment registers exact symbolic addition, subtraction,
+negation and SUM, including DISTINCT, empty inputs and window frames. The
+cumulative window shortcut previously instantiated a fixed-width aggregate
+state directly; the BIGNUM adapter now declines that shortcut and uses its
+selected exact limb state. A sole negative-zero input sums to positive zero,
+matching the independent development witness. BIGNUM multiplication/division,
+unary plus and existing numeric scalar functions retain selected DOUBLE
+overloads; mixed FLOAT addition remains BIGNUM while DOUBLE/DECIMAL addition
+is DOUBLE. Binary functions expose the native header/complement bytes, as in
+development, not a mathematical base conversion of the magnitude.
+
+Three component tests now cover these SQL/operator/group/window paths,
+scalar/batched evaluation, both optimizers, typed prepared arithmetic and
+rollback of exact updates. BIGNUM (3), numeric (27), operators (10), grouping
+(9), BIT (7) and binary scalar (4) suites pass, as do ordinary workspace check
+and clippy. A new paired BIGNUM campaign script is prepared but has not yet
+been run; independent native interchange is still an explicit outstanding
+validation step, and no performance or substantial-stage completion is claimed.
+
+Remaining scalar functions, independent paired compatibility campaigns,
+mixed-family VARIANT/UNION support,
 broader upstream mappings, diagnostics and controlled faster-reference performance
 are continuing work. The lead runs and investigates the maintained Kani suite
 on integrated checkpoints before declaring the substantial stage complete;

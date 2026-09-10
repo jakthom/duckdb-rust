@@ -8,6 +8,12 @@ pub(super) fn evaluate(
     input: &WindowInput<'_>,
     query: &QueryContext,
 ) -> Result<Option<Vec<Value>>> {
+    // The cumulative shortcut below owns a fixed-width State snapshot. BIGNUM
+    // SUM has its own selected limb state, so use the ordinary window driver
+    // until an exact, independently validated BIGNUM window kernel is supplied.
+    if function.0 == "sum" && input.argument_types == [DataType::Bignum] {
+        return Ok(None);
+    }
     // Count and narrow integer sums admit exact prefix subtraction for arbitrary
     // frames. Restrict widths so no frame's intermediate sum can overflow i128.
     let count = function.0 == "count";

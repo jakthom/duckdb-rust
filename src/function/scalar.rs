@@ -55,6 +55,9 @@ impl ScalarFunction for Builtin {
         if matches!(self.0, "coalesce" | "nullif") {
             return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
         }
+        if matches!(self.0, "abs" | "round" | "trunc" | "sqrt") && arguments == [DataType::Bignum] {
+            return Ok(vec![DataType::Double]);
+        }
         if matches!(
             self.0,
             "lower" | "upper" | "length" | "char_length" | "character_length" | "len"

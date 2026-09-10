@@ -1,4 +1,5 @@
 mod aggregate;
+pub mod bignum;
 mod binary_scalar;
 mod bit;
 mod enumeration;
