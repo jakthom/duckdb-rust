@@ -1,0 +1,48 @@
+# Numeric integral-direction increment
+
+This continuing scalar-family increment adds `ceil`, `ceiling`, `floor` and
+`sign`. It is not full numeric-function or database parity. Pinned development
+`99063af2bd` governs correctness; release `d8cdaa33fd` remains separately checked.
+
+Reference implementation: `extension/core_functions/scalar/math/numeric.cpp`
+(`SignOperator`, `SignFun::GetFunctions`, `BindGenericRoundFunctionDecimal`,
+`CeilDecimalOperator`, `FloorDecimalOperator`) and `src/function/cast_rules.cpp`.
+Independent development CLI probes confirm the following behavior:
+
+- `ceil`/`ceiling`/`floor` expose FLOAT, DOUBLE and DECIMAL overloads. Integral
+  and BIGNUM arguments use the selected DOUBLE cast, rather than an exact
+  integer identity overload. DECIMAL(w,s) returns DECIMAL(w,0); coefficients
+  remain exact through width 38, including scale 38 and scale-zero identity.
+- `sign` returns TINYINT. Signed and unsigned integral arguments retain their
+  full source domains. DECIMAL and BIGNUM use the selected DOUBLE conversion.
+  NaN and both signed zeros produce zero; positive/negative infinity produce
+  positive/negative one.
+- Floating direction functions retain FLOAT versus DOUBLE and negative zero.
+  Untyped NULL resolves to DOUBLE for ceil/floor and returns TINYINT from sign.
+  Bare string arguments remain ambiguous/rejected; typed VARCHAR, ENUM,
+  BOOLEAN, temporal and nested inputs do not receive hidden numeric casts.
+
+The first SQL test exposed that sqlparser produces dedicated CEIL/FLOOR AST
+nodes that the binder did not support. The selected dialect now parses those
+calls through the ordinary function grammar, including zero or arbitrary second
+arguments. Function selection, argument casts and invalid-arity diagnostics
+therefore use the ordinary selected catalog path. Datetime `TO` syntax remains a
+parser error, as in development. No binder function-name switch, private cast
+registry, vendor modification or new public interface was introduced.
+
+Three component tests cover independent Euclidean quotient/remainder checks at
+every DECIMAL width/scale, extrema, NULLs, selected vector views, signed floating
+zeros, nonfinite values, cancellation and malformed adapter calls. Both
+evaluators and optimizers exercise overload metadata, typed parameters, selected
+cast replacement, fatal child failures and lazy branches. Typed results cross
+joins, groups, window sums, decimal primary keys, failed atomic updates, rollback,
+nested NULLs, private/native checkpoints, native WAL recovery and reopen.
+
+The parser AST regression passes. Numeric (30), casts (11), floating (7), binary
+scalar (8), workspace/all-target check and clippy pass. Instrumentation coverage
+reports 292 files, 2,619 functions and 208 interface methods with no omissions.
+Paired SQL/native observations, unchanged upstream-file execution, tracing and
+the lead's maintained integrated Kani checkpoint are pending. This commit is an
+integrable internal step, not a declaration that the substantial stage is done.
+No performance acceptance measurements are claimed. Precision-aware
+`round`/`trunc` and `round_even`/`roundbankers` remain the next numeric work.

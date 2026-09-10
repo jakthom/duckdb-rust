@@ -11,6 +11,8 @@ use std::sync::Arc;
 mod batches;
 #[path = "numeric_contracts.rs"]
 mod contracts;
+#[path = "numeric_direction.rs"]
+mod direction;
 #[path = "numeric_rounding.rs"]
 mod rounding;
 

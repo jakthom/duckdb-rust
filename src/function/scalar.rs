@@ -1,4 +1,5 @@
 use std::sync::Arc;
+mod numeric;
 
 use super::{ArgumentEvaluation, FunctionRegistry, ScalarFunction};
 use crate::{
@@ -11,6 +12,7 @@ struct Builtin(&'static str);
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
+    numeric::register(registry);
     registry
         .register_scalar(Arc::new(TypeOf(None)))
         .expect("unique typeof");
