@@ -292,3 +292,74 @@ in checkpoint three belong to that earlier source, not this code. Further
 regression investigation and a coordinated quiet campaign are required before
 claiming preservation on the follow-up. The last pushed checkpoint is `ae0cd51`;
 this fourth checkpoint and subsequent internal work are not yet pushed.
+
+## Continuing integration and regression repair, 2026-09-10
+
+The first frozen follow-up at `0e8a4f0` passed the full workspace suite, check
+and all-target clippy, with the same two external-CLI analytics omissions.
+Coverage reported 276 files, 2,437 functions, 207 interface methods and no
+missing attributes. The trace check passed in 139.48 s with zero errors,
+panics or open spans and deleted its temporary telemetry. These instrumented
+times were collected during parallel development, not performance acceptance.
+
+Full `python3 scripts/verify_kani.py` ran on that compiled source with Kani
+0.67.0: 6/6 harnesses passed, zero failures. Times were TIMETZ packing 49.654 s,
+unsigned keys 0.807 s, dense offsets 0.539 s, ROWS clipping 3.258 s, uniform
+bounds 3.309 s and packed byte counts 82.338 s. Caller-location (1) and foreign
+function (2) constructs remained unreachable; atomic fence/subtraction remained
+sequential. The parser verifier build retained its unused-variable warning.
+The proofs do not establish the parser, recursive recovery, cast protocol or
+native interchange behavior described below; later integrated changes require
+their own combined checkpoint.
+
+Confirmed repairs and usable subsequent increments include:
+
+- Literal-sensitive binding had caused a plan regression: a constant CASE
+  predicate stopped selecting its existing index. New optimizer and index
+  witnesses failed before repair. Constant normalization now runs after
+  overload binding; independently selected index/filter passes also recognize
+  the relevant execution constants. Result types and selected adapters remain
+  unchanged. This is a repaired plan regression, not a measured latency claim.
+- FLOAT/DOUBLE integral casts use development's ties-to-even rounding before
+  checked conversion. DECIMAL rounding remains distinct. The retained
+  [floating campaign](numeric-floating-rounding-reference.json) reports 62/62
+  development cases and 34/62 release cases, with native producers 3/3 on both.
+- Shared recursive WAL vectors now carry nested temporal, decimal and BIT
+  values through prepared mutations and reopen. Physical STRUCT child and
+  validity records stage in a transaction-private tree and validate together,
+  including temporarily inconsistent UNION states. Independent fixtures cover
+  12 committed states and 10 writable recovery/checkpoint/reopen continuations.
+  Scalar WAL traversal borrows values, removing an introduced deep-copy cost.
+  The [interchange refresh](nested-wal-recovery-followup-reference.json) records
+  all four producer paths passing against both references; no throughput claim.
+- Calendar timestamp construction checks the same ordered intermediate
+  arithmetic as development. The previously failing mixed nested-clock WAL
+  obligation now passes unchanged and is an ordinary component test. The
+  [boundary campaign](temporal-calendar-boundary-integrated.json) records
+  development 688/688 SQL and 3/3 native producers, release 623/688 and 2/3.
+  Subsequent renderability work separates valid raw instants, infallible
+  diagnostic display, fatal SQL casts and fallible result serialization; its
+  [696-case campaign](temporal-renderability-integrated.json) preserves exact
+  reference categories and remaining lower-nanosecond parsing work.
+- Expanded BIT modifier testing exposed a new parser bug after the original
+  signed-modifier repair: custom `BITSTRING(+1)` must reject a nonconstant
+  expression, while BIT's own grammar discards it. The failed 69/70 development
+  trial is retained in the [BIT report](bit-values.md). The repaired parser
+  preserves quoted-string versus integer modifier identity and lexical
+  parameter positions. Its refreshed differential campaign remains pending.
+- BIGNUM's compact sign/limb representation now has selected casts, comparisons,
+  keys, SQL parameters and initial native-codec/mutation/reopen paths. This is
+  a prerequisite, not complete arithmetic, native interoperability or dynamic
+  VARIANT parity; the [BIGNUM report](bignum-values.md) lists those obligations.
+- Scalar specializations can declare per-argument cast modes. The language
+  binder inserts retained checked casts through its selected registry, keeping
+  literal identity, typed parameters, NULLs and fatal failure origin separate.
+  The interface and integrated renderability paths pass contracts (26), casts
+  (11), nested (21), temporal (20), BIGNUM (2), check and clippy. Coverage reports
+  281 files, 2,509 functions, 208 interface methods and no missing attributes.
+
+The milestone remains active. No fresh full upstream or faster-reference
+performance campaign has yet validated these follow-up commits. The preceding
+34 passing measurements belong to checkpoint three. The last pushed source is
+still `ae0cd51`; regression investigation and the controlled combined checkpoint
+must precede the next push.
