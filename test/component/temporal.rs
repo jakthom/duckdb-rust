@@ -667,3 +667,74 @@ fn temporal_syntax_uses_selected_scalar_adapters() -> Result<()> {
     assert_eq!(rows[0][1].to_string(), "2 days");
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn interval_text_components_aliases_rounding_and_ordered_overflow_cross_native_mutations()
+-> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("interval-text.duckdb");
+    let mut c = Database::open(&path)?.connect();
+    c.execute("CREATE TABLE spans(id INTEGER PRIMARY KEY,span INTERVAL)")?;
+    let insert = c.prepare("INSERT INTO spans VALUES($1,CAST($2 AS INTERVAL))")?;
+    for (id, (text, expected)) in [
+        ("2y3mons4d ago", "-2 years -3 months -4 days"),
+        ("@ 2y 3mons 4d", "2 years 3 months 4 days"),
+        ("123.5", "00:02:03.5"),
+        ("1.1quarters", "3 months 9 days"),
+        ("1.1years", "1 year 1 month"),
+        ("0.0000009 seconds", "00:00:00.000001"),
+        ("1.9us", "00:00:00.000001"),
+        ("1.9ms", "00:00:00.0019"),
+        ("0.1 weeks", "16:48:00"),
+        ("1:02:03 junk", "01:02:03"),
+        ("1:02:03 4days", "01:02:03"),
+        ("1:02:03 ago", "01:02:03"),
+        ("1:", "01:00:00"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        c.execute_prepared(
+            &insert,
+            &[Value::Integer(id as i128), Value::Varchar(text.into())],
+        )?;
+        assert_eq!(
+            c.query(&format!("SELECT span FROM spans WHERE id={id}"))?
+                .rows[0][0]
+                .to_string(),
+            expected
+        );
+    }
+    for text in [
+        "+1 day",
+        ".5 seconds",
+        " @1 day",
+        "2147483647 days 1 day -1 day",
+        "9223372036854775807 us 1 us -1 us",
+        "-2147483648months ago",
+        "P1Y",
+    ] {
+        assert!(
+            c.execute_prepared(&insert, &[Value::Integer(100), Value::Varchar(text.into())])
+                .is_err(),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        c.query("SELECT count(*) FROM spans")?.rows[0][0],
+        Value::Integer(13)
+    );
+    let rows = c.query("SELECT * FROM spans ORDER BY id")?.rows;
+    c.execute("BEGIN; UPDATE spans SET span=CAST('1.1years' AS INTERVAL); DELETE FROM spans WHERE id=0; ROLLBACK")?;
+    assert_eq!(c.query("SELECT * FROM spans ORDER BY id")?.rows, rows);
+    drop(c);
+    assert_eq!(
+        Database::open(&path)?
+            .connect()
+            .query("SELECT * FROM spans ORDER BY id")?
+            .rows,
+        rows
+    );
+    Ok(())
+}

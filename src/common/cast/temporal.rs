@@ -97,7 +97,8 @@ impl CastFunction for TemporalCast {
         context.check()?;
         let target = &spec.target;
         if let Value::Varchar(text) = value {
-            return TemporalValue::parse(text, target).map(Value::Temporal);
+            return TemporalValue::parse_checked(text, target, &mut || context.check())
+                .map(Value::Temporal);
         }
         if *target == DataType::Varchar {
             return Ok(Value::Varchar(value.as_temporal()?.to_string()));

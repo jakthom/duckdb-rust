@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{DataType, Date, Error, Result};
 
+mod interval;
+
 pub const MICROS_PER_DAY: i64 = 86_400_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,14 +174,23 @@ impl TemporalValue {
         Ok(value)
     }
     pub fn parse(text: &str, data_type: &DataType) -> Result<Self> {
+        Self::parse_checked(text, data_type, &mut || Ok(()))
+    }
+    pub(crate) fn parse_checked(
+        text: &str,
+        data_type: &DataType,
+        check: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<Self> {
+        check()?;
+        if *data_type == DataType::Interval {
+            return interval::parse(text, check);
+        }
         let text = text.trim();
         // Narrow timestamp literals are parsed at microsecond precision first,
         // then rounded half away from the epoch, including negative instants.
         if matches!(data_type, DataType::TimestampS | DataType::TimestampMs) {
-            return Self::parse(text, &DataType::Timestamp)?.scale_timestamp(data_type);
-        }
-        if *data_type == DataType::Interval {
-            return parse_interval(text);
+            return Self::parse_checked(text, &DataType::Timestamp, check)?
+                .scale_timestamp(data_type);
         }
         if matches!(
             data_type,
@@ -233,7 +244,7 @@ impl TemporalValue {
             })
             .map(|(i, _)| i);
         let (date_text, time) = split.map_or((text, "00:00:00"), |i| (&text[..i], &text[i + 1..]));
-        let date: Date = date_text.parse()?;
+        let date = Date::parse_checked(date_text, check)?;
         if !date.is_finite() {
             return Err(invalid("timestamp date must be finite"));
         }
@@ -422,132 +433,6 @@ fn parse_offset(text: &str) -> Result<i32> {
         return Err(invalid("UTC offset outside range"));
     }
     Ok(sign * (values[0] * 3600 + values[1] * 60 + values[2]))
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn parse_interval(text: &str) -> Result<TemporalValue> {
-    let words: Vec<_> = text.split_whitespace().collect();
-    let (mut months, mut days, mut micros) = (0_i128, 0_i128, 0_i128);
-    let mut i = 0;
-    while i < words.len() {
-        let number = words[i];
-        i += 1;
-        if number.contains(':') {
-            let sign = if number.starts_with('-') { -1 } else { 1 };
-            let clock = number.trim_start_matches(['-', '+']);
-            let mut fields = clock.split(':');
-            let hour = fields
-                .next()
-                .unwrap_or("")
-                .parse::<i128>()
-                .map_err(|_| invalid("invalid interval hour"))?;
-            let tail = fields.collect::<Vec<_>>().join(":");
-            let (rest, offset) = parse_time(&format!("0:{tail}"), 1_000_000)?;
-            if offset.is_some() {
-                return Err(invalid("invalid interval clock"));
-            }
-            let part = hour
-                .checked_mul(3_600_000_000)
-                .and_then(|v| v.checked_add(i128::from(rest)))
-                .and_then(|v| v.checked_mul(sign))
-                .ok_or_else(|| invalid("interval overflow"))?;
-            micros = micros
-                .checked_add(part)
-                .ok_or_else(|| invalid("interval overflow"))?;
-            continue;
-        }
-        let unit = words
-            .get(i)
-            .ok_or_else(|| invalid("interval needs a unit"))?
-            .to_ascii_lowercase();
-        i += 1;
-        let (coefficient, divisor) = decimal_parts(number)?;
-        let (month_factor, day_factor, micro_factor) = match unit.trim_end_matches('s') {
-            "year" | "yr" => (12, 0, 0),
-            "month" | "mon" => (1, 0, 0),
-            "decade" => (120, 0, 0),
-            "century" | "centurie" => (1200, 0, 0),
-            "millennium" | "millennia" => (12000, 0, 0),
-            "week" => (0, 7, 0),
-            "day" => (0, 1, 0),
-            "hour" | "hr" => (0, 0, 3_600_000_000),
-            "minute" | "min" => (0, 0, 60_000_000),
-            "second" | "sec" => (0, 0, 1_000_000),
-            "millisecond" | "ms" => (0, 0, 1000),
-            "microsecond" | "us" => (0, 0, 1),
-            _ => return Err(invalid("unknown interval unit")),
-        };
-        let month_part = coefficient
-            .checked_mul(month_factor)
-            .ok_or_else(|| invalid("interval overflow"))?;
-        months = months
-            .checked_add(month_part / divisor)
-            .ok_or_else(|| invalid("interval overflow"))?;
-        let day_part = coefficient
-            .checked_mul(day_factor)
-            .and_then(|d| {
-                (month_part % divisor)
-                    .checked_mul(30)
-                    .and_then(|r| d.checked_add(r))
-            })
-            .ok_or_else(|| invalid("interval overflow"))?;
-        days = days
-            .checked_add(day_part / divisor)
-            .ok_or_else(|| invalid("interval overflow"))?;
-        let micro_part = coefficient
-            .checked_mul(micro_factor)
-            .and_then(|m| {
-                (day_part % divisor)
-                    .checked_mul(i128::from(MICROS_PER_DAY))
-                    .and_then(|r| m.checked_add(r))
-            })
-            .ok_or_else(|| invalid("interval overflow"))?
-            / divisor;
-        micros = micros
-            .checked_add(micro_part)
-            .ok_or_else(|| invalid("interval overflow"))?;
-    }
-    if words.is_empty() {
-        return Err(invalid("empty interval"));
-    }
-    Ok(TemporalValue::Interval {
-        months: i32::try_from(months).map_err(|_| invalid("interval months overflow"))?,
-        days: i32::try_from(days).map_err(|_| invalid("interval days overflow"))?,
-        micros: i64::try_from(micros).map_err(|_| invalid("interval micros overflow"))?,
-    })
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn decimal_parts(text: &str) -> Result<(i128, i128)> {
-    let sign = if text.starts_with('-') { -1 } else { 1 };
-    let text = text.trim_start_matches(['-', '+']);
-    let mut coefficient = 0_i128;
-    let mut divisor = 1_i128;
-    let mut fractional = false;
-    let mut digits = 0;
-    for byte in text.bytes() {
-        if byte == b'.' && !fractional {
-            fractional = true;
-            continue;
-        }
-        if !byte.is_ascii_digit() {
-            return Err(invalid("invalid interval number"));
-        }
-        coefficient = coefficient
-            .checked_mul(10)
-            .and_then(|n| n.checked_add(i128::from(byte - b'0')))
-            .ok_or_else(|| invalid("interval number overflow"))?;
-        if fractional {
-            divisor = divisor
-                .checked_mul(10)
-                .ok_or_else(|| invalid("interval precision overflow"))?;
-        }
-        digits += 1;
-    }
-    if digits == 0 {
-        return Err(invalid("invalid interval number"));
-    }
-    Ok((sign * coefficient, divisor))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
