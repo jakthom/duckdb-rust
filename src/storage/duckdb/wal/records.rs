@@ -209,10 +209,38 @@ impl RecordState {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn name(reader: &mut Reader) -> Result<TableName> {
-    reader.field(101)?;
-    let schema = reader.string()?;
-    reader.field(102)?;
-    let table = reader.string()?;
+    let legacy_schema = if reader.optional(101)? {
+        Some(reader.string()?)
+    } else {
+        None
+    };
+    let legacy_table = if reader.optional(102)? {
+        Some(reader.string()?)
+    } else {
+        None
+    };
+    let (schema, table) = if reader.optional(103)? {
+        reader.field(100)?;
+        if reader.length()? != 2 {
+            return Err(Error::Unsupported(
+                "WAL nested or incomplete schema qualification".into(),
+            ));
+        }
+        let schema = reader.string()?;
+        let table = reader.string()?;
+        reader.end()?;
+        if legacy_schema.as_ref().is_some_and(|old| old != &schema)
+            || legacy_table.as_ref().is_some_and(|old| old != &table)
+        {
+            return Err(corrupt("WAL legacy and qualified names disagree"));
+        }
+        (schema, table)
+    } else {
+        (
+            legacy_schema.ok_or_else(|| corrupt("missing WAL schema identity"))?,
+            legacy_table.ok_or_else(|| corrupt("missing WAL table identity"))?,
+        )
+    };
     if schema.is_empty() || table.is_empty() {
         return Err(corrupt("empty WAL table identity"));
     }
@@ -226,5 +254,55 @@ fn row_id(value: &Value) -> Result<RowId> {
             u64::try_from(*id).map_err(|_| corrupt("negative or overflowing WAL row ID"))
         }
         _ => Err(corrupt("NULL or invalid WAL row ID")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::binary::Encoder;
+    use super::*;
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn wal_names_preserve_legacy_and_bounded_qualified_identity() -> Result<()> {
+        let encode = |legacy: bool, path: Option<&[&str]>| -> Result<Vec<u8>> {
+            let mut e = Encoder::default();
+            if legacy {
+                e.field(101);
+                e.string("main")?;
+                e.field(102);
+                e.string("t")?;
+            }
+            if let Some(path) = path {
+                e.field(103);
+                e.property(100, path.len() as u64);
+                for item in path {
+                    e.string(item)?;
+                }
+                e.end();
+            }
+            e.end();
+            Ok(e.0)
+        };
+        for (legacy, path) in [
+            (true, None),
+            (false, Some(&["main", "t"][..])),
+            (true, Some(&["main", "t"][..])),
+        ] {
+            assert_eq!(
+                name(&mut Reader::new(encode(legacy, path)?))?,
+                TableName::main("t")
+            );
+        }
+        for path in [&["t"][..], &["main", "nested", "t"], &["main", ""]] {
+            assert!(name(&mut Reader::new(encode(false, Some(path))?)).is_err());
+        }
+        assert!(name(&mut Reader::new(encode(true, Some(&["other", "t"]))?)).is_err());
+        assert!(name(&mut Reader::new(encode(false, None)?)).is_err());
+        let bytes = encode(false, Some(&["main", "t"]))?;
+        for end in 0..bytes.len() - 2 {
+            assert!(name(&mut Reader::new(bytes[..end].to_vec())).is_err());
+        }
+        Ok(())
     }
 }
