@@ -54,6 +54,7 @@ def main():
         "reference_identity": identity,
         "scope": "Selected exact BIGNUM payloads, nested casts, keys and relational execution. Includes unresolved stored VARIANT_NULL/count witnesses; no native VARIANT storage, throughput or full parity claim.",
         "cases": [],
+        "development_optimizer_diagnostics": [],
         "full_parity": False,
     }
     for name, setup, sql in CASES:
@@ -65,8 +66,19 @@ def main():
             except Exception as error:
                 case[label] = {"error": str(error)}
         case["passed"] = "rows" in case["rust"] and case["rust"] == case["development"]
+    # These are C++-only diagnostic modes, not alternate acceptance baselines.
+    # The default-development discrepancies above remain failing obligations.
+    for setting in ["", "SET disabled_optimizers='statistics_propagation';"]:
+        for name in ["stored_variant_null_gap", "stored_count_distinct_gap", "distinct_subquery"]:
+            _, setup, sql = next(case for case in CASES if case[0] == name)
+            case = {"name": name, "setting": setting, "setup": setup, "sql": sql}
+            report["development_optimizer_diagnostics"].append(case)
+            try:
+                case["rows"] = command(cpp, ":memory:", setting + setup + sql, json_output=True)
+            except Exception as error:
+                case["error"] = str(error)
     report["source_unchanged"] = before == source_fingerprint()
-    report["passed"] = report["source_unchanged"] and all(case["passed"] for case in report["cases"])
+    report["passed"] = report["source_unchanged"] and all(case["passed"] for case in report["cases"]) and all("rows" in case for case in report["development_optimizer_diagnostics"])
     args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     print(json.dumps({"report": str(args.report), "passed": report["passed"], "matches": sum(case["passed"] for case in report["cases"]), "total": len(CASES), "mismatches": [case["name"] for case in report["cases"] if not case["passed"]]}))
     raise SystemExit(0 if report["passed"] else 1)

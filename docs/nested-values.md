@@ -422,3 +422,57 @@ Kani stays at the lead's substantial integrated checkpoint.
 
 The final instrumentation check completed in approximately 68.28 seconds with
 zero errors, panics or open spans; temporary telemetry was deleted.
+
+The follow-up `docs/nested-bignum-variant-optimizer-reference.json` refines the
+NULL diagnosis without changing the failing default-development baseline.
+Disabling only C++ `statistics_propagation` changes the stored predicate to
+`IS NULL = true` and `count(v)` to 7. `count(DISTINCT v)` becomes 7 rather than
+4, while the DISTINCT subquery still produces five groups. The discrepancy is
+therefore optimizer-sensitive and does not prove that a present-null physical
+VARIANT payload is needed. Pinned `variant_comparator.cpp` explicitly describes
+root NULL as genuine SQL NULL. All six diagnostic probes are retained; the
+ordinary comparison campaign still has three failures (11/14 matches). No
+optimizer-specific accident has been copied into generic Rust values.
+
+### Typed sequence concat integration
+
+The existing selected `concat` catalog entry now delegates LIST/ARRAY arguments
+to a family-owned binding. It infers child metadata through the selected type
+registry, retains the result adapter and requests explicit selected plan casts
+to that list type. ARRAY operands produce LIST results. Typed and untyped NULL
+lists are skipped, including an empty non-NULL result when all list operands
+are NULL; scalar all-NULL concat still produces an empty VARCHAR. Mixing lists
+with scalar inputs is rejected before string conversion. Disjoint STRUCT fields
+use recursive common metadata with missing NULL fields.
+
+The supporting common-type proposal combines BOOLEAN only with integral types,
+in both argument orders, matching pinned `src/common/types.cpp:1019`. It does not
+grant a global implicit BOOLEAN numeric cast, and BOOLEAN/DECIMAL/FLOAT/DOUBLE
+combinations remain rejected. Recursive LIST/STRUCT metadata and all ten signed
+and unsigned integral widths are covered. The lead owns the separate CASE,
+UNION and VALUES combination-cast integration.
+
+Concat execution does not stringify children: an unrenderable physical temporal
+value can remain in a typed result until an actual text boundary is requested.
+The selected-ownership unit replaces registries after binding and executes with
+an empty ambient registry. SQL tests carry mixed DECIMAL/TIMESTAMP_NS/BIT lists
+through prepared insertion, joins, window partitions, indexed-row mutations,
+rollback and native checkpoint/reopen.
+
+The selected development campaign in `docs/nested-concat-reference.json` passes
+16/16 SQL/error checks and both independent native producer paths. Each producer
+passes exact initial, Rust mutation/rollback and C++ mutation/checkpoint/reopen
+states. Source and executable identities are retained with an unchanged source
+fingerprint. These are correctness checks, not throughput measurements.
+
+Ordinary check, nested 24/24, types 15/15, binary scalars 5/5, casts 11/11,
+contracts 26/26, the selected concat ownership unit and all-target clippy pass.
+Coverage reports 284 files, 2,553 functions and 208 interface methods without
+missing attributes. The instrumentation check completed in 41.03 seconds with
+zero errors, panics or open spans; temporary telemetry was deleted. Kani remains
+the lead's substantial combined-checkpoint responsibility.
+
+The provisional scalar LIST guard and negative assertion are removed. No
+duplicate catalog name was registered. `list_concat`/`array_concat` aliases and
+registry-aware `||` specialization remain separate follow-ups, along with the
+previously recorded VARIANT and native-storage gaps.
