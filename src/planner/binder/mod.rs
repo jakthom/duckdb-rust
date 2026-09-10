@@ -1,4 +1,5 @@
 mod alter;
+mod coercion;
 mod expression;
 mod grouping;
 mod nested;
@@ -512,25 +513,16 @@ impl State<'_, '_> {
         let (left, right, data_type) = match op {
             And | Or => (self.boolean(left)?, self.boolean(right)?, DataType::Boolean),
             _ => {
-                let common = self
-                    .context
-                    .query
-                    .types()
-                    .common_type(&left.data_type, &right.data_type)?;
-                let target = common;
+                let target = self.comparison_type(
+                    &left.data_type,
+                    coercion::string_literal(&left),
+                    &right.data_type,
+                    coercion::string_literal(&right),
+                    matches!(op, Equal | NotEqual),
+                )?;
                 (
-                    left.cast(
-                        target.clone(),
-                        CastMode::Implicit,
-                        self.context.casts,
-                        self.context.query.types(),
-                    )?,
-                    right.cast(
-                        target.clone(),
-                        CastMode::Implicit,
-                        self.context.casts,
-                        self.context.query.types(),
-                    )?,
+                    self.comparison_cast(left, &target)?,
+                    self.comparison_cast(right, &target)?,
                     DataType::Boolean,
                 )
             }

@@ -524,9 +524,15 @@ impl TypeRegistry {
         Ok(())
     }
     pub fn common_type(&self, left: &DataType, right: &DataType) -> Result<DataType> {
+        self.try_common_type(left, right)?
+            .ok_or_else(|| Error::Bind("types have no common coercion target".into()))
+    }
+    /// Absence is distinct from adapter errors or disagreement. Contextual SQL
+    /// coercion can consider registered casts only when both adapters decline.
+    pub fn try_common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
         let a = self.bind(left)?;
         if left == right {
-            return Ok(left.clone());
+            return Ok(Some(left.clone()));
         }
         let b = self.bind(right)?;
         let result = if *right == DataType::Null {
@@ -549,12 +555,14 @@ impl TypeRegistry {
                 (Some(t), _) | (_, Some(t)) => Some(t),
                 _ => None,
             }
-        }
-        .ok_or_else(|| Error::Bind("types have no common coercion target".into()))?;
+        };
+        let Some(result) = result else {
+            return Ok(None);
+        };
         if result != *left && result != *right {
             self.bind(&result)?;
         }
-        Ok(result)
+        Ok(Some(result))
     }
     pub fn adapters(&self) -> Vec<(&'static str, &'static str)> {
         self.adapters

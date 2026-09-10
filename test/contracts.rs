@@ -382,6 +382,66 @@ fn recursive_map_grammar_reaches_typed_binding_without_changing_dialect() -> Res
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn contextual_comparisons_carry_scalar_types_through_joins_membership_and_mutations() -> Result<()>
+{
+    use duckdb_rust::execution::expression_executor::{BatchedEvaluator, ScalarEvaluator};
+    for batched in [false, true] {
+        for batch in [1, 7] {
+            let mut c = DatabaseBuilder::new()
+                .batch_size(batch)
+                .expressions(if batched {
+                    Arc::new(BatchedEvaluator)
+                } else {
+                    Arc::new(ScalarEvaluator)
+                })
+                .build()?
+                .connect();
+            c.execute("CREATE TABLE t(i INTEGER,b BOOLEAN,u UUID,ts TIMESTAMP,e ENUM('2','1'),s VARCHAR); INSERT INTO t VALUES (1,true,'00000000-0000-0000-0000-000000000001',TIMESTAMP 'epoch','1','1'), (2,false,'00000000-0000-0000-0000-000000000002',TIMESTAMP '2000-01-01','2','2'), (NULL,NULL,NULL,NULL,NULL,NULL)")?;
+            for (sql, count) in [
+                (
+                    "SELECT count(*) FROM t WHERE u='00000000-0000-0000-0000-000000000001'",
+                    1,
+                ),
+                ("SELECT count(*) FROM t WHERE ts >= '1970-01-01'", 2),
+                ("SELECT count(*) FROM t a JOIN t b ON a.i=b.s", 2),
+                ("SELECT count(*) FROM t WHERE i IN ('1','3')", 1),
+                ("SELECT count(*) FROM t WHERE i IN (SELECT s FROM t)", 2),
+                ("SELECT count(*) FROM t WHERE e=1", 1),
+                ("SELECT count(*) FROM t WHERE e<'2'", 1),
+                ("SELECT count(*) FROM t WHERE b=i", 1),
+            ] {
+                assert_eq!(c.query(sql)?.rows[0][0], Value::Integer(count), "{sql}");
+            }
+            for sql in ["SELECT i<s FROM t", "SELECT e<1 FROM t"] {
+                assert!(matches!(c.query(sql), Err(Error::Bind(_))), "{sql}");
+            }
+            assert!(matches!(
+                c.query("SELECT u='invalid uuid' FROM t"),
+                Err(Error::Conversion(_))
+            ));
+            c.execute(
+                "BEGIN; UPDATE t SET i=8 WHERE u='00000000-0000-0000-0000-000000000001'; ROLLBACK",
+            )?;
+            assert_eq!(
+                c.query("SELECT sum(i) FROM t")?.rows[0][0],
+                Value::Integer(3)
+            );
+            let injected = c.query(
+                "SELECT union_extract(('1'::ENUM('2','1'))::UNION(e ENUM('2','1'),n INTEGER),'e')",
+            )?;
+            assert_eq!(injected.rows[0][0].to_string(), "1");
+            assert!(
+                c.query("SELECT TRY_CAST(union_value(a := 1) AS ENUM('1','2'))")?
+                    .rows[0][0]
+                    .is_null()
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn values_ctes_set_operations_and_hidden_sort_keys() -> Result<()> {
     let mut c = Database::memory()?.connect();
     assert_eq!(c.query("WITH a AS (SELECT range AS i FROM range(4)) SELECT i+1 AS n FROM a WHERE i > 0 ORDER BY i DESC LIMIT 2")?.rows, vec![integers(&[4]),integers(&[3])]);

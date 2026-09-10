@@ -271,7 +271,18 @@ fn unsupported_publication_preserves_the_original_database() -> Result<()> {
     c.execute("CREATE TABLE t(i INTEGER); INSERT INTO t VALUES (1)")?;
     let before = fs::read(&path)?;
     assert!(matches!(
-        c.execute("CREATE TABLE constrained AS SELECT NULL AS i"),
+        // SQL CTAS now correctly normalizes NULL to INTEGER. Submit an explicit
+        // unresolved storage type through the plan API to keep this a native
+        // publication failure, rather than requiring that fixed SQL gap.
+        c.execute_plan(BoundStatement::CreateTable {
+            definition: TableDefinition {
+                name: TableName::main("constrained"),
+                columns: vec![ColumnDefinition::new("i", DataType::Null)],
+                unique_keys: vec![],
+            },
+            if_not_exists: false,
+            source: None,
+        }),
         Err(Error::Unsupported(_))
     ));
     assert_eq!(fs::read(&path)?, before);

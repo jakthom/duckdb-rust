@@ -545,27 +545,25 @@ impl State<'_, '_> {
             } => {
                 let value = recurse(expr)?;
                 let list = list.iter().map(recurse).collect::<Result<Vec<_>>>()?;
-                let data_type = list.iter().try_fold(value.data_type.clone(), |t, e| {
-                    self.context.query.types().common_type(&t, &e.data_type)
-                })?;
+                let mut data_type = value.data_type.clone();
+                let mut all_literals = super::coercion::string_literal(&value);
+                for item in &list {
+                    let literal = super::coercion::string_literal(item);
+                    data_type = self.comparison_type(
+                        &data_type,
+                        all_literals,
+                        &item.data_type,
+                        literal,
+                        true,
+                    )?;
+                    all_literals &= literal;
+                }
                 Ok(BoundExpr {
                     data_type: DataType::Boolean,
                     kind: ExprKind::InList(
-                        Box::new(value.cast(
-                            data_type.clone(),
-                            CastMode::Implicit,
-                            self.context.casts,
-                            self.context.query.types(),
-                        )?),
+                        Box::new(self.comparison_cast(value, &data_type)?),
                         list.into_iter()
-                            .map(|e| {
-                                e.cast(
-                                    data_type.clone(),
-                                    CastMode::Implicit,
-                                    self.context.casts,
-                                    self.context.query.types(),
-                                )
-                            })
+                            .map(|e| self.comparison_cast(e, &data_type))
                             .collect::<Result<Vec<_>>>()?,
                         *negated,
                         self.context.query.types().bind(&data_type)?.into(),

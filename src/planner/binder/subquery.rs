@@ -95,18 +95,16 @@ impl State<'_, '_> {
                 ));
             }
             if let SubqueryForm::In { needle, negated } = form {
-                let common = self
-                    .context
-                    .query
-                    .types()
-                    .common_type(&needle.data_type, &plan.schema[0].data_type)?;
-                let needle = needle.cast(
-                    common.clone(),
-                    CastMode::Implicit,
-                    self.context.casts,
-                    self.context.query.types(),
+                let common = self.comparison_type(
+                    &needle.data_type,
+                    super::coercion::string_literal(&needle),
+                    &plan.schema[0].data_type,
+                    false,
+                    true,
                 )?;
-                plan = self.coerce_plan(plan, std::slice::from_ref(&common), CastMode::Implicit)?;
+                let needle = self.comparison_cast(needle, &common)?;
+                let mode = self.comparison_cast_mode(&plan.schema[0].data_type, &common)?;
+                plan = self.coerce_plan(plan, std::slice::from_ref(&common), mode)?;
                 (
                     SubqueryKind::In {
                         needle: Box::new(needle),

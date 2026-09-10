@@ -105,6 +105,8 @@ pub(super) fn register(registry: &mut CastRegistry) {
         ("builtin.enum", "builtin.enum"),
         ("builtin.varchar", "builtin.enum"),
         ("builtin.enum", "builtin.varchar"),
+        ("builtin.union", "builtin.enum"),
+        ("builtin.variant", "builtin.enum"),
     ] {
         registry
             .register_family(source, target, Arc::new(EnumCast::default()))
