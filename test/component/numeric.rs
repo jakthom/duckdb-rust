@@ -14,6 +14,62 @@ mod contracts;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn trunc_preserves_integer_domains_and_discards_fraction_toward_zero() -> Result<()> {
+    let mut c = Database::memory()?.connect();
+    let result = c.query("SELECT trunc(1.5),trunc(-1.5),trunc(123.45::DECIMAL(5,2)),trunc('-170141183460469231731687303715884105728'::HUGEINT),trunc('340282366920938463463374607431768211455'::UHUGEINT),trunc(-1.9::FLOAT),trunc(1.9::DOUBLE),trunc(NULL)")?;
+    assert_eq!(
+        result.rows,
+        vec![vec![
+            decimal(1, 2, 0)?,
+            decimal(-1, 2, 0)?,
+            decimal(123, 5, 0)?,
+            Value::Integer(i128::MIN),
+            Value::Unsigned(u128::MAX),
+            Value::Float(-1.0),
+            Value::Double(1.0),
+            Value::Null
+        ]]
+    );
+    assert_eq!(
+        result
+            .columns
+            .iter()
+            .map(|column| column.data_type.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            DataType::Decimal { width: 2, scale: 0 },
+            DataType::Decimal { width: 2, scale: 0 },
+            DataType::Decimal { width: 5, scale: 0 },
+            DataType::HugeInt,
+            DataType::UHugeInt,
+            DataType::Float,
+            DataType::Double,
+            DataType::BigInt
+        ]
+    );
+    for ty in [
+        "TINYINT",
+        "SMALLINT",
+        "INTEGER",
+        "BIGINT",
+        "HUGEINT",
+        "UTINYINT",
+        "USMALLINT",
+        "UINTEGER",
+        "UBIGINT",
+        "UHUGEINT",
+    ] {
+        assert_eq!(
+            c.query(&format!("SELECT typeof(trunc(1::{ty}))"))?.rows,
+            vec![vec![Value::Varchar(ty.into())]]
+        );
+    }
+    assert!(c.query("SELECT trunc('1.5'::VARCHAR)").is_err());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn insert_values_assign_each_expression_without_intermediate_common_coercion() -> Result<()> {
     use duckdb_rust::{
         DatabaseBuilder,

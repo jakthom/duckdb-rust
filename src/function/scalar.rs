@@ -25,6 +25,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "concat",
         "sqrt",
         "round",
+        "trunc",
     ] {
         registry
             .register_scalar(Arc::new(Builtin(name)))
@@ -51,6 +52,9 @@ impl ScalarFunction for Builtin {
     ) -> Result<Vec<DataType>> {
         if matches!(self.0, "coalesce" | "nullif") {
             return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
+        }
+        if self.0 == "trunc" && arguments == [DataType::Null] {
+            return Ok(vec![DataType::BigInt]);
         }
         if self.0 == "round" && arguments.len() == 1 && arguments[0].is_unsigned_integer() {
             return Ok(vec![match arguments[0] {
@@ -88,7 +92,7 @@ impl ScalarFunction for Builtin {
             {
                 Ok(arguments[0].clone())
             }
-            "round"
+            "round" | "trunc"
                 if count == 1 && (arguments[0].is_numeric() || arguments[0] == DataType::Null) =>
             {
                 Ok(match arguments[0] {
@@ -188,6 +192,20 @@ impl ScalarFunction for Builtin {
                 )?,
                 Value::Float(v) => Value::Float(v.round()),
                 _ => Value::Double(args[0].as_f64()?.round()),
+            },
+            "trunc" => match &args[0] {
+                Value::Integer(_) | Value::Unsigned(_) => args[0].clone(),
+                Value::Decimal {
+                    value,
+                    width,
+                    scale,
+                } => crate::common::numeric::decimal(
+                    *value / crate::common::numeric::DECIMAL_POWERS[usize::from(*scale)] as i128,
+                    *width,
+                    0,
+                )?,
+                Value::Float(value) => Value::Float(value.trunc()),
+                _ => Value::Double(args[0].as_f64()?.trunc()),
             },
             _ => return Err(Error::Internal("unregistered builtin".into())),
         })
