@@ -37,13 +37,12 @@ static std::string Cell(const duckdb::Value &value) {
     if (value.IsNull()) return "NULL";
     if (value.type().id() == duckdb::LogicalTypeId::BOOLEAN) return value.GetValue<bool>() ? "1" : "0";
     auto text = value.ToString();
-    if (value.type().id() == duckdb::LogicalTypeId::VARCHAR) {
-        if (text.empty()) return "(empty)";
-        std::string escaped;
-        for (char c : text) { if (c == '\0') escaped += "\\0"; else escaped += c; }
-        return escaped;
-    }
-    return text;
+    // SQLLogicTest applies these rules after rendering, including empty BLOBs.
+    // See the pinned test/sqlite/result_helper.cpp::SQLLogicTestConvertValue.
+    if (text.empty()) return "(empty)";
+    std::string escaped;
+    for (char c : text) { if (c == '\0') escaped += "\\0"; else escaped += c; }
+    return escaped;
 }
 // The release exposes public metadata; development uses accessors.
 template <class RESULT>

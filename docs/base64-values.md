@@ -94,3 +94,13 @@ because this one selected file is not complete upstream-suite parity. The
 maintained integrated Kani
 run/investigation remains pending for this increment. No performance acceptance
 measurement is claimed.
+
+The independent C++ session transport had the same VARCHAR-only sentinel rule.
+Its rendered-text empty/NUL handling now follows the pinned SQLLogicTest rule as
+well. Both pinned libraries were independently linked into worktree-local
+wrappers and checked against the Rust public-query worker: empty BLOB/VARCHAR,
+NULL BLOB, byte-zero BLOB, a list containing NULL, and empty/Base64 expressions
+retain matching exact rows and column types (two queries per pin). The original
+database values are unchanged; no source assertion or paired-result comparator
+was relaxed. This wrapper correction does not replace future verification of
+fully selected text casts at either test transport boundary.
