@@ -109,3 +109,12 @@ error returns from the unsuccessful speculative cast probe, zero panics and zero
 open spans. The query succeeds and temporary telemetry is deleted. Traced
 durations are not performance measurements. The lead still owns the maintained
 integrated Kani checkpoint before substantial-stage completion.
+
+The separately reviewed [exact numeric-oracle fallback](exact-numeric-oracle.md)
+is now verified on combined `4b2a027`: all 38 Python tests pass; unchanged
+ROUND_EVEN passes 20 expanded records, TRUNC 47 and TRUNC precision 51. ROUND
+advances to five records before the deliberately unsupported approximate
+floating oracle rule, with the actual values independently confirmed equal to
+development SQL. ROUND integers remains blocked by the existing `test_all_types`
+catalog gap after four records. Original and repaired reports remain separate;
+no SQL expectations were weakened or rewritten.

@@ -39,3 +39,21 @@ than permission to accept invalid unsigned input. Tests cover both small and
 128-bit unsigned forms plus missing/unknown result-type metadata. Independent
 exponent, trailing-zero and full-width unsigned casts otherwise confirm the
 retained positive fixtures. The original upstream reports remain unchanged.
+
+After merging combined base `4b2a027`, all 38 Python test-oracle/runner tests pass
+with warnings treated as errors. The repaired unchanged upstream runs pass
+ROUND_EVEN **20/20 expanded records**, TRUNC **47/47** and TRUNC precision
+**51/51**. [Final rounding results](upstream-numeric-precision-round-oracle-repaired.json)
+and [final truncation results](upstream-numeric-precision-trunc-oracle-repaired.json)
+retain exact source identities and failures. The [first exact-fallback
+rounding run](upstream-numeric-precision-round-exact.json), before the unsigned
+guard, is also retained; that file did not contain the newly audited minus case.
+
+ROUND now reaches 5/17 before an approximate floating assertion: it expects
+42.123400 and 42.12345, while both development SQL and Rust return 42.1235 and
+42.1235. Independent development CLI casts to VARCHAR confirm those exact
+outputs. This is the explicitly unimplemented approximate-comparison portion
+of the source oracle, not a numeric result regression or permission to change
+the expected SQL file. ROUND integers remains at 4/18 before unimplemented
+`test_all_types`. Each selected-file runner exits 1 because these runs are not
+whole-suite parity, including the two fully passing truncation files.
