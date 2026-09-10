@@ -640,6 +640,17 @@ classified invalid-input failure. Composite adapters use child `attempt` calls
 without flattening failure provenance. A foreign composite that discards this
 origin does not satisfy the contract.
 
+`CastSourceContext` retains extracted-source provenance independently of
+`CastBehavior` and `CastMode`. Ordinary attempts keep the original selected
+`cast_attempt` entry point; VARIANT leaves use `attempt_with_context` on their
+retained child binding. The default `cast_attempt_with_context` delegates to the
+existing adapter, so ordinary-only replacements retain their behavior. An
+opt-in adapter may distinguish VARIANT inputs without changing source/target
+registration, overload ranking, output validation or TRY failure recovery.
+Custom-adapter tests exercise both defaults and opt-ins through scalar/batched,
+prepared, nested and mutation paths, including fatal resource/validator failures
+and whole-VARIANT rather than partial-child TRY results.
+
 The runtime Strict/Try behavior is independent of implicit/assignment/explicit
 coercion mode. LIST, ARRAY, STRUCT and UNION propagate Try to children, retaining
 partial child NULLs; failed MAP keys or duplicate converted keys reject the whole

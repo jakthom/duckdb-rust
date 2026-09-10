@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 mod casts_attempts;
+mod casts_contexts;
 
 use duckdb_rust::{
     DataType, DatabaseBuilder, Error, Result, Value,

@@ -2,7 +2,7 @@ use super::*;
 use duckdb_rust::{
     common::{
         NestedPayload, NestedType, NestedValue,
-        cast::{CastBehavior, CastFailure, CastResult},
+        cast::{CastBehavior, CastFailure, CastResult, CastSourceContext},
         type_registry::{KeyWriter, TypeAdapter, TypeRegistry, builtin_types},
     },
     execution::expression_executor::BatchedEvaluator,
@@ -183,11 +183,16 @@ fn try_cast_keeps_source_target_and_nested_child_validation_failures_fatal() -> 
                     input
                 };
                 let bound = casts.bind(&source, &target, CastMode::Explicit, &types)?;
-                let error = bound.apply_try(&input, &query).unwrap_err();
-                if !source_failure && code == 0 {
-                    assert!(matches!(error, Error::Internal(_)));
-                } else {
-                    assert_eq!(error.to_string(), failure(code).to_string());
+                for source_context in [CastSourceContext::Ordinary, CastSourceContext::Variant] {
+                    let error = bound
+                        .attempt_with_context(&input, CastBehavior::Try, source_context, &query)
+                        .map_err(CastFailure::into_error)
+                        .unwrap_err();
+                    if !source_failure && code == 0 {
+                        assert!(matches!(error, Error::Internal(_)));
+                    } else {
+                        assert_eq!(error.to_string(), failure(code).to_string());
+                    }
                 }
             }
         }

@@ -14,7 +14,7 @@ pub mod scalar;
 pub mod temporal;
 
 pub use date::DateCast;
-pub use failure::{CastBehavior, CastFailure, CastResult};
+pub use failure::{CastBehavior, CastFailure, CastResult, CastSourceContext};
 
 pub use integer::DigitIntegerCast;
 
@@ -171,6 +171,19 @@ pub trait CastFunction: Debug + Send + Sync {
         context: &QueryContext,
     ) -> CastResult<Value> {
         self.cast(value, spec, context).map_err(CastFailure::from)
+    }
+    /// Context-sensitive input policy on this retained selected adapter.
+    /// Existing adapters preserve their ordinary conversion by default; an
+    /// opt-in must retain failure provenance and cannot bypass validation.
+    fn cast_attempt_with_context(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        behavior: CastBehavior,
+        _source_context: CastSourceContext,
+        context: &QueryContext,
+    ) -> CastResult<Value> {
+        self.cast_attempt(value, spec, behavior, context)
     }
 }
 
@@ -331,6 +344,15 @@ impl BoundCast {
         behavior: CastBehavior,
         context: &QueryContext,
     ) -> CastResult<Value> {
+        self.attempt_with_context(value, behavior, CastSourceContext::Ordinary, context)
+    }
+    pub fn attempt_with_context(
+        &self,
+        value: &Value,
+        behavior: CastBehavior,
+        source_context: CastSourceContext,
+        context: &QueryContext,
+    ) -> CastResult<Value> {
         context.check()?;
         if !value.fits_type(&self.spec.source) {
             return Err(CastFailure::fatal(Error::Internal(
@@ -345,9 +367,20 @@ impl BoundCast {
         if value.is_null() && self.null_handling == CastNullHandling::Propagate {
             return Ok(Value::Null);
         }
-        let output = self
-            .function
-            .cast_attempt(value, &self.spec, behavior, context);
+        // Ordinary casts retain their original selected entry point. Only
+        // extracted-source policy opts into the new adapter hook.
+        let output = if source_context == CastSourceContext::Ordinary {
+            self.function
+                .cast_attempt(value, &self.spec, behavior, context)
+        } else {
+            self.function.cast_attempt_with_context(
+                value,
+                &self.spec,
+                behavior,
+                source_context,
+                context,
+            )
+        };
         context.check()?;
         let output = match output {
             Err(error) if behavior == CastBehavior::Try && error.is_invalid_input() => {

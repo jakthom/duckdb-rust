@@ -10,6 +10,15 @@ pub enum CastBehavior {
     Try,
 }
 
+/// Logical source provenance after extraction from a container. Selected
+/// adapters may apply a different input policy; this does not grant casts,
+/// change overload ranking or alter which failures TRY_CAST may suppress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CastSourceContext {
+    Ordinary,
+    Variant,
+}
+
 #[derive(Debug)]
 pub struct CastFailure {
     error: Error,

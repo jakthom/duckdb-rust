@@ -1,4 +1,5 @@
 use super::*;
+use crate::common::cast::CastSourceContext;
 use crate::common::{
     type_registry::{TypeRegistry, variant::check_categories},
     variant::{Node, invalid},
@@ -135,7 +136,12 @@ impl VariantCast {
             let (source, value) = node.materialized(depth, &|| query.check())?;
             return casts
                 .bind(&source, target, CastMode::Explicit, types)?
-                .attempt(&value, CastBehavior::Strict, query);
+                .attempt_with_context(
+                    &value,
+                    CastBehavior::Strict,
+                    CastSourceContext::Variant,
+                    query,
+                );
         }
         let Node::Typed(source, value) = node else {
             return Err(
@@ -145,9 +151,10 @@ impl VariantCast {
         if let Value::Enum(value) = value {
             return casts
                 .bind(&DataType::Varchar, target, CastMode::Explicit, types)?
-                .attempt(
+                .attempt_with_context(
                     &Value::Varchar(value.label()?.to_owned()),
                     CastBehavior::Strict,
+                    CastSourceContext::Variant,
                     query,
                 );
         }
@@ -159,7 +166,12 @@ impl VariantCast {
                 }
                 other => other,
             })?
-            .attempt(value, CastBehavior::Strict, query)
+            .attempt_with_context(
+                value,
+                CastBehavior::Strict,
+                CastSourceContext::Variant,
+                query,
+            )
     }
 }
 
