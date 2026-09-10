@@ -121,6 +121,7 @@ impl CastFunction for TemporalCast {
                 .map(Value::Temporal);
         }
         if *target == DataType::Varchar {
+            crate::common::temporal::check_cast_text_renderable(value, &mut || context.check())?;
             return Ok(Value::Varchar(value.as_temporal()?.to_string()));
         }
         if let Value::Date(date) = value {

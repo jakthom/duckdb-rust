@@ -203,6 +203,11 @@ fn print_result(result: &QueryResult, json: bool) -> Result<()> {
             "shell output of registered values requires an explicit cast".into(),
         ));
     }
+    // Display is diagnostic and may use a raw fallback. Validate the complete
+    // result before emitting headers or rows, including nested temporal leaves.
+    for value in result.rows.iter().flatten() {
+        duckdb_rust::common::temporal::check_text_renderable(value, &mut || Ok(()))?;
+    }
     let stdout = io::stdout();
     let mut output = stdout.lock();
     if json {

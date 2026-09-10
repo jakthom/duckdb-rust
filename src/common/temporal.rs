@@ -4,7 +4,7 @@ use std::{cmp::Ordering, fmt};
 
 use serde::{Deserialize, Serialize};
 
-use super::{DataType, Date, Error, Result};
+use super::{DataType, Date, Error, NestedPayload, Result, Value};
 
 mod interval;
 mod text;
@@ -26,6 +26,72 @@ pub(crate) fn timestamp_from_calendar(date: Date, clock: i64) -> Result<i64> {
         .and_then(|ticks| ticks.checked_add(clock))
         .filter(|ticks| ticks.abs_diff(0) < i64::MAX as u64)
         .ok_or_else(|| invalid("Date and time not in timestamp range"))
+}
+
+/// Check the built-in text-result boundary without changing physical values or
+/// invoking SQL casts. Diagnostic Display may show raw unrenderable instants;
+/// result serializers must not publish that fallback as successful SQL text.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub fn check_text_renderable(value: &Value, check: &mut dyn FnMut() -> Result<()>) -> Result<()> {
+    check_text_renderable_inner(value, 0, &mut 0, check)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn check_text_renderable_inner(
+    value: &Value,
+    depth: usize,
+    visited: &mut usize,
+    check: &mut dyn FnMut() -> Result<()>,
+) -> Result<()> {
+    if (*visited).is_multiple_of(1024) {
+        check()?;
+    }
+    *visited += 1;
+    if depth > 64 {
+        return Err(Error::Resource("text result nesting exceeds 64".into()));
+    }
+    match value {
+        Value::Temporal(value) => value.check_text_renderable(),
+        Value::Nested(value) => {
+            let mut child =
+                |value: &Value| check_text_renderable_inner(value, depth + 1, visited, check);
+            match &value.payload {
+                NestedPayload::Sequence(values) | NestedPayload::Struct(values) => {
+                    for value in values {
+                        child(value)?;
+                    }
+                }
+                NestedPayload::Map(entries) => {
+                    for (key, value) in entries {
+                        child(key)?;
+                        child(value)?;
+                    }
+                }
+                NestedPayload::Union { value, .. } | NestedPayload::Variant { value, .. } => {
+                    child(value)?
+                }
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Pinned development's string-cast operator is non-fallible, so its underlying
+/// calendar rendering failure is surfaced as INTERNAL and remains fatal under
+/// TRY_CAST. Keep that source-specific SQL category separate from serializer
+/// conversion errors and from ordinary parse input rejection.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn check_cast_text_renderable(
+    value: &Value,
+    check: &mut dyn FnMut() -> Result<()>,
+) -> Result<()> {
+    check_text_renderable(value, check).map_err(|error| match error {
+        Error::Conversion(message) => Error::Internal(format!(
+            "Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: {message}"
+        )),
+        _ => error,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +154,42 @@ pub const TEMPORAL_TYPES: [DataType; 10] = [
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TemporalValue {
+    /// Calendar string renderability is deliberately not physical validation.
+    /// Epoch constructors, keys and storage can retain a valid raw instant that
+    /// the core calendar formatter cannot represent.
+    pub fn check_text_renderable(self) -> Result<()> {
+        self.validate()?;
+        if !self.is_finite() || self.data_type().timestamp_precision().is_none() {
+            return Ok(());
+        }
+        let value = match self {
+            Self::TimestampS(ticks) => Self::Timestamp(
+                ticks
+                    .checked_mul(1_000_000)
+                    .ok_or_else(|| invalid("Could not convert Timestamp(S) to Timestamp(US)"))?,
+            ),
+            Self::TimestampMs(ticks) => Self::Timestamp(
+                ticks
+                    .checked_mul(1000)
+                    .ok_or_else(|| invalid("Could not convert Timestamp(MS) to Timestamp(US)"))?,
+            ),
+            _ => self,
+        };
+        let precision = value
+            .data_type()
+            .timestamp_precision()
+            .ok_or_else(|| invalid("expected timestamp"))?;
+        i64::from(value.date()?.days())
+            .checked_mul(precision * 86400)
+            .ok_or_else(|| {
+                invalid(if precision == 1_000_000_000 {
+                    "Date out of range in timestamp_ns conversion"
+                } else {
+                    "Date out of range in timestamp conversion"
+                })
+            })?;
+        Ok(())
+    }
     pub fn data_type(self) -> DataType {
         match self {
             Self::Time(_) => DataType::Time,
@@ -335,13 +437,13 @@ impl fmt::Display for TemporalValue {
                     "{}{}{:02}",
                     clock_text(micros, 1_000_000),
                     if offset < 0 { '-' } else { '+' },
-                    offset.abs() / 3600
+                    offset.unsigned_abs() / 3600
                 )?;
                 if offset % 3600 != 0 {
-                    write!(f, ":{:02}", offset.abs() / 60 % 60)?;
+                    write!(f, ":{:02}", offset.unsigned_abs() / 60 % 60)?;
                 }
                 if offset % 60 != 0 {
-                    write!(f, ":{:02}", offset.abs() % 60)?;
+                    write!(f, ":{:02}", offset.unsigned_abs() % 60)?;
                 }
                 Ok(())
             }
@@ -374,6 +476,17 @@ impl fmt::Display for TemporalValue {
                     });
                 }
                 let precision = self.data_type().timestamp_precision().ok_or(fmt::Error)?;
+                let date = match self.date() {
+                    Ok(date) => date,
+                    Err(_) => {
+                        return write!(
+                            f,
+                            "<{} raw ticks {}>",
+                            self.data_type(),
+                            self.ticks().map_err(|_| fmt::Error)?
+                        );
+                    }
+                };
                 let clock = self
                     .ticks()
                     .map_err(|_| fmt::Error)?
@@ -381,7 +494,7 @@ impl fmt::Display for TemporalValue {
                 write!(
                     f,
                     "{} {}{}",
-                    self.date().map_err(|_| fmt::Error)?,
+                    date,
                     clock_text(clock, precision),
                     if self.data_type().has_time_zone() {
                         "+00"
@@ -397,6 +510,37 @@ impl fmt::Display for TemporalValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn nested_temporal_render_checks_remain_cooperative_and_do_not_narrow_physical_values()
+    -> Result<()> {
+        let value = super::super::NestedValue::value(
+            super::super::NestedType::List(DataType::Time).data_type(),
+            NestedPayload::Sequence(vec![Value::Temporal(TemporalValue::Time(0)); 3000]),
+        )?;
+        let mut visits = 0;
+        assert!(matches!(
+            check_text_renderable(&value, &mut || {
+                visits += 1;
+                if visits == 2 {
+                    Err(Error::Interrupted)
+                } else {
+                    Ok(())
+                }
+            }),
+            Err(Error::Interrupted)
+        ));
+        assert_eq!(visits, 2);
+        let raw = TemporalValue::TimestampS(i64::MAX - 1);
+        raw.validate()?;
+        assert!(matches!(
+            raw.check_text_renderable(),
+            Err(Error::Conversion(_))
+        ));
+        assert!(raw.to_string().starts_with("<TIMESTAMP_S raw ticks "));
+        Ok(())
+    }
 
     #[test]
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

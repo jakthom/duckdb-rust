@@ -122,6 +122,9 @@ impl Session {
             return Ok(json!({"ok":true}));
         }
         let result = connection.query(&request.sql)?;
+        for value in result.rows.iter().flatten() {
+            duckdb_rust::common::temporal::check_text_renderable(value, &mut || Ok(()))?;
+        }
         let rows: Vec<Vec<String>> = result
             .rows
             .iter()

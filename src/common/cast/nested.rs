@@ -131,6 +131,7 @@ impl CastFunction for NestedCast {
             return Ok(value.clone());
         }
         if spec.target == DataType::Varchar {
+            crate::common::temporal::check_cast_text_renderable(value, &mut || query.check())?;
             return Ok(Value::Varchar(value.to_string()));
         }
         let Value::Nested(value) = value else {

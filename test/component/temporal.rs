@@ -1238,3 +1238,157 @@ fn calendar_timestamp_intermediate_overflow_preserves_mutations_indexes_wal_and_
     }
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn temporal_diagnostic_display_does_not_change_physical_validity_or_fatal_sql_rendering()
+-> Result<()> {
+    use duckdb_rust::Error;
+    for raw in [
+        TemporalValue::TimestampS(i64::MAX - 1),
+        TemporalValue::TimestampS(-i64::MAX + 1),
+        TemporalValue::TimestampMs(i64::MAX - 1),
+        TemporalValue::TimestampMs(-i64::MAX + 1),
+        TemporalValue::Timestamp(-i64::MAX + 1),
+        TemporalValue::TimestampNs(-i64::MAX + 1),
+    ] {
+        raw.validate()?;
+        assert!(raw.check_text_renderable().is_err());
+        assert!(!raw.to_string().is_empty());
+    }
+    // Even an invalid public diagnostic payload must not overflow abs(i32::MIN).
+    assert!(
+        !TemporalValue::TimeTz {
+            micros: i64::MIN,
+            offset: i32::MIN
+        }
+        .to_string()
+        .is_empty()
+    );
+    let directory = tempfile::tempdir()?;
+    for batched in [false, true] {
+        let path = directory
+            .path()
+            .join(format!("raw-timestamp-{batched}.duckdb"));
+        let open = || {
+            let checkpoint = FileCheckpoint::open(
+                &path,
+                OpenMode::ReadWrite,
+                Arc::new(DuckDbFormat::default()),
+            )?
+            .with_recovery(Arc::new(DuckDbWalRecovery))?;
+            DatabaseBuilder::new()
+                .batch_size(1)
+                .expressions(if batched {
+                    Arc::new(BatchedEvaluator)
+                } else {
+                    Arc::new(ScalarEvaluator)
+                })
+                .durability(Arc::new(FileWal::new(
+                    checkpoint,
+                    Arc::new(DuckDbTransactionLog),
+                )?))
+                .build()
+        };
+        let mut c = open()?.connect();
+        c.execute("CREATE TABLE raw(id INTEGER PRIMARY KEY,t TIMESTAMP_S UNIQUE)")?;
+        let insert = c.prepare("INSERT INTO raw VALUES($1,CAST($2 AS TIMESTAMP_S))")?;
+        let original = Value::Temporal(TemporalValue::TimestampS(i64::MAX - 1));
+        c.execute_prepared(&insert, &[Value::Integer(1), original.clone()])?;
+        assert_eq!(
+            c.query("SELECT t FROM raw")?.rows,
+            vec![vec![original.clone()]]
+        );
+        for sql in [
+            "SELECT CAST(t AS VARCHAR) FROM raw",
+            "SELECT TRY_CAST(t AS VARCHAR) FROM raw",
+            "SELECT CAST(make_timestamp(-9223372036854775806) AS VARCHAR)",
+            "SELECT TRY_CAST(make_timestamp_ns(-9223372036854775806) AS VARCHAR)",
+            "SELECT CAST([t] AS VARCHAR) FROM raw",
+            "SELECT TRY_CAST({'t':t} AS VARCHAR) FROM raw",
+            "SELECT TRY_CAST(t::VARIANT AS VARCHAR) FROM raw",
+        ] {
+            assert!(
+                matches!(c.query(sql), Err(Error::Internal(message)) if message.contains("not marked as fallible")),
+                "{sql}"
+            );
+        }
+        assert_eq!(
+            c.query("SELECT count(*) FROM raw a JOIN raw b ON a.t=b.t")?
+                .rows,
+            vec![vec![Value::Integer(1)]]
+        );
+        c.execute("BEGIN; DELETE FROM raw; ROLLBACK")?;
+        drop(c);
+        let mut c = open()?.connect();
+        assert_eq!(
+            c.query("SELECT t FROM raw")?.rows,
+            vec![vec![original.clone()]]
+        );
+        assert!(c.query("SELECT TRY_CAST(t AS VARCHAR) FROM raw").is_err());
+        c.checkpoint()?;
+        drop(c);
+        assert_eq!(
+            Database::open_read_only(&path)?
+                .connect()
+                .query("SELECT t FROM raw")?
+                .rows,
+            vec![vec![original]]
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn text_result_transports_reject_unrenderable_temporals_before_emitting_diagnostic_fallbacks()
+-> Result<()> {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    for json in [false, true] {
+        for sql in [
+            "SELECT make_timestamp(-9223372036854775806)",
+            "SELECT {'t':make_timestamp_ns(-9223372036854775806)}",
+        ] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_duckdb-rust"));
+            if json {
+                command.arg("--json");
+            }
+            let output = command.args(["-c", sql]).output()?;
+            assert!(!output.status.success(), "{sql}");
+            assert!(output.stdout.is_empty(), "must reject before headers/rows");
+            assert!(String::from_utf8_lossy(&output.stderr).contains("Date out of range"));
+        }
+    }
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_duckdb-rust-test-worker"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+    let mut input = worker.stdin.take().unwrap();
+    for sql in [
+        "SELECT make_timestamp(-9223372036854775806)",
+        "SELECT [make_timestamp_ns(-9223372036854775806)]",
+        "SELECT 42",
+    ] {
+        writeln!(
+            input,
+            "{}",
+            serde_json::json!({"operation":"query", "sql":sql})
+        )?;
+    }
+    drop(input);
+    let output = worker.wait_with_output()?;
+    assert!(output.status.success());
+    let rows = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["ok"], false);
+    assert_eq!(rows[1]["ok"], false);
+    assert_eq!(rows[2]["ok"], true);
+    Ok(())
+}

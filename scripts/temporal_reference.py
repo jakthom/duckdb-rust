@@ -151,6 +151,17 @@ SQL += [f"SELECT TIMESTAMP '{value}'{operator}INTERVAL '{unit}'"
         for value, operator in [('290309-12-22 (BC) 00:00:00', '-'),
                                 ('294247-01-10 04:00:54.775806', '+')]
         for unit in ['1us', '1second', '1hour', '1day', '1month', '1year']]
+RENDER_SQL = [
+    "SELECT make_timestamp(-9223372036854775806)",
+    "SELECT make_timestamp_ns(-9223372036854775806)",
+    "SELECT {'t':make_timestamp_ns(-9223372036854775806)}",
+    "SELECT make_timestamp(-9223372036854775806)::VARCHAR",
+    "SELECT TRY_CAST(make_timestamp(-9223372036854775806) AS VARCHAR)",
+    "SELECT make_timestamp_ns(-9223372036854775806)::VARCHAR",
+    "SELECT TRY_CAST([make_timestamp_ns(-9223372036854775806)] AS VARCHAR)",
+    "SELECT TRY_CAST(make_timestamp(-9223372036854775806)::VARIANT AS VARCHAR)",
+]
+SQL += RENDER_SQL
 BOUNDARY_DEFINITION = "CREATE TABLE clock_boundaries(id INTEGER PRIMARY KEY,n TIME_NS UNIQUE,u TIME,z TIMETZ,child STRUCT(n TIME_NS,z TIMETZ),items TIME_NS[]); INSERT INTO clock_boundaries SELECT id,v,v::TIME,(v::TIME)::TIMETZ,{'n':v,'z':(v::TIME)::TIMETZ},[v,NULL] FROM (VALUES(1,TIME_NS '24:00:00'),(2,TIME_NS '24:00:00.000000001'),(3,TIME_NS '24:00:00.000000999'),(4,make_time(23,59,60.49999999999999)::TIME_NS)) t(id,v)"
 BOUNDARY_QUERY = "SELECT id,n::VARCHAR AS n,u::VARCHAR AS u,z::VARCHAR AS z,child::VARCHAR AS child,items::VARCHAR AS items,(DATE '2000-01-01'+u)::VARCHAR AS shifted FROM clock_boundaries ORDER BY id"
 DEFINITION = "CREATE TABLE t(id INTEGER PRIMARY KEY,tm TIME DEFAULT TIME '12:00:00',ts TIMESTAMP DEFAULT TIMESTAMP 'epoch',s TIMESTAMP_S DEFAULT TIMESTAMP_S 'epoch',ms TIMESTAMP_MS DEFAULT TIMESTAMP_MS 'epoch',ns TIMESTAMP_NS DEFAULT TIMESTAMP_NS 'epoch',z TIMESTAMPTZ DEFAULT TIMESTAMPTZ 'epoch',tz TIMETZ DEFAULT TIMETZ '12:00:00+02',iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t(id) VALUES(1); INSERT INTO t VALUES (2,NULL,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-01 12:00:00.123',TIMESTAMP_NS '2000-01-01 12:00:00.123456789',TIMESTAMPTZ '2000-01-01 12:00:00+02',TIMETZ '00:00:00-05:30',INTERVAL '-1 month 30 days -00:00:00.000001')"
@@ -213,8 +224,18 @@ def main():
                 if not selected.revision.startswith(cpp.identity['source_id']):
                     raise ValueError('loaded reference differs from pinned revision')
                 for sql in SQL:
+                    # Development's non-fallible string-cast metadata turns
+                    # these range failures into INTERNAL errors and may poison
+                    # the database. Each extrema witness needs a fresh engine,
+                    # not a later rejection caused by an earlier failure.
+                    fresh = sql in RENDER_SQL
+                    if fresh:
+                        for engine in (actual, cpp):
+                            reset = engine.request({'operation': 'load'})
+                            if not reset.get('ok'):
+                                raise RuntimeError({'extrema_reset_failed': reset})
                     a, b = actual.request({'operation': 'query', 'sql': sql}), cpp.request({'operation': 'query', 'sql': sql})
-                    trial['sql'].append({'sql': sql, 'rust': a, 'cpp': b, 'passed': equivalent(a, b)})
+                    trial['sql'].append({'sql': sql, 'rust': a, 'cpp': b, 'fresh_database': fresh, 'passed': equivalent(a, b)})
             finally:
                 actual.close()
                 cpp.close()
