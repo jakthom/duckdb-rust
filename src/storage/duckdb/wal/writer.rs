@@ -395,11 +395,14 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
     e.property(102, types.len() as u64);
     let mut remaining = super::nested::MAX_CELLS;
     for (column, data_type) in types.iter().enumerate() {
-        let values = rows
-            .iter()
-            .map(|row| row[column].clone())
-            .collect::<Vec<_>>();
-        vector(e, data_type, &values, 0, &mut remaining, context)?;
+        vector(
+            e,
+            data_type,
+            rows.iter().map(|row| &row[column]),
+            0,
+            &mut remaining,
+            context,
+        )?;
         e.end();
     }
     e.end();
@@ -407,10 +410,10 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn vector(
+pub(super) fn vector<'a>(
     e: &mut Encoder,
     data_type: &DataType,
-    values: &[Value],
+    values: impl ExactSizeIterator<Item = &'a Value> + Clone,
     depth: usize,
     remaining: &mut usize,
     context: &QueryContext,
@@ -420,15 +423,15 @@ pub(super) fn vector(
     }
     super::nested::charge(remaining, values.len(), context)?;
     let bound = context.types().bind(data_type)?;
-    for value in values {
+    for value in values.clone() {
         bound.validate(value, context)?;
     }
-    let nullable = values.iter().any(Value::is_null);
+    let nullable = values.clone().any(Value::is_null);
     e.field(100);
     e.boolean(nullable);
     if nullable {
         let mut mask = vec![255; values.len().div_ceil(64) * 8];
-        for (i, value) in values.iter().enumerate() {
+        for (i, value) in values.clone().enumerate() {
             if value.is_null() {
                 mask[i / 8] &= !(1 << (i % 8));
             }
@@ -437,7 +440,11 @@ pub(super) fn vector(
         e.blob(&mask);
     }
     if let DataType::Nested(metadata) = data_type {
-        return super::nested::write(e, metadata, values, depth, remaining, context);
+        // Nested values share their payload behind Arc. This temporary column
+        // therefore clones only outer handles; scalar VARCHAR/BLOB columns
+        // remain borrowed and are copied directly into the serialized stream.
+        let values = values.cloned().collect::<Vec<_>>();
+        return super::nested::write(e, metadata, &values, depth, remaining, context);
     }
     e.field(102);
     if matches!(

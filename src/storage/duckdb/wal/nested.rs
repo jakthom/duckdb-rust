@@ -64,7 +64,7 @@ pub(super) fn write(
         NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_) => {
             e.property(103, children.len() as u64);
             for (ty, values) in children {
-                super::writer::vector(e, &ty, &values, depth + 1, remaining, context)?;
+                super::writer::vector(e, &ty, values.iter(), depth + 1, remaining, context)?;
                 e.end();
             }
         }
@@ -92,7 +92,7 @@ pub(super) fn write(
                     .ok_or_else(|| Error::Resource("WAL LIST offset overflow".into()))?;
             }
             e.field(106);
-            super::writer::vector(e, ty, children, depth + 1, remaining, context)?;
+            super::writer::vector(e, ty, children.iter(), depth + 1, remaining, context)?;
             e.end();
         }
         NestedType::Array { length, .. } => {
@@ -101,7 +101,7 @@ pub(super) fn write(
             super::writer::vector(
                 e,
                 &children[0].0,
-                &children[0].1,
+                children[0].1.iter(),
                 depth + 1,
                 remaining,
                 context,
@@ -311,7 +311,7 @@ mod tests {
         super::super::writer::vector(
             &mut e,
             &DataType::Integer,
-            children,
+            children.iter(),
             1,
             &mut remaining,
             &QueryContext::background(),

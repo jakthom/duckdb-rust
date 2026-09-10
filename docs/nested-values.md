@@ -318,3 +318,58 @@ Kani remains the lead's substantial integrated-checkpoint responsibility.
 
 The instrumentation check completed in 61.29 seconds with zero errors, panics
 or open spans; temporary telemetry was deleted.
+
+### Atomic physical child-update recovery follow-up
+
+The native recovery reader now distinguishes physical STRUCT/TUPLE/UNION child
+paths from their separate validity records. Source inspection of pinned
+`src/transaction/wal_write_state.cpp`, `struct_column_data.cpp` and
+`standard_column_data.cpp` established that a terminal zero selects validity;
+positive child positions select physical members, including UNION's hidden tag.
+Malformed indices, descendants below validity and excessive depth are rejected.
+LIST/ARRAY/MAP/VARIANT child-update paths remain explicitly unsupported; this does
+not prevent their whole-value replacement through the existing WAL vector path.
+
+Recovery stages each affected column in a transaction-private physical tree.
+Parent and child validity remain independent while records arrive, and UNION
+tags/inactive members are validated only when the transaction is materialized.
+Children written below a NULL parent do not make that parent non-NULL. Publication
+remains copy-on-write and atomic, including derived-index validation. A shared
+16-million-node budget, depth bound and cancellation checks constrain staging.
+This temporary tree is not a new persistent representation for hidden values
+below committed NULL parents.
+
+Separate pinned release/development fixtures under
+`test/data/wal-nested-paths-{release,development}` exercise actual physical child
+records, unlike the preceding UNION replacement-row workload. All 12 recorded
+commit states pass exact-value recovery and read-only durable-byte preservation.
+All 10 nonempty states also pass writable recovery, rollback, checkpoint and
+reopen. The fixtures include NULL parents becoming populated, nested NULLs,
+restoring previous children and multiple parent changes in one transaction.
+The atomicity regression reverses valid child/tag/validity record order and checks
+that malformed paths, wrong child types and invalid final UNION states publish
+neither changed rows nor earlier schema operations.
+
+The WAL writer's scalar-column traversal now borrows values directly, removing
+the temporary column allocation and deep VARCHAR/BLOB clones introduced by the
+recursive-vector prerequisite. Nested roots still share outer Arc handles for
+physical child expansion. Logging's NUL-string/float-bit/atomic-tail checks and
+the existing recursive-vector workloads remain passing; no throughput improvement
+is claimed without the lead's coordinated measurements.
+
+Ordinary check, nested 21/21, logging 7/7, recovery 14/14, contracts 25/25, four
+focused WAL units and all-target clippy pass. The independently refreshed mixed
+WAL campaign passes all four producer cases across both pinned C++ versions with
+an unchanged source fingerprint; evidence is retained separately in
+`docs/nested-wal-recovery-followup-reference.json`. That script checks the mixed
+replacement-row workload, while the new component fixtures establish physical
+child-update coverage. Coverage reports 277 files, 2,448 functions and 207
+interface methods with no missing instrumentation attributes.
+
+This is an internal integration increment. Kani remains the lead's substantial
+combined-checkpoint responsibility; full native parity is not claimed. Native
+nested non-NULL defaults, version-aware TUPLE publication, VARIANT physical
+storage and the broader function/performance inventory remain open.
+
+The final instrumentation check completed in 31.30 seconds with zero errors,
+panics or open spans; temporary telemetry was deleted.

@@ -134,6 +134,22 @@ fn independent_fixture(suite: &str, fields: &[&str]) -> Result<()> {
                 );
                 assert_eq!(fs::read(&path)?, checkpoint);
                 assert_eq!(fs::read(&wal_path)?, log[..end]);
+                if suite == "wal-nested-paths" && end > 0 {
+                    drop(c);
+                    let mut c = open(&path)?.connect();
+                    assert_eq!(c.query(case["query"].as_str().unwrap())?.rows, expected);
+                    c.execute("BEGIN; UPDATE t SET s=NULL WHERE i=1; ROLLBACK")?;
+                    assert_eq!(c.query(case["query"].as_str().unwrap())?.rows, expected);
+                    c.checkpoint()?;
+                    drop(c);
+                    assert_eq!(
+                        Database::open_read_only(&path)?
+                            .connect()
+                            .query(case["query"].as_str().unwrap())?
+                            .rows,
+                        expected
+                    );
+                }
             }
         }
     }
