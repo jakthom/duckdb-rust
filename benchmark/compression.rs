@@ -14,12 +14,14 @@ use serde_json::json;
 use std::{sync::Arc, time::Instant};
 
 struct NoBlocks;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BlockSource for NoBlocks {
     fn block(&self, _: u64) -> Result<&[u8]> {
         Err(Error::Internal("bitpacking has no external blocks".into()))
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn segment(mode: u32, width: usize, size: usize) -> (Vec<u8>, Vec<Value>) {
     let mut data = vec![0; 8];
     let frame = -17i128;
@@ -65,6 +67,7 @@ fn segment(mode: u32, width: usize, size: usize) -> (Vec<u8>, Vec<Value>) {
     (data, expected)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub fn run(rows: usize, iterations: usize) -> Result<serde_json::Value> {
     let mut results = Vec::new();
     let mut comparisons = Vec::new();

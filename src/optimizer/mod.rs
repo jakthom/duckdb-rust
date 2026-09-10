@@ -24,6 +24,7 @@ pub struct OptimizerContext<'a> {
     pub query: &'a QueryContext,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Owns its input and preserves schema, effects, errors and visibility. Input
 /// and output use the same validation context; adapters transform plans through
 /// ValidatedPlan::rewrite rather than transferring unvalidated mutable state.
@@ -35,6 +36,7 @@ pub trait Optimizer: Send + Sync {
     fn optimize<'a>(&self, plan: ValidatedPlan<'a>) -> Result<ValidatedPlan<'a>>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A local rewrite after the pipeline has visited this node's inputs. Each pass
 /// must remain valid when run alone or with any other conforming pass sequence.
 pub trait OptimizerPass: Send + Sync {
@@ -44,6 +46,7 @@ pub trait OptimizerPass: Send + Sync {
 
 #[derive(Default)]
 pub struct IdentityOptimizer;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Optimizer for IdentityOptimizer {
     fn name(&self) -> &'static str {
         "identity"
@@ -58,6 +61,7 @@ pub struct PipelineOptimizer {
     passes: Vec<Arc<dyn OptimizerPass>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for PipelineOptimizer {
     fn default() -> Self {
         Self::new(vec![
@@ -68,12 +72,14 @@ impl Default for PipelineOptimizer {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PipelineOptimizer {
     pub fn new(passes: Vec<Arc<dyn OptimizerPass>>) -> Self {
         Self { passes }
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Optimizer for PipelineOptimizer {
     fn name(&self) -> &'static str {
         "pipeline"
@@ -96,6 +102,7 @@ impl Optimizer for PipelineOptimizer {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn visit(
     plan: LogicalPlan,
     pass: &dyn OptimizerPass,
@@ -107,6 +114,7 @@ fn visit(
     pass.rewrite(plan, context)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn visit_expression(
     expression: BoundExpr,
     pass: &dyn OptimizerPass,
@@ -121,6 +129,7 @@ fn visit_expression(
 }
 
 pub struct RemoveTrueFilters;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OptimizerPass for RemoveTrueFilters {
     fn name(&self) -> &'static str {
         "remove-true-filters"

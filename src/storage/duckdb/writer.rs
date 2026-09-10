@@ -24,6 +24,7 @@ struct Arena {
     metadata: Vec<(u64, u64)>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Arena {
     fn overflow(&mut self, data: &[u8]) -> Result<Vec<u64>> {
         if data.len() > 16 * 1024 * 1024 {
@@ -147,16 +148,19 @@ impl Arena {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn append_checked(output: &mut Vec<u8>, data: &[u8]) -> Result<()> {
     output.extend(checksum(data)?.to_le_bytes());
     output.extend(data);
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn encode(snapshot: &Snapshot) -> Result<Vec<u8>> {
     encode_checkpoint(snapshot, None)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn encode_successor(
     snapshot: &Snapshot,
     previous: super::CheckpointIdentity,
@@ -164,6 +168,7 @@ pub(super) fn encode_successor(
     encode_checkpoint(snapshot, Some(previous))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn encode_checkpoint(
     snapshot: &Snapshot,
     previous: Option<super::CheckpointIdentity>,
@@ -231,6 +236,7 @@ fn encode_checkpoint(
     arena.finish(root, previous)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn table_data(arena: &mut Arena, table: &TableDefinition, rows: &[Row]) -> Result<u64> {
     let mut output = Encoder::default();
     output.property(100, table.columns.len() as u64);
@@ -263,6 +269,7 @@ fn table_data(arena: &mut Arena, table: &TableDefinition, rows: &[Row]) -> Resul
     arena.metadata(&output.0)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn column_data(
     arena: &mut Arena,
     data_type: &DataType,
@@ -335,6 +342,7 @@ fn column_data(
     arena.metadata(&output.0)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn segment(
     arena: &mut Arena,
     data_type: &DataType,
@@ -440,6 +448,7 @@ fn segment(
     Ok(output.0)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn statistics(output: &mut Encoder, data_type: Option<&DataType>, values: &[Value]) -> Result<()> {
     output.field(100);
     output.boolean(values.iter().any(Value::is_null));

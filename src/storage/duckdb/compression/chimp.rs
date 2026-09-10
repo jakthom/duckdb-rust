@@ -11,6 +11,7 @@ use crate::{
 /// Historical Chimp128 storage. Its bitstream continues across group boundaries;
 /// only the reference ring and leading-zero state reset every 1,024 values.
 pub struct ChimpDecoder;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SegmentDecoder for ChimpDecoder {
     fn id(&self) -> CodecId {
         CodecId(8)
@@ -133,6 +134,7 @@ struct Group<'a> {
     packed: &'a [u8],
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn reference(ring: &[Option<u64>; 128], index: usize) -> Result<u64> {
     ring.get(index)
         .copied()
@@ -146,6 +148,7 @@ struct Bits<'a> {
     data: &'a [u8],
     position: usize,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Bits<'_> {
     fn read(&mut self, count: usize) -> Result<u64> {
         let end = self

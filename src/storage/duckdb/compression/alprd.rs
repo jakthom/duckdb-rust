@@ -12,6 +12,7 @@ use crate::{
 /// ALP-RD preserves the original IEEE bits by dictionary coding the high bits
 /// and packing the low bits. Exceptions replace only the high part.
 pub struct AlpRdDecoder;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SegmentDecoder for AlpRdDecoder {
     fn id(&self) -> CodecId {
         CodecId(11)

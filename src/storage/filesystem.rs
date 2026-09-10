@@ -44,6 +44,7 @@ pub enum PublicationStep {
     LogRollbackSync,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait FileFaultInjector: Send + Sync {
     fn before(&self, step: PublicationStep) -> Result<()>;
 }
@@ -54,6 +55,7 @@ pub enum OpenMode {
     ReadWrite,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A leased, atomically replaceable object. Reads own their bytes. Publication
 /// is serialized and durable before success; failures after visibility must be
 /// CommitUnknown. Implementations retain exclusive writer ownership until drop.
@@ -115,6 +117,7 @@ struct Lease {
     keys: Vec<String>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Lease {
     fn acquire(path: &Path) -> Result<Self> {
         let mut keys = vec![format!("path:{}", path.display())];
@@ -179,6 +182,7 @@ impl Lease {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Drop for Lease {
     fn drop(&mut self) {
         if let Ok(mut files) = OPEN_FILES.get_or_init(Default::default).lock() {
@@ -197,6 +201,7 @@ pub struct LocalCheckpointStorage {
     faults: Option<std::sync::Arc<dyn FileFaultInjector>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LocalCheckpointStorage {
     pub fn open(
         path: &Path,
@@ -281,6 +286,7 @@ impl LocalCheckpointStorage {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CheckpointStorage for LocalCheckpointStorage {
     fn name(&self) -> &'static str {
         "local-atomic-checkpoint"
@@ -359,6 +365,7 @@ impl CheckpointStorage for LocalCheckpointStorage {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn lock(file: &File, writable: bool) -> Result<()> {
     #[cfg(not(unix))]
     {
@@ -385,11 +392,13 @@ fn lock(file: &File, writable: bool) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sync_parent(path: &Path) -> Result<()> {
     File::open(path.parent().unwrap_or(Path::new(".")))?.sync_all()?;
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn create_file(path: &Path) -> std::io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create_new(true);
@@ -401,12 +410,14 @@ fn create_file(path: &Path) -> std::io::Result<File> {
     options.open(path)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sidecar(path: &Path, suffix: &str) -> PathBuf {
     let mut result = path.as_os_str().to_os_string();
     result.push(suffix);
     result.into()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn log_present(path: &Path, suffix: &str) -> Result<bool> {
     match std::fs::metadata(sidecar(path, suffix)) {
         Ok(metadata) => Ok(metadata.len() > 0),
@@ -415,6 +426,7 @@ fn log_present(path: &Path, suffix: &str) -> Result<bool> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn checkpoint_transition(path: &Path) -> Result<bool> {
     // Existence carries protocol state even before the first record is written.
     Ok(sidecar(path, ".wal.checkpoint").try_exists()?

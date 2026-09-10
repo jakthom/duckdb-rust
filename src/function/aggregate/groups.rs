@@ -6,6 +6,7 @@ use crate::{
     parallel::QueryContext,
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn create(name: &str, arguments: &[DataType]) -> Option<Box<dyn GroupedAggregateState>> {
     let sum = name == "sum";
     if usize::BITS > 64
@@ -27,6 +28,7 @@ struct IntegerGroups {
     values: Vec<i128>,
     counts: Vec<usize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GroupedAggregateState for IntegerGroups {
     fn group_count(&self) -> usize {
         self.counts.len()
@@ -164,6 +166,7 @@ impl GroupedAggregateState for IntegerGroups {
             .collect()
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IntegerGroups {
     fn update_sum<'a>(
         &mut self,
@@ -195,6 +198,7 @@ impl IntegerGroups {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn nonnull_count(column: &crate::common::vector::Vector, query: &QueryContext) -> Result<usize> {
     if column.all_valid() {
         return Ok(column.len());

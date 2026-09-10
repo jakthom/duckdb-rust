@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_grouping_matches_an_independent_cube_across_dense_sparse_and_null_domains() -> Result<()>
 {

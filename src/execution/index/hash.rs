@@ -11,6 +11,7 @@ struct HashIndex {
     entries: HashMap<Vec<u8>, Vec<RowId>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IndexFactory for HashIndexFactory {
     fn name(&self) -> &'static str {
         "hash-equality"
@@ -34,6 +35,7 @@ impl IndexFactory for HashIndexFactory {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl KeyIndex for HashIndex {
     fn lookup(&self, key: &Row, context: &QueryContext) -> Result<Vec<RowId>> {
         context.check()?;

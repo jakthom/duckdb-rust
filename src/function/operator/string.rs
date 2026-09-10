@@ -2,6 +2,7 @@ use super::*;
 
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn inputs(arguments: &[Value]) -> Result<(&str, &str)> {
     match arguments {
         [Value::Varchar(value), Value::Varchar(pattern)] => {
@@ -18,6 +19,7 @@ fn inputs(arguments: &[Value]) -> Result<(&str, &str)> {
 
 #[derive(Debug)]
 pub struct Concatenate;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorFunction for Concatenate {
     fn name(&self) -> &'static str {
         "string-concatenate"
@@ -70,6 +72,7 @@ pub struct GreedyLike;
 
 macro_rules! like_adapter {
     ($adapter:ident, $name:literal, $matcher:ident) => {
+        #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
         impl OperatorFunction for $adapter {
             fn name(&self) -> &'static str {
                 $name
@@ -98,6 +101,7 @@ macro_rules! like_adapter {
 like_adapter!(DynamicLike, "like-dynamic-programming", dynamic);
 like_adapter!(GreedyLike, "like-greedy", greedy);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Dynamic programming over Unicode scalar values; two reusable state rows.
 fn dynamic(value: &str, pattern: &str, query: &QueryContext) -> Result<bool> {
     let mut chars = Vec::new();
@@ -139,6 +143,7 @@ fn dynamic(value: &str, pattern: &str, query: &QueryContext) -> Result<bool> {
     Ok(previous[size - 1])
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Constant scratch space. A percent remembers the next pattern position and
 /// retries its suffix at successive character boundaries. Worst-case time is
 /// still O(value * pattern), so retries cooperate with query cancellation.
@@ -194,6 +199,7 @@ fn greedy(value: &str, pattern: &str, query: &QueryContext) -> Result<bool> {
     Ok(p == pattern.len())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut OperatorRegistry) {
     for (operator, result, function) in [
         (

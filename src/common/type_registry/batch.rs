@@ -1,6 +1,7 @@
 use super::*;
 use crate::common::vector::Vector;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn compare_values(
     left: &Vector,
     right: &Vector,
@@ -35,6 +36,7 @@ pub(super) fn compare_values(
     Ok(values)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundType {
     /// Vector construction establishes physical validity. This boundary checks
     /// the bound type and any additional invariants of the selected adapter.

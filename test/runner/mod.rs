@@ -1,6 +1,7 @@
 use duckdb_rust::{Database, Error, Result};
 use std::{collections::BTreeMap, path::Path};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Each file owns its default and named sessions over the selected database.
 /// A named session persists across records; transactions and settings never
 /// transfer between sessions. All connections use the database's composition.

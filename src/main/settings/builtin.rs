@@ -4,6 +4,7 @@ use super::*;
 struct OrderingSetting {
     nulls: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut SettingRegistry) {
     for nulls in [false, true] {
         registry
@@ -11,6 +12,7 @@ pub(super) fn register(registry: &mut SettingRegistry) {
             .expect("unique ordering setting");
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Setting for OrderingSetting {
     fn definition(&self) -> SettingDefinition {
         SettingDefinition {

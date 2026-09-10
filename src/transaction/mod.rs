@@ -15,6 +15,7 @@ use crate::{
 
 mod journal;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Transaction-local catalog and data share visibility and publication. Dropping
 /// an uncommitted transaction discards all its changes.
 pub trait Transaction: Send {
@@ -25,6 +26,7 @@ pub trait Transaction: Send {
     fn commit(self: Box<Self>) -> Result<()>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait TransactionManager: Send + Sync {
     fn types(&self) -> Arc<crate::common::type_registry::TypeRegistry>;
     fn name(&self) -> &'static str;
@@ -52,6 +54,7 @@ enum Failure {
     CommitUnknown,
     RecoveryRequired,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Committed {
     fn check(&self) -> Result<()> {
         match self.failure {
@@ -82,6 +85,7 @@ pub struct SnapshotTransactions {
     types: Arc<crate::common::type_registry::TypeRegistry>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SnapshotTransactions {
     pub fn new(durability: Arc<dyn Durability>) -> Result<Self> {
         Self::with_indexes(durability, Arc::new(HashIndexFactory))
@@ -130,6 +134,7 @@ struct SnapshotTransaction {
     journal: Option<Vec<TransactionChange>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TransactionManager for SnapshotTransactions {
     fn checkpoint(&self, context: &QueryContext) -> Result<()> {
         context.check()?;
@@ -179,6 +184,7 @@ impl TransactionManager for SnapshotTransactions {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Transaction for SnapshotTransaction {
     fn catalog(&self) -> &dyn Catalog {
         &self.snapshot
@@ -234,6 +240,7 @@ impl Transaction for SnapshotTransaction {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableStorage for SnapshotTransaction {
     fn row_count(&self, table: &TableName) -> Result<Option<usize>> {
         self.snapshot.row_count(table)

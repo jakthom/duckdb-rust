@@ -29,6 +29,7 @@ pub enum DeliveryMode {
     Blocking,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait PhysicalOperator: Debug + Send + Sync {
     fn schema(&self) -> &Schema;
     fn delivery(&self) -> DeliveryMode;
@@ -36,6 +37,7 @@ pub trait PhysicalOperator: Debug + Send + Sync {
     fn open<'a>(&'a self, context: &'a ExecutionContext<'a>) -> Result<Stream<'a>>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait PhysicalPlanner: Send + Sync {
     fn name(&self) -> &'static str;
     fn adapters(&self) -> Vec<(&'static str, &'static str)> {
@@ -60,6 +62,7 @@ pub enum ScanFilterStrategy {
     Fused,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScanFilterStrategy {
     fn name(self) -> &'static str {
         match self {
@@ -69,6 +72,7 @@ impl ScanFilterStrategy {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for NativePhysicalPlanner {
     fn default() -> Self {
         Self {
@@ -81,6 +85,7 @@ impl Default for NativePhysicalPlanner {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl NativePhysicalPlanner {
     pub fn with_joins(joins: Vec<Arc<dyn JoinAlgorithm>>) -> Self {
         Self {
@@ -161,6 +166,7 @@ enum Node {
     Union(Arc<dyn PhysicalOperator>, Arc<dyn PhysicalOperator>, bool),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PhysicalPlanner for NativePhysicalPlanner {
     fn name(&self) -> &'static str {
         "native-physical"
@@ -291,6 +297,7 @@ impl PhysicalPlanner for NativePhysicalPlanner {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PhysicalOperator for Operator {
     fn schema(&self) -> &Schema {
         &self.schema
@@ -569,6 +576,7 @@ impl PhysicalOperator for Operator {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn distinct(
     batch: DataChunk,
     seen: &mut HashSet<Vec<u8>>,

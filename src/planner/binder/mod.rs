@@ -29,6 +29,7 @@ use crate::{
 #[derive(Default)]
 pub struct SqlBinder;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Binder for SqlBinder {
     fn name(&self) -> &'static str {
         "sql-binder"
@@ -81,10 +82,12 @@ struct GroupScope {
     outputs: RefCell<Vec<(ast::Expr, AggregateOutput)>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn unsupported(thing: impl std::fmt::Display) -> Error {
     Error::Unsupported(thing.to_string())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn table_name(name: &ast::ObjectName) -> Result<TableName> {
     let parts = name
         .0
@@ -102,6 +105,7 @@ pub(crate) fn table_name(name: &ast::ObjectName) -> Result<TableName> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     fn data_type(&self, data_type: &ast::DataType) -> Result<DataType> {
         use ast::DataType as T;
@@ -165,6 +169,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     fn literal(&self, expr: &ast::Expr) -> Result<Value> {
         match expr {
@@ -218,6 +223,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn constant_expression(expression: &BoundExpr) -> bool {
     match &expression.kind {
         ExprKind::Literal(_) => true,
@@ -241,6 +247,7 @@ fn constant_expression(expression: &BoundExpr) -> bool {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn schema(table: &TableDefinition) -> Schema {
     table
         .columns
@@ -253,11 +260,13 @@ fn schema(table: &TableDefinition) -> Schema {
         .collect()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn resolve(schema: &[Field], parts: &[String]) -> Result<usize> {
     resolve_optional(schema, parts)?
         .ok_or_else(|| Error::Bind(format!("column {} not found", parts.join("."))))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn resolve_optional(schema: &[Field], parts: &[String]) -> Result<Option<usize>> {
     let name = parts
         .last()
@@ -290,6 +299,7 @@ fn resolve_optional(schema: &[Field], parts: &[String]) -> Result<Option<usize>>
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     fn boolean(&self, expr: BoundExpr) -> Result<BoundExpr> {
         if !matches!(expr.data_type, DataType::Boolean | DataType::Null) {
@@ -304,6 +314,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     fn operator(&self, operator: Operator, arguments: Vec<BoundExpr>) -> Result<BoundExpr> {
         let inputs: Vec<_> = arguments
@@ -389,6 +400,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn function_arg(arg: &ast::FunctionArg) -> Result<ast::Expr> {
     match arg {
         ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(e)) => Ok(e.clone()),
@@ -396,6 +408,7 @@ fn function_arg(arg: &ast::FunctionArg) -> Result<ast::Expr> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn function_arguments(function: &ast::Function) -> Result<Vec<ast::Expr>> {
     if !matches!(function.parameters, ast::FunctionArguments::None) {
         return Err(unsupported("parametric function"));
@@ -419,6 +432,7 @@ fn function_arguments(function: &ast::Function) -> Result<Vec<ast::Expr>> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn alias(plan: &mut LogicalPlan, alias: &ast::TableAlias) -> Result<()> {
     if alias.columns.len() > plan.schema.len() {
         return Err(Error::Bind("too many column aliases".into()));
@@ -432,6 +446,7 @@ fn alias(plan: &mut LogicalPlan, alias: &ast::TableAlias) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn join(
     left: LogicalPlan,
     right: LogicalPlan,
@@ -453,6 +468,7 @@ fn join(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     fn coerce_plan(
         &self,
@@ -493,6 +509,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn expand_star(fields: &[Field], qualifier: Option<&str>, output: &mut Vec<(ast::Expr, String)>) {
     for field in fields.iter().filter(|f| {
         qualifier.is_none_or(|q| {
@@ -511,6 +528,7 @@ fn expand_star(fields: &[Field], qualifier: Option<&str>, output: &mut Vec<(ast:
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn check_wildcard(options: &ast::WildcardAdditionalOptions) -> Result<()> {
     if options.opt_ilike.is_some()
         || options.opt_exclude.is_some()
@@ -524,6 +542,7 @@ fn check_wildcard(options: &ast::WildcardAdditionalOptions) -> Result<()> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     fn nonnegative(&self, expr: &ast::Expr) -> Result<usize> {
         usize::try_from(self.literal(expr)?.as_i128()?)
@@ -531,6 +550,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn ordinal(expr: &ast::Expr, width: usize) -> Result<Option<usize>> {
     if let ast::Expr::Value(value) = expr
         && let ast::Value::Number(v, _) = &value.value
@@ -546,6 +566,7 @@ fn ordinal(expr: &ast::Expr, width: usize) -> Result<Option<usize>> {
     Ok(None)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn order_expressions(order: Option<&ast::OrderBy>, width: usize) -> Result<Vec<ast::OrderByExpr>> {
     match order {
         None => Ok(Vec::new()),
@@ -569,6 +590,7 @@ fn order_expressions(order: Option<&ast::OrderBy>, width: usize) -> Result<Vec<a
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn number(value: &str) -> Result<Value> {
     if value.contains(['.', 'e', 'E']) {
         value

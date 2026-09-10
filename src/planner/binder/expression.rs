@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     /// Bind/type-check every branch first, then remove statically unreachable
     /// CASE dependencies before nested relational plans are prepared.
@@ -508,6 +509,7 @@ struct FunctionArguments<'a, 'b> {
     arguments: &'a [BoundExpr],
     context: &'a BindContext<'b>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
     fn len(&self) -> usize {
         self.arguments.len()
@@ -547,6 +549,7 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn aggregate_references(expression: &BoundExpr, local: &mut bool, outer: &mut bool) {
     match expression.kind {
         ExprKind::Column(_) | ExprKind::Subquery(_) => *local = true,

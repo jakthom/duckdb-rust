@@ -7,6 +7,7 @@ pub(super) struct StagedFile {
     pub(super) file: File,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Drop for StagedFile {
     fn drop(&mut self) {
         if let Some(path) = &self.path {
@@ -15,6 +16,7 @@ impl Drop for StagedFile {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LocalCheckpointStorage {
     pub(super) fn stage(
         &self,
@@ -201,6 +203,7 @@ impl LocalCheckpointStorage {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn uncertain(error: Error) -> Error {
     match error {
         Error::CommitUnknown(_) => error,
@@ -208,6 +211,7 @@ fn uncertain(error: Error) -> Error {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn matches(file: &mut File, expected: &[u8]) -> Result<bool> {
     if file.metadata()?.len() != expected.len() as u64 {
         return Ok(false);

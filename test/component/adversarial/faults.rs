@@ -24,6 +24,7 @@ struct FailAfter {
     calls: AtomicUsize,
     fired: AtomicBool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FileFaultInjector for FailAfter {
     fn before(&self, _: PublicationStep) -> Result<()> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
@@ -35,6 +36,7 @@ impl FileFaultInjector for FailAfter {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn open(path: &Path, logged: bool, faults: Arc<FailAfter>) -> Result<Database> {
     let storage = LocalCheckpointStorage::open(path, OpenMode::ReadWrite, || unreachable!())?
         .with_faults(faults);
@@ -48,6 +50,7 @@ fn open(path: &Path, logged: bool, faults: Arc<FailAfter>) -> Result<Database> {
     DatabaseBuilder::new().durability(durability).build()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn every_observed_io_position_handles_once_and_persistent_failures() -> Result<()> {
     for logged in [false, true] {

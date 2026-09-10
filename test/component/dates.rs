@@ -23,10 +23,12 @@ use duckdb_rust::{
     },
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn date(text: &str) -> Value {
     Value::Date(text.parse().expect("test date"))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn calendar_covers_gregorian_cycles_bce_and_physical_boundaries() -> Result<()> {
     for (text, days) in [
@@ -90,6 +92,7 @@ fn calendar_covers_gregorian_cycles_bce_and_physical_boundaries() -> Result<()> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn literals_casts_invalid_dates_and_lazy_errors_use_date_semantics() -> Result<()> {
     let mut c = Database::memory()?.connect();
@@ -157,6 +160,7 @@ fn literals_casts_invalid_dates_and_lazy_errors_use_date_semantics() -> Result<(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn date_queries_share_keys_comparisons_and_null_rules_across_join_adapters() -> Result<()> {
     let joins: Vec<Arc<dyn JoinAlgorithm>> = vec![Arc::new(HashJoin), Arc::new(NestedLoopJoin)];
@@ -199,6 +203,7 @@ fn date_queries_share_keys_comparisons_and_null_rules_across_join_adapters() -> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn date_defaults_indexes_and_mutations_survive_both_snapshot_formats() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -254,6 +259,7 @@ fn date_defaults_indexes_and_mutations_survive_both_snapshot_formats() -> Result
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn independent_date_checkpoints_decode_through_both_bitpacking_adapters() -> Result<()> {
     for scalar in [false, true] {
@@ -315,6 +321,7 @@ fn independent_date_checkpoints_decode_through_both_bitpacking_adapters() -> Res
 
 #[derive(Debug)]
 struct RejectDateCast;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for RejectDateCast {
     fn name(&self) -> &'static str {
         "test-date-resource-failure"
@@ -327,6 +334,7 @@ impl CastFunction for RejectDateCast {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn date_literals_defaults_and_try_cast_honor_selected_adapters() -> Result<()> {
     let mut casts = CastRegistry::builtins();
@@ -362,6 +370,7 @@ fn date_literals_defaults_and_try_cast_honor_selected_adapters() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn native_validity_cannot_promote_a_reserved_date_slot_to_a_value() -> Result<()> {
     let mut bytes = Vec::new();

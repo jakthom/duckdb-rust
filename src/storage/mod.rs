@@ -25,6 +25,7 @@ pub struct StorageCapabilities {
     pub key_lookup: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Stable row identities belong to a table in a transaction; deleted IDs are not
 /// reused. Fetch preserves request order and duplicates, including missing IDs.
 /// Key lookup uses only an advertised index, returning ascending distinct IDs;
@@ -65,6 +66,7 @@ pub trait TableStorage: Send {
     ) -> Result<Vec<(RowId, Row)>>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait TableStorageMut: TableStorage {
     fn insert(
         &mut self,

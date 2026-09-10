@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn from(&mut self, from: &ast::TableWithJoins) -> Result<LogicalPlan> {
         let mut left = self.factor(&from.relation)?;

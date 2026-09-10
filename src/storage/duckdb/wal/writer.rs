@@ -31,6 +31,7 @@ struct Session {
     entries: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TransactionLog for DuckDbTransactionLog {
     fn name(&self) -> &'static str {
         "duckdb-wal-v2-writer"
@@ -69,6 +70,7 @@ struct Pending {
     rows: BTreeMap<RowId, Row>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LogSession for Session {
     fn rebase(&self, checkpoint: LogCheckpoint<'_>, context: &QueryContext) -> Result<LogStart> {
         use crate::storage::layout::{CheckpointLayout, TableLayout};
@@ -288,6 +290,7 @@ impl LogSession for Session {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableState {
     fn physical(&self, id: RowId) -> Result<RowId> {
         if id >= self.logical_next {
@@ -297,9 +300,11 @@ impl TableState {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn invalid(message: &str) -> Error {
     Error::Internal(format!("invalid transaction journal: {message}"))
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn advance(next: &mut RowId) -> Result<RowId> {
     let id = *next;
     if id >= i64::MAX as u64 {
@@ -308,11 +313,13 @@ fn advance(next: &mut RowId) -> Result<RowId> {
     *next += 1;
     Ok(id)
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn record(kind: u64) -> Encoder {
     let mut e = Encoder::default();
     e.property(100, kind);
     e
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn named(kind: u64, name: &TableName) -> Result<Encoder> {
     let mut e = record(kind);
     e.field(101);
@@ -326,6 +333,7 @@ struct Records {
     bytes: Vec<u8>,
     entries: usize,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Records {
     fn push(&mut self, mut e: Encoder) -> Result<()> {
         if self.entries >= MAX_ENTRIES {
@@ -373,6 +381,7 @@ impl Records {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryContext) -> Result<()> {
     context.check_rows(rows.len())?;
     if rows.iter().any(|row| row.len() != types.len()) {

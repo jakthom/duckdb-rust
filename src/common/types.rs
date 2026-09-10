@@ -33,6 +33,7 @@ pub enum TypeParameter {
     Type(Box<DataType>),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DataType {
     pub fn extension(name: impl Into<String>, parameters: Vec<TypeParameter>) -> Self {
         Self::Extension(Arc::new(TypeIdentity {
@@ -113,6 +114,7 @@ impl DataType {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for DataType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Self::Extension(identity) = self {
@@ -175,6 +177,7 @@ pub struct ExtensionValue {
     pub bytes: Vec<u8>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Value {
     /// Constructs an owned opaque payload. Engine boundaries validate it against
     /// the selected type adapter, as they do other externally supplied values.
@@ -353,6 +356,7 @@ impl Value {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn float_cmp(a: f64, b: f64) -> Ordering {
     match (a.is_nan(), b.is_nan()) {
         (true, true) => Ordering::Equal,
@@ -362,6 +366,7 @@ fn float_cmp(a: f64, b: f64) -> Ordering {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -379,9 +384,11 @@ impl fmt::Display for Value {
 
 mod float_bits {
     use serde::{Deserialize, Deserializer, Serializer};
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u64(value.to_bits())
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
         Ok(f64::from_bits(u64::deserialize(deserializer)?))
     }
@@ -389,9 +396,11 @@ mod float_bits {
 
 mod float32_bits {
     use serde::{Deserialize, Deserializer, Serializer};
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     pub fn serialize<S: Serializer>(value: &f32, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u32(value.to_bits())
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f32, D::Error> {
         Ok(f32::from_bits(u32::deserialize(deserializer)?))
     }

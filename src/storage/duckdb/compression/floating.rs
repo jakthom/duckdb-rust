@@ -10,6 +10,7 @@ pub(super) enum Floating {
     Double,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Floating {
     pub fn for_segment(kind: SegmentType<'_>) -> Result<Self> {
         match kind {

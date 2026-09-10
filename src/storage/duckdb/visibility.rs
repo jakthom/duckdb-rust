@@ -6,6 +6,7 @@ use super::{
 };
 use crate::common::Result;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Persisted masks contain committed deletions only. A set bit means deleted.
 pub(super) fn deleted_rows(
     blocks: &Blocks,
@@ -51,6 +52,7 @@ pub(super) fn deleted_rows(
     Ok(deleted)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn mask(reader: &mut Reader, count: usize) -> Result<Vec<bool>> {
     let kind = reader.byte()?;
     if kind == 0 {

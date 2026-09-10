@@ -10,6 +10,7 @@ struct OrderedIntegers {
     fail_comparison: bool,
     reject_negative: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for OrderedIntegers {
     fn name(&self) -> &'static str {
         "test-ordered-integers"
@@ -57,6 +58,7 @@ impl TypeAdapter for OrderedIntegers {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn ordering_capability_is_independent_of_integer_equality_and_preserves_failures() -> Result<()> {
     for fail_comparison in [false, true] {
@@ -106,6 +108,7 @@ fn ordering_capability_is_independent_of_integer_equality_and_preserves_failures
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_ordering_does_not_bypass_logical_validation() -> Result<()> {
     let mut types = TypeRegistry::builtins();
@@ -140,6 +143,7 @@ fn integer_ordering_does_not_bypass_logical_validation() -> Result<()> {
 
 #[derive(Debug)]
 struct InvalidCapability;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for InvalidCapability {
     fn name(&self) -> &'static str {
         "invalid-ordering-capability"
@@ -170,6 +174,7 @@ impl TypeAdapter for InvalidCapability {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_ordering_capability_rejects_other_physical_types() -> Result<()> {
     let mut types = TypeRegistry::builtins();
@@ -181,6 +186,7 @@ fn integer_ordering_capability_rejects_other_physical_types() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sorting_fallback_preserves_string_boolean_float_order_and_payload_bits() -> Result<()> {
     let float_values = [

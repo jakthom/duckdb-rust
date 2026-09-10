@@ -9,6 +9,7 @@ use crate::{
 /// Integer ordering must be advertised independently of equality capabilities.
 #[derive(Debug, Default)]
 pub struct RadixSort;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SortAlgorithm for RadixSort {
     fn name(&self) -> &'static str {
         "integer-radix-sort"
@@ -125,6 +126,7 @@ struct IntegerColumn {
     has_value: bool,
     has_null: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IntegerColumn {
     fn push(&mut self, value: Option<i128>) {
         if let Some(value) = value {
@@ -144,6 +146,7 @@ impl IntegerColumn {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn pass(
     permutation: &mut Vec<usize>,
     scratch: &mut Vec<usize>,

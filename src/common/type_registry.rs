@@ -47,6 +47,7 @@ pub enum OrderingRepresentation {
     SignedInteger,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Immutable, pure type semantics, safe for concurrent use. Implementations
 /// validate parameters and non-NULL physical values, return a total ordering,
 /// and produce canonical keys: equal values have identical keys and unequal
@@ -122,6 +123,7 @@ pub struct BoundType {
     ordering_representation: OrderingRepresentation,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundType {
     pub fn ordering_representation(&self) -> OrderingRepresentation {
         self.ordering_representation
@@ -171,6 +173,7 @@ pub struct TypeRegistry {
     adapters: BTreeMap<String, Arc<dyn TypeAdapter>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeRegistry {
     pub fn builtins() -> Self {
         let mut registry = Self::default();
@@ -339,10 +342,12 @@ impl TypeRegistry {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn check_metadata(data_type: &DataType) -> Result<()> {
     TypeRegistry::validate_metadata(data_type, 0, &mut 4096, &mut (16 * 1024 * 1024))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_name(name: &str) -> Result<()> {
     if name.is_empty()
         || name.len() > 256
@@ -360,6 +365,7 @@ fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub fn builtin_types() -> Arc<TypeRegistry> {
     static REGISTRY: OnceLock<Arc<TypeRegistry>> = OnceLock::new();
     REGISTRY
@@ -369,6 +375,7 @@ pub fn builtin_types() -> Arc<TypeRegistry> {
 
 #[derive(Debug)]
 pub struct PrimitiveTypes;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for PrimitiveTypes {
     fn ordering_representation(&self, data_type: &DataType) -> OrderingRepresentation {
         if data_type.is_integer() {

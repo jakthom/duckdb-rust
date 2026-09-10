@@ -24,6 +24,7 @@ use std::{cmp::Ordering, sync::Arc};
 #[path = "types/keys.rs"]
 mod keys;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn composition(adapter: Arc<dyn TypeAdapter>) -> Result<(Arc<TypeRegistry>, CastRegistry)> {
     let mut types = TypeRegistry::builtins();
     types.register(ascii::FAMILY, adapter)?;
@@ -50,6 +51,7 @@ fn composition(adapter: Arc<dyn TypeAdapter>) -> Result<(Arc<TypeRegistry>, Cast
     Ok((Arc::new(types), casts))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn value(text: &str) -> Result<Value> {
     Ok(Value::extension(
         ascii::data_type(64)?,
@@ -57,6 +59,7 @@ fn value(text: &str) -> Result<Value> {
     ))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn registered_metadata_preserves_the_primitive_value_footprint() {
@@ -72,6 +75,7 @@ fn registered_metadata_preserves_the_primitive_value_footprint() {
     );
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn registered_adapters_share_comparison_keys_parameters_and_ownership() -> Result<()> {
     let mut registries = Vec::new();
@@ -138,6 +142,7 @@ fn registered_adapters_share_comparison_keys_parameters_and_ownership() -> Resul
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn registered_values_work_through_sql_relational_operators_and_private_restart() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -249,6 +254,7 @@ fn registered_values_work_through_sql_relational_operators_and_private_restart()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn missing_registration_and_unsupported_native_encoding_preserve_files() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -305,6 +311,7 @@ fn missing_registration_and_unsupported_native_encoding_preserve_files() -> Resu
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn type_metadata_limits_and_retained_index_semantics_are_checked() -> Result<()> {
     let (types, _) = composition(Arc::new(StreamingAscii))?;
@@ -386,6 +393,7 @@ fn type_metadata_limits_and_retained_index_semantics_are_checked() -> Result<()>
 
 #[derive(Debug)]
 struct InvalidScalar;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::function::ScalarFunction for InvalidScalar {
     fn name(&self) -> &str {
         "invalid_registered_value"
@@ -400,6 +408,7 @@ impl duckdb_rust::function::ScalarFunction for InvalidScalar {
 
 #[derive(Debug)]
 struct InvalidOperator(duckdb_rust::planner::Schema);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::execution::physical_plan::PhysicalOperator for InvalidOperator {
     fn schema(&self) -> &duckdb_rust::planner::Schema {
         &self.0
@@ -433,6 +442,7 @@ impl duckdb_rust::execution::physical_plan::PhysicalOperator for InvalidOperator
 }
 
 struct InvalidPlanner;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::execution::physical_plan::PhysicalPlanner for InvalidPlanner {
     fn name(&self) -> &'static str {
         "invalid-registered-operator"
@@ -445,6 +455,7 @@ impl duckdb_rust::execution::physical_plan::PhysicalPlanner for InvalidPlanner {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn malformed_function_and_operator_values_never_escape_or_become_try_cast_nulls() -> Result<()> {
     let (types, casts) = composition(Arc::new(StreamingAscii))?;

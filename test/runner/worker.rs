@@ -26,6 +26,7 @@ struct Session {
     read_only: bool,
     connections: BTreeMap<String, Connection>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Session {
     fn open(&mut self, path: Option<PathBuf>, read_only: bool, fresh: bool) -> Result<()> {
         let path = path.filter(|path| path.as_os_str() != ":memory:");
@@ -141,6 +142,7 @@ impl Session {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn main() -> Result<()> {
     let mut session = Session {
         database: Some(Database::memory()?),

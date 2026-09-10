@@ -11,6 +11,7 @@ use super::{Error, Result};
 #[serde(try_from = "i32", into = "i32")]
 pub struct Date(i32);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Date {
     pub const EPOCH: Self = Self(0);
     pub const NEG_INFINITY: Self = Self(-i32::MAX);
@@ -155,10 +156,12 @@ impl Date {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn invalid_date() -> Error {
     Error::Conversion("invalid DATE calendar text".into())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn skip_space(bytes: &[u8], pos: &mut usize, check: &mut impl FnMut() -> Result<()>) -> Result<()> {
     while bytes.get(*pos).is_some_and(u8::is_ascii_whitespace) {
         if (*pos).is_multiple_of(1024) {
@@ -169,6 +172,7 @@ fn skip_space(bytes: &[u8], pos: &mut usize, check: &mut impl FnMut() -> Result<
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn double_digit(bytes: &[u8], pos: &mut usize) -> Result<u8> {
     let digit = bytes
         .get(*pos)
@@ -183,6 +187,7 @@ fn double_digit(bytes: &[u8], pos: &mut usize) -> Result<u8> {
     Ok(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FromStr for Date {
     type Err = Error;
     fn from_str(text: &str) -> Result<Self> {
@@ -190,6 +195,7 @@ impl FromStr for Date {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TryFrom<i32> for Date {
     type Error = Error;
     fn try_from(days: i32) -> Result<Self> {
@@ -197,12 +203,14 @@ impl TryFrom<i32> for Date {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl From<Date> for i32 {
     fn from(date: Date) -> Self {
         date.days()
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for Date {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some((year, month, day)) = self.to_ymd() {

@@ -17,6 +17,7 @@ pub struct Field {
     pub data_type: DataType,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Field {
     pub fn new(name: impl Into<String>, data_type: DataType) -> Self {
         Self {
@@ -35,6 +36,7 @@ pub struct LogicalPlan {
     pub node: PlanNode,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LogicalPlan {
     /// Borrow immediate relational inputs without copying the plan.
     pub fn visit_inputs(&self, visit: &mut impl FnMut(&Self)) {

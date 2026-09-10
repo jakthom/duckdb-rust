@@ -1,5 +1,6 @@
 use super::{Encoder, Result, TableDefinition, constant, type_id};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(in crate::storage::duckdb) fn table_definition(
     output: &mut Encoder,
     table: &TableDefinition,
@@ -47,6 +48,7 @@ pub(in crate::storage::duckdb) fn table_definition(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(in crate::storage::duckdb) fn column_definition(
     output: &mut Encoder,
     column: &crate::catalog::ColumnDefinition,

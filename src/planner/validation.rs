@@ -20,6 +20,7 @@ struct ValidationScope<'a> {
     recursive: &'a [(super::RecursiveId, Vec<DataType>)],
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn require(condition: bool, message: &str) -> Result<()> {
     if condition {
         Ok(())
@@ -27,6 +28,7 @@ fn require(condition: bool, message: &str) -> Result<()> {
         Err(Error::Bind(format!("invalid bound plan: {message}")))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn depth(depth: usize) -> Result<()> {
     if depth > 128 {
         Err(Error::Resource("bound plan nesting exceeds 128".into()))
@@ -34,13 +36,16 @@ fn depth(depth: usize) -> Result<()> {
         Ok(())
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn types(schema: &Schema) -> Vec<DataType> {
     schema.iter().map(|f| f.data_type.clone()).collect()
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn boolean(data_type: &DataType) -> Result<()> {
     require(*data_type == DataType::Boolean, "predicate must be BOOLEAN")
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundStatement {
     pub fn validate(&self, catalog: &dyn Catalog, query: &QueryContext) -> Result<()> {
         self.validate_at(
@@ -168,6 +173,7 @@ impl BoundStatement {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LogicalPlan {
     pub fn validate(&self, catalog: &dyn Catalog, query: &QueryContext) -> Result<()> {
         self.validate_at(
@@ -341,6 +347,7 @@ impl LogicalPlan {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundExpr {
     fn validate_at(
         &self,

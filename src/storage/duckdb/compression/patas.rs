@@ -11,6 +11,7 @@ use crate::{
 /// Historical Patas FLOAT/DOUBLE storage. Metadata describes byte-aligned XOR
 /// residuals and backward references within each 1,024-value group.
 pub struct PatasDecoder;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SegmentDecoder for PatasDecoder {
     fn id(&self) -> CodecId {
         CodecId(9)

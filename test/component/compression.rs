@@ -24,6 +24,7 @@ use duckdb_rust::{
 };
 
 struct NoBlocks;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BlockSource for NoBlocks {
     fn block(&self, _id: u64) -> Result<&[u8]> {
         Err(Error::Corrupt("unexpected external block".into()))
@@ -34,6 +35,7 @@ const STATS: SegmentStatistics = SegmentStatistics {
     minimum: Value::Integer(0),
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn read(
     registry: &DecoderRegistry,
     id: u64,
@@ -58,6 +60,7 @@ fn read(
     )
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn readers() -> Vec<Arc<dyn SegmentDecoder>> {
     vec![
         Arc::new(BitPackingDecoder),
@@ -65,6 +68,7 @@ fn readers() -> Vec<Arc<dyn SegmentDecoder>> {
     ]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn pack(values: &[u128], width: usize) -> Vec<u8> {
     let mut output = vec![0; values.len().div_ceil(32) * 4 * width];
     for (i, value) in values.iter().enumerate() {
@@ -75,9 +79,11 @@ fn pack(values: &[u128], width: usize) -> Vec<u8> {
     }
     output
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn wrap(value: i128, size: usize) -> i128 {
     (value << ((16 - size) * 8)) >> ((16 - size) * 8)
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn segment(
     mode: u32,
     size: usize,
@@ -105,6 +111,7 @@ fn segment(
     data
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn both_bitpacking_adapters_obey_integer_and_date_width_wrap_and_tail_contracts() -> Result<()> {
     for decoder in readers() {
@@ -190,6 +197,7 @@ fn both_bitpacking_adapters_obey_integer_and_date_width_wrap_and_tail_contracts(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn replacing_a_decoder_changes_file_composition_without_changing_query_callers() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -238,6 +246,7 @@ fn replacing_a_decoder_changes_file_composition_without_changing_query_callers()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn alp_group(
     count: usize,
     width: usize,
@@ -283,6 +292,7 @@ fn alp_group(
     }
     (data, expected)
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn equal_bits(actual: &[Value], expected: &[Value]) {
     assert_eq!(actual.len(), expected.len());
     for (actual, expected) in actual.iter().zip(expected) {
@@ -293,6 +303,7 @@ fn equal_bits(actual: &[Value], expected: &[Value]) {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn alp_retains_exception_bits_and_decimal_scaling_in_partial_groups() -> Result<()> {
     let registry = compression::decoders();
@@ -323,6 +334,7 @@ fn alp_retains_exception_bits_and_decimal_scaling_in_partial_groups() -> Result<
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn malformed_native_segments_are_rejected_without_panics_or_partial_output() -> Result<()> {
     let registry = compression::decoders();
@@ -405,6 +417,7 @@ struct InvalidDecoder {
     output: Vec<Value>,
     calls: Arc<AtomicUsize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SegmentDecoder for InvalidDecoder {
     fn id(&self) -> CodecId {
         CodecId(6)
@@ -421,6 +434,7 @@ impl SegmentDecoder for InvalidDecoder {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn registry_validates_selection_resource_limits_cancellation_and_foreign_output() -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -516,6 +530,7 @@ fn registry_validates_selection_resource_limits_cancellation_and_foreign_output(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn shared_decoders_keep_concurrent_requests_independent() -> Result<()> {
     for decoder in readers() {

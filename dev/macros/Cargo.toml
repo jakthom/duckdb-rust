@@ -1,0 +1,17 @@
+[package]
+name = "duckdb-dev-macros"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Mechanical operation instrumentation for duckdb-dev"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0.117", features = ["full", "visit-mut"] }
+quote = "1.0.45"
+proc-macro2 = "1.0.106"
+
+[lints.rust]
+unsafe_code = "forbid"

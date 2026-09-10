@@ -15,6 +15,7 @@ struct DecimalIntegerKeys {
     writes: Arc<std::sync::atomic::AtomicUsize>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for DecimalIntegerKeys {
     fn name(&self) -> &'static str {
         "decimal-integer-keys"
@@ -48,6 +49,7 @@ impl TypeAdapter for DecimalIntegerKeys {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_grouping_respects_the_registered_key_representation() -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
@@ -85,6 +87,7 @@ fn integer_grouping_respects_the_registered_key_representation() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_membership_uses_the_selected_key_capability_and_keeps_byte_key_failures() -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
@@ -166,11 +169,13 @@ fn integer_membership_uses_the_selected_key_capability_and_keeps_byte_key_failur
     );
     Ok(())
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Debug for PartialKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("partial-key")
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for PartialKey {
     fn name(&self) -> &'static str {
         "partial-key"
@@ -229,6 +234,7 @@ impl TypeAdapter for PartialKey {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn key_writer_preserves_prefixes_on_partial_failure_cancellation_and_size_errors() -> Result<()> {
     for mode in 0..3 {
@@ -265,6 +271,7 @@ fn key_writer_preserves_prefixes_on_partial_failure_cancellation_and_size_errors
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn column_keys_match_scalar_keys_and_validate_before_visiting() -> Result<()> {
     use duckdb_rust::common::vector::Vector;

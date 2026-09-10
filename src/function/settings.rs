@@ -2,11 +2,13 @@ use super::*;
 
 #[derive(Debug)]
 struct CurrentSetting;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     registry
         .register_scalar(Arc::new(CurrentSetting))
         .expect("unique current_setting function");
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for CurrentSetting {
     fn name(&self) -> &str {
         "current_setting"
@@ -60,6 +62,7 @@ struct BoundSetting {
     value: Value,
     data_type: DataType,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for BoundSetting {
     fn name(&self) -> &str {
         "current_setting"

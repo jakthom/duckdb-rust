@@ -11,6 +11,7 @@ use crate::common::{Error, Result};
 #[derive(Clone, Default)]
 pub struct InterruptHandle(Arc<AtomicBool>);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl InterruptHandle {
     pub fn interrupt(&self) {
         self.0.store(true, Ordering::Release);
@@ -30,6 +31,7 @@ pub struct QueryContext {
     settings: crate::main::settings::SettingsSnapshot,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl QueryContext {
     pub fn settings(&self) -> &crate::main::settings::SettingsSnapshot {
         &self.settings
@@ -116,6 +118,7 @@ impl QueryContext {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A task is driven exactly once; errors and cancellation reach its caller.
 pub trait Scheduler: Send + Sync {
     fn name(&self) -> &'static str;
@@ -124,6 +127,7 @@ pub trait Scheduler: Send + Sync {
 
 #[derive(Default)]
 pub struct InlineScheduler;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Scheduler for InlineScheduler {
     fn name(&self) -> &'static str {
         "inline"

@@ -15,6 +15,7 @@ use duckdb_rust::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn membership_retains_type_adapters_and_primitive_comparison_semantics() -> Result<()> {
     for subqueries in adapters() {
@@ -73,6 +74,7 @@ fn membership_retains_type_adapters_and_primitive_comparison_semantics() -> Resu
 
 #[derive(Debug)]
 struct CountCalls(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for CountCalls {
     fn name(&self) -> &str {
         "count_calls"
@@ -95,6 +97,7 @@ impl ScalarFunction for CountCalls {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn demand_short_circuit_effects_and_resource_limits_are_explicit() -> Result<()> {
     for (index, subqueries) in adapters().into_iter().enumerate() {
@@ -202,6 +205,7 @@ fn demand_short_circuit_effects_and_resource_limits_are_explicit() -> Result<()>
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn relation(expr: BoundExpr) -> LogicalPlan {
     LogicalPlan {
         schema: vec![Field::new("v", expr.data_type.clone())],
@@ -209,6 +213,7 @@ fn relation(expr: BoundExpr) -> LogicalPlan {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn nested_plan_validation_checks_scope_types_schema_and_total_depth() -> Result<()> {
     use duckdb_rust::{
@@ -277,6 +282,7 @@ fn nested_plan_validation_checks_scope_types_schema_and_total_depth() -> Result<
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn file_backed_subquery_mutations_survive_rollback_checkpoint_and_restart() -> Result<()> {
     for logged in [false, true] {
@@ -303,6 +309,7 @@ fn file_backed_subquery_mutations_survive_rollback_checkpoint_and_restart() -> R
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn concurrent_nested_queries_keep_outer_frames_and_owned_results_independent() -> Result<()> {
     for subqueries in adapters() {

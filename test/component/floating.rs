@@ -14,6 +14,7 @@ use duckdb_rust::{
 };
 use std::sync::Arc;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn float_has_single_precision_casts_operations_and_result_types() -> Result<()> {
     let mut connection = Database::memory()?.connect();
@@ -81,6 +82,7 @@ fn float_has_single_precision_casts_operations_and_result_types() -> Result<()> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn float_extrema_and_sampled_bits_survive_both_checkpoint_formats() -> Result<()> {
     let formats: Vec<Arc<dyn SnapshotFormat>> = vec![
@@ -130,6 +132,7 @@ fn float_extrema_and_sampled_bits_survive_both_checkpoint_formats() -> Result<()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn float_indexes_keep_nan_zero_and_mutation_semantics_across_restart() -> Result<()> {
     let directory = tempfile::tempdir()?;

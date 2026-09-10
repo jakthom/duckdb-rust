@@ -1,6 +1,7 @@
 use super::*;
 use crate::common::vector::{DataChunk, Vector};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Scalar fallback shared by built-in and independently registered adapters.
 pub fn evaluate_operator_rows<T: OperatorFunction + ?Sized>(
     function: &T,
@@ -22,6 +23,7 @@ pub fn evaluate_operator_rows<T: OperatorFunction + ?Sized>(
     Vector::flat(signature.result.clone(), values)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundOperator {
     /// Validate foreign input and output once at the batch boundary. No
     /// implementation can bypass physical types, logical payload validation,

@@ -33,6 +33,7 @@ pub struct CastSpec {
     pub mode: CastMode,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Pure, deterministic, synchronous conversion of a non-NULL physical value.
 /// The input fits `spec.source`; output must be non-NULL and fit `spec.target`.
 /// Invalid values return Conversion. Configuration/unsupported pairs are
@@ -68,6 +69,7 @@ pub struct BoundCast {
     function: Arc<dyn CastFunction>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundCast {
     pub fn spec(&self) -> &CastSpec {
         &self.spec
@@ -119,6 +121,7 @@ pub struct CastRegistry {
     functions: BTreeMap<CastSpec, Arc<dyn CastFunction>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastRegistry {
     /// Register NULL and identity conversions for one resolved type. Family
     /// constructors may call this for each supported parameter combination.
@@ -265,6 +268,7 @@ impl CastRegistry {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn defaults() -> &'static CastRegistry {
     static REGISTRY: OnceLock<CastRegistry> = OnceLock::new();
     REGISTRY.get_or_init(CastRegistry::builtins)
@@ -277,6 +281,7 @@ pub struct PrimitiveCast;
 /// types. BoundCast validates logical values using the selected type adapter.
 #[derive(Debug)]
 pub struct StructuralCast;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for StructuralCast {
     fn name(&self) -> &'static str {
         "structural-cast"
@@ -290,6 +295,7 @@ impl CastFunction for StructuralCast {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for PrimitiveCast {
     fn name(&self) -> &'static str {
         "primitive-cast"

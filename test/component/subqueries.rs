@@ -22,6 +22,7 @@ mod failures;
 #[path = "subqueries/decorrelation.rs"]
 mod decorrelation;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn adapters() -> [Arc<dyn SubqueryExecutor>; 2] {
     [
         Arc::new(StreamingSubqueries),
@@ -29,6 +30,7 @@ fn adapters() -> [Arc<dyn SubqueryExecutor>; 2] {
     ]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn subquery_adapters_share_sql_scope_null_cardinality_and_mutation_contracts() -> Result<()> {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/subqueries.test");
@@ -71,6 +73,7 @@ fn subquery_adapters_share_sql_scope_null_cardinality_and_mutation_contracts() -
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn prepared_subqueries_rebind_and_preserve_transaction_visibility_and_atomic_errors() -> Result<()>
 {

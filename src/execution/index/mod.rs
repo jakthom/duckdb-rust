@@ -20,6 +20,7 @@ pub struct IndexSpec {
     pub unique: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Keys have exactly the declared physical types; callers perform SQL coercion
 /// before this boundary. NULL keys do not match and do not conflict. NaNs match
 /// one another, as do signed zeros. Results contain distinct ascending row IDs.
@@ -29,6 +30,7 @@ pub trait KeyIndex: Debug + Send + Sync {
     fn lookup(&self, key: &Row, context: &QueryContext) -> Result<Vec<RowId>>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Each input contains an already projected key and its unique row identity.
 /// Building is synchronous; no references into the input survive this call.
 pub trait IndexFactory: Send + Sync {
@@ -41,6 +43,7 @@ pub trait IndexFactory: Send + Sync {
     ) -> Result<Arc<dyn KeyIndex>>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IndexSpec {
     fn validate(&self) -> Result<()> {
         if self.key_types.is_empty() {
@@ -66,6 +69,7 @@ struct BoundIndexSpec {
     key_types: Vec<crate::common::type_registry::BoundType>,
     unique: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundIndexSpec {
     fn key(&self, values: &Row, context: &QueryContext) -> Result<Option<Vec<u8>>> {
         if values.len() != self.key_types.len() {
@@ -84,6 +88,7 @@ impl BoundIndexSpec {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn build_entries(
     spec: &BoundIndexSpec,
     entries: &mut dyn Iterator<Item = (RowId, Row)>,
@@ -104,6 +109,7 @@ fn build_entries(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn append(ids: &mut Vec<RowId>, id: RowId, unique: bool) -> Result<()> {
     if unique && !ids.is_empty() {
         return Err(Error::Constraint("duplicate index key".into()));

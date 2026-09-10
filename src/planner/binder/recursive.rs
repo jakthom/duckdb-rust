@@ -1,6 +1,7 @@
 use super::*;
 use crate::planner::RecursiveId;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn common_table(&mut self, cte: &ast::Cte, recursive: bool) -> Result<LogicalPlan> {
         if cte.from.is_some() {

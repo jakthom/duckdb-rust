@@ -15,6 +15,7 @@ use duckdb_rust::{
 #[path = "../runner/mod.rs"]
 mod runner;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn recursive_algorithms_share_scope_iteration_and_union_contracts() -> Result<()> {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/recursive.test");
@@ -54,6 +55,7 @@ fn recursive_algorithms_share_scope_iteration_and_union_contracts() -> Result<()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn recursive_limit_cancellation_and_owned_results() -> Result<()> {
     for batch_size in [1, 3, 2048] {
@@ -106,6 +108,7 @@ fn recursive_limit_cancellation_and_owned_results() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn recursive_resource_limits_bound_retained_state_and_failures_abort_writes() -> Result<()> {
     let db = DatabaseBuilder::new().max_intermediate_rows(8).build()?;
@@ -131,6 +134,7 @@ fn recursive_resource_limits_bound_retained_state_and_failures_abort_writes() ->
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn prepared_recursive_queries_rebind_and_preserve_snapshot_visibility() -> Result<()> {
     let db = Database::memory()?;
@@ -168,6 +172,7 @@ fn prepared_recursive_queries_rebind_and_preserve_snapshot_visibility() -> Resul
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn recursive_plan_bindings_are_validated_before_execution() -> Result<()> {
     let db = Database::memory()?;
@@ -202,6 +207,7 @@ fn recursive_plan_bindings_are_validated_before_execution() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn recursive_reachability_matches_independent_transitive_closure() -> Result<()> {
     // Floyd-Warshall supplies an oracle independently of the engine's

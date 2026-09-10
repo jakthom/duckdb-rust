@@ -19,18 +19,21 @@ pub struct DuckDbFormat {
     decoders: super::compression::DecoderRegistry,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for DuckDbFormat {
     fn default() -> Self {
         Self::new(compression::decoders())
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DuckDbFormat {
     pub fn new(decoders: super::compression::DecoderRegistry) -> Self {
         Self { decoders }
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SnapshotFormat for DuckDbFormat {
     fn format_id(&self) -> super::format::FormatId {
         super::format::DUCKDB_FORMAT
@@ -77,6 +80,7 @@ struct CheckpointIdentity {
     root: u64,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CheckpointIdentity {
     fn read(bytes: &[u8]) -> Result<Self> {
         if bytes.get(8..12) != Some(b"DUCK") {
@@ -108,6 +112,7 @@ struct Blocks {
     vector_size: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Blocks {
     fn new(bytes: Vec<u8>) -> Result<Self> {
         if bytes.get(8..12) != Some(b"DUCK") {
@@ -210,6 +215,7 @@ impl Blocks {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn verify(bytes: &[u8]) -> Result<()> {
     if u64_at(bytes, 0)?
         != checksum(
@@ -223,12 +229,14 @@ fn verify(bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl super::compression::BlockSource for Blocks {
     fn block(&self, id: u64) -> Result<&[u8]> {
         Blocks::block(self, id)
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn database_header(bytes: &[u8]) -> Result<&[u8]> {
     let first = bytes
         .get(4096..8192)

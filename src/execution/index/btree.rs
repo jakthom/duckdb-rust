@@ -13,6 +13,7 @@ struct BTreeIndex {
     entries: BTreeMap<Vec<u8>, Vec<RowId>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IndexFactory for BTreeIndexFactory {
     fn name(&self) -> &'static str {
         "btree-equality"
@@ -36,6 +37,7 @@ impl IndexFactory for BTreeIndexFactory {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl KeyIndex for BTreeIndex {
     fn lookup(&self, key: &Row, context: &QueryContext) -> Result<Vec<RowId>> {
         context.check()?;

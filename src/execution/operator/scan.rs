@@ -14,6 +14,7 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn filtered<'a>(
     mut scan: Box<dyn TableScan + 'a>,
     schema: &'a Schema,

@@ -33,6 +33,7 @@ struct Ready {
     context: QueryContext,
     commits: u64,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State {
     fn ready(&mut self) -> Result<&mut Ready> {
         match self {
@@ -55,6 +56,7 @@ impl State {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FileWal {
     pub fn new(checkpoint: FileCheckpoint, encoder: Arc<dyn TransactionLog>) -> Result<Self> {
         if checkpoint.format().format_id() != encoder.format_id() {
@@ -142,6 +144,7 @@ impl FileWal {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Durability for FileWal {
     fn name(&self) -> &'static str {
         "file-wal"

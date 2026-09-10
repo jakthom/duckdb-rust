@@ -1,6 +1,7 @@
 #[path = "runner/mod.rs"]
 mod runner;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sql_logic_corpus() -> duckdb_rust::Result<()> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql");
@@ -17,6 +18,7 @@ fn sql_logic_corpus() -> duckdb_rust::Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn run_source(database: &duckdb_rust::Database, source: &str) -> duckdb_rust::Result<usize> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("case.test");
@@ -24,6 +26,7 @@ fn run_source(database: &duckdb_rust::Database, source: &str) -> duckdb_rust::Re
     runner::run_file(database, &path)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sql_harness_keeps_named_transactions_and_default_session_independent() -> duckdb_rust::Result<()>
 {
@@ -45,6 +48,7 @@ fn sql_harness_keeps_named_transactions_and_default_session_independent() -> duc
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sql_harness_rejects_wrong_results_errors_and_unavailable_capabilities() -> duckdb_rust::Result<()>
 {

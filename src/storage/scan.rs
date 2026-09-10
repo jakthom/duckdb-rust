@@ -29,6 +29,7 @@ enum RowIdentities {
     Shared { ids: Arc<[RowId]>, offset: usize },
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RowIdentities {
     fn get(&self, index: usize) -> RowId {
         match self {
@@ -38,6 +39,7 @@ impl RowIdentities {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScanBatch {
     pub fn new(row_ids: Vec<RowId>, data: DataChunk) -> Result<Self> {
         if row_ids.len() != data.len() {
@@ -178,6 +180,7 @@ impl ScanBatch {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A cursor is local to its driver. Each call returns at most `max_rows` rows
 /// in an owned batch, with no replay. None is permanent exhaustion; Some is nonempty.
 /// Dropping a cursor releases its retained snapshot and performs no mutation.
@@ -185,6 +188,7 @@ pub trait TableScan {
     fn next(&mut self, max_rows: usize, context: &QueryContext) -> Result<Option<ScanBatch>>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Engine consumers validate foreign cursor output before interpreting it.
 pub fn next_batch(
     scan: &mut dyn TableScan,
@@ -212,6 +216,7 @@ pub(crate) struct SnapshotScan<'a> {
     pub finished: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableScan for SnapshotScan<'_> {
     fn next(&mut self, max_rows: usize, context: &QueryContext) -> Result<Option<ScanBatch>> {
         if self.finished {

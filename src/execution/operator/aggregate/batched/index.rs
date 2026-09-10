@@ -24,6 +24,7 @@ struct Dense {
 const EMPTY: usize = usize::MAX;
 const MAX_DENSE_SLOTS: usize = 65_536;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Dense {
     fn new(columns: &[&Vector], rows: usize, query: &QueryContext) -> Result<Option<Self>> {
         let mut dimensions = [Dimension::default(); 2];
@@ -97,6 +98,7 @@ pub(super) struct IntegerIndex {
     sparse: HashMap<Key, usize>,
     empty: Option<usize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IntegerIndex {
     pub(super) fn set_empty(&mut self, group: usize) {
         self.empty = Some(group);

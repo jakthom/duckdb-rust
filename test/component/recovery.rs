@@ -22,9 +22,11 @@ use serde_json::{Value as Json, json};
 #[path = "recovery/publication.rs"]
 mod publication;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test/data/wal")
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn fixture(name: &str, suffix: &str) -> Vec<u8> {
     let bytes = fs::read(root().join(format!("{name}.{suffix}.gz"))).unwrap();
     let mut result = Vec::new();
@@ -33,9 +35,11 @@ fn fixture(name: &str, suffix: &str) -> Vec<u8> {
         .unwrap();
     result
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn manifest() -> Json {
     serde_json::from_slice(&fs::read(root().join("manifest.json")).unwrap()).unwrap()
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn recover(name: &str, log: Vec<u8>, context: &QueryContext) -> Result<Snapshot> {
     DuckDbWalRecovery.recover(
         RecoveryInput {
@@ -46,6 +50,7 @@ fn recover(name: &str, log: Vec<u8>, context: &QueryContext) -> Result<Snapshot>
         context,
     )
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn json_rows(result: QueryResult) -> Json {
     Json::Array(
         result
@@ -80,6 +85,7 @@ fn json_rows(result: QueryResult) -> Json {
     )
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn interrupted_reference_logs_recover_through_selected_adapters_and_keep_files_unchanged()
 -> Result<()> {
@@ -176,6 +182,7 @@ fn interrupted_reference_logs_recover_through_selected_adapters_and_keep_files_u
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn every_framed_tail_truncation_exposes_only_complete_transactions() -> Result<()> {
     let manifest = manifest();
@@ -212,6 +219,7 @@ fn every_framed_tail_truncation_exposes_only_complete_transactions() -> Result<(
 }
 
 // Fixture framing is deliberately independent of the engine's decoder.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn checksum(data: &[u8]) -> u64 {
     let mut value = 5381;
     let mut chunks = data.chunks_exact(8);
@@ -233,6 +241,7 @@ fn checksum(data: &[u8]) -> u64 {
     }
     value
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn frame(payload: &[u8]) -> Vec<u8> {
     let mut bytes = (payload.len() as u64).to_le_bytes().to_vec();
     bytes.extend(checksum(payload).to_le_bytes());
@@ -240,6 +249,7 @@ fn frame(payload: &[u8]) -> Vec<u8> {
     bytes
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn corrupt_or_incompatible_logs_fail_without_returning_partial_state() -> Result<()> {
     let log = fixture("mutations", "wal");
@@ -347,6 +357,7 @@ fn corrupt_or_incompatible_logs_fail_without_returning_partial_state() -> Result
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn table() -> TableDefinition {
     let mut column = ColumnDefinition::new("i", DataType::Integer);
     column.nullable = false;
@@ -360,6 +371,7 @@ fn table() -> TableDefinition {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn recovery_target_defers_constraints_and_preserves_atomicity_with_both_indexes() -> Result<()> {
     let context = QueryContext::background();
@@ -443,6 +455,7 @@ fn recovery_target_defers_constraints_and_preserves_atomicity_with_both_indexes(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn composition_and_sidecars_reject_unsupported_publication_states() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -512,6 +525,7 @@ fn composition_and_sidecars_reject_unsupported_publication_states() -> Result<()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn varint(mut value: u64, bytes: &mut Vec<u8>) {
     while value >= 128 {
         bytes.push(value as u8 | 128);
@@ -520,16 +534,19 @@ fn varint(mut value: u64, bytes: &mut Vec<u8>) {
     bytes.push(value as u8);
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn property(field: u16, value: &[u8], output: &mut Vec<u8>) {
     output.extend(field.to_le_bytes());
     output.extend(value);
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn blob(bytes: &[u8]) -> Vec<u8> {
     let mut result = Vec::new();
     varint(bytes.len() as u64, &mut result);
     result.extend(bytes);
     result
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn string_vector(values: &[Option<&str>]) -> Vec<u8> {
     let mut result = Vec::new();
     property(100, &[1], &mut result);
@@ -543,10 +560,11 @@ fn string_vector(values: &[Option<&str>]) -> Vec<u8> {
     property(102, &[], &mut result);
     varint(values.len() as u64, &mut result);
     for value in values {
-        result.extend(blob(value.map_or(&[128], str::as_bytes)));
+        result.extend(blob(value.map_or(&[128][..], str::as_bytes)));
     }
     result
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn vector_log(left: &[u8], right: &[u8], count: u8) -> Vec<u8> {
     let mut result = vec![100, 0, 98, 101, 0, 2, 255, 255];
     let mut table = vec![100, 0, 25];
@@ -567,6 +585,7 @@ fn vector_log(left: &[u8], right: &[u8], count: u8) -> Vec<u8> {
     result
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn serialized_vectors_preserve_selection_nulls_sequences_and_reject_bad_shapes() -> Result<()> {
     // Source-defined compressed serialization variants supplement the native

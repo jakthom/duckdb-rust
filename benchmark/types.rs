@@ -12,6 +12,7 @@ use duckdb_rust::{
 use serde_json::json;
 use std::{cmp::Ordering, sync::Arc, time::Instant};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub fn run(rows: usize, iterations: usize, batch_size: usize) -> Result<serde_json::Value> {
     let adapters: [Arc<dyn TypeAdapter>; 2] =
         [Arc::new(MaterializedAscii), Arc::new(StreamingAscii)];

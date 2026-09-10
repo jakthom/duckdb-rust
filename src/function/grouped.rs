@@ -12,6 +12,7 @@ pub struct GroupSelection<'a> {
     counts: Option<Vec<usize>>,
     constant: Option<usize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> GroupSelection<'a> {
     pub fn new(indices: &'a [usize], group_count: usize, query: &QueryContext) -> Result<Self> {
         query.check()?;
@@ -87,6 +88,7 @@ impl<'a> GroupSelection<'a> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Independently owned states, indexed by stable contiguous group ordinals.
 /// Resize only grows, initializes empty groups, and preserves earlier states.
 /// Input columns are logically validated and match the bound signature. Each

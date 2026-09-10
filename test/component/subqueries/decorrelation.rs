@@ -10,10 +10,12 @@ use duckdb_rust::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn joins() -> [Arc<dyn JoinAlgorithm>; 2] {
     [Arc::new(HashJoin), Arc::new(NestedLoopJoin)]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn decorrelated_floating_keys_keep_nan_signed_zero_and_null_equality() -> Result<()> {
     for join in joins() {
@@ -37,6 +39,7 @@ fn decorrelated_floating_keys_keep_nan_signed_zero_and_null_equality() -> Result
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn decorrelation_preserves_nulls_duplicates_order_scope_and_empty_inputs() -> Result<()> {
     let values = [-65, -64, -63, -2, -1, 0, 1, 1, 2, 63, 64, 65];
@@ -120,6 +123,7 @@ fn decorrelation_preserves_nulls_duplicates_order_scope_and_empty_inputs() -> Re
 }
 
 struct ObserveJoins(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OptimizerPass for ObserveJoins {
     fn name(&self) -> &'static str {
         "observe-existence-joins"
@@ -138,6 +142,7 @@ impl OptimizerPass for ObserveJoins {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn rewrite_requires_total_immediate_correlation_and_budgeted_snapshot_metadata() -> Result<()> {
     use duckdb_rust::{storage::checkpoint::MemoryDurability, transaction::SnapshotTransactions};
@@ -219,6 +224,7 @@ fn rewrite_requires_total_immediate_correlation_and_budgeted_snapshot_metadata()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn decorrelated_prepared_queries_rebuild_from_each_visible_snapshot() -> Result<()> {
     let db = Database::memory()?;

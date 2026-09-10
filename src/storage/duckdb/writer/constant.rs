@@ -1,5 +1,6 @@
 use super::{DataType, Encoder, Error, Result, Value, type_id};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(in crate::storage::duckdb) fn write(
     output: &mut Encoder,
     value: &Value,

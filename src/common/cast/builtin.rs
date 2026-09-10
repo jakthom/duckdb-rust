@@ -1,5 +1,6 @@
 use crate::common::{DataType, Error, Result, Value};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
     if value.is_null() {
         return Ok(Value::Null);

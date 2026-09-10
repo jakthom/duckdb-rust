@@ -1,5 +1,6 @@
 use super::{DataType, Error, QueryContext, Result, SegmentType, Value, compression, pack, read};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn value(bits: u64, width: usize) -> Value {
     if width == 32 {
         Value::Float(f32::from_bits(bits as u32))
@@ -7,6 +8,7 @@ fn value(bits: u64, width: usize) -> Value {
         Value::Double(f64::from_bits(bits))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn same_bits(actual: &[Value], expected: &[Value]) {
     assert_eq!(actual.len(), expected.len());
     for (actual, expected) in actual.iter().zip(expected) {
@@ -17,6 +19,7 @@ fn same_bits(actual: &[Value], expected: &[Value]) {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn type_for(width: usize) -> DataType {
     if width == 32 {
         DataType::Float
@@ -25,6 +28,7 @@ fn type_for(width: usize) -> DataType {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn alprd(width: usize, right_width: usize, dictionary_size: usize) -> (Vec<u8>, Vec<Value>) {
     let count = 33;
     let left_width = ((usize::BITS - (dictionary_size - 1).leading_zeros()) as usize).max(1);
@@ -75,6 +79,7 @@ fn alprd(width: usize, right_width: usize, dictionary_size: usize) -> (Vec<u8>, 
     (data, expected)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn alprd_covers_every_cut_width_dictionary_size_and_exception_index() -> Result<()> {
     let registry = compression::decoders();
@@ -99,6 +104,7 @@ fn alprd_covers_every_cut_width_dictionary_size_and_exception_index() -> Result<
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sample_bits(width: usize, count: usize) -> Vec<u64> {
     let special: Vec<u64> = if width == 32 {
         vec![
@@ -125,6 +131,7 @@ fn sample_bits(width: usize, count: usize) -> Vec<u64> {
         .collect()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn patas(width: usize, count: usize) -> (Vec<u8>, Vec<Value>) {
     let bits = sample_bits(width, count);
     let mut data = vec![0; 4];
@@ -178,6 +185,7 @@ struct Bits {
     data: Vec<u8>,
     position: usize,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Bits {
     fn write(&mut self, value: u64, count: usize) {
         for bit in (0..count).rev() {
@@ -190,6 +198,7 @@ impl Bits {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn chimp(width: usize, count: usize) -> (Vec<u8>, Vec<Value>) {
     const ZEROS: [usize; 8] = [0, 8, 12, 16, 18, 20, 22, 24];
     let mut bits = Bits {
@@ -298,6 +307,7 @@ fn chimp(width: usize, count: usize) -> (Vec<u8>, Vec<Value>) {
     (data, expected)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn legacy_xor_codecs_preserve_bits_references_and_unaligned_group_boundaries() -> Result<()> {
     let registry = compression::decoders();
@@ -321,6 +331,7 @@ fn legacy_xor_codecs_preserve_bits_references_and_unaligned_group_boundaries() -
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn floating_decoders_reject_truncated_or_invalid_references_and_metadata() -> Result<()> {
     let registry = compression::decoders();
@@ -404,6 +415,7 @@ fn floating_decoders_reject_truncated_or_invalid_references_and_metadata() -> Re
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn alp_single_precision_uses_its_own_rounding_and_exception_width() -> Result<()> {
     let registry = compression::decoders();
@@ -467,6 +479,7 @@ fn alp_single_precision_uses_its_own_rounding_and_exception_width() -> Result<()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn chimp_rejects_float_width_bits_that_belong_only_to_double() -> Result<()> {
     let registry = compression::decoders();

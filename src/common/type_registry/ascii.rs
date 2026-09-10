@@ -5,6 +5,7 @@ use crate::common::cast::{CastFunction, CastMode, CastSpec};
 
 pub const FAMILY: &str = "ascii_ci";
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub fn data_type(max_bytes: usize) -> Result<DataType> {
     let value = i64::try_from(max_bytes)
         .map_err(|_| Error::Bind("ASCII size parameter overflows".into()))?;
@@ -13,6 +14,7 @@ pub fn data_type(max_bytes: usize) -> Result<DataType> {
     Ok(data_type)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn limit(data_type: &DataType) -> Result<usize> {
     let DataType::Extension(identity) = data_type else {
         return Err(Error::Bind("ASCII type requires extension metadata".into()));
@@ -26,6 +28,7 @@ fn limit(data_type: &DataType) -> Result<usize> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn bytes(value: &Value) -> Result<&[u8]> {
     let Value::Extension(value) = value else {
         return Err(Error::Conversion(
@@ -35,6 +38,7 @@ fn bytes(value: &Value) -> Result<&[u8]> {
     Ok(&value.bytes)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate(data_type: &DataType, value: &Value, context: &QueryContext) -> Result<()> {
     let bytes = bytes(value)?;
     if bytes.len() > limit(data_type)? {
@@ -53,6 +57,7 @@ fn validate(data_type: &DataType, value: &Value, context: &QueryContext) -> Resu
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn folded(value: &Value, context: &QueryContext) -> Result<Vec<u8>> {
     let mut result = bytes(value)?.to_vec();
     for chunk in result.chunks_mut(1024) {
@@ -64,6 +69,7 @@ fn folded(value: &Value, context: &QueryContext) -> Result<Vec<u8>> {
 
 #[derive(Debug)]
 pub struct MaterializedAscii;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for MaterializedAscii {
     fn name(&self) -> &'static str {
         "materialized-ascii-ci"
@@ -104,6 +110,7 @@ impl TypeAdapter for MaterializedAscii {
 
 #[derive(Debug)]
 pub struct StreamingAscii;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for StreamingAscii {
     fn name(&self) -> &'static str {
         "streaming-ascii-ci"
@@ -161,6 +168,7 @@ impl TypeAdapter for StreamingAscii {
 
 #[derive(Debug)]
 pub struct AsciiCast;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for AsciiCast {
     fn name(&self) -> &'static str {
         "ascii-ci-cast"

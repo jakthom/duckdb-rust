@@ -1,6 +1,7 @@
 use super::super::binary::corrupt;
 use crate::{common::Result, parallel::QueryContext};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// DuckDB pads little-endian packed integers to groups of 32 values.
 pub(super) fn byte_count(count: usize, width: usize) -> Result<usize> {
     if width > 128 {
@@ -13,6 +14,7 @@ pub(super) fn byte_count(count: usize, width: usize) -> Result<usize> {
         .ok_or_else(|| corrupt("packed size overflow"))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate(data: &[u8], count: usize, width: usize, query: &QueryContext) -> Result<()> {
     query.check_rows(count)?;
     if byte_count(count, width)? > data.len() {
@@ -21,6 +23,7 @@ fn validate(data: &[u8], count: usize, width: usize, query: &QueryContext) -> Re
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn words(
     data: &[u8],
     count: usize,
@@ -54,6 +57,7 @@ pub(super) fn words(
     Ok(values)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn scalar(
     data: &[u8],
     count: usize,

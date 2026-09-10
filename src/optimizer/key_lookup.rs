@@ -9,6 +9,7 @@ use crate::planner::expression::BinaryOp;
 /// must not suppress errors or calls with effects in a residual expression.
 pub struct UseKeyLookup;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OptimizerPass for UseKeyLookup {
     fn name(&self) -> &'static str {
         "key-lookup"
@@ -48,6 +49,7 @@ impl OptimizerPass for UseKeyLookup {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn collect_equalities(
     expression: &BoundExpr,
     keys: &mut BTreeMap<usize, Value>,
@@ -72,6 +74,7 @@ fn collect_equalities(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn constant(expression: &BoundExpr, context: &QueryContext) -> Option<Value> {
     match &expression.kind {
         ExprKind::Literal(value) => value

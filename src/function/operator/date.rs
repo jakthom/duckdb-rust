@@ -4,6 +4,7 @@ use crate::common::Date;
 #[derive(Debug)]
 pub struct DateArithmetic;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorFunction for DateArithmetic {
     fn name(&self) -> &'static str {
         "gregorian-date-arithmetic"
@@ -56,6 +57,7 @@ impl OperatorFunction for DateArithmetic {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut OperatorRegistry) {
     use DataType::*;
     for (op, arguments, result) in [

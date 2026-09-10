@@ -6,6 +6,7 @@ use crate::{
 macro_rules! string_decoder {
     ($name:ident, $id:literal, $label:literal, $decode:ident) => {
         pub struct $name;
+        #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
         impl SegmentDecoder for $name {
             fn id(&self) -> CodecId {
                 CodecId($id)
@@ -33,6 +34,7 @@ macro_rules! string_decoder {
 string_decoder!(DictionaryDecoder, 4, "duckdb-dictionary", dictionary);
 string_decoder!(FsstDecoder, 7, "duckdb-fsst", fsst);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn unpack(
     data: &[u8],
     count: usize,
@@ -46,6 +48,7 @@ fn unpack(
         .map(|values| values.into_iter().map(|v| v as usize).collect())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn dictionary(
     data: &[u8],
     count: usize,
@@ -99,6 +102,7 @@ pub(super) fn dictionary(
         .collect()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn fsst(
     data: &[u8],
     count: usize,
@@ -164,6 +168,7 @@ pub(super) fn fsst(
     Ok(values)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn symbol_table(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     if data.len() < 17 {
         return Err(corrupt("truncated FSST symbol table"));

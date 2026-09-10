@@ -15,12 +15,14 @@ mod runner;
 #[path = "settings/values.rs"]
 mod values;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn configurations() -> Vec<Arc<dyn Configuration>> {
     vec![
         Arc::new(SnapshotConfiguration::default()),
         Arc::new(LockedConfiguration::default()),
     ]
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn ordering_configuration_runs_through_both_providers_and_execution_compositions() -> Result<()> {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/settings.test");
@@ -68,6 +70,7 @@ fn ordering_configuration_runs_through_both_providers_and_execution_compositions
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn global_session_and_prepared_views_preserve_scope_and_transaction_lifetimes() -> Result<()> {
     for configuration in configurations() {

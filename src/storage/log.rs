@@ -45,6 +45,7 @@ pub struct Commit<'a> {
     pub changes: Option<&'a [TransactionChange]>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Pure, concurrently callable encoding factory for one checkpoint family.
 /// The initial snapshot must have the checkpoint's physical row identities.
 /// A session owns mapping/catalog state and never accesses filesystem or SQL.
@@ -61,6 +62,7 @@ pub struct LogStart {
     pub session: Box<dyn LogSession>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A serial encoder state. Preparing a complete transaction performs no effects
 /// and leaves this state unchanged. The caller installs `next` only after the
 /// appended bytes are durable. Dropping a preparation discards it entirely.

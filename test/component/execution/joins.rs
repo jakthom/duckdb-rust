@@ -14,11 +14,13 @@ struct ProbePlan {
     reads: Arc<AtomicUsize>,
     invalid: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Debug for ProbePlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("probe-plan")
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ProbePlan {
     fn new(values: &[i128]) -> Self {
         Self {
@@ -30,6 +32,7 @@ impl ProbePlan {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PhysicalOperator for ProbePlan {
     fn schema(&self) -> &Schema {
         &self.schema
@@ -49,6 +52,7 @@ struct ProbeStream<'a> {
     plan: &'a ProbePlan,
     position: usize,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BatchStream for ProbeStream<'_> {
     fn next(&mut self, max_rows: usize) -> Result<Option<DataChunk>> {
         if self.plan.invalid {
@@ -75,6 +79,7 @@ impl BatchStream for ProbeStream<'_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn equality(query: &QueryContext) -> Result<BoundExpr> {
     Ok(BoundExpr {
         data_type: DataType::Boolean,
@@ -86,6 +91,7 @@ fn equality(query: &QueryContext) -> Result<BoundExpr> {
         ),
     })
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn join<'a>(
     left: &'a ProbePlan,
     right: &'a ProbePlan,
@@ -101,6 +107,7 @@ fn join<'a>(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn hash_semi_join_builds_once_streams_demand_and_retains_owned_chunks() -> Result<()> {
     let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
@@ -153,6 +160,7 @@ fn hash_semi_join_builds_once_streams_demand_and_retains_owned_chunks() -> Resul
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn hash_semi_join_checks_build_schema_limits_cancellation_and_empty_outer() -> Result<()> {
     let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
@@ -196,6 +204,7 @@ fn hash_semi_join_checks_build_schema_limits_cancellation_and_empty_outer() -> R
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn membership_joins_match_nested_loops_across_domains_and_batch_sizes() -> Result<()> {
     use duckdb_rust::execution::operator::join::NestedLoopJoin;

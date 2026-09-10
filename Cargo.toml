@@ -5,6 +5,15 @@ edition = "2024"
 license = "MIT"
 description = "An experimental, composable database engine implemented in Rust"
 
+[workspace]
+members = ["dev", "dev/macros"]
+default-members = ["."]
+resolver = "3"
+
+[features]
+default = []
+dev = ["dep:duckdb-dev"]
+
 [lib]
 name = "duckdb_rust"
 
@@ -35,6 +44,11 @@ path = "test/contracts.rs"
 [[test]]
 name = "sql"
 path = "test/sql.rs"
+
+[[test]]
+name = "dev_tracing"
+path = "test/dev_tracing.rs"
+required-features = ["dev"]
 
 [[test]]
 name = "settings"
@@ -113,6 +127,7 @@ name = "adversarial"
 path = "test/component/adversarial.rs"
 
 [dependencies]
+duckdb-dev = { path = "dev", optional = true }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = { version = "1.0.150", features = ["arbitrary_precision"] }
 sqlparser = { version = "0.62.0", default-features = false, features = ["std"] }
@@ -129,6 +144,13 @@ flate2 = "1.1.9"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+[profile.dev-trace]
+inherits = "release"
+debug = true
+debug-assertions = true
+lto = false
+codegen-units = 16
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -10,6 +10,7 @@ use crate::{
 #[derive(Debug)]
 pub struct DateType;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for DateType {
     fn value_validation(&self) -> ValueValidation {
         ValueValidation::Physical

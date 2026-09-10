@@ -12,6 +12,7 @@ pub(super) struct EqualityKeys {
     pub data_type: Arc<BoundType>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl EqualityKeys {
     pub fn bind(condition: &BoundExpr, left_width: usize) -> Option<Self> {
         let ExprKind::Binary(BinaryOp::Equal, a, b, data_type) = &condition.kind else {
@@ -31,6 +32,7 @@ impl EqualityKeys {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn local(expression: &BoundExpr, start: usize, end: usize) -> bool {
     fn visit(expression: &BoundExpr, start: usize, end: usize, found: &mut bool) -> bool {
         match expression.kind {
@@ -49,6 +51,7 @@ fn local(expression: &BoundExpr, start: usize, end: usize) -> bool {
     visit(expression, start, end, &mut found) && found
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn rebase(expression: BoundExpr, offset: usize) -> Result<BoundExpr> {
     let mut expression = expression.map_children(|child| rebase(child, offset))?;
     if let ExprKind::Column(column) = &mut expression.kind {

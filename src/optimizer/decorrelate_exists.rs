@@ -11,6 +11,7 @@ use crate::planner::{
 /// throwing casts/arithmetic and deeper correlations.
 pub struct DecorrelateExists;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OptimizerPass for DecorrelateExists {
     fn name(&self) -> &'static str {
         "decorrelate-exists"
@@ -93,6 +94,7 @@ impl OptimizerPass for DecorrelateExists {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn captured_key(expression: &BoundExpr) -> bool {
     fn scope(expression: &BoundExpr, captured: &mut bool) -> bool {
         match expression.kind {
@@ -109,6 +111,7 @@ fn captured_key(expression: &BoundExpr) -> bool {
     expression.is_pure_and_total() && scope(expression, &mut captured) && captured
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn rebase(expression: BoundExpr) -> Result<BoundExpr> {
     let mut expression = expression.map_children(rebase)?;
     if let ExprKind::OuterColumn { depth: 1, column } = expression.kind {

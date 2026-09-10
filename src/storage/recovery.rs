@@ -44,6 +44,7 @@ pub enum RecoveryPublication {
     RetireLog,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Stateless, concurrently callable recovery adapter for one checkpoint family.
 /// Inputs are owned; success returns independent, validated committed state.
 /// No file writes, external effects or partially recovered state may escape.
@@ -110,6 +111,7 @@ pub enum RecoveredChange {
     },
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Recovery visibility boundary. Applying a transaction is atomic on error or
 /// cancellation. Constraint/index validation occurs at this boundary, allowing
 /// temporary duplicate keys between records. No durability publication occurs.

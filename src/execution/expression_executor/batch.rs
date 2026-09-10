@@ -4,6 +4,7 @@ use crate::common::{
     vector::{DataChunk, Vector},
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub fn evaluate_expression_rows<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
@@ -26,6 +27,7 @@ pub fn evaluate_expression_rows<T: ExpressionEvaluator + ?Sized>(
 #[derive(Default)]
 pub struct BatchedEvaluator;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for BatchedEvaluator {
     fn name(&self) -> &'static str {
         "batched-expression"
@@ -82,6 +84,7 @@ impl ExpressionEvaluator for BatchedEvaluator {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn select_boolean(
     column: &Vector,
     count: usize,
@@ -105,6 +108,7 @@ pub(crate) fn select_boolean(
     Ok(selected)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn comparison_matches(op: BinaryOp, ordering: std::cmp::Ordering) -> bool {
     match op {
         BinaryOp::Equal => ordering.is_eq(),
@@ -117,6 +121,7 @@ fn comparison_matches(op: BinaryOp, ordering: std::cmp::Ordering) -> bool {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn evaluate_columns(
     expression: &BoundExpr,
     input: &DataChunk,

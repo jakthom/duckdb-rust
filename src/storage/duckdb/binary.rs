@@ -1,9 +1,11 @@
 use crate::common::{Error, Result};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn corrupt(message: impl Into<String>) -> Error {
     Error::Corrupt(message.into())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Decode a non-NULL DATE in metadata. Unlike physical column slots, metadata
 /// cannot use the INT32_MIN NULL sentinel when its validity flag is set.
 pub(super) fn date(days: i64) -> Result<crate::common::Date> {
@@ -18,6 +20,7 @@ pub(super) struct Reader {
     pub position: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Reader {
     pub fn new(data: Vec<u8>) -> Self {
         Self { data, position: 0 }
@@ -151,6 +154,7 @@ impl Reader {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn u16_at(data: &[u8], offset: usize) -> Result<u16> {
     let bytes = data
         .get(
@@ -163,6 +167,7 @@ pub(super) fn u16_at(data: &[u8], offset: usize) -> Result<u16> {
     Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn u32_at(data: &[u8], offset: usize) -> Result<u32> {
     let bytes = data
         .get(
@@ -176,6 +181,7 @@ pub(super) fn u32_at(data: &[u8], offset: usize) -> Result<u32> {
         bytes.try_into().map_err(|_| corrupt("u32"))?,
     ))
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn u64_at(data: &[u8], offset: usize) -> Result<u64> {
     let bytes = data
         .get(
@@ -190,6 +196,7 @@ pub(super) fn u64_at(data: &[u8], offset: usize) -> Result<u64> {
     ))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn checksum(data: &[u8]) -> Result<u64> {
     let mut result = 5381;
     for chunk in data.chunks_exact(8) {
@@ -215,6 +222,7 @@ pub(super) fn checksum(data: &[u8]) -> Result<u64> {
 #[derive(Default)]
 pub(super) struct Encoder(pub(super) Vec<u8>);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Encoder {
     pub(super) fn field(&mut self, id: u16) {
         self.0.extend(id.to_le_bytes());

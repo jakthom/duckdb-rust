@@ -6,10 +6,12 @@ use crate::{
     planner::aggregation::AggregateOutput,
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) trait GroupIndex: Default {
     fn find(&self, key: &[u8]) -> Option<usize>;
     fn add(&mut self, key: Vec<u8>, index: usize);
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GroupIndex for HashMap<Vec<u8>, usize> {
     fn find(&self, key: &[u8]) -> Option<usize> {
         self.get(key).copied()
@@ -18,6 +20,7 @@ impl GroupIndex for HashMap<Vec<u8>, usize> {
         self.insert(key, index);
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GroupIndex for BTreeMap<Vec<u8>, usize> {
     fn find(&self, key: &[u8]) -> Option<usize> {
         self.get(key).copied()
@@ -33,6 +36,7 @@ struct Group {
     states: Vec<Box<dyn AggregateState>>,
     distinct: Vec<HashSet<Vec<u8>>>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Group {
     fn new(
         keys: Row,
@@ -62,6 +66,7 @@ impl Group {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn run<I: GroupIndex>(
     input: &mut dyn BatchStream,
     aggregation: &Aggregation,

@@ -2,6 +2,7 @@ use super::*;
 use crate::catalog::TableDefinition;
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Catalog for SnapshotTransaction {
     fn schemas(&self) -> Result<Vec<String>> {
         self.snapshot.schemas()
@@ -14,6 +15,7 @@ impl Catalog for SnapshotTransaction {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CatalogMut for SnapshotTransaction {
     fn alter_table(
         &mut self,
@@ -81,6 +83,7 @@ impl CatalogMut for SnapshotTransaction {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SnapshotTransaction {
     fn record(&mut self, change: TransactionChange) {
         if let Some(journal) = &mut self.journal {
@@ -89,6 +92,7 @@ impl SnapshotTransaction {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableStorageMut for SnapshotTransaction {
     fn insert(
         &mut self,

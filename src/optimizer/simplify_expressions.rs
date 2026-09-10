@@ -12,6 +12,7 @@ use crate::{
 /// CASE, short-circuit functions and empty inputs must retain their error timing.
 pub struct SimplifyExpressions;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OptimizerPass for SimplifyExpressions {
     fn name(&self) -> &'static str {
         "simplify-expressions"
@@ -22,6 +23,7 @@ impl OptimizerPass for SimplifyExpressions {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn fold(expression: BoundExpr, query: &QueryContext) -> Result<BoundExpr> {
     query.check()?;
     let mut expression = expression.map_children(|child| fold(child, query))?;

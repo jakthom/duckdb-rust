@@ -12,6 +12,7 @@ pub struct RowCollection {
     values: Vec<Value>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RowCollection {
     pub fn new(width: usize) -> Self {
         Self {
@@ -92,6 +93,7 @@ impl RowCollection {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Index<usize> for RowCollection {
     type Output = [Value];
     #[inline]
@@ -105,6 +107,7 @@ pub struct Rows<'a> {
     collection: &'a RowCollection,
     positions: std::ops::Range<usize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> Iterator for Rows<'a> {
     type Item = &'a [Value];
     #[inline]
@@ -117,6 +120,7 @@ impl<'a> Iterator for Rows<'a> {
         self.positions.size_hint()
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DoubleEndedIterator for Rows<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.positions
@@ -124,8 +128,11 @@ impl DoubleEndedIterator for Rows<'_> {
             .and_then(|index| self.collection.get(index))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExactSizeIterator for Rows<'_> {}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::iter::FusedIterator for Rows<'_> {}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> IntoIterator for &'a RowCollection {
     type Item = &'a [Value];
     type IntoIter = Rows<'a>;
@@ -139,6 +146,7 @@ pub struct IntoRows {
     remaining: usize,
     values: std::vec::IntoIter<Value>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Iterator for IntoRows {
     type Item = Row;
     fn next(&mut self) -> Option<Row> {
@@ -152,8 +160,11 @@ impl Iterator for IntoRows {
         (self.remaining, Some(self.remaining))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExactSizeIterator for IntoRows {}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::iter::FusedIterator for IntoRows {}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IntoIterator for RowCollection {
     type Item = Row;
     type IntoIter = IntoRows;
@@ -165,26 +176,31 @@ impl IntoIterator for RowCollection {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Debug for RowCollection {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.debug_list().entries(self).finish()
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PartialEq for RowCollection {
     fn eq(&self, other: &Self) -> bool {
         self.iter().eq(other)
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PartialEq<Vec<Row>> for RowCollection {
     fn eq(&self, other: &Vec<Row>) -> bool {
         self.iter().eq(other.iter().map(Vec::as_slice))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PartialEq<RowCollection> for Vec<Row> {
     fn eq(&self, other: &RowCollection) -> bool {
         other == self
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl serde::Serialize for RowCollection {
     fn serialize<S: serde::Serializer>(
         &self,

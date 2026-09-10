@@ -6,6 +6,7 @@ use super::*;
 #[derive(Debug)]
 pub struct DigitIntegerCast;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for DigitIntegerCast {
     fn name(&self) -> &'static str {
         "digit-integer-cast"

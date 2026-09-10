@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn query(&mut self, query: &ast::Query) -> Result<LogicalPlan> {
         if query.fetch.is_some()

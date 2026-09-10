@@ -6,6 +6,7 @@ struct Trace {
     values: Arc<Mutex<Vec<i128>>>,
     failure: Option<i128>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for Trace {
     fn name(&self) -> &str {
         "sort_trace"
@@ -38,6 +39,7 @@ impl ScalarFunction for Trace {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sorting_and_projection_keep_row_effect_order_first_errors_and_owned_results() -> Result<()> {
     for algorithm in algorithms() {
@@ -110,6 +112,7 @@ fn sorting_and_projection_keep_row_effect_order_first_errors_and_owned_results()
 }
 
 struct WrongBatchLength;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for WrongBatchLength {
     fn name(&self) -> &'static str {
         "wrong-sort-batch-length"
@@ -127,6 +130,7 @@ impl ExpressionEvaluator for WrongBatchLength {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn radix_sort_rejects_malformed_expression_batch_shapes() -> Result<()> {
     let input = DataChunk::from_rows(&[DataType::BigInt], &[ints(&[1])])?;

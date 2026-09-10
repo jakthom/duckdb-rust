@@ -33,6 +33,7 @@ use std::{
     time::Duration,
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn signature(
     operator: Operator,
     arguments: Vec<DataType>,
@@ -46,6 +47,7 @@ fn signature(
         nullable,
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn like_signature(operator: Operator) -> OperatorSignature {
     signature(
         operator,
@@ -54,10 +56,12 @@ fn like_signature(operator: Operator) -> OperatorSignature {
         false,
     )
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn like_adapters() -> [Arc<dyn OperatorFunction>; 2] {
     [Arc::new(DynamicLike), Arc::new(GreedyLike)]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn words(alphabet: &[char], max: usize) -> Vec<String> {
     let mut result = vec![String::new()];
     let mut previous = vec![String::new()];
@@ -71,6 +75,7 @@ fn words(alphabet: &[char], max: usize) -> Vec<String> {
     }
     result
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn oracle(value: &[char], pattern: &[char]) -> bool {
     match pattern.split_first() {
         None => value.is_empty(),
@@ -83,6 +88,7 @@ fn oracle(value: &[char], pattern: &[char]) -> bool {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn like_adapters_obey_the_same_unicode_wildcard_and_null_contracts() -> Result<()> {
     let values = words(&['a', 'b', '🦆', '\0'], 3);
@@ -157,6 +163,7 @@ fn like_adapters_obey_the_same_unicode_wildcard_and_null_contracts() -> Result<(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn numeric_overloads_preserve_literal_widths_division_and_overflow() -> Result<()> {
     let mut c = Database::memory()?.connect();
@@ -237,6 +244,7 @@ fn numeric_overloads_preserve_literal_widths_division_and_overflow() -> Result<(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn date_operators_cover_extrema_infinities_offsets_and_prepared_parameters() -> Result<()> {
     let mut c = Database::memory()?.connect();
@@ -279,6 +287,7 @@ fn date_operators_cover_extrema_infinities_offsets_and_prepared_parameters() -> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn date_arithmetic_and_like_selection_survive_both_formats_and_optimizers() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -343,6 +352,7 @@ fn date_arithmetic_and_like_selection_survive_both_formats_and_optimizers() -> R
 
 #[derive(Debug)]
 struct Identity;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorFunction for Identity {
     fn name(&self) -> &'static str {
         "test-identity"
@@ -360,6 +370,7 @@ impl OperatorFunction for Identity {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn registry_checks_missing_ambiguous_invalid_and_retained_bindings() -> Result<()> {
     let casts = CastRegistry::builtins();
@@ -494,6 +505,7 @@ fn registry_checks_missing_ambiguous_invalid_and_retained_bindings() -> Result<(
 
 #[derive(Debug)]
 struct ObservedArithmetic(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorFunction for ObservedArithmetic {
     fn name(&self) -> &'static str {
         "test-observed-arithmetic"
@@ -513,6 +525,7 @@ impl OperatorFunction for ObservedArithmetic {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn effects_and_failed_folding_preserve_required_evaluation() -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -545,6 +558,7 @@ fn effects_and_failed_folding_preserve_required_evaluation() -> Result<()> {
 
 #[derive(Debug)]
 struct InvalidResult(Value);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorFunction for InvalidResult {
     fn name(&self) -> &'static str {
         "test-invalid-result"
@@ -557,6 +571,7 @@ impl OperatorFunction for InvalidResult {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn bad_results_remain_errors_and_like_work_is_cancellable() -> Result<()> {
     for value in [Value::Null, Value::Boolean(true), Value::Integer(i128::MAX)] {
@@ -605,6 +620,7 @@ fn bad_results_remain_errors_and_like_work_is_cancellable() -> Result<()> {
 
 #[derive(Debug)]
 struct AsciiAdd;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorFunction for AsciiAdd {
     fn name(&self) -> &'static str {
         "test-ascii-add"
@@ -625,6 +641,7 @@ impl OperatorFunction for AsciiAdd {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn extension_operators_use_existing_sql_callers_and_logical_validation() -> Result<()> {
     let t = ascii::data_type(16)?;

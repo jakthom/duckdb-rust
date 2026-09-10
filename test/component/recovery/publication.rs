@@ -25,12 +25,14 @@ const RETIRE_STEPS: &[PublicationStep] = &[
     PublicationStep::LogRetirementDirectorySync,
 ];
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn input(name: &str) -> RecoveryInput {
     RecoveryInput {
         checkpoint: fixture(name, "duckdb"),
         log: fixture(name, "wal"),
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn root(bytes: &[u8]) -> (u64, u64) {
     [4096, 8192]
         .into_iter()
@@ -43,11 +45,13 @@ fn root(bytes: &[u8]) -> (u64, u64) {
         .max_by_key(|(generation, _)| *generation)
         .unwrap()
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn populate(path: &std::path::Path, input: &RecoveryInput) -> Result<()> {
     fs::write(path, &input.checkpoint)?;
     fs::write(path.with_extension("duckdb.wal"), &input.log)?;
     Ok(())
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn verify(path: &std::path::Path, name: &str) -> Result<()> {
     let manifest = manifest();
     let case = &manifest["cases"][name];
@@ -67,6 +71,7 @@ fn verify(path: &std::path::Path, name: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn bridge_logs_recover_both_checkpoint_generations_and_retire_completed_work() -> Result<()> {
     for name in ["mutations", "create", "batches", "version65"] {
@@ -126,6 +131,7 @@ fn bridge_logs_recover_both_checkpoint_generations_and_retire_completed_work() -
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn native_checkpoint_markers_select_replay_or_retirement() -> Result<()> {
     let manifest: Json =
@@ -178,6 +184,7 @@ fn native_checkpoint_markers_select_replay_or_retirement() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn tagged_bridge_identity_accepts_only_the_published_successor_generation() -> Result<()> {
     let mut original = input("version65");
@@ -234,6 +241,7 @@ fn tagged_bridge_identity_accepts_only_the_published_successor_generation() -> R
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn successor_root_collision_is_resolved_without_losing_metadata_chains() -> Result<()> {
     for columns in [2, 180] {
@@ -277,6 +285,7 @@ fn successor_root_collision_is_resolved_without_losing_metadata_chains() -> Resu
 }
 
 struct FailAt(PublicationStep);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FileFaultInjector for FailAt {
     fn before(&self, step: PublicationStep) -> Result<()> {
         if step == self.0 {
@@ -287,6 +296,7 @@ impl FileFaultInjector for FailAt {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn io_failures_at_each_publication_boundary_preserve_commits_and_allow_retry() -> Result<()> {
     let format = DuckDbFormat::default();
@@ -353,6 +363,7 @@ fn io_failures_at_each_publication_boundary_preserve_commits_and_allow_retry() -
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn stale_recovery_plans_and_direct_checkpoint_writes_cannot_discard_a_log() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -380,6 +391,7 @@ fn stale_recovery_plans_and_direct_checkpoint_writes_cannot_discard_a_log() -> R
 }
 
 struct ExitAt(PublicationStep);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FileFaultInjector for ExitAt {
     fn before(&self, step: PublicationStep) -> Result<()> {
         if step == self.0 {
@@ -389,6 +401,7 @@ impl FileFaultInjector for ExitAt {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Child entry point used by Cargo tests and the independent verification
 /// script. Exit deliberately skips Rust destructors, leaving real files at the
 /// selected I/O boundary. The database library contains no environment hooks.
@@ -421,6 +434,7 @@ fn publication_child() -> Result<()> {
     panic!("requested publication boundary was not reached");
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn process_interruption_at_every_publication_boundary_remains_recoverable() -> Result<()> {
     for retire in [false, true] {

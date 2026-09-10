@@ -8,6 +8,7 @@ pub(super) enum SubqueryForm {
     In { needle: BoundExpr, negated: bool },
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn column(
         &self,
@@ -117,6 +118,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Remove unused value work while preserving row count, including under OFFSET.
 /// Filters/distinct/joins retain their dependencies and full input expressions.
 fn existence(plan: LogicalPlan) -> LogicalPlan {
@@ -151,6 +153,7 @@ fn existence(plan: LogicalPlan) -> LogicalPlan {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// An inlined CTE retains its defining lexical scope when used deeper inside
 /// expression subqueries. References bound within the CTE itself do not shift.
 pub(super) fn rebase_cte(
@@ -164,6 +167,7 @@ pub(super) fn rebase_cte(
     plan.map_inputs(|input| rebase_cte(input, shift, local_depth))?
         .map_expressions(|expr| rebase_expression(expr, shift, local_depth))
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn rebase_expression(expr: BoundExpr, shift: usize, local_depth: usize) -> Result<BoundExpr> {
     let mut expr = expr.map_children(|child| rebase_expression(child, shift, local_depth))?;
     match &mut expr.kind {

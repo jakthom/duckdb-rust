@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LocalCheckpointStorage {
     pub(super) fn initialize_transaction_log(&self, header: &[u8]) -> Result<u64> {
         if !self.writable {

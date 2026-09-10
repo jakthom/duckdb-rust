@@ -1,6 +1,7 @@
 use super::*;
 use crate::storage::recovery::RecoveryPublication;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn prepare(
     input: RecoveryInput,
     format: &dyn SnapshotFormat,

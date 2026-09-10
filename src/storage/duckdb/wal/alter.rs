@@ -9,6 +9,7 @@ use crate::{
     catalog::{TableAlteration, TableDefinition, TableName},
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn write(
     output: &mut Encoder,
     before: &TableDefinition,
@@ -63,6 +64,7 @@ pub(super) fn write(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read(reader: &mut Reader) -> Result<(TableName, TableAlteration)> {
     reader.field(101)?;
     if !reader.boolean()? {

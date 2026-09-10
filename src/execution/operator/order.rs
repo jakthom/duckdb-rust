@@ -11,6 +11,7 @@ use crate::{
 };
 use std::fmt::Debug;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Consume a validated input stream once, evaluate each sort expression once
 /// per input row, and return owned rows in lexicographic order. NULL placement
 /// is independent of direction. Ties retain input order. Evaluation effects and

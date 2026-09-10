@@ -13,6 +13,7 @@ pub(super) struct Chunk {
     pub rows: Vec<Row>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read(reader: &mut Reader, context: &QueryContext) -> Result<Chunk> {
     reader.field(100)?;
     let count = reader.length()?;
@@ -46,6 +47,7 @@ pub(super) fn read(reader: &mut Reader, context: &QueryContext) -> Result<Chunk>
     Ok(Chunk { types, rows })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn vector(
     reader: &mut Reader,
     data_type: &DataType,
@@ -118,6 +120,7 @@ fn vector(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn flat(
     reader: &mut Reader,
     data_type: &DataType,

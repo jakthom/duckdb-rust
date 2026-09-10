@@ -27,10 +27,12 @@ use duckdb_rust::{
     transaction::{SnapshotTransactions, TransactionManager},
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn integers(values: &[i128]) -> Vec<Value> {
     values.iter().copied().map(Value::Integer).collect()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn column_projection_preserves_shared_values_shape_and_lifetimes() -> Result<()> {
     let source = DataChunk::new(
@@ -79,6 +81,7 @@ fn column_projection_preserves_shared_values_shape_and_lifetimes() -> Result<()>
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn relational_contract_across_compositions() -> Result<()> {
     for batch_size in [1, 3, 2048] {
@@ -135,6 +138,7 @@ fn relational_contract_across_compositions() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn expressions_preserve_nulls_errors_and_short_circuiting() -> Result<()> {
     let mut c = Database::memory()?.connect();
@@ -172,6 +176,7 @@ fn expressions_preserve_nulls_errors_and_short_circuiting() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn snapshot_isolation_and_write_conflicts() -> Result<()> {
     let db = Database::memory()?;
@@ -186,6 +191,7 @@ fn snapshot_isolation_and_write_conflicts() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn transactional_ddl_constraints_and_abandonment() -> Result<()> {
     let db = Database::memory()?;
@@ -217,6 +223,7 @@ fn transactional_ddl_constraints_and_abandonment() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn prepared_statements_rebind_catalog_and_parameters() -> Result<()> {
     let mut c = Database::memory()?.connect();
@@ -232,6 +239,7 @@ fn prepared_statements_rebind_catalog_and_parameters() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn values_ctes_set_operations_and_hidden_sort_keys() -> Result<()> {
     let mut c = Database::memory()?.connect();
@@ -250,6 +258,7 @@ fn values_ctes_set_operations_and_hidden_sort_keys() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn vectors_own_values_and_validate_shape() -> Result<()> {
     let base = Arc::new(Vector::flat(
@@ -288,6 +297,7 @@ fn vectors_own_values_and_validate_shape() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn persistence_contract(durability: Arc<dyn Durability>) -> Result<()> {
     let manager = SnapshotTransactions::new(durability)?;
     let mut tx = manager.begin()?;
@@ -318,6 +328,7 @@ fn persistence_contract(durability: Arc<dyn Durability>) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn persistence_adapters_share_transaction_contract() -> Result<()> {
     persistence_contract(Arc::new(MemoryDurability))?;
@@ -353,6 +364,7 @@ struct FailingDurability {
     publications: AtomicUsize,
     uncertain: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Durability for FailingDurability {
     fn name(&self) -> &'static str {
         "fault-injection"
@@ -375,6 +387,7 @@ impl Durability for FailingDurability {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn failed_commit_never_publishes_and_uncertain_commit_blocks_use() -> Result<()> {
     for uncertain in [false, true] {
@@ -401,6 +414,7 @@ fn failed_commit_never_publishes_and_uncertain_commit_blocks_use() -> Result<()>
 
 #[derive(Debug)]
 struct Twice;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for Twice {
     fn name(&self) -> &str {
         "twice"
@@ -427,6 +441,7 @@ impl ScalarFunction for Twice {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn ordinary_function_registration_and_capability_rejection() -> Result<()> {
     let mut functions = FunctionRegistry::builtins();
@@ -454,6 +469,7 @@ fn ordinary_function_registration_and_capability_rejection() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn timeouts_and_resource_limits_release_transactions() -> Result<()> {
     let mut c = DatabaseBuilder::new()
@@ -471,6 +487,7 @@ fn timeouts_and_resource_limits_release_transactions() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn snapshot_api_mutations_are_atomic() -> Result<()> {
     let mut state = Snapshot::default();
@@ -513,6 +530,7 @@ fn snapshot_api_mutations_are_atomic() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn shared_plan_boundary_rejects_invalid_types_and_identities() -> Result<()> {
     use duckdb_rust::planner::{BoundExpr, BoundStatement, Field, LogicalPlan, PlanNode};
@@ -566,6 +584,7 @@ fn shared_plan_boundary_rejects_invalid_types_and_identities() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn format_adapters_preserve_values_types_and_catalog_identity() -> Result<()> {
     use duckdb_rust::{
@@ -649,6 +668,7 @@ fn format_adapters_preserve_values_types_and_catalog_identity() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn composition_rejects_unused_transaction_bundle_selections() -> Result<()> {
     let manager = Arc::new(SnapshotTransactions::new(Arc::new(MemoryDurability))?);
@@ -669,6 +689,7 @@ fn composition_rejects_unused_transaction_bundle_selections() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn private_checkpoint_detects_valid_json_with_changed_values() -> Result<()> {
     use duckdb_rust::storage::format::SnapshotFormat;

@@ -89,6 +89,7 @@ pub struct BoundSubquery {
     pub kind: SubqueryKind,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundExpr {
     /// A conservative proof for a validated scalar tree: evaluation is pure and
     /// has no data-dependent errors for any valid input. Resource exhaustion and

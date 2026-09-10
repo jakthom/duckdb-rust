@@ -33,6 +33,7 @@ struct PreparedValue {
     _query: Arc<crate::planner::expression::BoundSubquery>,
     value: Value,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> PreparedSubqueries<'a> {
     pub fn new(planner: &'a dyn PhysicalPlanner) -> Self {
         Self {
@@ -102,6 +103,7 @@ impl<'a> PreparedSubqueries<'a> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn correlated(plan: &LogicalPlan, local_depth: usize) -> bool {
     // Iteration inputs change without a lexical outer-row reference. Their
     // scalar reductions must never be cached across recursive generations.
@@ -110,6 +112,7 @@ fn correlated(plan: &LogicalPlan, local_depth: usize) -> bool {
     plan.visit_expressions(&mut |expr| found |= correlated_expression(expr, local_depth));
     found
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn correlated_expression(expr: &crate::planner::BoundExpr, local_depth: usize) -> bool {
     use crate::planner::ExprKind;
     let mut found = match &expr.kind {
@@ -134,6 +137,7 @@ pub enum SubqueryRequest<'a> {
     },
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Evaluate a nested physical plan with fresh local state and the supplied
 /// transaction, outer rows and cancellation context. Never publish mutations.
 /// Scalar cardinality errors are execution errors, never TRY_CAST NULLs.
@@ -156,6 +160,7 @@ pub struct StreamingSubqueries;
 #[derive(Default)]
 pub struct MaterializingSubqueries;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SubqueryExecutor for StreamingSubqueries {
     fn name(&self) -> &'static str {
         "streaming-subqueries"
@@ -186,6 +191,7 @@ impl SubqueryExecutor for StreamingSubqueries {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SubqueryExecutor for MaterializingSubqueries {
     fn name(&self) -> &'static str {
         "materializing-subqueries"
@@ -213,6 +219,7 @@ struct Reduction<'a> {
     value: Option<Value>,
     unknown: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> Reduction<'a> {
     fn new(request: SubqueryRequest<'a>, width: usize) -> Result<Self> {
         if !matches!(request, SubqueryRequest::Exists { .. }) && width != 1 {

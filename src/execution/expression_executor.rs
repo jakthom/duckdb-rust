@@ -12,6 +12,7 @@ use crate::{
 pub(crate) use batch::select_boolean;
 pub use batch::{BatchedEvaluator, evaluate_expression_rows};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Explicit expression inputs beyond the current row. Resource-only evaluation
 /// rejects relational dependencies. Execution supplies lexical outer rows and
 /// nested plans through the same contract, without SQL or concrete storage.
@@ -40,12 +41,14 @@ pub trait EvaluationContext {
         ))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl EvaluationContext for QueryContext {
     fn query(&self) -> &QueryContext {
         self
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Evaluate the shared bound-expression semantics using the retained adapters.
 /// Literals and column references are pure value access; physical planners may
 /// project column vectors directly. Implementations may change evaluation
@@ -93,6 +96,7 @@ pub trait ExpressionEvaluator: Send + Sync {
 #[derive(Default)]
 pub struct ScalarEvaluator;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for ScalarEvaluator {
     fn name(&self) -> &'static str {
         "scalar-expression"
@@ -260,6 +264,7 @@ impl ExpressionEvaluator for ScalarEvaluator {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn checked_value(value: Value, data_type: &crate::DataType) -> Result<Value> {
     if !value.fits_type(data_type) {
         return Err(Error::Execution(format!(
@@ -269,6 +274,7 @@ fn checked_value(value: Value, data_type: &crate::DataType) -> Result<Value> {
     Ok(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn evaluate_binary(
     op: BinaryOp,
     left: Value,

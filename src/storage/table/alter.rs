@@ -1,6 +1,7 @@
 use super::*;
 use crate::{catalog::TableAlteration, common::Value};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
     pub(super) fn alter(
         &mut self,
@@ -61,6 +62,7 @@ impl Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn not_null(table: &TableName, column: &str) -> Error {
     Error::Constraint(format!(
         "NOT NULL constraint failed: {}.{column}",

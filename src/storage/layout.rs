@@ -25,6 +25,7 @@ pub struct TableLayout {
     pub next_row_id: RowId,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CheckpointLayout {
     pub fn identity(snapshot: &Snapshot) -> Result<Self> {
         Self::from_snapshot(snapshot, false)

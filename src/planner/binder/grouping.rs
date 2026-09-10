@@ -8,6 +8,7 @@ pub(super) struct BoundGroups {
     pub explicit: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn group_by(
         &self,
@@ -202,6 +203,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GroupScope {
     pub(super) fn index(&self, expression: &ast::Expr, fields: &[Field]) -> Option<usize> {
         group_index(expression, fields, &self.groups).or_else(|| match expression {
@@ -218,6 +220,7 @@ impl GroupScope {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn group_index(
     expression: &ast::Expr,
     fields: &[Field],
@@ -242,10 +245,12 @@ pub(super) fn group_index(
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn merge(a: &GroupingSet, b: &GroupingSet) -> GroupingSet {
     GroupingSet::new(a.indices().iter().chain(b.indices()).copied())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// The upstream grammar represents ROLLUP/CUBE within GROUPING SETS as
 /// function calls. Interpret them only at that grammar boundary: inside a
 /// ROLLUP/CUBE unit they are ordinary scalar expressions, not more sets.
@@ -283,6 +288,7 @@ fn grouping_construct(expression: &ast::Expr) -> Result<ast::Expr> {
         ast::Expr::Cube(units)
     })
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn check_count(count: usize) -> Result<()> {
     if count > MAX_GROUPING_SETS {
         Err(Error::Parse(format!(

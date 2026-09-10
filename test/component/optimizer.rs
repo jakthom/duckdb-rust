@@ -18,6 +18,7 @@ use duckdb_rust::{
     storage::table::Snapshot,
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn optimize(expression: BoundExpr, query: &QueryContext) -> Result<BoundExpr> {
     let snapshot = Snapshot::new(query.type_registry());
     let plan = LogicalPlan {
@@ -38,6 +39,7 @@ fn optimize(expression: BoundExpr, query: &QueryContext) -> Result<BoundExpr> {
     Ok(rows.remove(0).remove(0))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn folding_retains_declared_types_selected_casts_and_float_bits() -> Result<()> {
     let mut registry = CastRegistry::builtins();
@@ -134,6 +136,7 @@ fn folding_retains_declared_types_selected_casts_and_float_bits() -> Result<()> 
 
 #[derive(Debug)]
 struct ResourceFailure;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for ResourceFailure {
     fn name(&self) -> &'static str {
         "resource-failure"
@@ -146,6 +149,7 @@ impl CastFunction for ResourceFailure {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn failed_folding_preserves_lazy_errors_and_query_cancellation() -> Result<()> {
     let query = QueryContext::background();
@@ -213,6 +217,7 @@ fn failed_folding_preserves_lazy_errors_and_query_cancellation() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn optimizers() -> Vec<Arc<dyn Optimizer>> {
     vec![
         Arc::new(IdentityOptimizer),
@@ -221,6 +226,7 @@ fn optimizers() -> Vec<Arc<dyn Optimizer>> {
     ]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn validated_plans_reject_invalid_changes_context_transfer_and_cancellation() -> Result<()> {
     let snapshot = Snapshot::default();
@@ -281,6 +287,7 @@ fn validated_plans_reject_invalid_changes_context_transfer_and_cancellation() ->
 }
 
 struct InvalidSchema;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::optimizer::OptimizerPass for InvalidSchema {
     fn name(&self) -> &'static str {
         "invalid-schema"
@@ -292,6 +299,7 @@ impl duckdb_rust::optimizer::OptimizerPass for InvalidSchema {
 }
 
 struct ObservePass(Arc<std::sync::atomic::AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::optimizer::OptimizerPass for ObservePass {
     fn name(&self) -> &'static str {
         "observe-pass"
@@ -302,6 +310,7 @@ impl duckdb_rust::optimizer::OptimizerPass for ObservePass {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn invalid_pass_output_never_reaches_later_passes_or_execution() -> Result<()> {
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -321,6 +330,7 @@ fn invalid_pass_output_never_reaches_later_passes_or_execution() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn optimizer_compositions_preserve_relational_and_short_circuit_results() -> Result<()> {
     let queries = [

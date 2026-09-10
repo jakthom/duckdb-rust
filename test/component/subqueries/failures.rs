@@ -14,6 +14,7 @@ use std::sync::{
 };
 
 struct CountingPlanner(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PhysicalPlanner for CountingPlanner {
     fn name(&self) -> &'static str {
         "counting-test-planner"
@@ -24,6 +25,7 @@ impl PhysicalPlanner for CountingPlanner {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn physical_subplans_are_prepared_once_without_reusing_correlated_results() -> Result<()> {
     for subqueries in adapters() {
@@ -59,6 +61,7 @@ struct InvalidResult {
     value: Value,
     interrupt: Arc<Mutex<Option<InterruptHandle>>>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SubqueryExecutor for InvalidResult {
     fn name(&self) -> &'static str {
         "invalid-test-subquery"
@@ -76,6 +79,7 @@ impl SubqueryExecutor for InvalidResult {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn malformed_subquery_values_and_late_cancellation_remain_errors() -> Result<()> {
     for (value, sql) in [
@@ -122,11 +126,13 @@ struct CancelDuringScan {
     calls: Arc<AtomicUsize>,
     interrupt: Arc<Mutex<Option<InterruptHandle>>>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Debug for CancelDuringScan {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("CancelDuringScan")
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::function::ScalarFunction for CancelDuringScan {
     fn name(&self) -> &str {
         "cancel_during_scan"
@@ -159,6 +165,7 @@ impl duckdb_rust::function::ScalarFunction for CancelDuringScan {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn both_subquery_adapters_cancel_during_nested_input_and_leave_connection_usable() -> Result<()> {
     for subqueries in adapters() {

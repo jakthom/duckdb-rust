@@ -7,13 +7,16 @@ use super::{BoundExpr, ExprKind, LogicalPlan, PlanNode};
 #[derive(Clone, Debug, Default)]
 pub struct RecursiveId(Arc<()>);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PartialEq for RecursiveId {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Eq for RecursiveId {}
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LogicalPlan {
     pub(crate) fn references_recursive(&self, id: &RecursiveId) -> bool {
         let mut found = matches!(&self.node, PlanNode::RecursiveInput(input) if input == id);
@@ -23,6 +26,7 @@ impl LogicalPlan {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn references_expression(expr: &BoundExpr, id: &RecursiveId) -> bool {
     let mut found =
         matches!(&expr.kind, ExprKind::Subquery(query) if query.plan.references_recursive(id));

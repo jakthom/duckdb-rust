@@ -8,6 +8,7 @@ use duckdb_rust::{
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_batch_kernels_match_scalar_width_null_selection_and_overflow_semantics() -> Result<()> {
     let registry = OperatorRegistry::builtins();
@@ -85,6 +86,7 @@ fn integer_batch_kernels_match_scalar_width_null_selection_and_overflow_semantic
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn expression_adapters_preserve_lazy_branches_first_errors_and_effect_counts() -> Result<()> {
     let optimizers: [Arc<dyn Optimizer>; 2] = [
@@ -144,6 +146,7 @@ struct ModuloProbe {
     batch_calls: Arc<AtomicUsize>,
     invalid: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorFunction for ModuloProbe {
     fn name(&self) -> &'static str {
         "independent-modulo-probe"
@@ -179,6 +182,7 @@ impl OperatorFunction for ModuloProbe {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn operator_replacement_controls_batch_proofs_and_cannot_bypass_null_validation() -> Result<()> {
     for (total, invalid) in [(false, false), (true, false), (true, true)] {
@@ -216,6 +220,7 @@ fn operator_replacement_controls_batch_proofs_and_cannot_bypass_null_validation(
 struct InvalidBatchExpression {
     wrong_type: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for InvalidBatchExpression {
     fn name(&self) -> &'static str {
         "invalid-batch-expression"
@@ -242,6 +247,7 @@ impl ExpressionEvaluator for InvalidBatchExpression {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn rejected_filter_rows_do_not_hide_invalid_expression_batches() -> Result<()> {
     for wrong_type in [false, true] {
@@ -259,6 +265,7 @@ fn rejected_filter_rows_do_not_hide_invalid_expression_batches() -> Result<()> {
 }
 
 struct InvalidSelection(Vec<usize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for InvalidSelection {
     fn name(&self) -> &'static str {
         "invalid-predicate-selection"
@@ -281,6 +288,7 @@ impl ExpressionEvaluator for InvalidSelection {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn predicate_selection_rejects_duplicate_reordered_and_out_of_bounds_rows() -> Result<()> {
     for positions in [vec![0, 0], vec![1, 0], vec![2], vec![usize::MAX]] {
@@ -299,6 +307,7 @@ fn predicate_selection_rejects_duplicate_reordered_and_out_of_bounds_rows() -> R
 
 #[derive(Debug)]
 struct InvalidBatchType;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::common::type_registry::TypeAdapter for InvalidBatchType {
     fn name(&self) -> &'static str {
         "invalid-batch-type"
@@ -342,6 +351,7 @@ impl duckdb_rust::common::type_registry::TypeAdapter for InvalidBatchType {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn type_batch_boundaries_reject_invalid_null_results_and_cancel() -> Result<()> {
     let mut types = TypeRegistry::builtins();

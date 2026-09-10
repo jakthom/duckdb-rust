@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Services {
     fn execution_context<'a>(
         &'a self,

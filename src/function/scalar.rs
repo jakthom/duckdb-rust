@@ -9,6 +9,7 @@ use crate::{
 #[derive(Debug)]
 struct Builtin(&'static str);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     for name in [
         "abs",
@@ -28,6 +29,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for Builtin {
     fn name(&self) -> &str {
         self.0

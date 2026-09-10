@@ -17,6 +17,27 @@ pub enum Statement {
     },
 }
 
+#[cfg(feature = "dev")]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Statement {
+    /// Parser-rendered SQL gives each executable statement a stable content key,
+    /// including statements in a batch. The request trace retains original text.
+    pub(crate) fn dev_sql(&self) -> String {
+        match self {
+            Self::Sql(statement) => statement.to_string(),
+            Self::Checkpoint => "CHECKPOINT".into(),
+            Self::ResetSetting { name, scope } => {
+                let scope = scope
+                    .as_ref()
+                    .map(|scope| format!("{scope} "))
+                    .unwrap_or_default();
+                format!("RESET {scope}{name}")
+            }
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait Parser: Send + Sync {
     fn name(&self) -> &'static str;
     fn parse(&self, sql: &str) -> Result<Vec<Statement>>;
@@ -25,6 +46,7 @@ pub trait Parser: Send + Sync {
 #[derive(Default)]
 pub struct DuckDbParser;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Parser for DuckDbParser {
     fn name(&self) -> &'static str {
         "sqlparser-duckdb"

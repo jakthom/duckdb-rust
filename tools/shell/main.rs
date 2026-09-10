@@ -18,6 +18,7 @@ use duckdb_rust::{
 };
 use std::sync::Arc;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -28,6 +29,7 @@ fn main() -> ExitCode {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn run() -> Result<()> {
     let mut path = None;
     let mut sql = None;
@@ -186,6 +188,7 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn print_result(result: &QueryResult, json: bool) -> Result<()> {
     if result.columns.is_empty() {
         return Ok(());

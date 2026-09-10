@@ -12,6 +12,7 @@ use crate::{
 /// DuckDB ALP FLOAT/DOUBLE storage (codec 10). ALP groups contain 1,024 values,
 /// independently of DuckDB's stored or the client's execution vector size.
 pub struct AlpDecoder;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SegmentDecoder for AlpDecoder {
     fn id(&self) -> CodecId {
         CodecId(10)
@@ -45,6 +46,7 @@ const FRACTIONS: [f64; 19] = [
     1e-15, 1e-16, 1e-17, 1e-18,
 ];
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn decode(
     data: &[u8],
     count: usize,

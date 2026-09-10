@@ -10,6 +10,7 @@ use duckdb_rust::{
     },
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grouped_integer_states_match_scalar_states_for_encodings_widths_and_empty_groups() -> Result<()>
 {
@@ -116,6 +117,7 @@ fn grouped_integer_states_match_scalar_states_for_encodings_widths_and_empty_gro
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grouped_count_handles_nullable_strings_and_cancelled_empty_states() -> Result<()> {
     let query = QueryContext::background();
@@ -170,6 +172,7 @@ fn grouped_count_handles_nullable_strings_and_cancelled_empty_states() -> Result
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn group_destinations_validate_shape_counts_cancellation_and_resources() -> Result<()> {
     let query = QueryContext::background();
@@ -241,6 +244,7 @@ struct RegisteredSum {
     mode: usize,
     batches: Arc<AtomicUsize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateFunction for RegisteredSum {
     fn name(&self) -> &str {
         "registered_sum"
@@ -279,6 +283,7 @@ struct ScalarGroups {
     mode: usize,
     batches: Arc<AtomicUsize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GroupedAggregateState for ScalarGroups {
     fn group_count(&self) -> usize {
         self.states.len()
@@ -334,6 +339,7 @@ impl GroupedAggregateState for ScalarGroups {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grouped_functions_replace_storage_without_changing_sql_and_reject_bad_adapters() -> Result<()> {
     for mode in 0..4 {

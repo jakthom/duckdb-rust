@@ -10,6 +10,7 @@ use super::{
 use crate::common::{Error, Result};
 pub mod policy;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Publication must complete before a transaction becomes visible. An uncertain
 /// publication returns CommitUnknown, preventing further commits until recovery.
 pub trait Durability: Send + Sync {
@@ -42,6 +43,7 @@ pub trait Durability: Send + Sync {
 #[derive(Default)]
 pub struct MemoryDurability;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Durability for MemoryDurability {
     fn name(&self) -> &'static str {
         "memory"
@@ -68,6 +70,7 @@ pub struct FileCheckpoint {
     recovery: Option<Arc<dyn Recovery>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FileCheckpoint {
     pub fn new(file: Arc<dyn CheckpointStorage>, format: Arc<dyn SnapshotFormat>) -> Self {
         Self {
@@ -107,6 +110,7 @@ impl FileCheckpoint {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Durability for FileCheckpoint {
     fn checkpoint(
         &self,

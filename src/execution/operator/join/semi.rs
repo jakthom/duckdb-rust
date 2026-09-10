@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{common::Result, execution::subquery::PreparedExpression, planner::logical::JoinKind};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A bounded right-side set with incremental left-side delivery. Nothing is
 /// built until the first outer batch exists. Keys are owned, output shares its
 /// input columns, and each cursor owns all state; no query results are cached.

@@ -2,6 +2,7 @@
 //! from physical column encoding. Dynamic expressions remain unsupported.
 use super::{DataType, Error, Reader, Result, Value, corrupt, logical_type};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read(reader: &mut Reader, depth: usize) -> Result<Value> {
     if depth > 128 {
         return Err(Error::Resource(
@@ -50,6 +51,7 @@ pub(super) fn read(reader: &mut Reader, depth: usize) -> Result<Value> {
     Ok(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn value(reader: &mut Reader) -> Result<Value> {
     reader.field(100)?;
     let data_type = logical_type(reader)?;

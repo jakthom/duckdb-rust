@@ -36,6 +36,7 @@ pub enum Operator {
     NotLike,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Operator {
     pub fn arity(self) -> usize {
         if matches!(self, Self::Plus | Self::Negate) {
@@ -55,6 +56,7 @@ pub struct OperatorSignature {
     pub nullable: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Synchronous scalar operation on non-NULL, already typed arguments. Inputs
 /// are borrowed; output and retained configuration are owned. Implementations
 /// support concurrent callers and observe cancellation during long work.
@@ -110,6 +112,7 @@ pub struct BoundOperator {
     effects: FunctionEffects,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundOperator {
     pub fn signature(&self) -> &OperatorSignature {
         &self.signature
@@ -205,6 +208,7 @@ pub struct OperatorRegistry {
     entries: BTreeMap<(Operator, Vec<DataType>), Entry>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorRegistry {
     pub fn builtins() -> Self {
         let mut registry = Self::default();

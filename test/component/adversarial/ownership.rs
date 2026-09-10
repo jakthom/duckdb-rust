@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 struct OwnedFunction;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for OwnedFunction {
     fn name(&self) -> &str {
         "owned_value"
@@ -20,6 +21,7 @@ impl ScalarFunction for OwnedFunction {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn repeated_error_and_result_lifetimes_release_registered_adapters() -> Result<()> {
     for _ in 0..64 {

@@ -7,6 +7,7 @@ pub(super) struct ReverseMetadata<'a> {
     position: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> ReverseMetadata<'a> {
     pub fn new(data: &'a [u8]) -> Result<Self> {
         let position = u32_at(data, 0)? as usize;
@@ -51,6 +52,7 @@ pub(super) struct OffsetGroups<'a> {
     count: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> OffsetGroups<'a> {
     pub fn new(data: &'a [u8], header_size: usize, count: usize) -> Result<Self> {
         let mut metadata = ReverseMetadata::new(data)?;

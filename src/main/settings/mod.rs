@@ -28,6 +28,7 @@ pub struct SettingDefinition {
     pub session: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Metadata is immutable after registration. Normalization is pure, accepts
 /// the declared logical input type, checks cancellation, and returns that same
 /// type or an error. Normalized values must be stable under normalization,
@@ -52,6 +53,7 @@ pub struct SettingRegistry {
     names: BTreeMap<String, String>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SettingRegistry {
     pub fn builtins() -> Self {
         let mut registry = Self::default();
@@ -137,18 +139,21 @@ impl SettingRegistry {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn scope_allowed(definition: &SettingDefinition, scope: SettingScope) -> bool {
     match scope {
         SettingScope::Global => definition.global,
         SettingScope::Session => definition.session,
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn check_value(entry: &RegisteredSetting, value: &Value, query: &QueryContext) -> Result<()> {
     query
         .types()
         .bind(&entry.definition.data_type)?
         .validate(value, query)
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn normalize(entry: &RegisteredSetting, value: &Value, query: &QueryContext) -> Result<Value> {
     query.check()?;
     check_value(entry, value, query)?;
@@ -164,6 +169,7 @@ fn normalize(entry: &RegisteredSetting, value: &Value, query: &QueryContext) -> 
     Ok(result)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_normalization(
     entry: &RegisteredSetting,
     value: &Value,
@@ -183,6 +189,7 @@ fn validate_normalization(
 
 // Configuration canonicalization concerns retained representation, not SQL
 // equality. An unchanged NaN is valid, and a zero's sign must not disappear.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn same_representation(left: &Value, right: &Value) -> bool {
     match (left, right) {
         (Value::Float(left), Value::Float(right)) => left.to_bits() == right.to_bits(),
@@ -197,6 +204,7 @@ pub struct SettingChange {
     scope: SettingScope,
     value: Option<Value>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SettingChange {
     pub fn name(&self) -> &str {
         &self.entry.definition.name
@@ -232,6 +240,7 @@ pub struct SettingsSnapshot {
     global: Arc<SettingValues>,
     session: Arc<SettingValues>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for SettingsSnapshot {
     fn default() -> Self {
         static DEFAULT: OnceLock<SettingsSnapshot> = OnceLock::new();
@@ -244,6 +253,7 @@ impl Default for SettingsSnapshot {
             .clone()
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SettingsSnapshot {
     pub fn new(
         registry: Arc<SettingRegistry>,
@@ -319,12 +329,14 @@ impl SettingsSnapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Database-scoped settings provider. Sessions share global publications but
 /// own independent overrides. Construction has no I/O or state publication.
 pub trait Configuration: Debug + Send + Sync {
     fn name(&self) -> &'static str;
     fn connect(&self) -> Box<dyn ConfigurationSession>;
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Each snapshot observes one atomic global publication and owned local state.
 /// apply publishes one validated change atomically; errors/cancellation before
 /// publication preserve both scopes. Setting changes are not transactional.

@@ -6,6 +6,7 @@ use crate::{
     function::grouped::GroupSelection, planner::aggregation::AggregateOutput,
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// None is returned only before consuming input. Unknown expression effects,
 /// DISTINCT/FILTER, broader keys and functions retain the ordered row driver.
 pub(super) fn try_run(

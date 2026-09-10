@@ -5,6 +5,7 @@ use crate::{
     planner::Schema,
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Demand is a maximum, not a required batch size. Some batches contain between
 /// one and max_rows rows; None is permanent exhaustion. A cursor is local to its
 /// driver and owns its progress; physical plans can be shared by many cursors.
@@ -16,6 +17,7 @@ pub trait BatchStream {
 
 pub type Stream<'a> = Box<dyn BatchStream + 'a>;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Validate adapter output at every operator boundary and make terminal states
 /// permanent, including failures. This also bounds each producer's demand.
 pub fn open<'a>(
@@ -45,6 +47,7 @@ struct CheckedStream<'a> {
     query: &'a QueryContext,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BatchStream for CheckedStream<'_> {
     fn next(&mut self, max_rows: usize) -> Result<Option<DataChunk>> {
         if self.inner.is_none() {
@@ -93,6 +96,7 @@ impl BatchStream for CheckedStream<'_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub fn collect(plan: &dyn PhysicalOperator, context: &ExecutionContext<'_>) -> Result<DataSet> {
     let mut input = open(plan, context)?;
     let mut rows = Vec::new();
@@ -109,6 +113,7 @@ pub fn collect(plan: &dyn PhysicalOperator, context: &ExecutionContext<'_>) -> R
 }
 
 struct CallbackStream<F>(Option<F>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<F: FnMut(usize) -> Result<Option<DataChunk>>> BatchStream for CallbackStream<F> {
     fn next(&mut self, max_rows: usize) -> Result<Option<DataChunk>> {
         let Some(callback) = &mut self.0 else {
@@ -125,12 +130,14 @@ impl<F: FnMut(usize) -> Result<Option<DataChunk>>> BatchStream for CallbackStrea
         result
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn from_fn<'a>(
     callback: impl FnMut(usize) -> Result<Option<DataChunk>> + 'a,
 ) -> Stream<'a> {
     Box::new(CallbackStream(Some(callback)))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn chunk(schema: &Schema, rows: &[Row]) -> Result<Option<DataChunk>> {
     if rows.is_empty() {
         return Ok(None);
@@ -145,6 +152,7 @@ pub(crate) fn chunk(schema: &Schema, rows: &[Row]) -> Result<Option<DataChunk>> 
     .map(Some)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn deferred<'a>(
     schema: &'a Schema,
     context: &'a ExecutionContext<'a>,

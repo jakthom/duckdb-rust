@@ -1,6 +1,7 @@
 use super::*;
 use crate::{common::Value, storage::layout::CheckpointLayout};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
     /// Check a format's complete row-ID mapping against its decoded output.
     /// This includes exact floating-point bits, defaults, schemas and append

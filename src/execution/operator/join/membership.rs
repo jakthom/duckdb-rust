@@ -21,6 +21,7 @@ pub(super) struct MembershipBuilder {
     keys: BuildKeys,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl MembershipBuilder {
     pub fn new(data_type: Arc<BoundType>) -> Self {
         let keys = match data_type.key_representation() {
@@ -79,6 +80,7 @@ pub(super) struct MembershipIndex {
     keys: ProbeKeys,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl MembershipIndex {
     pub fn is_empty(&self) -> bool {
         match &self.keys {
@@ -137,6 +139,7 @@ impl MembershipIndex {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn compact(keys: HashSet<i128>, context: &QueryContext) -> Result<ProbeKeys> {
     let mut minimum = i128::MAX;
     let mut maximum = i128::MIN;
@@ -170,10 +173,12 @@ fn compact(keys: HashSet<i128>, context: &QueryContext) -> Result<ProbeKeys> {
     Ok(ProbeKeys::Dense { minimum, bits })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn allocation_error(_: std::collections::TryReserveError) -> Error {
     Error::Resource("cannot allocate join membership keys".into())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn visit_integers(
     input: &Vector,
     context: &QueryContext,

@@ -12,9 +12,13 @@ use sqlparser::{
 pub(super) struct RewriteDialect;
 
 macro_rules! delegate_flags {
-    ($($name:ident),* $(,)?) => { $(fn $name(&self) -> bool { DuckDbDialect.$name() })* };
+    ($($name:ident),* $(,)?) => { $(
+        #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+        fn $name(&self) -> bool { DuckDbDialect.$name() }
+    )* };
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Dialect for RewriteDialect {
     fn dialect(&self) -> std::any::TypeId {
         DuckDbDialect.dialect()
@@ -56,6 +60,7 @@ impl Dialect for RewriteDialect {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn grouping_items(parser: &mut Parser) -> Result<Vec<Vec<Expr>>, ParserError> {
     parser.expect_token(&Token::LParen)?;
     let items = parser.parse_comma_separated(|parser| {

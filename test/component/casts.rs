@@ -29,6 +29,7 @@ use duckdb_rust::{
     },
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn spec(target: DataType, mode: CastMode) -> CastSpec {
     CastSpec {
         source: DataType::Varchar,
@@ -37,6 +38,7 @@ fn spec(target: DataType, mode: CastMode) -> CastSpec {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn integer_registry(adapter: Arc<dyn CastFunction>) -> Result<CastRegistry> {
     let mut registry = CastRegistry::builtins();
     for target in [
@@ -53,6 +55,7 @@ fn integer_registry(adapter: Arc<dyn CastFunction>) -> Result<CastRegistry> {
     Ok(registry)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn structural_registration_handles_null_and_is_atomic_on_conflict() -> Result<()> {
     let query = QueryContext::background();
@@ -110,6 +113,7 @@ fn structural_registration_handles_null_and_is_atomic_on_conflict() -> Result<()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn cast_modes_and_numeric_boundaries_are_explicit() -> Result<()> {
     let registry = CastRegistry::builtins();
@@ -209,6 +213,7 @@ fn cast_modes_and_numeric_boundaries_are_explicit() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_adapters_share_valid_invalid_and_extreme_input_contracts() -> Result<()> {
     let registries = [
@@ -288,6 +293,7 @@ fn integer_adapters_share_valid_invalid_and_extreme_input_contracts() -> Result<
 
 #[derive(Debug)]
 struct Broken(u8);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for Broken {
     fn name(&self) -> &'static str {
         "broken-cast"
@@ -306,6 +312,7 @@ impl CastFunction for Broken {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn registry_replacement_ownership_and_try_cast_errors_are_checked() -> Result<()> {
     let mut registry = CastRegistry::builtins();
@@ -376,6 +383,7 @@ struct Observed {
     explicit: AtomicUsize,
     assignment: AtomicUsize,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for Observed {
     fn name(&self) -> &'static str {
         self.inner.name()
@@ -394,6 +402,7 @@ impl CastFunction for Observed {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn adapters_are_used_by_sql_defaults_mutations_indexes_and_both_formats() -> Result<()> {
     let dir = tempfile::tempdir()?;
@@ -476,6 +485,7 @@ fn adapters_are_used_by_sql_defaults_mutations_indexes_and_both_formats() -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn representation_boundaries_never_perform_hidden_casts() -> Result<()> {
     let text = Value::Varchar("42".into());
@@ -503,6 +513,7 @@ fn representation_boundaries_never_perform_hidden_casts() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn cast_plan(cast: BoundCast, value: Value, target: DataType) -> BoundStatement {
     BoundStatement::Query(LogicalPlan {
         schema: vec![Field::new("cast", target.clone())],
@@ -513,6 +524,7 @@ fn cast_plan(cast: BoundCast, value: Value, target: DataType) -> BoundStatement 
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn bound_plans_validate_retained_cast_signatures() -> Result<()> {
     let registry = integer_registry(Arc::new(DigitIntegerCast))?;
@@ -556,11 +568,13 @@ fn bound_plans_validate_retained_cast_signatures() -> Result<()> {
 }
 
 struct InterruptingCast(InterruptHandle);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Debug for InterruptingCast {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("InterruptingCast")
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for InterruptingCast {
     fn name(&self) -> &'static str {
         "interrupting-cast"
@@ -576,6 +590,7 @@ impl CastFunction for InterruptingCast {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn casts_preserve_concurrent_ownership_and_statement_cancellation() -> Result<()> {
     let registry = integer_registry(Arc::new(DigitIntegerCast))?;

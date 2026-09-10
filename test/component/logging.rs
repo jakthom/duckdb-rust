@@ -20,6 +20,7 @@ use std::{
     },
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn open(
     path: &Path,
     logged: bool,
@@ -42,12 +43,14 @@ fn open(
         .indexes(indexes)
         .build()
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn seed(path: &Path) -> Result<()> {
     Database::open(path)?.connect().execute(
         "CREATE TABLE t(i INTEGER PRIMARY KEY,s VARCHAR); INSERT INTO t VALUES(1,'base')",
     )?;
     Ok(())
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn values(path: &Path) -> Result<Vec<Vec<Value>>> {
     Ok(Database::open_read_only(path)?
         .connect()
@@ -55,10 +58,12 @@ fn values(path: &Path) -> Result<Vec<Vec<Value>>> {
         .rows
         .into_rows())
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn log(path: &Path) -> Vec<u8> {
     fs::read(path.with_extension("duckdb.wal")).unwrap_or_default()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn logging_and_checkpoint_adapters_share_transaction_contracts() -> Result<()> {
     for logged in [false, true] {
@@ -115,6 +120,7 @@ fn logging_and_checkpoint_adapters_share_transaction_contracts() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn point_commits_append_small_logs_without_rewriting_checkpoint_or_prior_records() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -144,6 +150,7 @@ fn point_commits_append_small_logs_without_rewriting_checkpoint_or_prior_records
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn logged_values_preserve_float_bits_nul_strings_and_atomic_tails() -> Result<()> {
     use duckdb_rust::{
@@ -207,6 +214,7 @@ fn logged_values_preserve_float_bits_nul_strings_and_atomic_tails() -> Result<()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn incompatible_logging_compositions_fail_before_file_changes() -> Result<()> {
     use duckdb_rust::storage::{filesystem::CheckpointStorage, format::JsonSnapshotFormat};
@@ -253,6 +261,7 @@ struct Fault {
     enabled: AtomicBool,
     exit: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FileFaultInjector for Fault {
     fn before(&self, step: PublicationStep) -> Result<()> {
         if !self.enabled.load(Ordering::Relaxed) {
@@ -276,6 +285,7 @@ impl FileFaultInjector for Fault {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn logging_errors_restore_commits_or_poison_uncertain_writers() -> Result<()> {
     for (ordinal, &step) in STEPS.iter().enumerate() {
@@ -357,6 +367,7 @@ fn logging_errors_restore_commits_or_poison_uncertain_writers() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Reused by the independent oracle. All environment hooks remain test-only.
 #[test]
 fn logging_child() -> Result<()> {
@@ -399,6 +410,7 @@ fn logging_child() -> Result<()> {
     panic!("logging boundary was not reached");
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn process_interruption_during_log_initialization_append_and_rollback_is_recoverable() -> Result<()>
 {

@@ -18,6 +18,7 @@ pub(super) struct RecordState {
     selected: Option<TableName>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RecordState {
     pub fn new(catalog: &dyn Catalog) -> Result<Self> {
         Ok(Self {
@@ -206,6 +207,7 @@ impl RecordState {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn name(reader: &mut Reader) -> Result<TableName> {
     reader.field(101)?;
     let schema = reader.string()?;
@@ -217,6 +219,7 @@ fn name(reader: &mut Reader) -> Result<TableName> {
     Ok(TableName::new(schema, table))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn row_id(value: &Value) -> Result<RowId> {
     match value {
         Value::Integer(id) => {

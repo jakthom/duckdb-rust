@@ -29,11 +29,13 @@ pub struct Snapshot {
     types: Arc<crate::common::type_registry::TypeRegistry>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for Snapshot {
     fn default() -> Self {
         Self::new(crate::common::type_registry::builtin_types())
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
     pub fn new(types: Arc<crate::common::type_registry::TypeRegistry>) -> Self {
         Self {
@@ -54,6 +56,7 @@ struct TableData {
     indexes: Vec<Arc<dyn KeyIndex>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Debug for Snapshot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Snapshot")
@@ -69,6 +72,7 @@ struct SnapshotState {
     schemas: BTreeSet<String>,
     tables: BTreeMap<String, Arc<TableData>>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'de> Deserialize<'de> for Snapshot {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -78,6 +82,7 @@ impl<'de> Deserialize<'de> for Snapshot {
             .map_err(serde::de::Error::custom)
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
     pub(crate) fn decode_json(
         bytes: &[u8],
@@ -103,6 +108,7 @@ impl Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
     /// Next unused physical row ID, including holes left by deleted rows.
     /// Log encoders use this to preserve append identity after a checkpoint.
@@ -169,6 +175,7 @@ impl Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Catalog for Snapshot {
     fn schemas(&self) -> Result<Vec<String>> {
         Ok(self.schemas.iter().cloned().collect())
@@ -181,6 +188,7 @@ impl Catalog for Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_definition(
     definition: &TableDefinition,
     types: &Arc<crate::common::type_registry::TypeRegistry>,
@@ -225,6 +233,7 @@ fn validate_definition(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CatalogMut for Snapshot {
     fn alter_table(
         &mut self,
@@ -300,6 +309,7 @@ impl CatalogMut for Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableData {
     fn validate(&mut self, indexes: &dyn IndexFactory, context: &QueryContext) -> Result<()> {
         self.validate_rows(context)?;
@@ -379,6 +389,7 @@ impl TableData {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableStorage for Snapshot {
     fn row_count(&self, table: &TableName) -> Result<Option<usize>> {
         Ok(Some(self.get(table)?.rows.len()))
@@ -452,6 +463,7 @@ impl TableStorage for Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableStorageMut for Snapshot {
     fn insert(
         &mut self,

@@ -1,6 +1,7 @@
 use super::*;
 use crate::storage::recovery::{RecoveredChange, RecoveryTarget};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
     /// Restore physical identities without reusing deleted slots. The table
     /// must already exist and be empty. Failure leaves it unchanged.
@@ -39,6 +40,7 @@ impl Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RecoveryTarget for Snapshot {
     fn apply_committed(
         &mut self,
@@ -134,6 +136,7 @@ impl RecoveryTarget for Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn apply_validity(
     next: &mut Snapshot,
     validity: BTreeMap<(TableName, usize, RowId), bool>,

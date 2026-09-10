@@ -24,6 +24,7 @@ pub(super) enum Rows {
     },
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for Rows {
     fn default() -> Self {
         Self::Writable(BTreeMap::new())
@@ -36,6 +37,7 @@ pub(super) enum RowView<'a> {
     Columns(&'a DataChunk, usize),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RowView<'_> {
     pub fn len(&self) -> usize {
         match self {
@@ -57,6 +59,7 @@ impl RowView<'_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Index<usize> for RowView<'_> {
     type Output = Value;
     fn index(&self, index: usize) -> &Self::Output {
@@ -64,6 +67,7 @@ impl Index<usize> for RowView<'_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Serialize for RowView<'_> {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -73,6 +77,7 @@ impl Serialize for RowView<'_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Rows {
     pub fn add_column(
         &mut self,
@@ -232,6 +237,7 @@ impl Rows {
 
 // The snapshot format describes logical rows and identities, independently of
 // their in-memory representation. Decoding remains private until validation.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Serialize for Rows {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -244,6 +250,7 @@ impl Serialize for Rows {
         map.end()
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'de> Deserialize<'de> for Rows {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,

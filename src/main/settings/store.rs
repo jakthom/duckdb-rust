@@ -7,11 +7,13 @@ pub struct SnapshotConfiguration {
     registry: Arc<SettingRegistry>,
     global: Arc<RwLock<Arc<SettingValues>>>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for SnapshotConfiguration {
     fn default() -> Self {
         Self::new(Arc::new(SettingRegistry::builtins()))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SnapshotConfiguration {
     pub fn new(registry: Arc<SettingRegistry>) -> Self {
         Self {
@@ -20,6 +22,7 @@ impl SnapshotConfiguration {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Configuration for SnapshotConfiguration {
     fn name(&self) -> &'static str {
         "snapshot-configuration"
@@ -37,6 +40,7 @@ struct SnapshotSession {
     global: Arc<RwLock<Arc<SettingValues>>>,
     session: Arc<SettingValues>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ConfigurationSession for SnapshotSession {
     fn snapshot(&self, query: &QueryContext) -> Result<SettingsSnapshot> {
         query.check()?;
@@ -67,11 +71,13 @@ pub struct LockedConfiguration {
     registry: Arc<SettingRegistry>,
     global: Arc<Mutex<SettingValues>>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for LockedConfiguration {
     fn default() -> Self {
         Self::new(Arc::new(SettingRegistry::builtins()))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LockedConfiguration {
     pub fn new(registry: Arc<SettingRegistry>) -> Self {
         Self {
@@ -80,6 +86,7 @@ impl LockedConfiguration {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Configuration for LockedConfiguration {
     fn name(&self) -> &'static str {
         "locked-configuration"
@@ -97,6 +104,7 @@ struct LockedSession {
     global: Arc<Mutex<SettingValues>>,
     session: SettingValues,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ConfigurationSession for LockedSession {
     fn snapshot(&self, query: &QueryContext) -> Result<SettingsSnapshot> {
         query.check()?;
@@ -124,6 +132,7 @@ impl ConfigurationSession for LockedSession {
         Ok(())
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn update(values: &mut SettingValues, change: &SettingChange) {
     if let Some(value) = change.value() {
         values.insert(change.name().into(), value.clone());
@@ -131,6 +140,7 @@ fn update(values: &mut SettingValues, change: &SettingChange) {
         values.remove(change.name());
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn poisoned() -> Error {
     Error::Internal("configuration lock poisoned".into())
 }

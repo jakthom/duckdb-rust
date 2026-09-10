@@ -28,12 +28,14 @@ use std::{
     },
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn seed(path: &Path) -> Result<()> {
     Database::open(path)?.connect().execute(
         "CREATE TABLE t(i INTEGER PRIMARY KEY,s VARCHAR); INSERT INTO t VALUES(1,'base')",
     )?;
     Ok(())
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn open(
     path: &Path,
     policy: Option<Arc<dyn CheckpointPolicy>>,
@@ -56,6 +58,7 @@ fn open(
         transactions,
     ))
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn count(path: &Path) -> Result<i128> {
     let result = Database::open_read_only(path)?
         .connect()
@@ -63,6 +66,7 @@ fn count(path: &Path) -> Result<i128> {
     Ok(result.rows[0][0].as_i128().unwrap())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn checkpoints_preserve_live_ids_readers_and_pending_writers_across_policies() -> Result<()> {
     let policies: Vec<Option<Arc<dyn CheckpointPolicy>>> = vec![
@@ -142,6 +146,7 @@ fn checkpoints_preserve_live_ids_readers_and_pending_writers_across_policies() -
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn checkpoint_syntax_session_and_cancellation_contracts() -> Result<()> {
     let mut memory = Database::memory()?.connect();
@@ -204,6 +209,7 @@ fn checkpoint_syntax_session_and_cancellation_contracts() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn policies_control_real_checkpoint_publication() -> Result<()> {
     let policies: Vec<(Option<Arc<dyn CheckpointPolicy>>, usize)> = vec![
@@ -246,6 +252,7 @@ fn policies_control_real_checkpoint_publication() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn checkpoint_layouts_preserve_duplicate_rows_nan_bits_and_reject_aliases() -> Result<()> {
     use duckdb_rust::{
@@ -314,6 +321,7 @@ fn checkpoint_layouts_preserve_duplicate_rows_nan_bits_and_reject_aliases() -> R
 struct BadLayout {
     invalid: Arc<AtomicBool>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SnapshotFormat for BadLayout {
     fn name(&self) -> &'static str {
         "fault-injected-checkpoint-layout"
@@ -347,6 +355,7 @@ impl SnapshotFormat for BadLayout {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn invalid_format_layout_fails_before_io_and_keeps_the_session_usable() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -403,6 +412,7 @@ struct Fault {
     armed: AtomicBool,
     exit: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FileFaultInjector for Fault {
     fn before(&self, step: PublicationStep) -> Result<()> {
         if self.armed.load(Ordering::Relaxed) && self.step == step {
@@ -414,12 +424,14 @@ impl FileFaultInjector for Fault {
         Ok(())
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn policy(automatic: bool) -> Option<Arc<dyn CheckpointPolicy>> {
     automatic.then(|| {
         Arc::new(CommitCountCheckpoint(NonZeroU64::new(1).unwrap())) as Arc<dyn CheckpointPolicy>
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn checkpoint_retires_a_header_only_log_after_rejected_first_append() -> Result<()> {
     for step in [
@@ -466,6 +478,7 @@ fn checkpoint_retires_a_header_only_log_after_rejected_first_append() -> Result<
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn interrupted_checkpoint_publication_does_not_commit_the_incoming_transaction() -> Result<()> {
     for automatic in [false, true] {
@@ -517,6 +530,7 @@ fn interrupted_checkpoint_publication_does_not_commit_the_incoming_transaction()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn checkpoint_child() -> Result<()> {
     let Ok(path) = std::env::var("DDB_CHECKPOINT_CHILD_PATH") else {
@@ -559,6 +573,7 @@ fn checkpoint_child() -> Result<()> {
     panic!("checkpoint boundary was not reached");
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn process_exits_during_manual_and_automatic_checkpoints_preserve_acknowledged_work() -> Result<()>
 {

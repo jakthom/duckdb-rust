@@ -7,6 +7,7 @@ use crate::{
 #[derive(Debug)]
 pub struct DateCast;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for DateCast {
     fn name(&self) -> &'static str {
         "gregorian-date-cast"

@@ -8,6 +8,7 @@ mod groups;
 #[derive(Debug)]
 struct Builtin(&'static str);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     for name in [
         "count", "sum", "avg", "min", "max", "first", "last", "bool_and", "bool_or",
@@ -18,6 +19,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateFunction for Builtin {
     fn name(&self) -> &str {
         self.0
@@ -79,6 +81,7 @@ struct State {
     seen: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateState for State {
     fn update_batch(
         &mut self,
@@ -186,6 +189,7 @@ impl AggregateState for State {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State {
     /// A narrow, non-NULL column admits a range proof for every accumulator
     /// prefix. The fallback preserves exact overflow timing near either bound,
@@ -296,6 +300,7 @@ impl State {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Independent machine-width lanes avoid a carry dependency across every row.
 /// Failure requests the wide kernel; it is not a SQL overflow. The caller must
 /// separately prove that every logical prefix fits the SQL accumulator.

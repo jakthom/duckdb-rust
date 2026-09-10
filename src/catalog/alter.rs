@@ -27,6 +27,7 @@ pub enum TableAlteration {
     },
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableDefinition {
     pub fn column_index(&self, name: &str) -> Result<usize> {
         self.columns
@@ -41,6 +42,7 @@ impl TableDefinition {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableAlteration {
     /// Derive metadata without effects. The catalog must additionally validate
     /// name collisions, registered types/defaults and all affected stored values.

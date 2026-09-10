@@ -9,6 +9,7 @@ use duckdb_rust::{
 };
 use std::{fs, sync::Arc};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn next(seed: &mut u64) -> u64 {
     *seed = seed
         .wrapping_mul(6364136223846793005)
@@ -16,6 +17,7 @@ fn next(seed: &mut u64) -> u64 {
     *seed
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn generated_predicate_partitions_match_an_independent_row_model_across_adapters() -> Result<()> {
     for optimized in [false, true] {
@@ -89,6 +91,7 @@ fn generated_predicate_partitions_match_an_independent_row_model_across_adapters
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn paired_sql_and_checkpoint_mutations_return_results_or_checked_errors() -> Result<()> {
     let directory = tempfile::tempdir()?;

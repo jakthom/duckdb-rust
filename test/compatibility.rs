@@ -2,6 +2,7 @@ use std::{fs, io::Read, path::Path};
 
 use duckdb_rust::{Database, Error, Result, Value};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn fixture(name: &str, path: &Path) -> Result<()> {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("test/data/duckdb")
@@ -12,6 +13,7 @@ fn fixture(name: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn independent_duckdb_files_are_read_without_native_dependencies() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -65,6 +67,7 @@ fn independent_duckdb_files_are_read_without_native_dependencies() -> Result<()>
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn exact_scalar_values_and_types_survive_checkpoint_read() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -111,6 +114,7 @@ fn exact_scalar_values_and_types_survive_checkpoint_read() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn alp_floating_values_survive_groups_exceptions_and_publication() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -157,6 +161,7 @@ fn alp_floating_values_survive_groups_exceptions_and_publication() -> Result<()>
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn truncated_corrupt_locked_and_unrecovered_files_are_rejected() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -195,6 +200,7 @@ fn truncated_corrupt_locked_and_unrecovered_files_are_rejected() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn compressed_strings_match_every_logical_value() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -222,6 +228,7 @@ fn compressed_strings_match_every_logical_value() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn rust_updates_existing_duckdb_checkpoints_and_reopens() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -255,6 +262,7 @@ fn rust_updates_existing_duckdb_checkpoints_and_reopens() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn unsupported_publication_preserves_the_original_database() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -298,6 +306,7 @@ fn unsupported_publication_preserves_the_original_database() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn independent_rowgroups_and_empty_schemas_are_preserved() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -336,6 +345,7 @@ fn independent_rowgroups_and_empty_schemas_are_preserved() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn a_damaged_unused_header_does_not_hide_a_valid_checkpoint() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -364,6 +374,7 @@ fn a_damaged_unused_header_does_not_hide_a_valid_checkpoint() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn checkpoint_deletions_preserve_committed_visibility() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -394,6 +405,7 @@ fn checkpoint_deletions_preserve_committed_visibility() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn persisted_unique_and_primary_keys_survive_mutation_and_restart() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -433,6 +445,7 @@ fn persisted_unique_and_primary_keys_survive_mutation_and_restart() -> Result<()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn existing_literal_defaults_are_evaluated_after_publication_and_reopen() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -480,6 +493,7 @@ fn existing_literal_defaults_are_evaluated_after_publication_and_reopen() -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn alp_and_alprd_preserve_both_floating_widths_and_ieee_extrema() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -523,6 +537,7 @@ fn alp_and_alprd_preserve_both_floating_widths_and_ieee_extrema() -> Result<()> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn historical_chimp_and_patas_files_keep_both_tables_and_values() -> Result<()> {
     let directory = tempfile::tempdir()?;

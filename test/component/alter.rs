@@ -14,6 +14,7 @@ use std::{fs, sync::Arc};
 #[path = "../runner/mod.rs"]
 mod runner;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn alter_sql_contracts_across_indexes_optimizers_and_delivery() -> Result<()> {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/alter.test");
@@ -44,6 +45,7 @@ fn alter_sql_contracts_across_indexes_optimizers_and_delivery() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn catalog_alter_is_atomic_preserves_ids_and_retained_snapshots() -> Result<()> {
     let table = TableName::main("t");
@@ -139,6 +141,7 @@ fn catalog_alter_is_atomic_preserves_ids_and_retained_snapshots() -> Result<()> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn alter_rollback_prepared_rebinding_and_writer_conflicts() -> Result<()> {
     let db = Database::memory()?;
@@ -182,6 +185,7 @@ fn alter_rollback_prepared_rebinding_and_writer_conflicts() -> Result<()> {
 
 const MUTATIONS: &str = include_str!("../sql/alter_transactions.sql");
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn alter_with_prior_and_later_mutations_survives_wal_recovery_and_checkpoint() -> Result<()> {
     for logged in [false, true] {
@@ -244,6 +248,7 @@ fn alter_with_prior_and_later_mutations_survives_wal_recovery_and_checkpoint() -
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn incomplete_alter_wal_never_exposes_a_partial_catalog_or_rows() -> Result<()> {
     use duckdb_rust::storage::{
@@ -307,6 +312,7 @@ fn incomplete_alter_wal_never_exposes_a_partial_catalog_or_rows() -> Result<()> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn new_not_null_constraints_check_committed_and_transaction_local_rows() -> Result<()> {
     for sql in ["UPDATE t SET v=20 WHERE i=2", "DELETE FROM t WHERE i=2"] {
@@ -340,6 +346,7 @@ fn new_not_null_constraints_check_committed_and_transaction_local_rows() -> Resu
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn independent_duckdb_alter_wal_replays_with_both_index_adapters() -> Result<()> {
     use duckdb_rust::storage::{

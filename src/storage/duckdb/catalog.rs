@@ -1,5 +1,6 @@
 mod constant;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn constant_expression(
     reader: &mut super::binary::Reader,
 ) -> crate::Result<crate::Value> {
@@ -17,6 +18,7 @@ use crate::{
     storage::table::Snapshot,
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn load(
     blocks: &Blocks,
     decoders: &crate::storage::compression::DecoderRegistry,
@@ -81,6 +83,7 @@ pub(super) fn load(
     Ok(snapshot)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
     let name = if reader.optional(100)? {
         reader.string()?
@@ -107,6 +110,7 @@ pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
     reader.field(100)?;
     let data_type = match reader.unsigned()? {
@@ -127,6 +131,7 @@ pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
     Ok(data_type)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn constraints(reader: &mut Reader, table: &mut TableDefinition) -> Result<()> {
     for _ in 0..reader.length()? {
         if !reader.boolean()? {
@@ -186,6 +191,7 @@ pub(super) fn constraints(reader: &mut Reader, table: &mut TableDefinition) -> R
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn block_pointer(reader: &mut Reader) -> Result<(i64, usize)> {
     reader.field(100)?;
     let id = reader.signed()?;
@@ -197,6 +203,7 @@ pub(super) fn block_pointer(reader: &mut Reader) -> Result<(i64, usize)> {
     ))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn indexes(reader: &mut Reader) -> Result<()> {
     for _ in 0..reader.length()? {
         if reader.optional(100)? {
@@ -231,6 +238,7 @@ fn indexes(reader: &mut Reader) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<String> {
     reader.field(100)?;
     if reader.unsigned()? != kind {
@@ -261,6 +269,7 @@ pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<String> {
     Ok(schema)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn table_definition(reader: &mut Reader, schema: String) -> Result<TableDefinition> {
     let name = if reader.optional(200)? {
         reader.string()?

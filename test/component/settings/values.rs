@@ -12,6 +12,7 @@ struct ValueSetting {
     default: Value,
     invalid_normalizer: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Setting for ValueSetting {
     fn definition(&self) -> SettingDefinition {
         SettingDefinition {
@@ -33,12 +34,14 @@ impl Setting for ValueSetting {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn value_registry(setting: ValueSetting) -> Result<Arc<SettingRegistry>> {
     let mut registry = SettingRegistry::builtins();
     registry.register(Arc::new(setting))?;
     Ok(Arc::new(registry))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn floating_settings_preserve_nan_payloads_signed_zero_and_null_across_publication() -> Result<()> {
     for (data_type, values) in [
@@ -112,6 +115,7 @@ fn floating_settings_preserve_nan_payloads_signed_zero_and_null_across_publicati
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn noncanonical_setting_changes_fail_before_publication() -> Result<()> {
     let registry = value_registry(ValueSetting {

@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 struct IntegerSetting {
     bad: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Setting for IntegerSetting {
     fn definition(&self) -> SettingDefinition {
         SettingDefinition {
@@ -37,11 +38,13 @@ impl Setting for IntegerSetting {
         Ok(Value::Integer(value))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn registry(bad: bool) -> Result<Arc<SettingRegistry>> {
     let mut registry = SettingRegistry::builtins();
     registry.register(Arc::new(IntegerSetting { bad }))?;
     Ok(Arc::new(registry))
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn providers(registry: &Arc<SettingRegistry>) -> Vec<Arc<dyn Configuration>> {
     vec![
         Arc::new(SnapshotConfiguration::new(registry.clone())),
@@ -49,6 +52,7 @@ pub(super) fn providers(registry: &Arc<SettingRegistry>) -> Vec<Arc<dyn Configur
     ]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn configuration_providers_share_typed_registration_snapshot_and_failure_contracts() -> Result<()> {
     let query = QueryContext::background();
@@ -137,6 +141,7 @@ fn configuration_providers_share_typed_registration_snapshot_and_failure_contrac
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn contextual_functions_retain_typed_settings_across_batches_and_other_writers() -> Result<()> {
     let registry = registry(false)?;
@@ -194,6 +199,7 @@ fn contextual_functions_retain_typed_settings_across_batches_and_other_writers()
 }
 
 struct FailedScheduler(usize);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Scheduler for FailedScheduler {
     fn name(&self) -> &'static str {
         "failed-settings-scheduler"
@@ -212,6 +218,7 @@ impl Scheduler for FailedScheduler {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn scheduler_failures_never_publish_nontransactional_settings() -> Result<()> {
     let query = QueryContext::background();
@@ -244,6 +251,7 @@ fn scheduler_failures_never_publish_nontransactional_settings() -> Result<()> {
 }
 
 struct InvalidEvaluator;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for InvalidEvaluator {
     fn name(&self) -> &'static str {
         "invalid-setting-evaluator"
@@ -263,6 +271,7 @@ impl ExpressionEvaluator for InvalidEvaluator {
 struct BrokenBinding {
     bound: bool,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::function::ScalarFunction for BrokenBinding {
     fn name(&self) -> &str {
         "broken_binding"
@@ -290,6 +299,7 @@ impl duckdb_rust::function::ScalarFunction for BrokenBinding {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn configuration_and_contextual_functions_reject_invalid_adapter_values() -> Result<()> {
     for configuration in configurations() {

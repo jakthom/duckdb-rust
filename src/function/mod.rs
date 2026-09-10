@@ -23,6 +23,7 @@ pub enum ArgumentEvaluation {
     FirstNonNull,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Language-owned argument metadata for contextual function binding. A
 /// constant request may evaluate only a closed expression without effects,
 /// through the selected evaluator, and must validate its logical result.
@@ -36,6 +37,7 @@ pub trait ScalarBindArguments {
     fn constant(&self, index: usize) -> Result<Value>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait ScalarFunction: Debug + Send + Sync {
     fn name(&self) -> &str;
     fn effects(&self) -> FunctionEffects {
@@ -63,6 +65,7 @@ pub trait ScalarFunction: Debug + Send + Sync {
     fn evaluate(&self, arguments: &[Value], context: &QueryContext) -> Result<Value>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait AggregateState: Send {
     /// Failed updates invalidate the state; callers must discard it.
     fn update(&mut self, arguments: &[Value], context: &QueryContext) -> Result<()>;
@@ -75,6 +78,7 @@ pub trait AggregateState: Send {
     fn finish(self: Box<Self>) -> Result<Value>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn update_aggregate_rows<S: AggregateState + ?Sized>(
     state: &mut S,
     arguments: &DataChunk,
@@ -89,6 +93,7 @@ pub(crate) fn update_aggregate_rows<S: AggregateState + ?Sized>(
     context.check()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait AggregateFunction: Debug + Send + Sync {
     fn name(&self) -> &str;
     fn return_type(
@@ -119,6 +124,7 @@ pub struct FunctionRegistry {
     aggregates: BTreeMap<String, Arc<dyn AggregateFunction>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FunctionRegistry {
     pub fn builtins() -> Self {
         let mut registry = Self::default();

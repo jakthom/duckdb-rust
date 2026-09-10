@@ -19,6 +19,7 @@ pub struct RecursiveFrame<'a> {
     input: &'a DataSet,
     parent: Option<&'a RecursiveFrame<'a>>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> RecursiveFrame<'a> {
     pub fn new(id: &'a RecursiveId, input: &'a DataSet, parent: Option<&'a Self>) -> Self {
         Self { id, input, parent }
@@ -46,6 +47,7 @@ pub struct RecursivePlan<'a> {
     pub all: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Owns fixed-point control, not compilation or transaction publication. Open
 /// performs no input work; each cursor has independent generations and keys.
 /// Errors/cancellation propagate and dropping a cursor performs no more work.
@@ -66,6 +68,7 @@ pub struct StreamingRecursion;
 #[derive(Debug, Default)]
 pub struct MaterializingRecursion;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RecursiveAlgorithm for StreamingRecursion {
     fn name(&self) -> &'static str {
         "streaming-recursion"
@@ -82,6 +85,7 @@ impl RecursiveAlgorithm for StreamingRecursion {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RecursiveAlgorithm for MaterializingRecursion {
     fn name(&self) -> &'static str {
         "materializing-recursion"
@@ -110,6 +114,7 @@ impl RecursiveAlgorithm for MaterializingRecursion {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate(plan: RecursivePlan<'_>) -> Result<()> {
     for input in [plan.seed, plan.step] {
         if !input
@@ -124,6 +129,7 @@ fn validate(plan: RecursivePlan<'_>) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Result<Stream<'a>> {
     context.query.check()?;
     validate(plan)?;
@@ -177,6 +183,7 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
     }))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn retain(
     rows: impl IntoIterator<Item = Row>,
     all: bool,

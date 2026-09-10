@@ -17,12 +17,14 @@ use crate::{
 use std::sync::Arc;
 
 struct SuppliedRows(Option<ScanBatch>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableScan for SuppliedRows {
     fn next(&mut self, _: usize, _: &QueryContext) -> Result<Option<ScanBatch>> {
         Ok(self.0.take())
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn rejected_scan_rows_still_require_valid_width_physical_and_logical_types() -> Result<()> {
     let mut types = TypeRegistry::builtins();

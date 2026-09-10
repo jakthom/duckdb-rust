@@ -27,6 +27,7 @@ pub struct Connection {
     pub(super) configuration: Box<dyn settings::ConfigurationSession>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Connection {
     /// Checkpoint committed state while other connections retain their owned
     /// snapshots. An explicit or failed transaction on this connection must be
@@ -48,6 +49,7 @@ impl Connection {
     pub fn execute(&mut self, sql: &str) -> Result<Vec<QueryResult>> {
         self.execute_params(sql, &[])
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::statement(sql, "request"))]
     pub fn execute_params(&mut self, sql: &str, parameters: &[Value]) -> Result<Vec<QueryResult>> {
         let statements = self.services.parser.parse(sql)?;
         statements
@@ -60,6 +62,7 @@ impl Connection {
             .pop()
             .ok_or_else(|| Error::Parse("query has no statements".into()))
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::statement(sql, "prepare"))]
     pub fn prepare(&self, sql: &str) -> Result<PreparedStatement> {
         let mut statements = self.services.parser.parse(sql)?;
         if statements.len() != 1 {
@@ -88,11 +91,14 @@ impl Connection {
         let settings = self.configuration.snapshot(&context)?;
         Ok(context.with_settings(settings))
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::statement(syntax.dev_sql(), "execute", QueryResult::trace_output))]
     fn execute_statement(
         &mut self,
         syntax: &crate::parser::Statement,
         parameters: &[Value],
     ) -> Result<QueryResult> {
+        #[cfg(feature = "dev")]
+        duckdb_dev::statement::parameters(&parameters);
         if matches!(self.session, Session::Failed) {
             if matches!(
                 syntax,
@@ -309,12 +315,15 @@ impl Connection {
         self.execute_prepared_batches(&self.prepare(sql)?, &[], consumer)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::statement(statement.syntax.dev_sql(), "execute", QuerySummary::trace_output))]
     pub fn execute_prepared_batches(
         &mut self,
         statement: &PreparedStatement,
         parameters: &[Value],
         mut consumer: impl FnMut(&Schema, DataChunk) -> Result<StreamControl>,
     ) -> Result<QuerySummary> {
+        #[cfg(feature = "dev")]
+        duckdb_dev::statement::parameters(&parameters);
         let work = self.bind_statement(&statement.syntax, parameters)?;
         if !matches!(work.statement, BoundStatement::Query(_)) {
             if work.explicit {

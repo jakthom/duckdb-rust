@@ -16,6 +16,7 @@ use crate::{
     },
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_table(
     blocks: &Blocks,
     decoders: &DecoderRegistry,
@@ -121,6 +122,7 @@ pub(super) fn read_table(
     Ok(rows)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn read_column(
     blocks: &Blocks,
     decoders: &DecoderRegistry,
@@ -204,6 +206,7 @@ fn read_column(
     Ok(output)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> Result<Statistics> {
     reader.field(100)?;
     reader.boolean()?;
@@ -242,6 +245,7 @@ fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> Result<Stati
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn numeric_stat(reader: &mut Reader, data_type: &DataType) -> Result<Value> {
     reader.field(100)?;
     let value = if reader.boolean()? {
@@ -265,6 +269,7 @@ fn numeric_stat(reader: &mut Reader, data_type: &DataType) -> Result<Value> {
     Ok(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sample(reader: &mut Reader) -> Result<()> {
     if reader.optional(100)? && reader.boolean()? {
         reader.optional_unsigned(100, 0)?;

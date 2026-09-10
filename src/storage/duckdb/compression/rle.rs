@@ -7,6 +7,7 @@ use crate::{
     storage::compression::{CodecId, DecodeContext, DecodeInput, SegmentDecoder, SegmentType},
 };
 pub struct RleDecoder;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SegmentDecoder for RleDecoder {
     fn id(&self) -> CodecId {
         CodecId(3)
@@ -28,6 +29,7 @@ impl SegmentDecoder for RleDecoder {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn rle(
     data: &[u8],
     count: usize,

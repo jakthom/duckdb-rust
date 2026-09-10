@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn statement(&mut self, statement: &ast::Statement) -> Result<BoundStatement> {
         use ast::Statement as S;
@@ -409,6 +410,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn schema_name(name: &ast::ObjectName) -> Result<String> {
     if name.0.len() != 1 {
         return Err(unsupported("qualified schema names"));

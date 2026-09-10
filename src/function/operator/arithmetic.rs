@@ -3,6 +3,7 @@ use super::*;
 #[derive(Debug)]
 pub struct NumericArithmetic;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl OperatorFunction for NumericArithmetic {
     fn name(&self) -> &'static str {
         "checked-numeric-arithmetic"
@@ -157,6 +158,7 @@ impl OperatorFunction for NumericArithmetic {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Choose the arithmetic kernel once per column, retaining scalar NULL and
 /// signed remainder rules without redispatching the operator for every value.
 #[inline]
@@ -178,6 +180,7 @@ fn map_integer_column(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
 fn narrow_column<'a>(
     data_type: &DataType,
@@ -208,10 +211,12 @@ fn narrow_column<'a>(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn overflow() -> Error {
     Error::Execution("integer overflow".into())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut OperatorRegistry) {
     use Operator::*;
     for t in [

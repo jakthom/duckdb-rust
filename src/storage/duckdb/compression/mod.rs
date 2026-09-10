@@ -25,6 +25,7 @@ pub use uncompressed::UncompressedDecoder;
 use crate::storage::compression::{DecoderRegistry, SegmentDecoder};
 use std::sync::Arc;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Native readers selected by the DuckDB format's composition root. Encoders
 /// remain a separate checkpoint concern; replacing a reader never changes bytes
 /// written by the current uncompressed writer.

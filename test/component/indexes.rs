@@ -20,13 +20,16 @@ use duckdb_rust::{
     },
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn factories() -> Vec<Arc<dyn IndexFactory>> {
     vec![Arc::new(HashIndexFactory), Arc::new(BTreeIndexFactory)]
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn ints(values: &[i128]) -> Row {
     values.iter().copied().map(Value::Integer).collect()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn index_adapters_share_key_identity_ownership_and_resource_contracts() -> Result<()> {
     let context = QueryContext::background();
@@ -130,6 +133,7 @@ fn index_adapters_share_key_identity_ownership_and_resource_contracts() -> Resul
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn snapshot_indexes_publish_atomically_with_rows() -> Result<()> {
     let context = QueryContext::background();
@@ -206,6 +210,7 @@ struct ObservedIndex {
     inner: Arc<dyn KeyIndex>,
     lookups: Arc<AtomicUsize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IndexFactory for ObservedFactory {
     fn name(&self) -> &'static str {
         self.inner.name()
@@ -222,6 +227,7 @@ impl IndexFactory for ObservedFactory {
         }))
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl KeyIndex for ObservedIndex {
     fn lookup(&self, key: &Row, context: &QueryContext) -> Result<Vec<RowId>> {
         self.lookups.fetch_add(1, Ordering::Relaxed);
@@ -229,6 +235,7 @@ impl KeyIndex for ObservedIndex {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn planner_selects_indexes_through_contracts_across_restart_and_rollback() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -344,6 +351,7 @@ fn planner_selects_indexes_through_contracts_across_restart_and_rollback() -> Re
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn a_point_lookup_does_not_materialize_the_table() -> Result<()> {
     for factory in factories() {
@@ -379,6 +387,7 @@ struct FailingBuild {
     inner: Arc<dyn IndexFactory>,
     fail: Arc<AtomicBool>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IndexFactory for FailingBuild {
     fn name(&self) -> &'static str {
         "injected-build-failure"
@@ -398,6 +407,7 @@ impl IndexFactory for FailingBuild {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn failed_index_replacement_keeps_the_previous_rows_and_keys() -> Result<()> {
     let context = QueryContext::background();

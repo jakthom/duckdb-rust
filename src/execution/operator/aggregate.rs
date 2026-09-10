@@ -15,6 +15,7 @@ use std::{
 mod batched;
 mod grouped;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Consumes a validated input stream once and owns all group, aggregate and
 /// DISTINCT state until completion. Each set has independent state; group
 /// expressions and each aggregate's arguments/filter are evaluated once per
@@ -33,6 +34,7 @@ pub trait AggregationAlgorithm: Debug + Send + Sync {
 
 #[derive(Debug, Default)]
 pub struct HashAggregation;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregationAlgorithm for HashAggregation {
     fn name(&self) -> &'static str {
         "hash-aggregation"
@@ -54,6 +56,7 @@ impl AggregationAlgorithm for HashAggregation {
 /// semantics and emission contract. Byte ordering does not define SQL ordering.
 #[derive(Debug, Default)]
 pub struct OrderedAggregation;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregationAlgorithm for OrderedAggregation {
     fn name(&self) -> &'static str {
         "ordered-aggregation"
@@ -67,6 +70,7 @@ impl AggregationAlgorithm for OrderedAggregation {
         grouped::run::<BTreeMap<Vec<u8>, usize>>(input, aggregation, context)
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn ungrouped(
     input: &mut dyn BatchStream,
     aggregate: &AggregateExpr,

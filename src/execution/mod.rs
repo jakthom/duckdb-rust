@@ -37,6 +37,7 @@ pub struct OuterRow<'a> {
     parent: Option<&'a OuterRow<'a>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl expression_executor::EvaluationContext for ExecutionContext<'_> {
     fn query(&self) -> &QueryContext {
         self.query
@@ -98,18 +99,21 @@ pub struct ExecutionOutcome {
     pub stopped_early: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A sink consumes whole owned chunks. Stop accepts the current chunk and asks
 /// for no further work. An error aborts execution; already delivered chunks
 /// cannot be retracted and callers must not treat them as a successful query.
 pub trait ResultSink {
     fn consume(&mut self, chunk: DataChunk) -> Result<StreamControl>;
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<F: FnMut(DataChunk) -> Result<StreamControl>> ResultSink for F {
     fn consume(&mut self, chunk: DataChunk) -> Result<StreamControl> {
         self(chunk)
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Executes a shared plan with fresh local state. Batches reach the sink in plan
 /// order. Both adapters report all errors when fully consumed; an eager adapter
 /// may discover later errors before delivery. Neither adapter performs a commit.
@@ -125,6 +129,7 @@ pub trait Executor: Send + Sync {
 
 #[derive(Default)]
 pub struct PullExecutor;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Executor for PullExecutor {
     fn name(&self) -> &'static str {
         "pull"
@@ -159,6 +164,7 @@ impl Executor for PullExecutor {
 /// require evaluation to finish before any result is delivered.
 #[derive(Default)]
 pub struct MaterializingExecutor;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Executor for MaterializingExecutor {
     fn name(&self) -> &'static str {
         "materializing"
@@ -197,6 +203,7 @@ pub(crate) struct CollectingSink<'a> {
     pub rows: crate::common::RowCollection,
     pub query: &'a QueryContext,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ResultSink for CollectingSink<'_> {
     fn consume(&mut self, chunk: DataChunk) -> Result<StreamControl> {
         self.query

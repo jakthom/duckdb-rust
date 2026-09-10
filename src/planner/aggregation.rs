@@ -10,6 +10,7 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroupingSet(Vec<usize>);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GroupingSet {
     pub fn new(indices: impl IntoIterator<Item = usize>) -> Self {
         let mut indices: Vec<_> = indices.into_iter().collect();
@@ -36,6 +37,7 @@ pub enum AggregateOutput {
     Grouping(Vec<usize>),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateOutput {
     pub fn data_type(&self) -> &DataType {
         match self {
@@ -55,6 +57,7 @@ pub struct Aggregation {
     pub outputs: Vec<AggregateOutput>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Aggregation {
     /// Check shape before an optimizer or algorithm can index group ordinals.
     /// This does not replace expression/schema validation against the input.

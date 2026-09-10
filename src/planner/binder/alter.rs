@@ -1,6 +1,7 @@
 use super::*;
 use crate::catalog::TableAlteration;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn alter(&mut self, table: &ast::AlterTable) -> Result<BoundStatement> {
         if table.operations.len() != 1 {

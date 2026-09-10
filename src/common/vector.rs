@@ -19,6 +19,7 @@ pub struct Vector {
     all_valid: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Vector {
     /// Construct BIGINT storage from statically bounded physical values. The
     /// constructor establishes type and validity without a second value scan.
@@ -182,6 +183,7 @@ pub struct DataChunk {
     count: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DataChunk {
     pub fn new(columns: Vec<Vector>, count: usize) -> Result<Self> {
         if columns.iter().any(|v| v.len() != count) {

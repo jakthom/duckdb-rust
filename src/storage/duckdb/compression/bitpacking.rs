@@ -17,6 +17,7 @@ pub struct ScalarBitPackingDecoder;
 
 macro_rules! decoder {
     ($name:ident, $label:literal, $unpack:ident) => {
+        #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
         impl SegmentDecoder for $name {
             fn id(&self) -> CodecId { CodecId(6) }
             fn name(&self) -> &'static str { $label }
@@ -34,6 +35,7 @@ macro_rules! decoder {
 decoder!(BitPackingDecoder, "duckdb-bitpacking-word", words);
 decoder!(ScalarBitPackingDecoder, "duckdb-bitpacking-scalar", scalar);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn bitpacking(
     data: &[u8],
     count: usize,
@@ -111,6 +113,7 @@ fn bitpacking(
     Ok(values)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn wrap(value: i128, size: usize) -> i128 {
     let shift = (16 - size) * 8;
     (value << shift) >> shift

@@ -25,6 +25,7 @@ pub struct JoinPlan<'a> {
     pub schema: &'a Schema,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait JoinAlgorithm: Debug + Send + Sync {
     fn name(&self) -> &'static str;
     fn supports(&self, condition: &BoundExpr, left_width: usize) -> bool;
@@ -50,6 +51,7 @@ pub trait JoinAlgorithm: Debug + Send + Sync {
     ) -> Result<Vec<Row>>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn materialized<'a, T: JoinAlgorithm + ?Sized>(
     algorithm: &'a T,
     plan: JoinPlan<'a>,
@@ -69,6 +71,7 @@ fn materialized<'a, T: JoinAlgorithm + ?Sized>(
 #[derive(Debug, Default)]
 pub struct NestedLoopJoin;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl JoinAlgorithm for NestedLoopJoin {
     fn name(&self) -> &'static str {
         "nested-loop"
@@ -93,6 +96,7 @@ impl JoinAlgorithm for NestedLoopJoin {
 #[derive(Debug, Default)]
 pub struct HashJoin;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl JoinAlgorithm for HashJoin {
     fn name(&self) -> &'static str {
         "hash"
@@ -150,6 +154,7 @@ impl JoinAlgorithm for HashJoin {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn key_value<'a>(
     expression: &BoundExpr,
     row: &'a Row,
@@ -167,6 +172,7 @@ fn key_value<'a>(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn join_candidates(
     left: &DataSet,
     right: &DataSet,

@@ -6,6 +6,7 @@ use duckdb_rust::{
     storage::{TableStorage, TableStorageMut, scan::ScanBatch, table::Snapshot},
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn materialized_row_collections_own_values_and_preserve_zero_width_rows() -> Result<()> {
     for width in 0..=4 {
@@ -61,6 +62,7 @@ fn materialized_row_collections_own_values_and_preserve_zero_width_rows() -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn contiguous_views_preserve_nested_selection_nulls_and_empty_cardinality() -> Result<()> {
     let flat = Vector::flat(
@@ -120,6 +122,7 @@ fn contiguous_views_preserve_nested_selection_nulls_and_empty_cardinality() -> R
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn typed_integer_columns_establish_physical_validity_and_stop_on_errors() -> Result<()> {
     let values = [Some(i64::MIN), None, Some(0), Some(i64::MAX)];
@@ -151,6 +154,7 @@ fn typed_integer_columns_establish_physical_validity_and_stop_on_errors() -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn published_columns_preserve_holes_writes_restart_and_retained_batches() -> Result<()> {
     let context = QueryContext::background();
@@ -228,6 +232,7 @@ fn published_columns_preserve_holes_writes_restart_and_retained_batches() -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn scan_representations_preserve_identities_selection_and_owned_values() -> Result<()> {
     let types: Arc<[DataType]> = vec![DataType::BigInt, DataType::Varchar].into();
@@ -271,6 +276,7 @@ fn scan_representations_preserve_identities_selection_and_owned_values() -> Resu
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn aggregate_batches_match_scalar_updates_for_nulls_encodings_empty_input_and_overflow()
 -> Result<()> {
@@ -348,6 +354,7 @@ fn aggregate_batches_match_scalar_updates_for_nulls_encodings_empty_input_and_ov
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_sum_batches_preserve_wide_prefixes_and_vector_views() -> Result<()> {
     let functions = FunctionRegistry::builtins();
@@ -424,6 +431,7 @@ struct RegisteredCount {
     batch: bool,
     calls: Arc<AtomicUsize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateFunction for RegisteredCount {
     fn name(&self) -> &str {
         "registered_count"
@@ -450,6 +458,7 @@ struct RowCount {
     count: i128,
     calls: Arc<AtomicUsize>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateState for RowCount {
     fn update(&mut self, args: &[Value], context: &QueryContext) -> Result<()> {
         context.check()?;
@@ -462,6 +471,7 @@ impl AggregateState for RowCount {
     }
 }
 struct ColumnCount(RowCount);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateState for ColumnCount {
     fn update(&mut self, _: &[Value], _: &QueryContext) -> Result<()> {
         Err(Error::Internal(
@@ -479,6 +489,7 @@ impl AggregateState for ColumnCount {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn registered_aggregate_adapters_receive_the_same_batch_contract() -> Result<()> {
     for batch in [false, true] {

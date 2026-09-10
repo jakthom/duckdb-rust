@@ -22,6 +22,7 @@ pub struct DatabaseBuilder {
     max_intermediate_rows: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for DatabaseBuilder {
     fn default() -> Self {
         Self {
@@ -47,6 +48,7 @@ impl Default for DatabaseBuilder {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DatabaseBuilder {
     pub fn new() -> Self {
         Self::default()
@@ -176,6 +178,7 @@ pub struct Database {
     pub(super) services: Arc<Services>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Database {
     pub fn memory() -> Result<Self> {
         DatabaseBuilder::new().build()

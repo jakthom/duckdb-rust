@@ -17,6 +17,7 @@ struct Bindings {
     first: Option<Binding>,
     others: BTreeMap<usize, Binding>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Bindings {
     fn get(&self, key: usize) -> Option<Value> {
         self.first
@@ -37,6 +38,7 @@ pub(super) struct Frame<'a, 'b> {
     context: &'a ExecutionContext<'b>,
     bindings: RefCell<Bindings>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a, 'b> Frame<'a, 'b> {
     pub(super) fn new(context: &'a ExecutionContext<'b>) -> Self {
         Self {
@@ -45,6 +47,7 @@ impl<'a, 'b> Frame<'a, 'b> {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl EvaluationContext for Frame<'_, '_> {
     fn query(&self) -> &QueryContext {
         self.context.query
@@ -83,6 +86,7 @@ pub struct PreparedExpression<'a> {
     expression: &'a BoundExpr,
     dependencies: Vec<&'a BoundExpr>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> PreparedExpression<'a> {
     pub fn new(expression: &'a BoundExpr) -> Self {
         let mut dependencies = Vec::new();
@@ -164,6 +168,7 @@ impl<'a> PreparedExpression<'a> {
         Ok(selected)
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn collect<'a>(expression: &'a BoundExpr, output: &mut Vec<&'a BoundExpr>) {
     expression.visit_children(&mut |child| collect(child, output));
     if matches!(expression.kind, ExprKind::Subquery(_)) {

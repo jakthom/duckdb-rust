@@ -14,6 +14,7 @@ pub struct ValidatedPlan<'a> {
     context: &'a OptimizerContext<'a>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> ValidatedPlan<'a> {
     pub fn new(plan: LogicalPlan, context: &'a OptimizerContext<'a>) -> Result<Self> {
         context.query.check()?;

@@ -1,4 +1,6 @@
 //! A database assembled from explicit compilation, execution and persistence contracts.
+#[cfg(all(feature = "dev", not(debug_assertions)))]
+compile_error!("dev tracing is excluded from production; use cargo dev or --profile dev-trace");
 pub mod catalog;
 pub mod common;
 pub mod execution;

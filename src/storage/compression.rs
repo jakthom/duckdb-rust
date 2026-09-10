@@ -36,6 +36,7 @@ pub struct DecodeInput<'a> {
     pub statistics: &'a SegmentStatistics,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Immutable, checksum-validated block payloads. IDs and payload layout belong
 /// to the containing file format. Returned storage lives at least as long as the
 /// borrow of this source; missing or corrupt blocks return an error.
@@ -50,6 +51,7 @@ pub struct DecodeContext<'a> {
     pub vector_size: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Reentrant, side-effect-free full-segment decoding. Output is independently
 /// owned and contains exactly `count` physically typed values, in stored order.
 /// Validity output consists solely of non-NULL Booleans. Implementations reject
@@ -69,6 +71,7 @@ pub struct DecoderRegistry {
     decoders: BTreeMap<CodecId, Arc<dyn SegmentDecoder>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DecoderRegistry {
     pub fn register(&mut self, decoder: Arc<dyn SegmentDecoder>) -> Result<()> {
         if self.decoders.contains_key(&decoder.id()) {

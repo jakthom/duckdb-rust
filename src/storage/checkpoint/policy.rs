@@ -9,6 +9,7 @@ pub struct LogProgress {
     pub pending_bytes: u64,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Pure, concurrently callable decision over durable progress and a prepared
 /// incoming transaction. Policies request checkpointing only acknowledged work;
 /// they cannot change transaction contents, visibility or publication ordering.
@@ -18,11 +19,13 @@ pub trait CheckpointPolicy: Send + Sync {
 }
 
 pub struct LogSizeCheckpoint(pub NonZeroU64);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for LogSizeCheckpoint {
     fn default() -> Self {
         Self(NonZeroU64::new(16 * 1024 * 1024).unwrap())
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CheckpointPolicy for LogSizeCheckpoint {
     fn name(&self) -> &'static str {
         "checkpoint-by-log-size"
@@ -36,6 +39,7 @@ impl CheckpointPolicy for LogSizeCheckpoint {
 }
 
 pub struct CommitCountCheckpoint(pub NonZeroU64);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CheckpointPolicy for CommitCountCheckpoint {
     fn name(&self) -> &'static str {
         "checkpoint-by-commit-count"

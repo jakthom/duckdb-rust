@@ -11,6 +11,7 @@ pub struct TableName {
     pub name: String,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableName {
     pub fn new(schema: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
@@ -26,6 +27,7 @@ impl TableName {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Display for TableName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}", self.schema, self.name)
@@ -40,6 +42,7 @@ pub struct ColumnDefinition {
     pub default: Value,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ColumnDefinition {
     pub fn new(name: impl Into<String>, data_type: DataType) -> Self {
         Self {
@@ -65,6 +68,7 @@ pub struct TableDefinition {
     pub unique_keys: Vec<UniqueKey>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// All metadata is resolved in the caller's transaction snapshot.
 pub trait Catalog: Send {
     fn schemas(&self) -> Result<Vec<String>>;
@@ -72,6 +76,7 @@ pub trait Catalog: Send {
     fn tables(&self) -> Result<Vec<TableDefinition>>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait CatalogMut: Catalog {
     fn create_schema(&mut self, name: &str, if_not_exists: bool) -> Result<()>;
     fn drop_schema(&mut self, name: &str, if_exists: bool) -> Result<()>;

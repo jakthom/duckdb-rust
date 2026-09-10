@@ -27,14 +27,17 @@ mod joins;
 #[path = "execution/sorting.rs"]
 mod sorting;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn ints(values: &[i128]) -> Row {
     values.iter().copied().map(Value::Integer).collect()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn executors() -> Vec<Arc<dyn Executor>> {
     vec![Arc::new(PullExecutor), Arc::new(MaterializingExecutor)]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn executor_adapters_preserve_complete_relational_results_across_batches() -> Result<()> {
     for executor in executors() {
@@ -92,6 +95,7 @@ fn executor_adapters_preserve_complete_relational_results_across_batches() -> Re
 
 #[derive(Debug)]
 struct CountCalls(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for CountCalls {
     fn name(&self) -> &str {
         "count_calls"
@@ -119,6 +123,7 @@ impl ScalarFunction for CountCalls {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn limit_and_consumer_stop_bound_actual_upstream_evaluation() -> Result<()> {
     for (executor, expected_calls) in [
@@ -159,6 +164,7 @@ fn limit_and_consumer_stop_bound_actual_upstream_evaluation() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn scan_filter_strategies_preserve_demand_errors_and_owned_results() -> Result<()> {
     use duckdb_rust::execution::physical_plan::ScanFilterStrategy;
@@ -218,6 +224,7 @@ fn scan_filter_strategies_preserve_demand_errors_and_owned_results() -> Result<(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn streamed_results_and_aggregation_do_not_require_full_input_materialization() -> Result<()> {
     let mut c = DatabaseBuilder::new()
@@ -262,6 +269,7 @@ fn streamed_results_and_aggregation_do_not_require_full_input_materialization() 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn table_scan_visibility_and_owned_chunks_survive_other_writers() -> Result<()> {
     let manager = Arc::new(SnapshotTransactions::new(Arc::new(MemoryDurability))?);
@@ -299,6 +307,7 @@ fn table_scan_visibility_and_owned_chunks_survive_other_writers() -> Result<()> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn batch_errors_and_cancellation_follow_the_transaction_contract() -> Result<()> {
     let db = DatabaseBuilder::new().batch_size(1).build()?;
@@ -343,6 +352,7 @@ fn batch_errors_and_cancellation_follow_the_transaction_contract() -> Result<()>
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn evaluation_failure_never_reports_a_partial_result_as_success() -> Result<()> {
     for (executor, expected_prefix) in [
@@ -370,6 +380,7 @@ fn evaluation_failure_never_reports_a_partial_result_as_success() -> Result<()> 
 }
 
 struct InvalidScan(usize);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl duckdb_rust::storage::scan::TableScan for InvalidScan {
     fn next(
         &mut self,
@@ -387,6 +398,7 @@ impl duckdb_rust::storage::scan::TableScan for InvalidScan {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn table_scan_boundary_rejects_empty_and_oversized_batches() -> Result<()> {
     let query = QueryContext::background();
@@ -399,6 +411,7 @@ fn table_scan_boundary_rejects_empty_and_oversized_batches() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn separate_streams_have_independent_progress_and_per_call_demand() -> Result<()> {
     let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
@@ -449,6 +462,7 @@ struct InvalidOperator {
     kind: usize,
 }
 struct InvalidStream(usize);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BatchStream for InvalidStream {
     fn next(&mut self, requested: usize) -> Result<Option<DataChunk>> {
         match self.0 {
@@ -460,6 +474,7 @@ impl BatchStream for InvalidStream {
         }
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PhysicalOperator for InvalidOperator {
     fn schema(&self) -> &Schema {
         &self.schema
@@ -472,6 +487,7 @@ impl PhysicalOperator for InvalidOperator {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn operator_boundary_rejects_invalid_adapters_and_fuses_errors() -> Result<()> {
     let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
@@ -508,6 +524,7 @@ fn operator_boundary_rejects_invalid_adapters_and_fuses_errors() -> Result<()> {
 }
 
 struct BrokenScheduler(bool);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Scheduler for BrokenScheduler {
     fn name(&self) -> &'static str {
         "broken-test-scheduler"
@@ -521,6 +538,7 @@ impl Scheduler for BrokenScheduler {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn scheduler_must_run_each_statement_exactly_once_before_commit() -> Result<()> {
     for double in [false, true] {

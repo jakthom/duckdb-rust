@@ -1,6 +1,7 @@
 use super::*;
 use crate::main::settings::SettingScope;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn setting(
         &self,

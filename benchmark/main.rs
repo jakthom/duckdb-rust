@@ -7,6 +7,7 @@ mod types;
 
 use duckdb_rust::{Error, Result};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn main() -> Result<()> {
     let mut rows = 50_000usize;
     let mut iterations = 5usize;

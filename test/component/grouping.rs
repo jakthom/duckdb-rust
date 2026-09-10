@@ -28,10 +28,12 @@ mod domains;
 #[path = "../runner/mod.rs"]
 mod runner;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn algorithms() -> Vec<Arc<dyn AggregationAlgorithm>> {
     vec![Arc::new(HashAggregation), Arc::new(OrderedAggregation)]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grouping_algorithms_share_the_sql_contract_across_compositions() -> Result<()> {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/grouping.test");
@@ -71,6 +73,7 @@ fn grouping_algorithms_share_the_sql_contract_across_compositions() -> Result<()
 
 #[derive(Debug)]
 struct Observe(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for Observe {
     fn name(&self) -> &str {
         "observe"
@@ -99,6 +102,7 @@ impl ScalarFunction for Observe {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grouping_evaluates_inputs_once_and_isolates_distinct_and_filter_states() -> Result<()> {
     for algorithm in algorithms() {
@@ -141,6 +145,7 @@ fn grouping_evaluates_inputs_once_and_isolates_distinct_and_filter_states() -> R
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grouping_boundaries_reject_invalid_ordinals_masks_expansion_and_resources() -> Result<()> {
     let query = QueryContext::background();
@@ -240,6 +245,7 @@ fn grouping_boundaries_reject_invalid_ordinals_masks_expansion_and_resources() -
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grouping_prepared_queries_keep_snapshot_visibility_and_atomic_mutations() -> Result<()> {
     for algorithm in algorithms() {

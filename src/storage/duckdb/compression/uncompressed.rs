@@ -8,6 +8,7 @@ use crate::{
 };
 use std::collections::HashSet;
 pub struct UncompressedDecoder;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SegmentDecoder for UncompressedDecoder {
     fn id(&self) -> CodecId {
         CodecId(1)
@@ -46,6 +47,7 @@ impl SegmentDecoder for UncompressedDecoder {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn strings(context: &DecodeContext<'_>, data: &[u8], count: usize) -> Result<Vec<Value>> {
     let size = u32_at(data, 0)? as usize;
     let end = u32_at(data, 4)? as usize;
@@ -85,6 +87,7 @@ fn strings(context: &DecodeContext<'_>, data: &[u8], count: usize) -> Result<Vec
     Ok(values)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn overflow_string(context: &DecodeContext<'_>, mut id: u64, mut offset: usize) -> Result<Vec<u8>> {
     let mut block = context.blocks.block(id)?;
     let length = u32_at(block, offset)? as usize;

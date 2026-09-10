@@ -9,6 +9,7 @@ pub struct KeyWriter<'a> {
     failure: Option<&'static str>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl KeyWriter<'_> {
     pub fn push(&mut self, byte: u8) -> Result<()> {
         self.extend_from_slice(&[byte])
@@ -31,6 +32,7 @@ impl KeyWriter<'_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundType {
     /// Append one self-delimiting component with the selected type adapter.
     /// Failure leaves all existing bytes intact, including on a partial adapter

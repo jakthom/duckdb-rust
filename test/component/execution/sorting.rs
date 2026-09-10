@@ -17,6 +17,7 @@ mod keys;
 #[path = "../../runner/mod.rs"]
 mod runner;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn algorithms() -> [Arc<dyn SortAlgorithm>; 2] {
     [Arc::new(ComparisonSort), Arc::new(RadixSort)]
 }
@@ -25,6 +26,7 @@ struct Input<'a> {
     batch: &'a DataChunk,
     position: usize,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BatchStream for Input<'_> {
     fn next(&mut self, demand: usize) -> Result<Option<DataChunk>> {
         let count = demand.min(self.batch.len() - self.position);
@@ -37,6 +39,7 @@ impl BatchStream for Input<'_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sorting_algorithms_share_sql_ordering_across_compositions() -> Result<()> {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/ordering.test");
@@ -70,6 +73,7 @@ fn sorting_algorithms_share_sql_ordering_across_compositions() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sort(
     algorithm: &dyn SortAlgorithm,
     query: &QueryContext,
@@ -96,6 +100,7 @@ fn sort(
     algorithm.sort(&mut stream, order, &context)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn key(column: usize, data_type: &DataType, descending: bool, nulls_first: bool) -> OrderExpr {
     OrderExpr {
         expression: BoundExpr::column(column, data_type.clone()),
@@ -104,6 +109,7 @@ fn key(column: usize, data_type: &DataType, descending: bool, nulls_first: bool)
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sorting_preserves_stable_lexicographic_order_for_widths_nulls_and_encodings() -> Result<()> {
     use std::cmp::Ordering as Cmp;
@@ -232,6 +238,7 @@ fn sorting_preserves_stable_lexicographic_order_for_widths_nulls_and_encodings()
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn order_all_preserves_complete_row_order_across_many_input_batches() -> Result<()> {
     for algorithm in algorithms() {
@@ -260,6 +267,7 @@ fn order_all_preserves_complete_row_order_across_many_input_batches() -> Result<
 }
 
 struct ReturnedKey(Value);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for ReturnedKey {
     fn name(&self) -> &'static str {
         "invalid-sort-keys"
@@ -269,6 +277,7 @@ impl ExpressionEvaluator for ReturnedKey {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sorting_validates_keys_even_when_no_comparisons_are_needed() -> Result<()> {
     let batch = DataChunk::from_rows(&[DataType::BigInt], &[ints(&[1])])?;
@@ -289,6 +298,7 @@ fn sorting_validates_keys_even_when_no_comparisons_are_needed() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sorting_respects_resource_limits_cancellation_and_result_ownership() -> Result<()> {
     let input = DataChunk::from_rows(&[DataType::BigInt], &[ints(&[3]), ints(&[1]), ints(&[2])])?;

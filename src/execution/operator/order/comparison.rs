@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 /// Fallible stable merge sorting retains arbitrary type adapters and expressions.
 #[derive(Debug, Default)]
 pub struct ComparisonSort;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SortAlgorithm for ComparisonSort {
     fn name(&self) -> &'static str {
         "comparison-sort"
@@ -96,6 +97,7 @@ impl SortAlgorithm for ComparisonSort {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn compare(
     left: &[Value],
     right: &[Value],

@@ -3,6 +3,7 @@ use duckdb_rust::{Database, Error, Result};
 use std::io::{self, BufRead, Write};
 use std::time::Instant;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn main() -> Result<()> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     if !matches!(arguments.len(), 2 | 4) {

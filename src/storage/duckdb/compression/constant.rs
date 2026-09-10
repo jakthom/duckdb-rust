@@ -3,6 +3,7 @@ use crate::{
     storage::compression::{CodecId, DecodeContext, DecodeInput, SegmentDecoder, SegmentType},
 };
 pub struct ConstantDecoder;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SegmentDecoder for ConstantDecoder {
     fn id(&self) -> CodecId {
         CodecId(2)

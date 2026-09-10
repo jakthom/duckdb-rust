@@ -22,6 +22,7 @@ struct Allocator {
     buffers: Vec<Buffer>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Allocator {
     fn new(stride: usize) -> Self {
         let (mut capacity, mut words, mut bytes) = (0, 0, 0);
@@ -109,6 +110,7 @@ struct Tree {
     allocators: [Allocator; 6],
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Tree {
     fn prefix(&mut self, bytes: &[u8], mut child: u64) -> Result<u64> {
         for part in bytes.chunks(PREFIX_BYTES).rev() {
@@ -225,6 +227,7 @@ impl Tree {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn serialize(
     arena: &mut Arena,
     output: &mut Encoder,
@@ -273,6 +276,7 @@ pub(super) fn serialize(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn encode_value(value: &Value, data_type: &DataType, output: &mut Vec<u8>) -> Result<()> {
     match value {
         Value::Extension(_) => {

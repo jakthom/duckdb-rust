@@ -9,6 +9,7 @@ pub struct FormatId(pub &'static str);
 pub const DUCKDB_FORMAT: FormatId = FormatId("duckdb");
 pub const JSON_FORMAT: FormatId = FormatId("duckdb-rust-json");
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A complete checkpoint representation, independent of I/O and transaction
 /// publication. Decoding owns its input and returns an independently owned
 /// catalog/data snapshot. Unsupported types or metadata must fail explicitly;
@@ -47,6 +48,7 @@ pub struct JsonSnapshotFormat;
 
 const MAGIC: &[u8] = b"DDBRUST\n";
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SnapshotFormat for JsonSnapshotFormat {
     fn format_id(&self) -> FormatId {
         JSON_FORMAT

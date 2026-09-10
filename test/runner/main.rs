@@ -1,6 +1,7 @@
 #[path = "mod.rs"]
 mod runner;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn main() -> std::process::ExitCode {
     let paths: Vec<_> = std::env::args_os().skip(1).collect();
     if paths.is_empty() {

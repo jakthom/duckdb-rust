@@ -1,5 +1,6 @@
 use super::binary::{corrupt, u32_at, u64_at};
 use crate::common::{DataType, Error, Result, Value};
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn width(data_type: &DataType) -> Result<usize> {
     match data_type {
         DataType::Boolean | DataType::TinyInt => Ok(1),
@@ -13,6 +14,7 @@ pub(super) fn width(data_type: &DataType) -> Result<usize> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn integer(data: &[u8], offset: usize, width: usize) -> Result<i128> {
     let data = data
         .get(
@@ -31,6 +33,7 @@ pub(super) fn integer(data: &[u8], offset: usize, width: usize) -> Result<i128> 
     Ok(i128::from_le_bytes(bytes))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn scalar(data: &[u8], offset: usize, data_type: &DataType) -> Result<Value> {
     match data_type {
         DataType::Boolean => match data.get(offset) {
@@ -45,6 +48,7 @@ pub(super) fn scalar(data: &[u8], offset: usize, data_type: &DataType) -> Result
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Numeric codecs operate on physical integers. Reconstruct the logical value
 /// here; column validity is applied by the caller after segment decoding.
 pub(super) fn integer_value(value: i128, data_type: &DataType) -> Result<Value> {
@@ -58,6 +62,7 @@ pub(super) fn integer_value(value: i128, data_type: &DataType) -> Result<Value> 
     Ok(Value::Integer(value))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn type_id(data_type: &DataType) -> Result<u64> {
     match data_type {
         DataType::Boolean => Ok(10),

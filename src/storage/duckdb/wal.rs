@@ -19,6 +19,7 @@ use crate::{
 const MAX_BYTES: usize = 512 * 1024 * 1024;
 const MAX_ENTRIES: usize = 1_000_000;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn append_frame(payload: &[u8], bytes: &mut Vec<u8>) -> Result<()> {
     if bytes.len().saturating_add(payload.len()).saturating_add(16) > MAX_BYTES {
         return Err(Error::Resource("encoded WAL exceeds 512 MiB".into()));
@@ -35,6 +36,7 @@ fn append_frame(payload: &[u8], bytes: &mut Vec<u8>) -> Result<()> {
 /// separate durability concern; this adapter performs no external effects.
 pub struct DuckDbWalRecovery;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Recovery for DuckDbWalRecovery {
     fn name(&self) -> &'static str {
         "duckdb-wal-v2"
@@ -75,6 +77,7 @@ struct Inspection {
     scan: LogScan,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn inspect(
     input: &RecoveryInput,
     format: &dyn SnapshotFormat,
@@ -107,6 +110,7 @@ fn inspect(
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn replay(
     mut snapshot: Snapshot,
     log: &[u8],
@@ -142,6 +146,7 @@ fn replay(
     Ok(snapshot)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn recovery_error(error: Error) -> Error {
     match error {
         Error::Unsupported(_) | Error::Resource(_) | Error::Interrupted => error,
@@ -155,6 +160,7 @@ struct LogHeader {
     iteration: Option<u64>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn read_header(log: &[u8], identifier: &[u8; 16]) -> Result<LogHeader> {
     // The version header is unframed and has a small, fixed schema. Limit its
     // copied prefix independently of the size of the remaining log.
@@ -195,6 +201,7 @@ fn read_header(log: &[u8], identifier: &[u8; 16]) -> Result<LogHeader> {
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_generation(
     header: Option<LogHeader>,
     scan: &LogScan,
@@ -218,6 +225,7 @@ struct LogScan {
     checkpoint: Option<u64>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Check every complete frame before replay. A checkpoint marker may be followed
 /// only by its flush or a torn final frame. Checksum failures remain corruption.
 fn scan_log(log: &[u8], mut position: usize, context: &QueryContext) -> Result<LogScan> {
