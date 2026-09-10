@@ -369,6 +369,7 @@ impl ScalarFunction for NestedFunction {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
+    concat::register(registry);
     map::register(registry);
     variant::register(registry);
     for name in [

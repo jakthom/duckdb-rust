@@ -34,21 +34,67 @@ fn concat_selects_typed_sequences_and_preserves_null_distinctions() -> Result<()
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn sequence_concat_aliases_keep_list_signatures_and_null_behavior() -> Result<()> {
+    let mut c = Database::memory()?.connect();
+    for name in ["list_concat", "list_cat", "array_concat", "array_cat"] {
+        assert_eq!(
+            c.query(&format!("SELECT {name}(),typeof({name}()),{name}(NULL),{name}(NULL,NULL),typeof({name}(NULL)),{name}(NULL::INTEGER[])::VARCHAR,{name}([NULL])::VARCHAR,typeof({name}([],NULL))"))?.rows,
+            vec![vec![Value::Varchar("".into()),Value::Varchar("VARCHAR".into()),Value::Null,Value::Null,Value::Varchar("\"NULL\"".into()),Value::Varchar("[]".into()),Value::Varchar("[NULL]".into()),Value::Varchar("\"NULL\"[]".into())]]
+        );
+        assert_eq!(
+            c.query(&format!("SELECT {name}([1]::INTEGER[1],[2,3]::BIGINT[2],NULL)::VARCHAR,typeof({name}([1]::INTEGER[1],[2,3]::BIGINT[2])),{name}([{{'b':true}}],[{{'b':2::UTINYINT}}])::VARCHAR,{name}([{{'a':1}}],[{{'b':2}}])::VARCHAR"))?.rows,
+            vec![vec![Value::Varchar("[1, 2, 3]".into()),Value::Varchar("BIGINT[]".into()),Value::Varchar("[{'b': 1}, {'b': 2}]".into()),Value::Varchar("[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]".into())]]
+        );
+        for arguments in [
+            "1",
+            "'text'",
+            "NULL::VARCHAR",
+            "[1],1",
+            "[1],'[2]'",
+            "[true],[1.0::DOUBLE]",
+            "[true],[1.2::DECIMAL(2,1)]",
+        ] {
+            let sql = format!("SELECT {name}({arguments})");
+            assert!(
+                matches!(c.query(&sql), Err(duckdb_rust::Error::Bind(_))),
+                "{sql}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn concat_mixed_children_flow_through_parameters_relations_mutations_and_native_reopen()
 -> Result<()> {
+    for name in [
+        "concat",
+        "list_concat",
+        "list_cat",
+        "array_concat",
+        "array_cat",
+    ] {
+        concat_mixed_children_workload(name)?;
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn concat_mixed_children_workload(name: &str) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("concat.duckdb");
     let mut c = Database::open(&path)?.connect();
-    c.execute("CREATE TABLE t(id INTEGER PRIMARY KEY,xs STRUCT(n DECIMAL(12,2),ts TIMESTAMP_NS,b BIT)[]); INSERT INTO t VALUES(1,concat([{'n':1.25,'ts':TIMESTAMP_NS '2000-01-01 00:00:00.123456789','b':'101'::BIT}],NULL,[{'n':NULL,'ts':NULL,'b':NULL}])),(2,concat(NULL::STRUCT(n DECIMAL(12,2),ts TIMESTAMP_NS,b BIT)[],[]))")?;
-    let prepared=c.prepare("INSERT INTO t VALUES($1,concat($2::STRUCT(n DECIMAL(12,2),ts TIMESTAMP_NS,b BIT)[],[NULL]))")?;
+    c.execute(&format!("CREATE TABLE t(id INTEGER PRIMARY KEY,xs STRUCT(n DECIMAL(12,2),ts TIMESTAMP_NS,b BIT)[]); INSERT INTO t VALUES(1,{name}([{{'n':1.25,'ts':TIMESTAMP_NS '2000-01-01 00:00:00.123456789','b':'101'::BIT}}],NULL,[{{'n':NULL,'ts':NULL,'b':NULL}}])),(2,{name}(NULL::STRUCT(n DECIMAL(12,2),ts TIMESTAMP_NS,b BIT)[],[]))"))?;
+    let prepared=c.prepare(&format!("INSERT INTO t VALUES($1,{name}($2::STRUCT(n DECIMAL(12,2),ts TIMESTAMP_NS,b BIT)[],[NULL]))"))?;
     let value = c.query("SELECT xs FROM t WHERE id=1")?.rows[0][0].clone();
     c.execute_prepared(&prepared, &[Value::Integer(3), value])?;
     let before = c.query("SELECT * FROM t ORDER BY id")?.rows;
-    c.execute(
-        "BEGIN; UPDATE t SET xs=concat(xs,[NULL]) WHERE id=1; DELETE FROM t WHERE id=2; ROLLBACK",
-    )?;
+    c.execute(&format!(
+        "BEGIN; UPDATE t SET xs={name}(xs,[NULL]) WHERE id=1; DELETE FROM t WHERE id=2; ROLLBACK"
+    ))?;
     assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, before);
-    c.execute("UPDATE t SET xs=concat(xs,[NULL]) WHERE id=1")?;
+    c.execute(&format!("UPDATE t SET xs={name}(xs,[NULL]) WHERE id=1"))?;
     assert_eq!(
         c.query("SELECT count(*) FROM t a JOIN t b ON a.xs=b.xs")?
             .rows,
