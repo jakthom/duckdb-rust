@@ -36,8 +36,9 @@ pub(super) fn read(reader: &mut Reader, context: &QueryContext) -> Result<Chunk>
         return Err(corrupt("WAL chunk column count mismatch"));
     }
     let mut rows = vec![vec![Value::Null; columns]; count];
+    let mut remaining = super::nested::MAX_CELLS;
     for (column, data_type) in types.iter().enumerate() {
-        let values = vector(reader, data_type, count, 0, context)?;
+        let values = vector(reader, data_type, count, 0, &mut remaining, context)?;
         reader.end()?;
         for (row, value) in rows.iter_mut().zip(values) {
             row[column] = value;
@@ -48,21 +49,22 @@ pub(super) fn read(reader: &mut Reader, context: &QueryContext) -> Result<Chunk>
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn vector(
+pub(super) fn vector(
     reader: &mut Reader,
     data_type: &DataType,
     count: usize,
     depth: usize,
+    remaining: &mut usize,
     context: &QueryContext,
 ) -> Result<Vec<Value>> {
-    context.check_rows(count)?;
+    super::nested::charge(remaining, count, context)?;
     if depth > 64 {
         return Err(Error::Resource("WAL vector nesting exceeds 64".into()));
     }
     match reader.optional_unsigned(90, 0)? {
-        0 => flat(reader, data_type, count, context),
+        0 => flat(reader, data_type, count, depth, remaining, context),
         2 => {
-            let value = vector(reader, data_type, 1, depth + 1, context)?.remove(0);
+            let value = vector(reader, data_type, 1, depth + 1, remaining, context)?.remove(0);
             Ok(vec![value; count])
         }
         3 => {
@@ -76,7 +78,7 @@ fn vector(
             if size == 0 || size > 65536 {
                 return Err(corrupt("WAL dictionary size"));
             }
-            let dictionary = vector(reader, data_type, size, depth + 1, context)?;
+            let dictionary = vector(reader, data_type, size, depth + 1, remaining, context)?;
             (0..count)
                 .map(|i| {
                     context.check()?;
@@ -125,6 +127,8 @@ fn flat(
     reader: &mut Reader,
     data_type: &DataType,
     count: usize,
+    depth: usize,
+    remaining: &mut usize,
     context: &QueryContext,
 ) -> Result<Vec<Value>> {
     reader.field(100)?;
@@ -143,11 +147,64 @@ fn flat(
             .as_ref()
             .is_none_or(|mask| mask[i / 8] & (1 << (i % 8)) != 0)
     };
-    reader.field(102)?;
+    if matches!(data_type, DataType::Nested(_)) {
+        return super::nested::read(
+            reader,
+            data_type,
+            count,
+            validity.as_deref(),
+            depth,
+            remaining,
+            context,
+        );
+    }
     if matches!(
         data_type,
         DataType::Varchar | DataType::Blob | DataType::Bit
     ) {
+        if reader.optional(107)? && reader.boolean()? {
+            let byte_count = usize::try_from(reader.unsigned()?)
+                .map_err(|_| corrupt("WAL string byte count overflow"))?;
+            if byte_count > 16 * 1024 * 1024 {
+                return Err(Error::Resource("WAL string vector exceeds 16 MiB".into()));
+            }
+            reader.field(108)?;
+            let lengths = reader.blob()?;
+            if lengths.len() != count * 4 {
+                return Err(corrupt("WAL string length vector mismatch"));
+            }
+            reader.field(109)?;
+            let bytes = reader.blob()?;
+            if bytes.len() != byte_count {
+                return Err(corrupt("WAL string byte vector mismatch"));
+            }
+            let mut offset = 0usize;
+            let mut values = Vec::with_capacity(count);
+            for i in 0..count {
+                context.check()?;
+                let length = u32_at(&lengths, i * 4)? as usize;
+                if !valid(i) {
+                    if length != 0 {
+                        return Err(corrupt("WAL NULL string has nonzero length"));
+                    }
+                    values.push(Value::Null);
+                    continue;
+                }
+                let end = offset
+                    .checked_add(length)
+                    .ok_or_else(|| corrupt("WAL string offset overflow"))?;
+                let value = bytes
+                    .get(offset..end)
+                    .ok_or_else(|| corrupt("WAL string outside byte vector"))?;
+                values.push(string_value(value.to_vec(), data_type, context)?);
+                offset = end;
+            }
+            if offset != byte_count {
+                return Err(corrupt("WAL string vector has unused bytes"));
+            }
+            return Ok(values);
+        }
+        reader.field(102)?;
         if reader.length()? != count {
             return Err(corrupt("WAL string count mismatch"));
         }
@@ -156,23 +213,14 @@ fn flat(
                 context.check()?;
                 let bytes = reader.blob()?;
                 if valid(i) {
-                    if *data_type == DataType::Blob {
-                        Ok(Value::Blob(bytes))
-                    } else if *data_type == DataType::Bit {
-                        crate::common::BitString::from_native(&bytes, || context.check())
-                            .map(crate::common::BitString::value)
-                    } else {
-                        Ok(Value::Varchar(
-                            String::from_utf8(bytes)
-                                .map_err(|_| corrupt("invalid WAL string UTF-8"))?,
-                        ))
-                    }
+                    string_value(bytes, data_type, context)
                 } else {
                     Ok(Value::Null)
                 }
             })
             .collect()
     } else {
+        reader.field(102)?;
         let width = primitive::width(data_type)?;
         let bytes = reader.blob()?;
         if bytes.len() != width * count {
@@ -191,5 +239,18 @@ fn flat(
                 Ok(value)
             })
             .collect()
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn string_value(bytes: Vec<u8>, data_type: &DataType, context: &QueryContext) -> Result<Value> {
+    match data_type {
+        DataType::Blob => Ok(Value::Blob(bytes)),
+        DataType::Bit => crate::common::BitString::from_native(&bytes, || context.check())
+            .map(crate::common::BitString::value),
+        DataType::Varchar => String::from_utf8(bytes)
+            .map(Value::Varchar)
+            .map_err(|_| corrupt("invalid WAL string UTF-8")),
+        _ => Err(corrupt("WAL string logical type")),
     }
 }

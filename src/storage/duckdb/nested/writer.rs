@@ -4,7 +4,10 @@ use super::super::writer::{
 use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn child_values(metadata: &NestedType, values: &[Value]) -> Result<Vec<(DataType, Vec<Value>)>> {
+pub(in crate::storage::duckdb) fn child_values(
+    metadata: &NestedType,
+    values: &[Value],
+) -> Result<Vec<(DataType, Vec<Value>)>> {
     if values.len() > 16_777_216 {
         return Err(Error::Resource(
             "nested column exceeds 16 million values".into(),

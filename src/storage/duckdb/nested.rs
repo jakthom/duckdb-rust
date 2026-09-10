@@ -11,6 +11,7 @@ use crate::{
     storage::compression::DecoderRegistry,
 };
 mod writer;
+pub(super) use writer::child_values;
 pub(super) use writer::{write_column, write_statistics};
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

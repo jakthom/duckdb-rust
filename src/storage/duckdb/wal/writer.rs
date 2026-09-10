@@ -393,63 +393,89 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
         primitive::write_type(e, data_type)?;
     }
     e.property(102, types.len() as u64);
+    let mut remaining = super::nested::MAX_CELLS;
     for (column, data_type) in types.iter().enumerate() {
-        let bound = context.types().bind(data_type)?;
-        let nullable = rows.iter().any(|row| row[column].is_null());
-        e.field(100);
-        e.boolean(nullable);
-        if nullable {
-            let mut mask = vec![255; rows.len().div_ceil(64) * 8];
-            for (i, row) in rows.iter().enumerate() {
-                if row[column].is_null() {
-                    mask[i / 8] &= !(1 << (i % 8));
-                }
-            }
-            e.field(101);
-            e.blob(&mask);
-        }
-        e.field(102);
-        if matches!(
-            data_type,
-            DataType::Varchar | DataType::Blob | DataType::Bit
-        ) {
-            e.unsigned(rows.len() as u64);
-            for row in rows {
-                context.check()?;
-                bound.validate(&row[column], context)?;
-                match &row[column] {
-                    Value::Varchar(text) => e.string(text)?,
-                    Value::Blob(bytes) => e.blob(bytes),
-                    Value::Bit(value) => e.blob(&value.to_native(|| context.check())?),
-                    Value::Null => e.string("")?,
-                    _ => return Err(invalid("string physical type")),
-                }
-            }
-        } else {
-            let width = primitive::width(data_type)?;
-            let mut bytes = Vec::with_capacity(rows.len() * width);
-            for row in rows {
-                context.check()?;
-                bound.validate(&row[column], context)?;
-                match &row[column] {
-                    Value::Null => bytes.resize(bytes.len() + width, 0),
-                    Value::Boolean(value) => bytes.push(u8::from(*value)),
-                    Value::Integer(value) => bytes.extend(&value.to_le_bytes()[..width]),
-                    Value::Unsigned(value) => bytes.extend(&value.to_le_bytes()[..width]),
-                    Value::Uuid(value) => bytes.extend((*value ^ (1_u128 << 127)).to_le_bytes()),
-                    Value::Enum(value) => bytes.extend(&value.ordinal.to_le_bytes()[..width]),
-                    Value::Decimal { value, .. } => bytes.extend(&value.to_le_bytes()[..width]),
-                    Value::Float(value) => bytes.extend(value.to_le_bytes()),
-                    Value::Double(value) => bytes.extend(value.to_le_bytes()),
-                    Value::Date(value) => bytes.extend(value.days().to_le_bytes()),
-                    Value::Temporal(value) => value.append_storage(&mut bytes)?,
-                    _ => return Err(invalid("fixed-width physical type")),
-                }
-            }
-            e.blob(&bytes);
-        }
+        let values = rows
+            .iter()
+            .map(|row| row[column].clone())
+            .collect::<Vec<_>>();
+        vector(e, data_type, &values, 0, &mut remaining, context)?;
         e.end();
     }
     e.end();
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn vector(
+    e: &mut Encoder,
+    data_type: &DataType,
+    values: &[Value],
+    depth: usize,
+    remaining: &mut usize,
+    context: &QueryContext,
+) -> Result<()> {
+    if depth > 64 {
+        return Err(Error::Resource("WAL vector nesting exceeds 64".into()));
+    }
+    super::nested::charge(remaining, values.len(), context)?;
+    let bound = context.types().bind(data_type)?;
+    for value in values {
+        bound.validate(value, context)?;
+    }
+    let nullable = values.iter().any(Value::is_null);
+    e.field(100);
+    e.boolean(nullable);
+    if nullable {
+        let mut mask = vec![255; values.len().div_ceil(64) * 8];
+        for (i, value) in values.iter().enumerate() {
+            if value.is_null() {
+                mask[i / 8] &= !(1 << (i % 8));
+            }
+        }
+        e.field(101);
+        e.blob(&mask);
+    }
+    if let DataType::Nested(metadata) = data_type {
+        return super::nested::write(e, metadata, values, depth, remaining, context);
+    }
+    e.field(102);
+    if matches!(
+        data_type,
+        DataType::Varchar | DataType::Blob | DataType::Bit
+    ) {
+        e.unsigned(values.len() as u64);
+        for value in values {
+            context.check()?;
+            match value {
+                Value::Varchar(text) => e.string(text)?,
+                Value::Blob(bytes) => e.blob(bytes),
+                Value::Bit(value) => e.blob(&value.to_native(|| context.check())?),
+                Value::Null => e.string("")?,
+                _ => return Err(invalid("string physical type")),
+            }
+        }
+    } else {
+        let width = primitive::width(data_type)?;
+        let mut bytes = Vec::with_capacity(values.len() * width);
+        for value in values {
+            context.check()?;
+            match value {
+                Value::Null => bytes.resize(bytes.len() + width, 0),
+                Value::Boolean(value) => bytes.push(u8::from(*value)),
+                Value::Integer(value) => bytes.extend(&value.to_le_bytes()[..width]),
+                Value::Unsigned(value) => bytes.extend(&value.to_le_bytes()[..width]),
+                Value::Uuid(value) => bytes.extend((*value ^ (1_u128 << 127)).to_le_bytes()),
+                Value::Enum(value) => bytes.extend(&value.ordinal.to_le_bytes()[..width]),
+                Value::Decimal { value, .. } => bytes.extend(&value.to_le_bytes()[..width]),
+                Value::Float(value) => bytes.extend(value.to_le_bytes()),
+                Value::Double(value) => bytes.extend(value.to_le_bytes()),
+                Value::Date(value) => bytes.extend(value.days().to_le_bytes()),
+                Value::Temporal(value) => value.append_storage(&mut bytes)?,
+                _ => return Err(invalid("fixed-width physical type")),
+            }
+        }
+        e.blob(&bytes);
+    }
     Ok(())
 }
