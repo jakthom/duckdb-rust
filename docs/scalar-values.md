@@ -117,8 +117,12 @@ the native width transitions, defaults and NULLs.
 
 The independent initial campaign is `enum-reference-initial.json`: 24/28 SQL
 cases pass on both references; native producer paths pass 6/6 on release and
-4/6 on development. Development failures are the shared per-column ownership
-metadata gap in the older worker base (the lead has a newer repair). The report
+4/6 on development. Development failures are a shared metadata-reader gap in
+the older worker base: field 204 appears where the reader expects field 200.
+The nested worker independently identified development's new StringStats
+204..207 layout, relevant to the fixture's BLOB column; the next combined
+campaign must verify that diagnosis and repair. This must not be conflated with
+the lead's separately repaired per-column ownership metadata. The report
 also preserves wrong diagnostic categories for unsupported casts and empty
 anonymous ENUM grammar, missing cross-scalar combination coercion, and the
 upstream batch-first-row range behavior. Follow-up reports never overwrite this
