@@ -61,10 +61,10 @@ that performance is preserved. No milestone changes have been pushed yet.
 
 ## Continuing integration obligations
 
-Literal-sensitive and comparison/CASE/function coercion; fuller UNION/VARIANT
-NULL behavior; constant-NULL result metadata; named prepared parameters;
+Broader literal-sensitive comparison/CASE/function coercion; fuller UNION/VARIANT
+NULL behavior; named prepared parameters;
 explicit indexes; transactional named-type lookup/dependencies;
-native nested persistence and mixed-family recovery/reopen; remaining numeric
+native nested WAL/defaults and broader mixed-family recovery/reopen; remaining numeric
 and core scalar/temporal/nested semantics; combined upstream and performance
 regression campaigns. These are implementation work within the assignment, not
 reasons to stop after the first isolated passing path.
@@ -110,3 +110,118 @@ transactional durability or concurrency.
 Native nested checkpoint work and grammar fixes are subsequent increments.
 Performance and the full upstream regression refresh have not been rerun on
 this checkpoint; the preceding passing baseline remains historical evidence.
+
+## Third integrated checkpoint, 2026-09-10
+
+Engine `2536548` combines development temporal precision/functions, BLOB/UUID,
+ordered anonymous ENUM, nested checkpoint streams and MAP access with shared
+literal-sensitive binding. Mixed schemas carry DECIMAL/temporal children through
+MAP access, prepared parameters, joins, DISTINCT, window partitions, indexed row
+mutations, rollback and native reopen. The grammar fork retains DuckDB dialect
+behavior for recursive MAP/TUPLE declarations and empty ENUM diagnostics; TUPLE
+declaration parsing alone is not runtime support. Vendored source now participates
+in reference/performance source identities.
+
+ROARING (13), DICT_FSST (15) and EMPTY_VALIDITY (14) repair the independently
+produced development child streams. All six original nested fixtures now use
+exact positive acceptance paths, with no codec skips/negative placeholders;
+additional ROARING and all three DICT_FSST modes cover validity, empty strings,
+partial tails, mutations, rollback and reopen. A selected decoder capability
+distinguishes preserving an inline NULL mask from asserting validity. Ordinary
+or malformed validity adapters cannot return the preserve marker. Native
+parameterless built-in UNBOUND type expressions in defaults resolve through a
+bounded decoder; unresolved names, parameterized expressions and aliases remain
+explicit gaps rather than becoming SQL NULL.
+
+Shared comparison coercion distinguishes actual string literals from VARCHAR
+columns and retains selected casts across comparisons, IN and subqueries.
+Selected scalar binding exposes that distinction to MAP and temporal functions.
+Constant-NULL concatenation now has development's `"NULL"` result metadata,
+without changing ordinary arithmetic types or discarding declared effects.
+Prepared rebinding and CTAS normalization preserve the distinction. Independent
+cast input-NULL and output-nullability capabilities support the next VARIANT
+increment; both are retained and scalar/batch boundaries still reject malformed
+results. No VARIANT runtime completion is implied by that shared prerequisite.
+
+Selected reference evidence (each report retains its own exact source identity):
+
+| Campaign | Development SQL | Release SQL | Native paths per pin |
+| --- | ---: | ---: | ---: |
+| [Numeric](value-expression-numeric-reference-checkpoint3.json) | 38/38 | 20/38 | 3/3 |
+| [BLOB/UUID](value-expression-binary-reference-checkpoint3.json) | 25/25 | 23/25 | 3/3 |
+| [ENUM](enum-reference-integrated.json) | 28/29 | 28/29 | 6/6 |
+| [Temporal functions](temporal-functions-reference-integrated.json) | 437/437 | 412/437 | 3/3 |
+
+The numeric/BLOB refreshes use engine `28063ef`, preceding the catalog-order
+repair below. Development remains authoritative for the retained release
+differences. ENUM boundary row-zero broadcasting remains open. The
+[binding corpus](value-expression-binding-reference-checkpoint3.json) preserves
+all 92 records against each reference. These are selected workloads, not full
+type/function/catalog/native parity.
+
+### Regressions investigated before pushing
+
+The first [full upstream run](value-expression-upstream-checkpoint3-a.json)
+increased passing files but lost two previously passing negative-test files and
+three passing records in another file. Shared scalar-call refactoring had moved
+catalog lookup after argument binding: unsupported ANY/star/tuple arguments
+masked a missing-function error. `2536548` restores catalog-first lookup and
+passes the same selected function into binding. Regression tests retain this
+ordering and still check known functions' arguments.
+
+The [repaired run](value-expression-upstream-checkpoint3-b.json) accounts for all
+5,638 original file identities: 391 passed, 2,072 failed, 3,162 unsupported,
+10 timed out and three incomplete. Its 18,606 passing records include prefixes
+of failing files. Compared with `upstream-parity-batches-final.json` (313 files,
+17,018 records), **no passing file or passing record prefix is lost**. Both failed
+and repaired reports/journals remain retained. Unchanged assertions, three-second
+file limits and two workers were used. Broader SQL and verification gaps remain.
+
+The quiet performance campaign used 21 paired samples after three warmups,
+with all workers' builds/tests/Kani paused. Both Rust medians must be at most
+the smaller C++ median for every workload. All 34 pass; no failed measurement
+was discarded or compensated by a faster workload:
+
+| Manifest / faster-reference report | Cases | Maximum Rust/faster-C++ ratio |
+| --- | ---: | ---: |
+| [Numeric](value-expression-performance-checkpoint3-a-numeric-fastest.json) | 8 | 0.968104 |
+| [Native API](value-expression-performance-checkpoint3-a-native-fastest.json) | 12 | 0.955703 |
+| [Grouping](value-expression-performance-checkpoint3-a-grouping-fastest.json) | 3 | 0.936352 |
+| [Ordering](value-expression-performance-checkpoint3-a-ordering-fastest.json) | 1 | 0.748576 |
+| [Relational](value-expression-performance-checkpoint3-a-relational-fastest.json) | 10 | 0.950477 |
+
+The linked summaries retain the release/development input reports and hashes.
+All groups share source fingerprint
+`fc0048adc62ac6428e88d94a53356fa336498214c90d0af07f464a7a1461cdb5`
+and Rust worker SHA-256
+`015bbe4b9910c11378adf79ec64693f50911dbae52cc2c3c2b19b6138dfc0df2`.
+Build commands now explicitly disable default features. This preserves the
+preceding 34-workload latency baseline; new-family performance coverage, memory,
+I/O, durability and concurrency costs remain unmeasured.
+
+### Validation and exploratory limits
+
+The complete workspace suite passed at `28063ef`, with the same two ignored
+external-CLI analytics tests. After the catalog-order repair, check, contracts
+(23), nested (11), temporal (10), operators (10) and all-target clippy passed.
+Instrumentation coverage reports 254 files, 2,205 functions, 205 interface
+methods and no missing attributes; the final trace check passed in 34.06 s and
+deleted telemetry. All 35 Python harness tests passed. Production CLI, test and
+measurement workers built successfully without default features.
+
+Full `python3 scripts/verify_kani.py` ran both before and after the regression
+repair, using Kani 0.67.0: 6/6 harnesses passed in each run, zero failures. Final
+times were TIMETZ packing 17.476 s, unsigned keys 1.078 s, dense offsets 0.701 s,
+ROWS clipping 2.976 s, uniform bounds 2.920 s and packed byte counts 63.116 s.
+Caller-location (1) and foreign-function (4) constructs remained unreachable;
+atomics remained sequential. The parser dependency emitted an unused-variable
+warning in verifier compilation. These bounded proofs do not prove recursive
+values, new cast/decoder protocols, SQL binding, native compatibility,
+transactions or concurrent execution. Ordinary tests/reference campaigns carry
+those checks; unproved behavior remains explicit.
+
+The milestone continues. Temporal scanner improvements and declared VARIANT
+payload metadata are delivered worker increments awaiting subsequent integration;
+VARIANT/TUPLE runtime behavior, BIT/BIGNUM/GEOMETRY, named types/index DDL,
+remaining coercion/functions, nested WAL/defaults and broader combined workloads
+remain required work, not deferred completion claims.

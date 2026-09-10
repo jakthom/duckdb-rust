@@ -14,6 +14,14 @@ regressions; [numeric batch work](numeric-batches.md) records subsequent
 performance changes and pre-push checks. No selected campaign establishes full
 correctness, performance or native-file parity.
 
+The current [value-and-expression checkpoint](value-expression-progress.md)
+repairs three diagnostic regressions exposed by its first full run. Its repaired
+5,638-file run preserves every previously passing file and record prefix:
+391 files and 18,606 records pass. All 34 existing faster-reference workloads
+also pass in an isolated campaign. Both initial failures and repaired evidence
+remain retained; new-family workloads and the rest of the full parity matrix
+remain open.
+
 The [earlier performance comparisons](settings/README.md) pass all sixteen
 measured workloads against both **v1.5.5** (`d8cdaa33fd`) and the pinned
 development build. ORDER BY ALL joins grouped SUM, ROLLUP, CUBE and the original

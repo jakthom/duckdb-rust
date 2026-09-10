@@ -4,8 +4,15 @@ This is a progress record for the sustained value-and-expression milestone, not
 a declaration of scalar or database parity. Correctness follows development
 `99063af2bd7092aff02e14184a20e24699d34d71`; release
 `d8cdaa33fda8df955cc76ef58a280f68f4cd43fa` remains an independent compatibility and
-performance reference. The pre-milestone 34-workload performance gate passed at
-`f5f0fae`; it has not yet been rerun for the combined family implementation.
+performance reference. The [third integrated checkpoint](value-expression-progress.md)
+preserves all 34 existing faster-reference workloads on the combined engine;
+broader scalar performance coverage remains open.
+
+The lead's [NULL-metadata repair campaign](value-expression-binary-reference-checkpoint3.json)
+now passes 25/25 BLOB/UUID development SQL cases and 3/3 native paths per pin.
+The 23/25 release result retains development-only UUID/UHUGEINT casts and
+constant-NULL concatenation metadata. Earlier reports below remain historical
+evidence. The remaining selected ENUM gap is row-zero boundary broadcasting.
 
 ## Latest integrated reference refresh
 
@@ -105,7 +112,7 @@ direct SQL probes, not from declarations that happen to compile in Rust.
 | BIGNUM / varint | Public storable arbitrary-width integer: representation, arithmetic/conversions, comparisons/keys, aggregates and persistent values. |
 | GEOMETRY | Public storable core type in this development build, not dismissible as an unavailable extension. WKB/CRS metadata, valid geometry semantics, applicable operations/casts and native encoding remain. Larger spatial-extension obligations are separately inventoried. |
 | TYPE / TUPLE | Development accepts `typeof(NULL::TYPE)` but rejects CREATE TABLE with a TYPE column; expression/type-constructor semantics remain open. TUPLE is a real nested family in `test_all_types()` and `src/common/types.cpp`, including unnamed-STRUCT compatibility on old storage. The nested worker owns TUPLE and its row/tuple constructor investigation; it is not silently omitted because bare TUPLE syntax is rejected. |
-| Shared engine integration | Literal-sensitive coercion beyond the current comparison paths, constant-NULL return metadata, standalone index DDL, named types, broader mixed temporal/nested values and development-native compatibility are owned with the integration lead. Anonymous parameters and selected development-native catalog/version paths are integrated; they are no longer initial missing features. |
+| Shared engine integration | Literal-sensitive coercion beyond the current comparison paths, standalone index DDL, named types, broader mixed temporal/nested values and development-native compatibility are owned with the integration lead. Anonymous parameters, constant-NULL concatenation metadata and selected development-native catalog/version paths are integrated; they are no longer initial missing features. |
 
 Unsupported operations, reference disagreements, unported upstream files and
 unmeasured workloads remain open. The successful first BLOB/UUID path is an

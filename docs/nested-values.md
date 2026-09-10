@@ -2,6 +2,15 @@
 
 This is an in-progress part of the [value-and-expression milestone](../specs/value-expression-milestone.md), not a completed family or parity claim.
 
+Latest lead integration: ROARING, DICT_FSST and EMPTY_VALIDITY now clear all six
+original native nested fixtures. Their exact-value tests no longer skip either
+development child codec. Additional independent fixtures cover all DICT_FSST
+modes and ROARING forms, with mutations, rollback and reopen. The
+[third integrated checkpoint](value-expression-progress.md) records the combined
+tests, upstream regression repairs, Kani findings and 34-workload performance
+preservation. Earlier codec failures below are retained historical evidence;
+nested WAL/defaults and fuller VARIANT/TUPLE behavior still remain open.
+
 ## First integration increment
 
 The provisional model shares recursive metadata and scalar payloads behind `Arc` while keeping the outer `DataType` at at most 16 bytes and `Value` at at most 32 bytes. LIST, ARRAY, STRUCT, MAP, UNION and VARIANT have distinct metadata/payload shapes. Shape validation checks child physical types, ARRAY cardinality, map non-NULL keys and UNION tag bounds. The selected type registry additionally validates child adapters, duplicate MAP keys and metadata limits. The registry binds child comparisons and keys once; changing the execution context's registry does not select new child implementations.

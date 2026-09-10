@@ -1,0 +1,2095 @@
+{
+  "recorded_at": "2026-09-10T18:52:12.182049+00:00",
+  "source_sha256": "a62cff7f5a861bd0e07968854108bd4c0fcbb0fc0950d9c844e00e1679a8f3c5",
+  "build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--release",
+    "--no-default-features",
+    "--bin",
+    "duckdb-rust",
+    "--bin",
+    "duckdb-rust-test-worker"
+  ],
+  "rust_worker_sha256": "506c907c37850dab5bd2ac3db3f005ee9a9fae1cce255dd21e42fb897e1f5d67",
+  "rust_cli_sha256": "788ca3491e7b795c4395a53abda56483d402a4b351160c9c165414ac8db61410",
+  "script_sha256": "f3b27ad07c208d02b5253213ca791e5787ac06fd980131ee0ecc23da71004caf",
+  "targets": [
+    {
+      "target": "release",
+      "sql": [
+        {
+          "sql": "SELECT '\\x00\\xFF'::BLOB, 'abc'::BLOB, ''::BLOB, NULL::BLOB",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "BLOB",
+              "BLOB",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "\\x00\\xFF",
+                "abc",
+                "",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "BLOB",
+              "BLOB",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "\\x00\\xFF",
+                "abc",
+                "",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '{00112233445566778899AABBCCDDEEFF}'::UUID,'ffffffffffffffffffffffffffffffff'::UUID,'00000000000000000000000000000000'::UUID,NULL::UUID",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UUID",
+              "UUID",
+              "UUID",
+              "UUID"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00112233-4455-6677-8899-aabbccddeeff",
+                "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                "00000000-0000-0000-0000-000000000000",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UUID",
+              "UUID",
+              "UUID",
+              "UUID"
+            ],
+            "rows": [
+              [
+                "00112233-4455-6677-8899-aabbccddeeff",
+                "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                "00000000-0000-0000-0000-000000000000",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT typeof('a'::BINARY),typeof('a'::VARBINARY),typeof('a'::BYTEA),typeof('00000000000000000000000000000000'::GUID)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "BLOB",
+                "BLOB",
+                "BLOB",
+                "UUID"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "BLOB",
+                "BLOB",
+                "BLOB",
+                "UUID"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT hex('\u00e9'),hex('\\x00\\xFF'::BLOB),unhex('F'),encode('\u00e9'),decode('hello'::BLOB),octet_length('a\\x00'::BLOB)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "BLOB",
+              "BLOB",
+              "VARCHAR",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "C3A9",
+                "00FF",
+                "\\x0F",
+                "\\xC3\\xA9",
+                "hello",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "BLOB",
+              "BLOB",
+              "VARCHAR",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "C3A9",
+                "00FF",
+                "\\x0F",
+                "\\xC3\\xA9",
+                "hello",
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT hex(-1::HUGEINT),hex(-1::BIGINT),hex(18446744073709551615::UBIGINT),hex(1::UTINYINT)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                "FFFFFFFFFFFFFFFF",
+                "FFFFFFFFFFFFFFFF",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                "FFFFFFFFFFFFFFFF",
+                "FFFFFFFFFFFFFFFF",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '00112233445566778899aabbccddeeff'::UUID::UHUGEINT,1::UHUGEINT::UUID,'00112233445566778899aabbccddeeff'::UUID::BLOB",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UHUGEINT",
+              "UUID",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "88962710306127702866241727433142015",
+                "00000000-0000-0000-0000-000000000001",
+                "\\x00\\x11\\x223DUfw\\x88\\x99\\xAA\\xBB\\xCC\\xDD\\xEE\\xFF"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Unimplemented type for cast (UUID -> UHUGEINT)\n\nLINE 1: SELECT '00112233445566778899aabbccddeeff'::UUID::UHUGEINT,1::UHUGEINT::UUID,'00112233445566778899aabbccddeeff...\n                                                       ^"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT '\\x00\\x11\\x22\\x33\\x44\\x55\\x66\\x77\\x88\\x99\\xAA\\xBB\\xCC\\xDD\\xEE\\xFF'::BLOB::UUID",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UUID"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00112233-4455-6677-8899-aabbccddeeff"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UUID"
+            ],
+            "rows": [
+              [
+                "00112233-4455-6677-8899-aabbccddeeff"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST('\\xGG' AS BLOB),TRY_CAST('bad' AS UUID),CASE WHEN false THEN '\\xGG'::BLOB ELSE 'ok'::BLOB END,NULL::BLOB||'x'::BLOB,encode(NULL)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "UUID",
+              "BLOB",
+              "\"NULL\"",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "ok",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "UUID",
+              "BLOB",
+              "INTEGER",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "ok",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT hex('a'::BLOB||'\\x00'::BLOB),concat('a'::BLOB,'b'::BLOB),typeof('a'::BLOB||'b'::BLOB)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "6100",
+                "ab",
+                "BLOB"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "6100",
+                "ab",
+                "BLOB"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT k FROM (VALUES ('ffffffffffffffffffffffffffffffff'::UUID),('80000000000000000000000000000000'::UUID),('00000000000000000000000000000000'::UUID),(NULL)) q(k) ORDER BY k",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UUID"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00000000-0000-0000-0000-000000000000"
+              ],
+              [
+                "80000000-0000-0000-0000-000000000000"
+              ],
+              [
+                "ffffffff-ffff-ffff-ffff-ffffffffffff"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UUID"
+            ],
+            "rows": [
+              [
+                "00000000-0000-0000-0000-000000000000"
+              ],
+              [
+                "80000000-0000-0000-0000-000000000000"
+              ],
+              [
+                "ffffffff-ffff-ffff-ffff-ffffffffffff"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT b,count(*) FROM (VALUES ('\\x00'::BLOB),(''::BLOB),('\\xFF'::BLOB),('\\x00'::BLOB),(NULL)) q(b) GROUP BY b ORDER BY b",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "",
+                "1"
+              ],
+              [
+                "\\x00",
+                "2"
+              ],
+              [
+                "\\xFF",
+                "1"
+              ],
+              [
+                "NULL",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "",
+                "1"
+              ],
+              [
+                "\\x00",
+                "2"
+              ],
+              [
+                "\\xFF",
+                "1"
+              ],
+              [
+                "NULL",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT count(*),count(DISTINCT a.b) FROM (VALUES ('\\x00'::BLOB),(''::BLOB),('\\xFF'::BLOB),(NULL)) a(b) JOIN (VALUES ('\\xFF'::BLOB),('\\x00'::BLOB),(NULL)) b(b) ON a.b=b.b",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BIGINT",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "2",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "2",
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT first_value(b) OVER(ORDER BY b),lag(b) OVER(ORDER BY b),min(b) OVER() FROM (VALUES ('\\x00'::BLOB),(''::BLOB),('\\xFF'::BLOB)) q(b) ORDER BY b",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "BLOB",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "",
+                "NULL",
+                ""
+              ],
+              [
+                "",
+                "",
+                ""
+              ],
+              [
+                "",
+                "\\x00",
+                ""
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "BLOB",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "",
+                "NULL",
+                ""
+              ],
+              [
+                "",
+                "",
+                ""
+              ],
+              [
+                "",
+                "\\x00",
+                ""
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT min(k),max(k),count(DISTINCT k) FROM (VALUES ('ffffffffffffffffffffffffffffffff'::UUID),('00000000000000000000000000000000'::UUID),(NULL)) q(k)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UUID",
+              "UUID",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00000000-0000-0000-0000-000000000000",
+                "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UUID",
+              "UUID",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "00000000-0000-0000-0000-000000000000",
+                "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT b FROM (VALUES ('\\xFF'::BLOB),(''::BLOB),(NULL)) q(b) UNION SELECT b FROM (VALUES ('\\xFF'::BLOB),('\\x00'::BLOB)) p(b) ORDER BY b",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                ""
+              ],
+              [
+                "\\x00"
+              ],
+              [
+                "\\xFF"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB"
+            ],
+            "rows": [
+              [
+                ""
+              ],
+              [
+                "\\x00"
+              ],
+              [
+                "\\xFF"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '\\xGG'::BLOB",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: invalid hexadecimal BLOB escape",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Invalid hex escape code encountered in string -> blob conversion of string \"\\xGG\": \\xGG\n\nLINE 1: SELECT '\\xGG'::BLOB\n                     ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '\u00e9'::BLOB",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: non-ASCII BLOB bytes must use hex escapes",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Invalid byte encountered in STRING -> BLOB conversion of string \"\u00e9\". All non-ascii characters must be escaped with hex codes (e.g. \\xAA)\n\nLINE 1: SELECT '\u00e9'::BLOB\n                  ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'oops'::UUID",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: invalid UUID digit",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'oops' to INT128\n\nLINE 1: SELECT 'oops'::UUID\n                     ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'abc'::BLOB::UUID",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: BLOB to UUID requires exactly 16 bytes",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'abc' to INT128\n\nLINE 1: SELECT 'abc'::BLOB::UUID\n                          ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT decode('\\xFF'::BLOB)",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Failure in decode: could not convert BLOB to UTF8 string",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Failure in decode: could not convert blob to UTF8 string, the blob contained invalid UTF8 characters. \nUse try(decode(BLOB)) to return NULL and continue instead of returning an error. Specify decode(BLOB, 'replace') to replace invalid characters with '?'. Specify decode(BLOB, 'ignore') to remove invalid characters when encountered."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT unhex('not hex')",
+          "expected_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: invalid hexadecimal input to unhex",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Invalid input for hex digit: n"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT length('a'::BLOB)",
+          "expected_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: no overload for length([Blob])",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: No function matches the given name and argument types 'length(BLOB)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlength(VARCHAR) -> BIGINT\n\tlength(BIT) -> BIGINT\n\tlength(ANY[]) -> BIGINT\n\n\nLINE 1: SELECT length('a'::BLOB)\n               ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::BLOB(3)",
+          "expected_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: BLOB does not take type parameters",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: Type 'BLOB' does not take any type parameters\n\nLINE 1: SELECT 'a'::BLOB(3)\n                    ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::BINARY(3)",
+          "expected_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: BLOB does not take type parameters",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: Type 'BLOB' does not take any type parameters\n\nLINE 1: SELECT 'a'::BINARY(3)\n                    ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::VARBINARY(3)",
+          "expected_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: BLOB does not take type parameters",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: Type 'BLOB' does not take any type parameters\n\nLINE 1: SELECT 'a'::VARBINARY(3)\n                    ^"
+          },
+          "passed": true
+        }
+      ],
+      "persistence": [
+        {
+          "producer": "cpp",
+          "passed": true,
+          "checkpoint_sha256": "b47fd38bfbb9938b81576e7b27f077eefd81b49663e28b2fc641a250e84aff03",
+          "final_rows": [
+            {
+              "b": "updated",
+              "bt": "BLOB",
+              "d": "1.125",
+              "k": "00000000-0000-0000-0000-000000000000",
+              "kt": "UUID"
+            },
+            {
+              "b": "\\x00\\x01\\xFF",
+              "bt": "BLOB",
+              "d": "2.250",
+              "k": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+              "kt": "UUID"
+            }
+          ]
+        },
+        {
+          "producer": "rust-checkpoint",
+          "passed": true,
+          "checkpoint_sha256": "bc8f47079ed7f5271553b199bf4c81e8819bcfe3cfade640665cb3cabdbcd88a",
+          "final_rows": [
+            {
+              "b": "updated",
+              "bt": "BLOB",
+              "d": "1.125",
+              "k": "00000000-0000-0000-0000-000000000000",
+              "kt": "UUID"
+            },
+            {
+              "b": "\\x00\\x01\\xFF",
+              "bt": "BLOB",
+              "d": "2.250",
+              "k": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+              "kt": "UUID"
+            }
+          ]
+        },
+        {
+          "producer": "rust-wal",
+          "passed": true,
+          "checkpoint_sha256": "f9480165a4db443cc4760a5de5b03187281f10c63eb92d5a57c112684cd2742a",
+          "wal_sha256": "37006948e9307f8fa960f831216b73fc01a152079079917418b6820a3cf79339",
+          "final_rows": [
+            {
+              "b": "updated",
+              "bt": "BLOB",
+              "d": "1.125",
+              "k": "00000000-0000-0000-0000-000000000000",
+              "kt": "UUID"
+            },
+            {
+              "b": "\\x00\\x01\\xFF",
+              "bt": "BLOB",
+              "d": "2.250",
+              "k": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+              "kt": "UUID"
+            }
+          ]
+        }
+      ],
+      "passed": false,
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb-v1.5.5/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/target/binary-scalar-reference-release"
+      ],
+      "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+      "cpp_worker_sha256": "8847b22ce18e30050e4d4613244fcfea9e87f97da7f802cf769e1fb65c2c4623",
+      "rust_adapters": {
+        "adapters": [
+          [
+            "transactions",
+            "optimistic-snapshot"
+          ],
+          [
+            "catalog",
+            "snapshot-catalog"
+          ],
+          [
+            "storage",
+            "snapshot-table"
+          ],
+          [
+            "indexes",
+            "hash-equality"
+          ],
+          [
+            "types",
+            "binary-scalar-types"
+          ],
+          [
+            "types",
+            "calendar-temporal"
+          ],
+          [
+            "types",
+            "exact-numeric-types"
+          ],
+          [
+            "types",
+            "gregorian-date"
+          ],
+          [
+            "types",
+            "ordered-enum-types"
+          ],
+          [
+            "types",
+            "primitive-types"
+          ],
+          [
+            "types",
+            "recursive-nested-types"
+          ],
+          [
+            "durability",
+            "memory"
+          ],
+          [
+            "casts",
+            "binary-scalar-cast"
+          ],
+          [
+            "casts",
+            "calendar-temporal-cast"
+          ],
+          [
+            "casts",
+            "exact-numeric-cast"
+          ],
+          [
+            "casts",
+            "gregorian-date-cast"
+          ],
+          [
+            "casts",
+            "nested-union-cast"
+          ],
+          [
+            "casts",
+            "ordered-enum-cast"
+          ],
+          [
+            "casts",
+            "primitive-cast"
+          ],
+          [
+            "casts",
+            "recursive-nested-cast"
+          ],
+          [
+            "casts",
+            "structural-cast"
+          ],
+          [
+            "operators",
+            "blob-concatenate"
+          ],
+          [
+            "operators",
+            "calendar-temporal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-decimal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-numeric-arithmetic"
+          ],
+          [
+            "operators",
+            "gregorian-date-arithmetic"
+          ],
+          [
+            "operators",
+            "like-greedy"
+          ],
+          [
+            "operators",
+            "string-concatenate"
+          ],
+          [
+            "physical_planner",
+            "native-physical"
+          ],
+          [
+            "scan_filter",
+            "fused-scan-filter"
+          ],
+          [
+            "recursion",
+            "streaming-recursion"
+          ],
+          [
+            "aggregation",
+            "hash-aggregation"
+          ],
+          [
+            "sorting",
+            "integer-radix-sort"
+          ],
+          [
+            "set_operations",
+            "hash-set-operations"
+          ],
+          [
+            "windows",
+            "hash-partitioned-windows"
+          ],
+          [
+            "join_algorithm",
+            "hash"
+          ],
+          [
+            "join_algorithm",
+            "nested-loop"
+          ],
+          [
+            "optimizer",
+            "pipeline"
+          ],
+          [
+            "optimizer_pass",
+            "simplify-expressions"
+          ],
+          [
+            "optimizer_pass",
+            "key-lookup"
+          ],
+          [
+            "optimizer_pass",
+            "decorrelate-exists"
+          ],
+          [
+            "parser",
+            "sqlparser-duckdb"
+          ],
+          [
+            "binder",
+            "sql-binder"
+          ],
+          [
+            "executor",
+            "pull"
+          ],
+          [
+            "expressions",
+            "batched-expression"
+          ],
+          [
+            "subqueries",
+            "streaming-subqueries"
+          ],
+          [
+            "scheduler",
+            "inline"
+          ],
+          [
+            "configuration",
+            "snapshot-configuration"
+          ]
+        ],
+        "ok": true
+      }
+    },
+    {
+      "target": "development",
+      "sql": [
+        {
+          "sql": "SELECT '\\x00\\xFF'::BLOB, 'abc'::BLOB, ''::BLOB, NULL::BLOB",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "BLOB",
+              "BLOB",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "\\x00\\xFF",
+                "abc",
+                "",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "BLOB",
+              "BLOB",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "\\x00\\xFF",
+                "abc",
+                "",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '{00112233445566778899AABBCCDDEEFF}'::UUID,'ffffffffffffffffffffffffffffffff'::UUID,'00000000000000000000000000000000'::UUID,NULL::UUID",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UUID",
+              "UUID",
+              "UUID",
+              "UUID"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00112233-4455-6677-8899-aabbccddeeff",
+                "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                "00000000-0000-0000-0000-000000000000",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UUID",
+              "UUID",
+              "UUID",
+              "UUID"
+            ],
+            "rows": [
+              [
+                "00112233-4455-6677-8899-aabbccddeeff",
+                "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                "00000000-0000-0000-0000-000000000000",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT typeof('a'::BINARY),typeof('a'::VARBINARY),typeof('a'::BYTEA),typeof('00000000000000000000000000000000'::GUID)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "BLOB",
+                "BLOB",
+                "BLOB",
+                "UUID"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "BLOB",
+                "BLOB",
+                "BLOB",
+                "UUID"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT hex('\u00e9'),hex('\\x00\\xFF'::BLOB),unhex('F'),encode('\u00e9'),decode('hello'::BLOB),octet_length('a\\x00'::BLOB)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "BLOB",
+              "BLOB",
+              "VARCHAR",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "C3A9",
+                "00FF",
+                "\\x0F",
+                "\\xC3\\xA9",
+                "hello",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "BLOB",
+              "BLOB",
+              "VARCHAR",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "C3A9",
+                "00FF",
+                "\\x0F",
+                "\\xC3\\xA9",
+                "hello",
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT hex(-1::HUGEINT),hex(-1::BIGINT),hex(18446744073709551615::UBIGINT),hex(1::UTINYINT)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                "FFFFFFFFFFFFFFFF",
+                "FFFFFFFFFFFFFFFF",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                "FFFFFFFFFFFFFFFF",
+                "FFFFFFFFFFFFFFFF",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '00112233445566778899aabbccddeeff'::UUID::UHUGEINT,1::UHUGEINT::UUID,'00112233445566778899aabbccddeeff'::UUID::BLOB",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UHUGEINT",
+              "UUID",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "88962710306127702866241727433142015",
+                "00000000-0000-0000-0000-000000000001",
+                "\\x00\\x11\\x223DUfw\\x88\\x99\\xAA\\xBB\\xCC\\xDD\\xEE\\xFF"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UHUGEINT",
+              "UUID",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "88962710306127702866241727433142015",
+                "00000000-0000-0000-0000-000000000001",
+                "\\x00\\x11\\x223DUfw\\x88\\x99\\xAA\\xBB\\xCC\\xDD\\xEE\\xFF"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '\\x00\\x11\\x22\\x33\\x44\\x55\\x66\\x77\\x88\\x99\\xAA\\xBB\\xCC\\xDD\\xEE\\xFF'::BLOB::UUID",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UUID"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00112233-4455-6677-8899-aabbccddeeff"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UUID"
+            ],
+            "rows": [
+              [
+                "00112233-4455-6677-8899-aabbccddeeff"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST('\\xGG' AS BLOB),TRY_CAST('bad' AS UUID),CASE WHEN false THEN '\\xGG'::BLOB ELSE 'ok'::BLOB END,NULL::BLOB||'x'::BLOB,encode(NULL)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "UUID",
+              "BLOB",
+              "\"NULL\"",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "ok",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "UUID",
+              "BLOB",
+              "\"NULL\"",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "ok",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT hex('a'::BLOB||'\\x00'::BLOB),concat('a'::BLOB,'b'::BLOB),typeof('a'::BLOB||'b'::BLOB)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "6100",
+                "ab",
+                "BLOB"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "6100",
+                "ab",
+                "BLOB"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT k FROM (VALUES ('ffffffffffffffffffffffffffffffff'::UUID),('80000000000000000000000000000000'::UUID),('00000000000000000000000000000000'::UUID),(NULL)) q(k) ORDER BY k",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UUID"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00000000-0000-0000-0000-000000000000"
+              ],
+              [
+                "80000000-0000-0000-0000-000000000000"
+              ],
+              [
+                "ffffffff-ffff-ffff-ffff-ffffffffffff"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UUID"
+            ],
+            "rows": [
+              [
+                "00000000-0000-0000-0000-000000000000"
+              ],
+              [
+                "80000000-0000-0000-0000-000000000000"
+              ],
+              [
+                "ffffffff-ffff-ffff-ffff-ffffffffffff"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT b,count(*) FROM (VALUES ('\\x00'::BLOB),(''::BLOB),('\\xFF'::BLOB),('\\x00'::BLOB),(NULL)) q(b) GROUP BY b ORDER BY b",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "",
+                "1"
+              ],
+              [
+                "\\x00",
+                "2"
+              ],
+              [
+                "\\xFF",
+                "1"
+              ],
+              [
+                "NULL",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "",
+                "1"
+              ],
+              [
+                "\\x00",
+                "2"
+              ],
+              [
+                "\\xFF",
+                "1"
+              ],
+              [
+                "NULL",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT count(*),count(DISTINCT a.b) FROM (VALUES ('\\x00'::BLOB),(''::BLOB),('\\xFF'::BLOB),(NULL)) a(b) JOIN (VALUES ('\\xFF'::BLOB),('\\x00'::BLOB),(NULL)) b(b) ON a.b=b.b",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BIGINT",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "2",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "2",
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT first_value(b) OVER(ORDER BY b),lag(b) OVER(ORDER BY b),min(b) OVER() FROM (VALUES ('\\x00'::BLOB),(''::BLOB),('\\xFF'::BLOB)) q(b) ORDER BY b",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "BLOB",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "",
+                "NULL",
+                ""
+              ],
+              [
+                "",
+                "",
+                ""
+              ],
+              [
+                "",
+                "\\x00",
+                ""
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "BLOB",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "",
+                "NULL",
+                ""
+              ],
+              [
+                "",
+                "",
+                ""
+              ],
+              [
+                "",
+                "\\x00",
+                ""
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT min(k),max(k),count(DISTINCT k) FROM (VALUES ('ffffffffffffffffffffffffffffffff'::UUID),('00000000000000000000000000000000'::UUID),(NULL)) q(k)",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "UUID",
+              "UUID",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00000000-0000-0000-0000-000000000000",
+                "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UUID",
+              "UUID",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "00000000-0000-0000-0000-000000000000",
+                "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT b FROM (VALUES ('\\xFF'::BLOB),(''::BLOB),(NULL)) q(b) UNION SELECT b FROM (VALUES ('\\xFF'::BLOB),('\\x00'::BLOB)) p(b) ORDER BY b",
+          "expected_error": null,
+          "rust": {
+            "columns": [
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                ""
+              ],
+              [
+                "\\x00"
+              ],
+              [
+                "\\xFF"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB"
+            ],
+            "rows": [
+              [
+                ""
+              ],
+              [
+                "\\x00"
+              ],
+              [
+                "\\xFF"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '\\xGG'::BLOB",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: invalid hexadecimal BLOB escape",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Invalid hex escape code encountered in string -> blob conversion of string \"\\xGG\": \\xGG\n\nLINE 1: SELECT '\\xGG'::BLOB\n                     ^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '\u00e9'::BLOB",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: non-ASCII BLOB bytes must use hex escapes",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Invalid byte encountered in STRING -> BLOB conversion of string \"\u00e9\". All non-ascii characters must be escaped with hex codes (e.g. \\xAA)\n\nLINE 1: SELECT '\u00e9'::BLOB\n                  ^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'oops'::UUID",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: invalid UUID digit",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'oops' to INT128\n\nLINE 1: SELECT 'oops'::UUID\n                     ^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'abc'::BLOB::UUID",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: BLOB to UUID requires exactly 16 bytes",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'abc' to INT128\n\nLINE 1: SELECT 'abc'::BLOB::UUID\n                          ^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT decode('\\xFF'::BLOB)",
+          "expected_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Failure in decode: could not convert BLOB to UTF8 string",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Failure in decode: could not convert blob to UTF8 string, the blob contained invalid UTF8 characters. \nUse try(decode(BLOB)) to return NULL and continue instead of returning an error. Specify decode(BLOB, 'replace') to replace invalid characters with '?'. Specify decode(BLOB, 'ignore') to remove invalid characters when encountered."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT unhex('not hex')",
+          "expected_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: invalid hexadecimal input to unhex",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Invalid input for hex digit: n"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT length('a'::BLOB)",
+          "expected_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: no overload for length([Blob])",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: No function matches the given name and argument types 'length(BLOB)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlength(col0 VARCHAR) -> BIGINT\n\tlength(col0 BIT) -> BIGINT\n\tlength(col0 ANY[]) -> BIGINT\n\n\nLINE 1: SELECT length('a'::BLOB)\n               ^^^^^^^^^^^^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::BLOB(3)",
+          "expected_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: BLOB does not take type parameters",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: Type \"BLOB\" does not take any type parameters\n\nLINE 1: SELECT 'a'::BLOB(3)\n                    ^^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::BINARY(3)",
+          "expected_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: BLOB does not take type parameters",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: Type \"BINARY\" does not take any type parameters\n\nLINE 1: SELECT 'a'::BINARY(3)\n                    ^^^^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::VARBINARY(3)",
+          "expected_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: BLOB does not take type parameters",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: Type \"VARBINARY\" does not take any type parameters\n\nLINE 1: SELECT 'a'::VARBINARY(3)\n                    ^^^^^^^^^^^^"
+          },
+          "passed": true
+        }
+      ],
+      "persistence": [
+        {
+          "producer": "cpp",
+          "passed": true,
+          "checkpoint_sha256": "855d0eaf4e61849e2ac9800b6b96990eb49a23a1bb12b56ec699aa240bbe88e9",
+          "final_rows": [
+            {
+              "b": "updated",
+              "bt": "BLOB",
+              "d": "1.125",
+              "k": "00000000-0000-0000-0000-000000000000",
+              "kt": "UUID"
+            },
+            {
+              "b": "\\x00\\x01\\xFF",
+              "bt": "BLOB",
+              "d": "2.250",
+              "k": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+              "kt": "UUID"
+            }
+          ]
+        },
+        {
+          "producer": "rust-checkpoint",
+          "passed": true,
+          "checkpoint_sha256": "bc8f47079ed7f5271553b199bf4c81e8819bcfe3cfade640665cb3cabdbcd88a",
+          "final_rows": [
+            {
+              "b": "updated",
+              "bt": "BLOB",
+              "d": "1.125",
+              "k": "00000000-0000-0000-0000-000000000000",
+              "kt": "UUID"
+            },
+            {
+              "b": "\\x00\\x01\\xFF",
+              "bt": "BLOB",
+              "d": "2.250",
+              "k": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+              "kt": "UUID"
+            }
+          ]
+        },
+        {
+          "producer": "rust-wal",
+          "passed": true,
+          "checkpoint_sha256": "f9480165a4db443cc4760a5de5b03187281f10c63eb92d5a57c112684cd2742a",
+          "wal_sha256": "37006948e9307f8fa960f831216b73fc01a152079079917418b6820a3cf79339",
+          "final_rows": [
+            {
+              "b": "updated",
+              "bt": "BLOB",
+              "d": "1.125",
+              "k": "00000000-0000-0000-0000-000000000000",
+              "kt": "UUID"
+            },
+            {
+              "b": "\\x00\\x01\\xFF",
+              "bt": "BLOB",
+              "d": "2.250",
+              "k": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+              "kt": "UUID"
+            }
+          ]
+        }
+      ],
+      "passed": true,
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/target/binary-scalar-reference-development"
+      ],
+      "cpp_library_sha256": "74b604b07e2c7d0f3d1e60afcbcfc388390f51d016d079f75aced1e6c1637240",
+      "cpp_worker_sha256": "cec373b048ed07088d69c6536ad82ef5283a2ab9c30518b8ed087971ce0ce929",
+      "rust_adapters": {
+        "adapters": [
+          [
+            "transactions",
+            "optimistic-snapshot"
+          ],
+          [
+            "catalog",
+            "snapshot-catalog"
+          ],
+          [
+            "storage",
+            "snapshot-table"
+          ],
+          [
+            "indexes",
+            "hash-equality"
+          ],
+          [
+            "types",
+            "binary-scalar-types"
+          ],
+          [
+            "types",
+            "calendar-temporal"
+          ],
+          [
+            "types",
+            "exact-numeric-types"
+          ],
+          [
+            "types",
+            "gregorian-date"
+          ],
+          [
+            "types",
+            "ordered-enum-types"
+          ],
+          [
+            "types",
+            "primitive-types"
+          ],
+          [
+            "types",
+            "recursive-nested-types"
+          ],
+          [
+            "durability",
+            "memory"
+          ],
+          [
+            "casts",
+            "binary-scalar-cast"
+          ],
+          [
+            "casts",
+            "calendar-temporal-cast"
+          ],
+          [
+            "casts",
+            "exact-numeric-cast"
+          ],
+          [
+            "casts",
+            "gregorian-date-cast"
+          ],
+          [
+            "casts",
+            "nested-union-cast"
+          ],
+          [
+            "casts",
+            "ordered-enum-cast"
+          ],
+          [
+            "casts",
+            "primitive-cast"
+          ],
+          [
+            "casts",
+            "recursive-nested-cast"
+          ],
+          [
+            "casts",
+            "structural-cast"
+          ],
+          [
+            "operators",
+            "blob-concatenate"
+          ],
+          [
+            "operators",
+            "calendar-temporal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-decimal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-numeric-arithmetic"
+          ],
+          [
+            "operators",
+            "gregorian-date-arithmetic"
+          ],
+          [
+            "operators",
+            "like-greedy"
+          ],
+          [
+            "operators",
+            "string-concatenate"
+          ],
+          [
+            "physical_planner",
+            "native-physical"
+          ],
+          [
+            "scan_filter",
+            "fused-scan-filter"
+          ],
+          [
+            "recursion",
+            "streaming-recursion"
+          ],
+          [
+            "aggregation",
+            "hash-aggregation"
+          ],
+          [
+            "sorting",
+            "integer-radix-sort"
+          ],
+          [
+            "set_operations",
+            "hash-set-operations"
+          ],
+          [
+            "windows",
+            "hash-partitioned-windows"
+          ],
+          [
+            "join_algorithm",
+            "hash"
+          ],
+          [
+            "join_algorithm",
+            "nested-loop"
+          ],
+          [
+            "optimizer",
+            "pipeline"
+          ],
+          [
+            "optimizer_pass",
+            "simplify-expressions"
+          ],
+          [
+            "optimizer_pass",
+            "key-lookup"
+          ],
+          [
+            "optimizer_pass",
+            "decorrelate-exists"
+          ],
+          [
+            "parser",
+            "sqlparser-duckdb"
+          ],
+          [
+            "binder",
+            "sql-binder"
+          ],
+          [
+            "executor",
+            "pull"
+          ],
+          [
+            "expressions",
+            "batched-expression"
+          ],
+          [
+            "subqueries",
+            "streaming-subqueries"
+          ],
+          [
+            "scheduler",
+            "inline"
+          ],
+          [
+            "configuration",
+            "snapshot-configuration"
+          ]
+        ],
+        "ok": true
+      }
+    }
+  ],
+  "full_parity": false,
+  "scope": "Selected typed BLOB/UUID SQL, error categories, and native checkpoint/WAL/default/index/mutation round trips. Development is authoritative; no full scalar, diagnostic, performance or engine parity claim.",
+  "source_unchanged": true,
+  "passed": false
+}

@@ -1,0 +1,487 @@
+{
+  "recorded_at": "2026-09-10T19:02:38.692259+00:00",
+  "baseline": "pinned-cpp-duckdb",
+  "reference_identity": {
+    "target": "release",
+    "required_version": "1.5.5",
+    "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+    "reported_source_id": "d8cdaa33fd",
+    "version": "v1.5.5 (Variegata) d8cdaa33fd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+    "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+  },
+  "max_ratio": 1.0,
+  "iterations": 21,
+  "warmups": 3,
+  "order": "paired, alternating engine order",
+  "cpp_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+  "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+  "cpp_worker_sha256": "9cdad7423c218901546ae79ce6ab1e4e7fd853bb09d36ced0d25531d0057adf8",
+  "cpp_worker_source_sha256": "72ba2c4866e914f4545bf308c18fccfa9667db46063be0e6548e30fd7f525b99",
+  "cpp_build_configuration_sha256": "83855d70a789cd8b23c62cd147a6dc23f6ca0f7adb23ec6fc308f66b8988e879",
+  "compile_command": [
+    "c++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-I/Users/jacobthomas/code/ddb/duckdb-v1.5.5/src/include",
+    "/Users/jacobthomas/code/ddb/duckdb-rust/benchmark/reference.cpp",
+    "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src/libduckdb.dylib",
+    "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src",
+    "-o",
+    "/Users/jacobthomas/code/ddb/duckdb-rust/target/reference-measure-release"
+  ],
+  "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin",
+  "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "rust_build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--release",
+    "--no-default-features",
+    "--bin",
+    "duckdb-rust-measure"
+  ],
+  "rust_source_sha256": "fc0048adc62ac6428e88d94a53356fa336498214c90d0af07f464a7a1461cdb5",
+  "rust_binary_sha256": "015bbe4b9910c11378adf79ec64693f50911dbae52cc2c3c2b19b6138dfc0df2",
+  "workloads_path": "/Users/jacobthomas/code/ddb/duckdb-rust/benchmark/ordering_workloads.json",
+  "workloads_sha256": "93f02564c7d31fb2ceec0e2eb0b0de2edbf226f28db308455ddf843a9f65a138",
+  "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "workloads": [
+    {
+      "name": "order_all",
+      "sql": "SELECT i%64 AS k,i FROM t ORDER BY ALL DESC",
+      "rows": 50000,
+      "sum": "1251549616",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 6439917,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6127958,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6367333,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6085583,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6325542,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6110125,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6417666,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6174208,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6289750,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6184542,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6244250,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6121916,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6178417,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6051083,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6227917,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6116541,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6337542,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6211625,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6304000,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6086334,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 6376625,
+          "rows": 50000,
+          "sum": "1251549616"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 4495875,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4487834,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4309708,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4433209,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4290000,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4438542,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4324250,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4584667,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4439250,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4344917,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4308500,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4315334,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4306625,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4414500,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4301667,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4328250,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4489875,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4345541,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4261000,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4372875,
+          "rows": 50000,
+          "sum": "1251549616"
+        },
+        {
+          "elapsed_ns": 4500417,
+          "rows": 50000,
+          "sum": "1251549616"
+        }
+      ],
+      "cpp_median_ns": 6211625,
+      "rust_median_ns": 4345541,
+      "rust_over_cpp": 0.6995819934397198,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "complete_performance_parity": false,
+  "scope": "Serial in-memory embedded APIs against pinned C++. Query cases time execution and complete result validation. DDL cases reset state before every sample and verify effects after timing; their timing includes execution, result consumption and any required prepared-statement rebind. Setup, initial preparation, process startup and DDL reset/effect checks are untimed. Cold I/O, durable commits, concurrency, other APIs/tooling and full workloads remain unmeasured. Every ratio above 1 fails."
+}
