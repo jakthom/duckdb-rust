@@ -340,6 +340,48 @@ fn ctas_resolves_untyped_null_leaves_before_assignment_and_reopen() -> Result<()
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn recursive_map_grammar_reaches_typed_binding_without_changing_dialect() -> Result<()> {
+    use duckdb_rust::parser::{DuckDbParser, Parser};
+    let mut c = Database::memory()?.connect();
+    c.execute("CREATE TABLE t(m MAP(INTEGER, STRUCT(d DECIMAL(12,2), ts TIMESTAMP[])))")?;
+    c.execute(
+        "INSERT INTO t VALUES (map([1],[{'d': 1.25, 'ts': [TIMESTAMP 'epoch', NULL]}])), (NULL)",
+    )?;
+    let result = c.query("SELECT m FROM t WHERE m IS NOT NULL")?;
+    let Value::Nested(map) = &result.rows[0][0] else {
+        panic!("typed MAP value")
+    };
+    let duckdb_rust::common::NestedPayload::Map(entries) = &map.payload else {
+        panic!("MAP entries")
+    };
+    let Value::Nested(record) = &entries[0].1 else {
+        panic!("typed STRUCT child")
+    };
+    let duckdb_rust::common::NestedPayload::Struct(fields) = &record.payload else {
+        panic!("STRUCT fields")
+    };
+    assert_eq!(entries[0].0, Value::Integer(1));
+    assert_eq!(fields[0].to_string(), "1.25");
+    assert!(
+        DuckDbParser
+            .parse("SELECT NULL::MAP(INTEGER, MAP(VARCHAR, INTEGER[2]))")
+            .is_ok()
+    );
+    assert!(
+        DuckDbParser
+            .parse("SELECT NULL::TUPLE(INTEGER, MAP(VARCHAR, TIMESTAMP[]))")
+            .is_ok()
+    );
+    assert!(DuckDbParser.parse("SELECT NULL::MAP(INTEGER)").is_err());
+    assert!(matches!(
+        c.query("SELECT NULL::ENUM()"),
+        Err(Error::Bind(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn values_ctes_set_operations_and_hidden_sort_keys() -> Result<()> {
     let mut c = Database::memory()?.connect();
     assert_eq!(c.query("WITH a AS (SELECT range AS i FROM range(4)) SELECT i+1 AS n FROM a WHERE i > 0 ORDER BY i DESC LIMIT 2")?.rows, vec![integers(&[4]),integers(&[3])]);

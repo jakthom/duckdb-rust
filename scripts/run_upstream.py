@@ -115,7 +115,8 @@ def main():
     subprocess.run(["cargo", "build", "--offline", "--release", "--bin", "duckdb-rust-test-worker"], cwd=ROOT, check=True)
     binary = ROOT / "target/release/duckdb-rust-test-worker"
     source_hash = hashlib.sha256()
-    for path in sorted([ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "test/runner/worker.rs"]):
+    from source_identity import vendored_sources
+    for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "test/runner/worker.rs"]):
         source_hash.update(str(path.relative_to(ROOT)).encode()+b"\0"+path.read_bytes())
     sql = [entry for entry in manifest["tests"] if entry["kind"] == "sqllogictest"]
     selected = [entry for entry in sql if entry["path"].startswith(args.path_prefix)]

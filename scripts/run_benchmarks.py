@@ -21,7 +21,8 @@ def main():
     subprocess.run(["cargo", "build", "--offline", "--release", "--bin", "duckdb-rust-benchmark"], cwd=ROOT, check=True)
     binary = ROOT / "target/release/duckdb-rust-benchmark"
     source_hash = hashlib.sha256()
-    for path in sorted([ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), *(ROOT / "benchmark").rglob("*.rs")]):
+    from source_identity import vendored_sources
+    for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), *(ROOT / "benchmark").rglob("*.rs")]):
         source_hash.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
     report = json.loads(subprocess.check_output([str(binary), "--suite", args.suite, "--rows", str(args.rows), "--iterations", str(args.iterations), "--batch-size", str(args.batch_size)], text=True))
     report.update({

@@ -13,7 +13,8 @@ from wal_reference import ROOT, REPLACE_STEPS, compare_pair, pair, worker_binary
 def verify(rust, reference, command, directory):
     worker = worker_binary('checkpointing')
     source = hashlib.sha256()
-    for path in sorted([ROOT/'Cargo.toml', ROOT/'Cargo.lock', *(ROOT/'src').rglob('*.rs'), ROOT/'test/component/checkpointing.rs']):
+    from source_identity import vendored_sources
+    for path in sorted([*vendored_sources(ROOT), ROOT/'Cargo.toml', ROOT/'Cargo.lock', *(ROOT/'src').rglob('*.rs'), ROOT/'test/component/checkpointing.rs']):
         source.update(str(path.relative_to(ROOT)).encode()+b'\0'+path.read_bytes())
     report = {'worker_binary_sha256': hashlib.sha256(worker.read_bytes()).hexdigest(), 'worker_source_sha256': source.hexdigest(),
               'cases': [], 'boundaries': [], 'scope': 'Two checkpoint policies and explicit maintenance with independent native reads/writes. Exits before named I/O and after acknowledgment; no power-loss simulation or checkpoint-latency claim.'}

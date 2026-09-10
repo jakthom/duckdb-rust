@@ -111,8 +111,9 @@ def verify_records(engine, records):
 
 
 def source_fingerprint():
+    from source_identity import vendored_sources
     digest = hashlib.sha256()
-    for path in sorted([ROOT/'Cargo.toml', ROOT/'Cargo.lock', *(ROOT/'src').rglob('*.rs'),
+    for path in sorted([*vendored_sources(ROOT), ROOT/'Cargo.toml', ROOT/'Cargo.lock', *(ROOT/'src').rglob('*.rs'),
                         ROOT/'test/runner/worker.rs']):
         digest.update(str(path.relative_to(ROOT)).encode()+b'\0'+path.read_bytes())
     return digest.hexdigest()

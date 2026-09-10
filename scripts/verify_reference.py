@@ -69,7 +69,8 @@ def main():
         raise FileExistsError("preserve prior evidence: choose a new report path")
     reference_path, reference_identity = require_reference(args.duckdb, target=args.target)
     sources = hashlib.sha256()
-    for path in sorted([ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), *(ROOT / "tools").rglob("*.rs")]):
+    from source_identity import vendored_sources
+    for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), *(ROOT / "tools").rglob("*.rs")]):
         sources.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
     report = {
         "recorded_at": datetime.now(timezone.utc).isoformat(),

@@ -101,7 +101,8 @@ def main():
     subprocess.run(["cargo", "build", "--offline", "--release", "--bin", "duckdb-rust-measure"], cwd=ROOT, check=True)
     rust = ROOT / "target/release/duckdb-rust-measure"
     source_hash = hashlib.sha256()
-    for path in sorted([ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "benchmark/native.rs"]):
+    from source_identity import vendored_sources
+    for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "benchmark/native.rs"]):
         source_hash.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
     workloads_path = args.workloads.resolve(strict=True)
     workloads = json.loads(workloads_path.read_text())

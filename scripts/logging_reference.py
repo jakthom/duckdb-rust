@@ -51,7 +51,8 @@ CASES = {
 def verify(rust, logged, reference, command, directory):
     worker = worker_binary('logging')
     source = hashlib.sha256()
-    for path in sorted([ROOT/'Cargo.toml', ROOT/'Cargo.lock', *(ROOT/'src').rglob('*.rs'), ROOT/'test/component/logging.rs']):
+    from source_identity import vendored_sources
+    for path in sorted([*vendored_sources(ROOT), ROOT/'Cargo.toml', ROOT/'Cargo.lock', *(ROOT/'src').rglob('*.rs'), ROOT/'test/component/logging.rs']):
         source.update(str(path.relative_to(ROOT)).encode()+b'\0'+path.read_bytes())
     report = {'writer': 'duckdb-wal-v2-writer', 'cases': [], 'boundaries': [],
               'worker_binary_sha256': hashlib.sha256(worker.read_bytes()).hexdigest(), 'worker_source_sha256': source.hexdigest(),
