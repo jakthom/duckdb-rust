@@ -21,7 +21,7 @@ macro_rules! decoder {
         impl SegmentDecoder for $name {
             fn id(&self) -> CodecId { CodecId(6) }
             fn name(&self) -> &'static str { $label }
-            fn supports(&self, kind: SegmentType<'_>) -> bool { matches!(kind, SegmentType::Values(t) if t.is_integer() || t.is_decimal() || matches!(t, DataType::Date | DataType::Uuid)) }
+            fn supports(&self, kind: SegmentType<'_>) -> bool { matches!(kind, SegmentType::Values(t) if t.is_integer() || t.is_decimal() || (t.is_temporal() && *t != DataType::Interval) || matches!(t, DataType::Date | DataType::Uuid)) }
             fn decode(&self, input: DecodeInput<'_>, context: &DecodeContext<'_>) -> Result<Vec<Value>> {
                 context.query.check_rows(input.count)?;
                 match input.kind {

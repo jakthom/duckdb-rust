@@ -3,6 +3,7 @@ mod catalog;
 mod columns;
 pub mod compression;
 mod primitive;
+mod temporal;
 #[cfg(test)]
 mod version_tests;
 mod visibility;

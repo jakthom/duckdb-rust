@@ -4,6 +4,7 @@ mod batch;
 mod date;
 pub mod decimal;
 mod string;
+pub mod temporal;
 
 pub use arithmetic::NumericArithmetic;
 pub use batch::evaluate_operator_rows;
@@ -226,6 +227,7 @@ impl OperatorRegistry {
         let mut registry = Self::default();
         arithmetic::register(&mut registry);
         date::register(&mut registry);
+        temporal::register(&mut registry);
         string::register(&mut registry);
         super::binary_scalar::register_operators(&mut registry);
         registry

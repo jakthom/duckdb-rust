@@ -66,6 +66,7 @@ pub(super) fn value(reader: &mut Reader) -> Result<Value> {
         match data_type {
             DataType::Boolean => Value::Boolean(reader.boolean()?),
             DataType::Date => Value::Date(super::super::binary::date(reader.signed()?)?),
+            ref t if t.is_temporal() => super::super::temporal::read_metadata(reader, t)?,
             DataType::TinyInt | DataType::SmallInt | DataType::Integer | DataType::BigInt => {
                 Value::Integer(reader.signed()? as i128).cast(&data_type)?
             }

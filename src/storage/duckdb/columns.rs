@@ -291,10 +291,18 @@ fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> Result<Stati
             reader.unsigned()?;
         }
         Some(data_type) => {
-            reader.field(200)?;
-            minimum = numeric_stat(reader, data_type)?;
-            reader.field(201)?;
-            numeric_stat(reader, data_type)?;
+            if *data_type == DataType::Interval {
+                if reader.optional(200)? {
+                    minimum = numeric_stat(reader, data_type)?;
+                    reader.field(201)?;
+                    numeric_stat(reader, data_type)?;
+                }
+            } else {
+                reader.field(200)?;
+                minimum = numeric_stat(reader, data_type)?;
+                reader.field(201)?;
+                numeric_stat(reader, data_type)?;
+            }
         }
         None => {}
     }
@@ -314,6 +322,7 @@ fn numeric_stat(reader: &mut Reader, data_type: &DataType) -> Result<Value> {
         match data_type {
             DataType::Boolean => Value::Boolean(reader.boolean()?),
             DataType::Date => Value::Date(super::binary::date(reader.signed()?)?),
+            t if t.is_temporal() => super::temporal::read_metadata(reader, t)?,
             DataType::Float => Value::Float(reader.float()?),
             DataType::Double => Value::Double(reader.double()?),
             _ => super::primitive::read_numeric(reader, data_type)?,

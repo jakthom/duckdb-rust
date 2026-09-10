@@ -180,6 +180,15 @@ impl TemporalValue {
             data_type,
             DataType::Time | DataType::TimeNs | DataType::TimeTz
         ) {
+            if let Some(position) = text.find(['+', '-', 'Z', 'z'])
+                && text[..position]
+                    .bytes()
+                    .filter(|byte| *byte == b':')
+                    .count()
+                    != 2
+            {
+                return Err(invalid("standalone time offset requires seconds"));
+            }
             let precision = if *data_type == DataType::TimeNs {
                 1_000_000_000
             } else {
@@ -293,6 +302,35 @@ fn invalid(message: &str) -> Error {
     Error::Conversion(message.into())
 }
 
+#[cfg(kani)]
+mod verification {
+    use super::*;
+    #[kani::proof]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn kani_timetz_packing_and_equality_preserve_valid_local_time_and_offset() {
+        let micros: i64 = kani::any();
+        let offset: i32 = kani::any();
+        let other_micros: i64 = kani::any();
+        let other_offset: i32 = kani::any();
+        // Physical TIME/TIMETZ validity is established before keys or storage.
+        kani::assume((0..=MICROS_PER_DAY).contains(&micros));
+        kani::assume((-57599..=57599).contains(&offset));
+        kani::assume((0..=MICROS_PER_DAY).contains(&other_micros));
+        kani::assume((-57599..=57599).contains(&other_offset));
+        let value = TemporalValue::TimeTz { micros, offset };
+        let other = TemporalValue::TimeTz {
+            micros: other_micros,
+            offset: other_offset,
+        };
+        let packed = value.packed_time_tz().unwrap();
+        assert_eq!(TemporalValue::from_packed_time_tz(packed).unwrap(), value);
+        assert_eq!(
+            value.comparison_key() == other.comparison_key(),
+            micros == other_micros && offset == other_offset
+        );
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_time(text: &str, precision: i64) -> Result<(i64, Option<i32>)> {
     let split = text.find(['+', '-', 'Z', 'z']);
@@ -394,8 +432,13 @@ fn parse_interval(text: &str) -> Result<TemporalValue> {
             if offset.is_some() {
                 return Err(invalid("invalid interval clock"));
             }
+            let part = hour
+                .checked_mul(3_600_000_000)
+                .and_then(|v| v.checked_add(i128::from(rest)))
+                .and_then(|v| v.checked_mul(sign))
+                .ok_or_else(|| invalid("interval overflow"))?;
             micros = micros
-                .checked_add(sign * (hour * 3_600_000_000 + i128::from(rest)))
+                .checked_add(part)
                 .ok_or_else(|| invalid("interval overflow"))?;
             continue;
         }
@@ -423,17 +466,32 @@ fn parse_interval(text: &str) -> Result<TemporalValue> {
         let month_part = coefficient
             .checked_mul(month_factor)
             .ok_or_else(|| invalid("interval overflow"))?;
-        months += month_part / divisor;
+        months = months
+            .checked_add(month_part / divisor)
+            .ok_or_else(|| invalid("interval overflow"))?;
         let day_part = coefficient
             .checked_mul(day_factor)
-            .and_then(|d| d.checked_add((month_part % divisor) * 30))
+            .and_then(|d| {
+                (month_part % divisor)
+                    .checked_mul(30)
+                    .and_then(|r| d.checked_add(r))
+            })
             .ok_or_else(|| invalid("interval overflow"))?;
-        days += day_part / divisor;
-        micros += coefficient
+        days = days
+            .checked_add(day_part / divisor)
+            .ok_or_else(|| invalid("interval overflow"))?;
+        let micro_part = coefficient
             .checked_mul(micro_factor)
-            .and_then(|m| m.checked_add((day_part % divisor) * i128::from(MICROS_PER_DAY)))
+            .and_then(|m| {
+                (day_part % divisor)
+                    .checked_mul(i128::from(MICROS_PER_DAY))
+                    .and_then(|r| m.checked_add(r))
+            })
             .ok_or_else(|| invalid("interval overflow"))?
             / divisor;
+        micros = micros
+            .checked_add(micro_part)
+            .ok_or_else(|| invalid("interval overflow"))?;
     }
     if words.is_empty() {
         return Err(invalid("empty interval"));

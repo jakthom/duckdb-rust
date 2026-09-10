@@ -384,6 +384,13 @@ fn segment(
     } else {
         for value in values {
             match data_type {
+                t if t.is_temporal() => {
+                    if value.is_null() {
+                        data.resize(data.len() + super::primitive::width(t)?, 0);
+                    } else {
+                        value.as_temporal()?.append_storage(&mut data)?;
+                    }
+                }
                 DataType::Boolean => data.push(u8::from(*value == Value::Boolean(true))),
                 DataType::Date => data.extend(
                     if value.is_null() {
@@ -457,6 +464,8 @@ fn statistics(output: &mut Encoder, data_type: Option<&DataType>, values: &[Valu
     output.field(103);
     match data_type {
         None => {}
+        // The writer's legacy compatibility target predates interval stats.
+        Some(DataType::Interval) => {}
         Some(DataType::Varchar | DataType::Blob) => {
             output.field(200);
             output.blob(&[0; 8]);
@@ -499,6 +508,9 @@ fn statistics(output: &mut Encoder, data_type: Option<&DataType>, values: &[Valu
                     match data_type {
                         DataType::Boolean => output.boolean(*value == Value::Boolean(true)),
                         DataType::Date => output.signed(i64::from(value.as_date()?.days())),
+                        t if t.is_temporal() => {
+                            super::temporal::write_metadata(output, value.as_temporal()?)?
+                        }
                         DataType::Float => output.0.extend(value.as_f32()?.to_le_bytes()),
                         DataType::Double => output.0.extend(value.as_f64()?.to_le_bytes()),
                         _ => super::primitive::write_numeric(output, value, data_type)?,

@@ -15,6 +15,29 @@ impl CastFunction for TemporalCast {
     }
     fn supports(&self, spec: &CastSpec) -> bool {
         let (source, target) = (&spec.source, &spec.target);
+        if spec.mode == CastMode::Implicit {
+            return matches!(
+                (source, target),
+                (
+                    DataType::Date,
+                    DataType::TimestampS
+                        | DataType::TimestampMs
+                        | DataType::Timestamp
+                        | DataType::TimestampNs
+                        | DataType::TimestampTz
+                        | DataType::TimestampTzNs
+                ) | (
+                    DataType::TimestampS,
+                    DataType::TimestampMs | DataType::Timestamp | DataType::TimestampNs
+                ) | (
+                    DataType::TimestampMs,
+                    DataType::Timestamp | DataType::TimestampNs
+                ) | (
+                    DataType::Timestamp,
+                    DataType::TimestampNs | DataType::TimestampTz | DataType::TimestampTzNs
+                ) | (DataType::TimestampNs, DataType::Timestamp)
+            );
+        }
         if spec.mode != CastMode::Implicit
             && ((source.is_temporal() && *target == DataType::Varchar)
                 || (*source == DataType::Varchar && target.is_temporal()))

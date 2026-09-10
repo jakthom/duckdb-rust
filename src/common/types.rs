@@ -205,7 +205,7 @@ impl fmt::Display for DataType {
                 Self::TimestampMs => "TIMESTAMP_MS",
                 Self::TimestampNs => "TIMESTAMP_NS",
                 Self::TimestampTz => "TIMESTAMP WITH TIME ZONE",
-                Self::TimestampTzNs => "TIMESTAMP_NS WITH TIME ZONE",
+                Self::TimestampTzNs => "TIMESTAMPTZ_NS",
                 Self::Interval => "INTERVAL",
                 Self::Nested(_) => unreachable!("handled nested type"),
                 Self::Extension(_) => unreachable!("handled extension type"),

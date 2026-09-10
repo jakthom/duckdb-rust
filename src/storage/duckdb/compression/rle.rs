@@ -16,7 +16,7 @@ impl SegmentDecoder for RleDecoder {
         "duckdb-rle"
     }
     fn supports(&self, kind: SegmentType<'_>) -> bool {
-        matches!(kind, SegmentType::Values(t) if t.is_numeric() || matches!(t, DataType::Boolean | DataType::Date | DataType::Uuid))
+        matches!(kind, SegmentType::Values(t) if t.is_numeric() || t.is_temporal() || matches!(t, DataType::Boolean | DataType::Date | DataType::Uuid))
     }
     fn decode(&self, input: DecodeInput<'_>, context: &DecodeContext<'_>) -> Result<Vec<Value>> {
         context.query.check_rows(input.count)?;

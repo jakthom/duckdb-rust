@@ -437,6 +437,7 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
                     Value::Float(value) => bytes.extend(value.to_le_bytes()),
                     Value::Double(value) => bytes.extend(value.to_le_bytes()),
                     Value::Date(value) => bytes.extend(value.days().to_le_bytes()),
+                    Value::Temporal(value) => value.append_storage(&mut bytes)?,
                     _ => return Err(invalid("fixed-width physical type")),
                 }
             }

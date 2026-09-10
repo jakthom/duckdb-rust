@@ -3,6 +3,8 @@ use crate::common::{DataType, Error, Result, Value};
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn width(data_type: &DataType) -> Result<usize> {
     match data_type {
+        DataType::Interval => Ok(16),
+        t if t.is_temporal() => Ok(8),
         DataType::Boolean | DataType::TinyInt | DataType::UTinyInt => Ok(1),
         DataType::SmallInt | DataType::USmallInt => Ok(2),
         DataType::Integer | DataType::UInteger | DataType::Float | DataType::Date => Ok(4),
@@ -42,6 +44,9 @@ pub(super) fn integer(data: &[u8], offset: usize, width: usize) -> Result<i128> 
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn scalar(data: &[u8], offset: usize, data_type: &DataType) -> Result<Value> {
+    if data_type.is_temporal() {
+        return super::temporal::scalar(data, offset, data_type);
+    }
     match data_type {
         DataType::Boolean => match data.get(offset) {
             Some(0) => Ok(Value::Boolean(false)),
@@ -61,6 +66,17 @@ pub(super) fn scalar(data: &[u8], offset: usize, data_type: &DataType) -> Result
 pub(super) fn integer_value(value: i128, data_type: &DataType) -> Result<Value> {
     if *data_type == DataType::Uuid {
         return Ok(Value::Uuid((value as u128) ^ (1_u128 << 127)));
+    }
+    if data_type.is_temporal() {
+        if *data_type == DataType::TimeTz {
+            return crate::common::TemporalValue::from_packed_time_tz(value as u64)
+                .map(Value::Temporal);
+        }
+        let ticks = i64::try_from(value).map_err(|_| corrupt("temporal physical width"))?;
+        if ticks == i64::MIN {
+            return Ok(Value::Null);
+        }
+        return crate::common::TemporalValue::from_ticks(data_type, ticks).map(Value::Temporal);
     }
     if let Some(bits) = data_type.unsigned_bits() {
         return Ok(Value::Unsigned(if bits == 128 {
@@ -95,6 +111,16 @@ pub(super) fn type_id(data_type: &DataType) -> Result<u64> {
         DataType::Integer => Ok(13),
         DataType::BigInt => Ok(14),
         DataType::Date => Ok(15),
+        DataType::Time => Ok(16),
+        DataType::TimestampS => Ok(17),
+        DataType::TimestampMs => Ok(18),
+        DataType::Timestamp => Ok(19),
+        DataType::TimestampNs => Ok(20),
+        DataType::Interval => Ok(27),
+        DataType::TimestampTz => Ok(32),
+        DataType::TimestampTzNs => Ok(33),
+        DataType::TimeTz => Ok(34),
+        DataType::TimeNs => Ok(35),
         DataType::Float => Ok(22),
         DataType::Double => Ok(23),
         DataType::Varchar => Ok(25),

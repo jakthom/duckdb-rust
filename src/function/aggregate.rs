@@ -205,7 +205,18 @@ impl AggregateState for State {
                 };
             }
             "min" | "max" => {
+                // Pinned development's numeric min/max reduction chooses the
+                // right representation on a tie. INTERVAL makes this visible:
+                // one month and thirty days compare equal but format differently.
+                let interval_tie = self.data_type == DataType::Interval
+                    && !self.value.is_null()
+                    && context
+                        .types()
+                        .bind(&self.data_type)?
+                        .compare(&value, &self.value, context)?
+                        .is_eq();
                 if self.value.is_null()
+                    || interval_tie
                     || (self.name == "min"
                         && context
                             .types()
