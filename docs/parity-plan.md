@@ -56,6 +56,10 @@ extension compatibility.
   each subsystem is implemented; step 11 audits their complete coverage.
 - Use ordinary checks/tests on each pass. Enable exhaustive tracing only for a
   focused investigation. Runtime telemetry stays disposable and Git-ignored.
+- At each substantial implementation-stage boundary, add/update relevant bounded
+  proofs and run `python3 scripts/verify_kani.py`. Record the complete suite's
+  scope and outcome before marking the chunk complete. See the [Kani
+  policy](../specs/testing/kani.md); it is not a per-edit requirement.
 - Keep source fixtures and compact validation summaries distinct from operation
   telemetry. Source inventory is an input obligation, never a passing result.
 - Keep the root README identical to main. Do not edit README files.

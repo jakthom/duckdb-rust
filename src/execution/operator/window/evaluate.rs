@@ -198,3 +198,44 @@ impl FramePosition<'_> {
         })
     }
 }
+
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    #[kani::proof]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn kani_rows_frame_offsets_clip_to_partition() {
+        let count: usize = kani::any();
+        let index: usize = kani::any();
+        let offset: usize = kani::any();
+        let end: bool = kani::any();
+        let following: bool = kani::any();
+        // Production calls boundary only for an existing partition row.
+        kani::assume(index < count);
+        let peers = WindowBounds::uniform(0..count, count).unwrap();
+        let position = FramePosition {
+            index,
+            group: 0,
+            groups: &[], // ROWS does not consult peer-group positions.
+            peers: &peers,
+        };
+        let bound = if following {
+            FrameBound::Following(offset)
+        } else {
+            FrameBound::Preceding(offset)
+        };
+        // Saturating unsigned arithmetic is independent of the signed formula
+        // used in production. Widen before adding the exclusive-end adjustment.
+        let base = index as u128 + u128::from(end);
+        let expected = if following {
+            base + offset as u128
+        } else {
+            base.saturating_sub(offset as u128)
+        }
+        .min(count as u128) as usize;
+        let actual = position.boundary(bound, end, FrameUnits::Rows).unwrap();
+        assert_eq!(actual, expected);
+        assert!(actual <= count);
+    }
+}

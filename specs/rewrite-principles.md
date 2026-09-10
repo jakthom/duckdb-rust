@@ -85,6 +85,12 @@ AI functionality must be optional and attach through declared interfaces at the 
 
 ### Verification and acceptance
 
+Each substantial Rust implementation chunk must pass the [Kani stage-validation
+gate](testing/kani.md) before it is declared complete. Ordinary edit/test passes
+use the normal checks; Kani runs at stage boundaries. Proof scope, assumptions,
+bounds, and execution results must remain explicit alongside other acceptance
+evidence.
+
 The interface is the primary conformance-test surface. Built-in and alternative adapters must run the same applicable contract tests. Adapter-specific tests supplement, rather than replace, those checks. Fuzzing, failure injection, and benchmarks must select implementations through the declared seams.
 
 Every major module's rewrite specification must identify its interface, replaceable adapters, dependencies, compatibility constraints, and conformance suite. Before declaring a seam proven, demonstrate at least two meaningfully different adapters and replacement without caller changes. A fake can help test an interface, but does not establish production interoperability or performance.

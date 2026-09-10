@@ -154,6 +154,11 @@ codegen-units = 16
 
 [lints.rust]
 unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[package.metadata.kani.flags]
+# Harnesses with loops must declare and justify their own unwind bounds.
+default-unwind = "1"
 
 [lints.clippy]
 dbg_macro = "deny"

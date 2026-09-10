@@ -33,6 +33,11 @@ Fuzz supported operation sequences and capability combinations, including cancel
 
 ## Measurement and promotion rules
 
+Before completing each substantial implementation chunk, run the [Kani
+stage-validation gate](kani.md) and record its proof scope and results alongside
+the applicable workload checks. A passing proof does not establish workload
+correctness or performance beyond the properties and inputs it covers.
+
 Record implementation revisions, adapter versions and configuration, hardware, datasets and distributions, indexes/layouts, concurrency, cache state, load generation, offered and completed load, and resource limits. Include warm and cold runs where relevant. End-to-end latency must include queueing and retries; record transaction isolation and durability settings with every transactional result.
 
 Report setup, planning, execution, conversion, and commit costs separately as well as end-to-end. Record samples and variability, errors and aborts, and correctness outcomes rather than reporting only the best throughput. Separate architectural dispatch/composition overhead from differences in algorithms or physical layouts.

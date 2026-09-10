@@ -21,6 +21,11 @@ The checks here concern this Rust implementation. The source-system testing spec
 
 ## Automated checks
 
+`python3 scripts/verify_kani.py` runs the maintained Kani proof suite at each
+substantial implementation-stage boundary. The [Kani policy and runbook](../specs/testing/kani.md)
+define cadence, installation, proof scope, and incomplete-gate handling. Ordinary
+checks/tests remain the per-edit feedback loop.
+
 `cargo test --all-targets` runs the contract suite, native file compatibility cases, and the supported SQLLogicTest corpus. It requires no installed DuckDB engine. Interface tests vary adapters through `DatabaseBuilder` and the ordinary public contracts.
 
 Configuration contracts run the settings, named-session and `ORDER BY ALL`

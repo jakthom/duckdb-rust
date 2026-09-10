@@ -1,6 +1,31 @@
 # Development feedback
 
 Use ordinary `cargo check`, `cargo test` and `cargo clippy` for each edit/test pass.
+
+## Stage validation with Kani
+
+Run `python3 scripts/verify_kani.py` before declaring each substantial rewrite
+chunk or planned implementation stage complete. This includes a feature slice,
+subsystem/adapter implementation, cross-module refactor, or change to an important
+data, ownership, arithmetic, or state-transition invariant. Several small commits
+can form one chunk; do not defer validation until the whole PR is finished.
+
+Keep Kani out of the routine edit/check/test loop. Documentation-only changes,
+formatting, and isolated low-impact edits do not require a run. Focused
+`cargo kani --harness ...` runs are useful when debugging a proof, but stage
+completion requires the full maintained suite through the command above.
+
+At the stage boundary, add or update bounded proofs for the changed invariants
+and retain existing proofs. Verify production functions, document input/loop
+bounds and assumptions, and leave safety and unwinding checks enabled. A failed,
+timed-out, unsupported, missing-tool, or empty run is an incomplete gate. Fix or
+isolate the cause and rerun; report unresolved limitations without claiming the
+stage passed. Record commands, version, source revision, proof scope and results
+in the stage's validation summary. Kani supplements the required ordinary,
+compatibility and performance checks. See [the policy](specs/testing/kani.md).
+
+## Development tracing
+
 `cargo dev check|test|run|build|clippy` also runs without tracing by default. Do not
 record every operation on every pass: recording can dominate database execution
 and changes the timings being investigated.

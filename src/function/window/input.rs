@@ -121,6 +121,30 @@ fn validate(range: &Range<usize>, count: usize) -> Result<()> {
     }
 }
 
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    #[kani::proof]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn kani_uniform_window_bounds_validate_and_retain_range() {
+        let start: usize = kani::any();
+        let end: usize = kani::any();
+        let count: usize = kani::any();
+        let bounds = WindowBounds::uniform(start..end, count);
+        assert_eq!(bounds.is_ok(), start <= end && end <= count);
+        if let Ok(bounds) = bounds {
+            assert_eq!(bounds.len(), count);
+            assert_eq!(bounds.is_empty(), count == 0);
+            assert_eq!(bounds.uniform_range(), Some(&(start..end)));
+            let row: usize = kani::any();
+            if row < count {
+                assert_eq!(bounds[row], start..end);
+            }
+        }
+    }
+}
+
 /// Rows and bounds have equal cardinality. Arguments have already been
 /// evaluated once per input row and validated against argument_types. Peers
 /// contain their row; frames may be empty. Functions borrow this input only

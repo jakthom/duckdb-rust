@@ -79,3 +79,24 @@ pub(super) fn scalar(
     }
     Ok(values)
 }
+
+#[cfg(kani)]
+mod verification {
+    #[kani::proof]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn kani_packed_byte_count_matches_wide_arithmetic() {
+        let count: usize = kani::any();
+        let width: usize = kani::any();
+        let actual = super::byte_count(count, width);
+        if width > 128 {
+            assert!(actual.is_err());
+            return;
+        }
+        // A wider oracle can represent the padded size even when usize cannot.
+        let expected = (count as u128).div_ceil(32) * 4 * width as u128;
+        match actual {
+            Ok(bytes) => assert_eq!(bytes as u128, expected),
+            Err(_) => assert!(expected > usize::MAX as u128),
+        }
+    }
+}
