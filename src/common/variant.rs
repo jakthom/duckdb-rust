@@ -55,6 +55,7 @@ impl<'a> Node<'a> {
                 DataType::Time | DataType::TimeNs => 9,
                 DataType::TimeTz => 10,
                 DataType::Interval => 11,
+                DataType::Bit => 13,
                 DataType::Nested(metadata) => match metadata.as_ref() {
                     NestedType::List(_) | NestedType::Array { .. } | NestedType::Map { .. } => 14,
                     NestedType::Struct(_) => 15,
@@ -188,6 +189,7 @@ impl<'a> Node<'a> {
             DataType::TimestampTz => "TIMESTAMP_MICROS_TZ",
             DataType::TimestampTzNs => "TIMESTAMP_NANOS_TZ",
             DataType::Interval => "INTERVAL",
+            DataType::Bit => "BITSTRING",
             _ => return Err(invalid()),
         }
         .into())

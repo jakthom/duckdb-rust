@@ -4,6 +4,8 @@ use super::*;
 #[test]
 fn variant_dynamic_width_null_members_and_path_presence() -> Result<()> {
     let mut c = Database::memory()?.connect();
+    assert_eq!(c.query("SELECT variant_typeof('101'::BIT::VARIANT),('101'::BIT::VARIANT)::BIT::VARCHAR,'101'::BIT::VARIANT<'1010'::BIT::VARIANT,variant_typeof(({'b':'1'::BIT,'a':'0'::BIT}::VARIANT).b)")?.rows,
+        vec![vec![Value::Varchar("BITSTRING".into()),Value::Varchar("101".into()),Value::Boolean(true),Value::Varchar("BITSTRING".into())]]);
     assert_eq!(c.query("SELECT variant_typeof({'b':1,'a':2}::VARIANT),variant_typeof({'b':1,'a':NULL}::VARIANT),variant_typeof({'b':1,'a':NULL::INTEGER}::VARIANT),variant_typeof(([{'b':1,'a':2}]::VARIANT)[1]),variant_typeof('x'),variant_typeof(NULL)")?.rows,
         vec![vec![Value::Varchar("OBJECT(a, b)".into()),Value::Varchar("OBJECT(b, a)".into()),Value::Varchar("OBJECT(a, b)".into()),Value::Varchar("OBJECT(b, a)".into()),Value::Varchar("VARCHAR".into()),Value::Varchar("VARIANT_NULL".into())]]);
     assert_eq!(c.query("SELECT map(['x'],[1])::VARIANT::VARCHAR,{'b':'x,y','a':'NULL'}::VARIANT::VARCHAR,[NULL,'NULL','','a,b','a b',' x ']::VARIANT::VARCHAR")?.rows,
