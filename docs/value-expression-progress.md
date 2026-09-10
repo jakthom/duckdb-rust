@@ -5,8 +5,9 @@ The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
 Latest integrated source: `748dfba`; the sixth-checkpoint section below tracks
-the combined family increments and qualified nested binding. Validation is in
-progress. The last pushed checkpoint is `135eece`, whose engine source
+the combined family increments and qualified nested binding. Workspace and
+exploratory Kani validation pass; new upstream/performance acceptance remains
+open. The last pushed checkpoint is `135eece`, whose engine source
 `88e9094` passed the 34-workload timing gate and controlled upstream refresh.
 Those timings do not measure the new combined source. Earlier sections retain
 historical results and limits.
@@ -585,7 +586,7 @@ sequence aliases and native VARIANT reader are not part of this frozen source;
 they require continuous integration and their own combined validation. The
 large value-and-expression milestone remains active and incomplete.
 
-## Sixth integrated checkpoint, 2026-09-10 (in progress)
+## Sixth integrated implementation checkpoint, 2026-09-10
 
 Source `748dfba` combines the selected floating VARCHAR formatter, Base64,
 nanosecond/TIMETZ functions and temporal aliases, strict VARIANT clock casts,
@@ -610,9 +611,21 @@ not waived or normalized away.
 Ordinary check, all-target clippy, nested 28, contracts 27, grouping nine and
 subqueries 15 pass. Before the binder increment, the combined scalar/temporal
 suite also passed numeric 28, temporal 25, casts 12, floating seven and binary
-eight. Full workspace, instrumentation compatibility and the maintained Kani
-suite are running for this combined source; no result is claimed before they
-finish. New worker DATE/numeric/Object increments are not part of this source.
+eight. The full workspace suite now passes, with the same two external-CLI
+analytics tests ignored. The recovery tail-truncation suite completed in
+63.77 seconds. Instrumentation coverage reports 297 files, 2,688 functions and
+209 interface methods with no missing entries. The traced all-target check
+completed in 66.54 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted.
+
+`python3 scripts/verify_kani.py` passes all six maintained harnesses under Kani
+0.67.0, with zero failures: TIMETZ 51.321 s, unsigned keys 0.799 s, dense offsets
+0.489 s, ROWS 2.284 s, uniform bounds 2.360 s, packed byte counts 103.182 s.
+Caller-location (one) and foreign-function (four) unsupported constructs remain
+unreachable in these proofs; atomics remain sequential and the vendor parser's
+unused-variable warning persists. No proof of general native VARIANT decoding,
+qualified SQL binding, strict clock parsing or concurrent durability is claimed.
+New worker DATE/numeric/Object increments are not part of this source.
 
 No sixth-checkpoint performance or full upstream acceptance campaign has run.
 The fifth checkpoint's passing 34-workload campaign does not cover these new
