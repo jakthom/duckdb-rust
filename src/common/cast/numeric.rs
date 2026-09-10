@@ -196,7 +196,11 @@ impl ExactNumericCast {
             };
         }
         match target {
-            DataType::Varchar => Ok(Value::Varchar(value.to_string())),
+            DataType::Varchar => match value {
+                Value::Float(value) => super::floating_text::float(*value).map(Value::Varchar),
+                Value::Double(value) => super::floating_text::double(*value).map(Value::Varchar),
+                _ => Ok(Value::Varchar(value.to_string())),
+            },
             DataType::Float => {
                 let n = value.as_f64()?;
                 let out = n as f32;

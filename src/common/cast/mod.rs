@@ -6,6 +6,7 @@ mod builtin;
 mod date;
 pub mod enumeration;
 mod failure;
+mod floating_text;
 mod integer;
 mod nested;
 pub mod numeric;

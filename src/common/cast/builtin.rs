@@ -83,6 +83,12 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
         (Value::Boolean(_), DataType::Boolean)
         | (Value::Double(_), DataType::Double)
         | (Value::Varchar(_), DataType::Varchar) => Ok(value.clone()),
+        (Value::Float(value), DataType::Varchar) => {
+            super::floating_text::float(*value).map(Value::Varchar)
+        }
+        (Value::Double(value), DataType::Varchar) => {
+            super::floating_text::double(*value).map(Value::Varchar)
+        }
         (_, DataType::Varchar) => Ok(Value::Varchar(value.to_string())),
         (Value::Integer(v), DataType::Boolean) => Ok(Value::Boolean(*v != 0)),
         (Value::Float(v), DataType::Boolean) => Ok(Value::Boolean(*v != 0.0)),
