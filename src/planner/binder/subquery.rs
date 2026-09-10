@@ -42,6 +42,17 @@ impl State<'_, '_> {
                 });
             }
         }
+        for prefix in (1..parts.len()).rev() {
+            if let Ok(mut value) = self.column(&parts[..prefix], fields, grouping)
+                && matches!(value.data_type, DataType::Nested(_))
+            {
+                for field in &parts[prefix..] {
+                    value = self
+                        .nested_access(value, BoundExpr::literal(Value::Varchar(field.clone())))?;
+                }
+                return Ok(value);
+            }
+        }
         Err(Error::Bind(format!("column {} not found", parts.join("."))))
     }
 

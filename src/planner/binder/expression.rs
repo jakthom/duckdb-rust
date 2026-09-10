@@ -167,6 +167,33 @@ impl State<'_, '_> {
                 },
             ),
             ast::Expr::Nested(e) => recurse(e),
+            ast::Expr::CompoundFieldAccess { root, access_chain } => {
+                let mut value = recurse(root)?;
+                for access in access_chain {
+                    let key = match access {
+                        ast::AccessExpr::Subscript(ast::Subscript::Index { index }) => {
+                            recurse(index)?
+                        }
+                        ast::AccessExpr::Dot(ast::Expr::Identifier(name)) => {
+                            BoundExpr::literal(Value::Varchar(name.value.clone()))
+                        }
+                        _ => return Err(unsupported("nested slice or accessor")),
+                    };
+                    value = self.nested_access(value, key)?;
+                }
+                Ok(value)
+            }
+            ast::Expr::Array(array) => self.nested_constructor(
+                array.elem.iter().map(&recurse).collect::<Result<_>>()?,
+                None,
+            ),
+            ast::Expr::Dictionary(fields) => self.nested_constructor(
+                fields
+                    .iter()
+                    .map(|field| recurse(&field.value))
+                    .collect::<Result<_>>()?,
+                Some(fields.iter().map(|field| field.key.value.clone()).collect()),
+            ),
             ast::Expr::BinaryOp { left, op, right } => {
                 use ast::BinaryOperator as B;
                 let overload = match op {

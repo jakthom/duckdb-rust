@@ -1,6 +1,7 @@
 mod aggregate;
 mod binary_scalar;
 pub mod grouped;
+pub(crate) mod nested;
 pub mod operator;
 mod scalar;
 mod settings;
@@ -168,6 +169,7 @@ impl FunctionRegistry {
         let mut registry = Self::default();
         scalar::register(&mut registry);
         binary_scalar::register(&mut registry);
+        nested::register(&mut registry);
         aggregate::register(&mut registry);
         settings::register(&mut registry);
         window::register(&mut registry);

@@ -1,6 +1,7 @@
 mod alter;
 mod expression;
 mod grouping;
+mod nested;
 mod query;
 mod recursive;
 mod scope;
@@ -141,6 +142,59 @@ impl State<'_, '_> {
                 Err(Error::Bind("BLOB does not take type parameters".into()))
             }
             T::Uuid => Ok(DataType::Uuid),
+            T::Array(element) => {
+                use ast::ArrayElemTypeDef as A;
+                match element {
+                    A::SquareBracket(element, Some(length)) => {
+                        Ok(crate::common::NestedType::Array {
+                            element: self.data_type(element)?,
+                            length: usize::try_from(*length)
+                                .map_err(|_| Error::Bind("ARRAY size out of range".into()))?,
+                        }
+                        .data_type())
+                    }
+                    A::SquareBracket(element, None)
+                    | A::AngleBracket(element)
+                    | A::Parenthesis(element) => {
+                        Ok(crate::common::NestedType::List(self.data_type(element)?).data_type())
+                    }
+                    A::None => Err(Error::Bind("ARRAY requires an element type".into())),
+                }
+            }
+            T::Struct(fields, _) => Ok(crate::common::NestedType::Struct(
+                fields
+                    .iter()
+                    .map(|field| {
+                        Ok((
+                            field
+                                .field_name
+                                .as_ref()
+                                .ok_or_else(|| Error::Bind("STRUCT field requires a name".into()))?
+                                .value
+                                .clone(),
+                            self.data_type(&field.field_type)?,
+                        ))
+                    })
+                    .collect::<Result<_>>()?,
+            )
+            .data_type()),
+            T::Map(key, value) => Ok(crate::common::NestedType::Map {
+                key: self.data_type(key)?,
+                value: self.data_type(value)?,
+            }
+            .data_type()),
+            T::Union(fields) => Ok(crate::common::NestedType::Union(
+                fields
+                    .iter()
+                    .map(|field| {
+                        Ok((
+                            field.field_name.value.clone(),
+                            self.data_type(&field.field_type)?,
+                        ))
+                    })
+                    .collect::<Result<_>>()?,
+            )
+            .data_type()),
             T::TinyInt(_) => Ok(DataType::TinyInt),
             T::SmallInt(_) | T::Int2(_) | T::Int16 => Ok(DataType::SmallInt),
             T::Int(_) | T::Integer(_) | T::Int4(_) | T::Int32 => Ok(DataType::Integer),
@@ -215,6 +269,9 @@ impl State<'_, '_> {
                 if name == "guid" && modifiers.is_empty() {
                     self.context.query.types().bind(&DataType::Uuid)?;
                     return Ok(DataType::Uuid);
+                }
+                if name == "variant" && modifiers.is_empty() {
+                    return Ok(crate::common::NestedType::Variant.data_type());
                 }
                 let parameters = modifiers
                     .iter()
