@@ -1000,3 +1000,97 @@ fn interval_cast_categories_remain_exact_while_try_cast_suppresses_only_local_in
     }
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn temporal_text_errors_distinguish_format_range_offsets_and_precision_without_swallowing_children()
+-> Result<()> {
+    use duckdb_rust::Error;
+    for batched in [false, true] {
+        let mut c = DatabaseBuilder::new()
+            .batch_size(1)
+            .expressions(if batched {
+                Arc::new(BatchedEvaluator)
+            } else {
+                Arc::new(ScalarEvaluator)
+            })
+            .build()?
+            .connect();
+        for (kind, input, message) in [
+            ("TIME", "50:42:04.500", "time field value out of range"),
+            ("TIME_NS", "14-42-04", "time field value out of range"),
+            ("TIMETZ", "12:00:00+99", "time field value out of range"),
+            ("TIMESTAMP", "blabla", "invalid timestamp field format"),
+            (
+                "TIMESTAMP",
+                "1900-1-1 00:99:23",
+                "invalid timestamp field format",
+            ),
+            (
+                "TIMESTAMP",
+                "1900-1-1 59:59:23",
+                "timestamp field value out of range",
+            ),
+            (
+                "TIMESTAMP",
+                "1993-20-14 00:00:00",
+                "timestamp field value out of range",
+            ),
+            (
+                "TIMESTAMPTZ",
+                "1900-02-29",
+                "timestamp field value out of range",
+            ),
+            (
+                "TIMESTAMP",
+                "294247-01-10 04:00:54.775807",
+                "timestamp field value out of range",
+            ),
+            (
+                "TIMESTAMP",
+                "2000-01-01 12:00:00+2",
+                "has a timestamp that is not UTC",
+            ),
+            (
+                "TIMESTAMPTZ",
+                "2000-01-01 12:00:00 America/New_York",
+                "has a timestamp that is not UTC",
+            ),
+            (
+                "TIMESTAMP_NS",
+                "2262-04-11 23:47:16.854775807",
+                "Could not convert string",
+            ),
+            ("TIMESTAMP_S", "1900-02-29", "Could not convert string"),
+            ("TIMESTAMP_MS", "blabla", "Could not convert string"),
+            (
+                "TIMESTAMPTZ_NS",
+                "2262-04-11 23:47:16.854775807",
+                "invalid timestamp field format",
+            ),
+        ] {
+            let strict = c.prepare(&format!("SELECT CAST($1 AS {kind})"))?;
+            let tolerant = c.prepare(&format!("SELECT TRY_CAST($1 AS {kind})"))?;
+            let input = [Value::Varchar(input.into())];
+            assert!(
+                matches!(c.execute_prepared(&strict, &input), Err(Error::Conversion(error)) if error.contains(message)),
+                "{kind}: {input:?}"
+            );
+            assert_eq!(
+                c.execute_prepared(&tolerant, &input)?.rows,
+                vec![vec![Value::Null]]
+            );
+        }
+        assert_eq!(c.query("SELECT TIMESTAMP 'inf'::VARCHAR,TIMESTAMPTZ_NS '-INF'::VARCHAR,TRY_CAST('inf ' AS TIMESTAMP),TRY_CAST('inf' AS TIME)")?.rows, vec![vec![Value::Varchar("infinity".into()), Value::Varchar("-infinity".into()), Value::Null, Value::Null]]);
+        assert!(
+            c.query("SELECT TRY_CAST(CAST('blabla' AS TIMESTAMP) AS VARCHAR)")
+                .is_err()
+        );
+        let statement = c.prepare("SELECT CAST($1 AS TIMESTAMP)")?;
+        let error = c
+            .execute_prepared(&statement, &[Value::Varchar("🌏".repeat(100_000))])
+            .unwrap_err();
+        assert!(error.to_string().len() < 1024);
+    }
+    Ok(())
+}

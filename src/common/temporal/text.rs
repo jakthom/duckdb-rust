@@ -47,7 +47,7 @@ impl Scanner<'_, '_> {
         let mut hour = 0_i64;
         while let Some(digit @ b'0'..=b'9') = self.peek() {
             if self.pos - start == 9 {
-                return Err(invalid("time field value out of range"));
+                return Err(invalid("invalid clock hour field"));
             }
             hour = hour * 10 + i64::from(digit - b'0');
             self.advance()?;
@@ -74,7 +74,10 @@ impl Scanner<'_, '_> {
                 self.digits(false)?
             }
         };
-        if hour > 24 || minute >= 60 || second >= 60 {
+        if minute >= 60 || second >= 60 {
+            return Err(invalid("invalid clock minute or second field"));
+        }
+        if hour > 24 {
             return Err(invalid("time field value out of range"));
         }
         let mut fraction = 0;
@@ -185,7 +188,10 @@ fn timestamp(
         None => (),
         Some(b'Z') => suffix.advance()?,
         Some(b'+' | b'-') => {
-            let offset = suffix.offset()?;
+            let offset = suffix.offset().map_err(|error| match error {
+                Error::Conversion(_) => invalid("non-UTC timezone requires the ICU extension"),
+                _ => error,
+            })?;
             if use_offset {
                 parts.micros =
                     finite_timestamp(i128::from(parts.micros) - i128::from(offset) * 1_000_000)?;
@@ -204,7 +210,7 @@ fn timestamp(
                 return Err(invalid("non-UTC timezone requires the ICU extension"));
             }
         }
-        _ => return Err(invalid("invalid timestamp suffix")),
+        _ => return Err(invalid("non-UTC timezone requires the ICU extension")),
     }
     suffix.space()?;
     if suffix.pos != bytes.len() {
@@ -225,6 +231,45 @@ fn finite_timestamp(ticks: i128) -> Result<i64> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn parse(
+    text: &str,
+    data_type: &DataType,
+    check: &mut dyn FnMut() -> Result<()>,
+) -> Result<TemporalValue> {
+    parse_inner(text, data_type, check).map_err(|error| {
+        let Error::Conversion(message) = error else {
+            return error;
+        };
+        // These are diagnostics from this parser's own conversion, not a
+        // policy for catching arbitrary adapter/validator errors. Preserve
+        // interruption and other fatal categories unchanged, and bound input
+        // copied into an error independently of the caller's string length.
+        let end = text.char_indices().nth(128).map_or(text.len(), |(i, _)| i);
+        let input = &text[..end];
+        let tail = if end < text.len() { "..." } else { "" };
+        let rendered = format!("{input}{tail}");
+        use DataType::*;
+        match data_type {
+            Time | TimeNs | TimeTz => invalid(&format!(
+                "time field value out of range: \"{rendered}\", expected format is ([YYYY-MM-DD ]HH:MM:SS[.MS])"
+            )),
+            TimestampNs | TimestampS | TimestampMs => invalid(&format!(
+                "Could not convert string '{rendered}' to INT64"
+            )),
+            _ if message == "non-UTC timezone requires the ICU extension" => invalid(&format!(
+                "timestamp field value \"{rendered}\" has a timestamp that is not UTC.\nUse the TIMESTAMPTZ type with the ICU extension loaded to handle non-UTC timestamps."
+            )),
+            _ if matches!(message.as_str(), "date field value out of range" | "DATE outside finite range" | "time field value out of range" | "timestamp outside finite range") => invalid(&format!(
+                "timestamp field value out of range: \"{rendered}\""
+            )),
+            _ => invalid(&format!(
+                "invalid timestamp field format: \"{rendered}\", expected format is (YYYY-MM-DD HH:MM[:SS[.US]][±HH[:MM[:SS]]| ZONE])"
+            )),
+        }
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_inner(
     text: &str,
     data_type: &DataType,
     check: &mut dyn FnMut() -> Result<()>,
@@ -290,7 +335,8 @@ pub(super) fn parse(
     if nanos {
         TemporalValue::from_ticks(
             data_type,
-            finite_timestamp(i128::from(parts.micros) * 1000 + i128::from(parts.nanos))?,
+            finite_timestamp(i128::from(parts.micros) * 1000 + i128::from(parts.nanos))
+                .map_err(|_| invalid("timestamp nanoseconds outside finite range"))?,
         )
     } else {
         TemporalValue::Timestamp(parts.micros).scale_timestamp(data_type)
