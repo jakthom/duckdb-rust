@@ -1,4 +1,5 @@
 use std::sync::Arc;
+mod base64;
 
 use super::{
     FunctionRegistry, ScalarFunction,
@@ -24,6 +25,9 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "to_binary",
         "unhex",
         "from_hex",
+        "base64",
+        "to_base64",
+        "from_base64",
     ] {
         registry
             .register_scalar(Arc::new(BinaryFunction(name, None)))
@@ -41,6 +45,13 @@ impl ScalarFunction for BinaryFunction {
         arguments: &[DataType],
         _: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Vec<DataType>> {
+        if arguments.len() == 1 {
+            match self.0 {
+                "base64" | "to_base64" => return Ok(vec![DataType::Blob]),
+                "from_base64" => return Ok(vec![DataType::Varchar]),
+                _ => (),
+            }
+        }
         if matches!(
             self.0,
             "encode" | "unhex" | "from_hex" | "hex" | "to_hex" | "bin" | "to_binary"
@@ -71,8 +82,10 @@ impl ScalarFunction for BinaryFunction {
             return Err(Error::Bind(format!("{} requires one argument", self.0)));
         };
         let (supported, output) = match self.0 {
-            "encode" | "unhex" | "from_hex" => (*input == DataType::Varchar, DataType::Blob),
-            "decode" => (*input == DataType::Blob, DataType::Varchar),
+            "encode" | "unhex" | "from_hex" | "from_base64" => {
+                (*input == DataType::Varchar, DataType::Blob)
+            }
+            "decode" | "base64" | "to_base64" => (*input == DataType::Blob, DataType::Varchar),
             "octet_length" => (
                 matches!(input, DataType::Blob | DataType::Bit),
                 DataType::BigInt,
@@ -103,6 +116,10 @@ impl ScalarFunction for BinaryFunction {
             return Ok(Value::Null);
         }
         match (self.0, input) {
+            ("base64" | "to_base64", Value::Blob(bytes)) => {
+                base64::encode(bytes, query).map(Value::Varchar)
+            }
+            ("from_base64", Value::Varchar(text)) => base64::decode(text, query).map(Value::Blob),
             ("encode", Value::Varchar(text)) => Ok(Value::Blob(text.as_bytes().to_vec())),
             ("decode", Value::Blob(bytes)) => String::from_utf8(bytes.clone())
                 .map(Value::Varchar)

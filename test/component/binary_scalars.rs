@@ -1,4 +1,6 @@
 use std::sync::Arc;
+#[path = "base64.rs"]
+mod base64;
 
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
