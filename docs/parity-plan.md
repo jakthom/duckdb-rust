@@ -12,10 +12,18 @@ before campaigns. Differences between reference expectations remain explicit;
 one target cannot stand in for the other. Historical v1.3 results are not a
 current compatibility baseline.
 
+Development behavior takes precedence when the two references disagree. For
+each semantically comparable workload, the faster reference is the performance
+baseline, with a maximum Rust/C++ median latency ratio of 1.0. Record both
+measurements and the selected baseline; non-comparable or unmeasured scopes
+remain open. See the acceptance requirements for the 2026-09-10 clarification.
+
 Implementation priority is porting database functionality to Rust. The current
-increment completes binding namespaces with NATURAL/USING joins, set operations,
-and the first window-function/QUALIFY implementation. See the
-[relational port](relational-port.md) for exact capabilities and evidence. Use the existing tests and reference
+increment adds unsigned and decimal types and coercion; its
+[progress report](numeric-port.md) records the implemented foundation and open
+correctness, native-file and performance obligations. The preceding
+[relational port](relational-port.md) implements NATURAL/USING joins, set
+operations and the first window-function/QUALIFY support. Use the existing tests and reference
 builds to verify each increment. Change a harness when a missing behavior blocks
 faithful verification; expanding verification infrastructure is not a prerequisite
 for continuing engine implementation.
@@ -28,7 +36,7 @@ for continuing engine implementation.
 | 2 | Finish verification harness semantics | Unchanged SQLLogicTest assertions, controls, fixtures, comparison rules, connection/restart/concurrency behavior; mapped native/client assertions and negative harness tests | Open |
 | 3 | Repair existing compatibility failures | v1.5.5 WAL metadata and ALTER discrepancies resolved; valid reference-produced fixtures and bidirectional read/write/recovery checks | Open |
 | 4 | Binding namespaces and NATURAL/USING joins | Merged and qualified keys, wildcards, aliases, outer joins and correlated scopes; unchanged upstream cases and alternative join adapters | Implemented and verified in the relational port; two reference-version differences are explicit |
-| 5 | Foundational types, casts and function resolution | Unsigned, decimal, temporal and nested families, collations/coercion/overloads across vectors, expressions, indexes, files and results | Open |
+| 5 | Foundational types, casts and function resolution | Unsigned, decimal, temporal and nested families, collations/coercion/overloads across vectors, expressions, indexes, files and results | Unsigned/decimal foundation implemented; numeric coercion edge cases, development files and seven measured numeric performance regressions remain open; broader families unported |
 | 6 | Remaining SQL and catalog behavior | Windows/frames, joins/lateral/set operations, CTEs/functions, views/macros/sequences/dependencies/constraints/attachments and DDL | Set operations and core windows/QUALIFY implemented; remaining frames, SQL and catalog behavior open |
 | 7 | Native storage and transaction compatibility | Required formats/codecs/metadata/WAL/checkpoints, bounded storage access, conflicts, incremental indexes and crash recovery | Open |
 | 8 | Execution and resources at scale | Memory accounting, buffers, spill, parallel scheduling and required planning behavior; comparable size/concurrency/resource workloads | Open |

@@ -40,6 +40,10 @@ impl AggregateFunction for Builtin {
             "sum" | "avg" if args[0].is_numeric() || args[0] == DataType::Null => {
                 Ok(if self.0 == "avg" || args[0].is_floating() {
                     DataType::Double
+                } else if let DataType::Decimal { scale, .. } = args[0] {
+                    DataType::Decimal { width: 38, scale }
+                } else if args[0] == DataType::UHugeInt {
+                    DataType::Double
                 } else {
                     DataType::HugeInt
                 })
@@ -110,7 +114,9 @@ impl AggregateState for State {
                 .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
             return Ok(());
         };
-        if self.name == "sum" && self.data_type != DataType::HugeInt {
+        if self.name == "sum"
+            && (self.data_type != DataType::HugeInt || !column.data_type().is_signed_integer())
+        {
             return super::update_aggregate_rows(self, arguments, context);
         }
         if self.name == "sum" && self.sum_dense(column, context)? {
@@ -145,6 +151,15 @@ impl AggregateState for State {
             "sum" | "avg" => {
                 let value = if self.data_type == DataType::Double {
                     Value::Double(value.as_f64()?)
+                } else if let DataType::Decimal { width, scale } = self.data_type {
+                    let Value::Decimal { value, .. } = value else {
+                        return Err(Error::Internal("decimal aggregate argument".into()));
+                    };
+                    Value::Decimal {
+                        value,
+                        width,
+                        scale,
+                    }
                 } else {
                     Value::Integer(value.as_i128()?)
                 };
@@ -155,6 +170,21 @@ impl AggregateState for State {
                             .ok_or_else(|| Error::Execution("sum overflow".into()))?,
                     ),
                     (Value::Double(a), Value::Double(b)) => Value::Double(a + b),
+                    (
+                        Value::Decimal {
+                            value: a,
+                            width,
+                            scale,
+                        },
+                        Value::Decimal { value: b, .. },
+                    ) => {
+                        // SUM accumulates in the physical HUGEINT domain.
+                        let value = a
+                            .checked_add(b)
+                            .ok_or_else(|| Error::Execution("sum overflow".into()))?;
+                        crate::common::numeric::decimal(value, *width, *scale)
+                            .map_err(|_| Error::Execution("sum overflow".into()))?
+                    }
                     _ => return Err(Error::Internal("aggregate type mismatch".into())),
                 };
             }

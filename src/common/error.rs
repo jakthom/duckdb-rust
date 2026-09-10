@@ -24,6 +24,10 @@ pub enum Error {
     Unsupported(String),
     #[error("Execution Error: {0}")]
     Execution(String),
+    #[error("Out of Range Error: {0}")]
+    OutOfRange(String),
+    #[error("Invalid Input Error: {0}")]
+    InvalidInput(String),
     #[error("Interrupted")]
     Interrupted,
     #[error("Resource limit exceeded: {0}")]

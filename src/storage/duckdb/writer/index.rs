@@ -285,6 +285,16 @@ fn encode_value(value: &Value, data_type: &DataType, output: &mut Vec<u8>) -> Re
             ));
         }
         Value::Boolean(v) => output.push(u8::from(*v)),
+        Value::Unsigned(v) => {
+            let width = super::super::primitive::width(data_type)?;
+            output.extend(&v.to_be_bytes()[16 - width..]);
+        }
+        Value::Decimal { value, .. } => {
+            let width = super::super::primitive::width(data_type)?;
+            let mut bytes = value.to_be_bytes();
+            bytes[16 - width] ^= 128;
+            output.extend(&bytes[16 - width..]);
+        }
         Value::Date(v) => output.extend((v.days() as u32 ^ (1 << 31)).to_be_bytes()),
         Value::Integer(v) => {
             let width = match data_type {

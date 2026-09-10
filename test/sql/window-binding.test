@@ -9,6 +9,7 @@ CREATE TABLE integers(i INTEGER)
 statement error
 SELECT MIN(a) OVER (PARTITION BY i ORDER BY i) FROM integers
 ----
+
 statement error
 SELECT MIN(i) OVER (PARTITION BY a ORDER BY i) FROM integers
 ----
@@ -29,3 +30,4 @@ SELECT MIN(i) OVER (PARTITION BY i ORDER BY i, a) FROM integers
 query I
 SELECT MIN(i) OVER (PARTITION BY i ORDER BY i) FROM integers
 ----
+

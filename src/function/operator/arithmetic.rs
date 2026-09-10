@@ -11,7 +11,7 @@ impl OperatorFunction for NumericArithmetic {
     fn supports(&self, signature: &OperatorSignature) -> bool {
         use Operator::*;
         let t = &signature.result;
-        t.is_numeric()
+        (t.is_integer() || t.is_floating())
             && signature.arguments.len() == signature.operator.arity()
             && signature.arguments.iter().all(|a| a == t)
             && match signature.operator {
@@ -88,7 +88,43 @@ impl OperatorFunction for NumericArithmetic {
         query.check()?;
         use Operator::*;
         let op = signature.operator;
-        let value = if signature.result.is_integer() {
+        let value = if signature.result.is_unsigned_integer() {
+            let Value::Unsigned(a) = arguments[0] else {
+                return Err(Error::Internal("unsigned arithmetic input".into()));
+            };
+            let b = match arguments.get(1) {
+                Some(Value::Unsigned(b)) => *b,
+                None => 0,
+                _ => return Err(Error::Internal("unsigned arithmetic input".into())),
+            };
+            let result = match op {
+                Plus => Some(a),
+                Negate => (a == 0).then_some(0),
+                Add => a.checked_add(b),
+                Subtract => a.checked_sub(b),
+                Multiply => a.checked_mul(b),
+                IntegerDivide | Modulo if b == 0 => {
+                    return Err(Error::InvalidInput("Division by zero".into()));
+                }
+                IntegerDivide => a.checked_div(b),
+                Modulo => a.checked_rem(b),
+                _ => {
+                    return Err(Error::Internal(
+                        "invalid unsigned arithmetic binding".into(),
+                    ));
+                }
+            };
+            let value = Value::Unsigned(result.ok_or_else(|| {
+                Error::OutOfRange(format!("Overflow in {} arithmetic", signature.result))
+            })?);
+            if !value.fits_type(&signature.result) {
+                return Err(Error::OutOfRange(format!(
+                    "Overflow in {} arithmetic",
+                    signature.result
+                )));
+            }
+            value
+        } else if signature.result.is_signed_integer() {
             let a = arguments[0].as_i128()?;
             let b = if arguments.len() == 2 {
                 arguments[1].as_i128()?
@@ -225,6 +261,11 @@ pub(super) fn register(registry: &mut OperatorRegistry) {
         DataType::Integer,
         DataType::BigInt,
         DataType::HugeInt,
+        DataType::UTinyInt,
+        DataType::USmallInt,
+        DataType::UInteger,
+        DataType::UBigInt,
+        DataType::UHugeInt,
         DataType::Float,
         DataType::Double,
     ] {

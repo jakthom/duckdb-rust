@@ -52,7 +52,7 @@ pub(super) fn read(reader: &mut Reader, depth: usize) -> Result<Value> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn value(reader: &mut Reader) -> Result<Value> {
+pub(super) fn value(reader: &mut Reader) -> Result<Value> {
     reader.field(100)?;
     let data_type = logical_type(reader)?;
     reader.field(101)?;
@@ -74,6 +74,9 @@ fn value(reader: &mut Reader) -> Result<Value> {
             DataType::Float => Value::Float(reader.float()?),
             DataType::Double => Value::Double(reader.double()?),
             DataType::Varchar => Value::Varchar(reader.string()?),
+            _ if data_type.is_decimal() || data_type.is_unsigned_integer() => {
+                super::super::primitive::read_numeric(reader, &data_type)?
+            }
             _ => return Err(corrupt("non-NULL value with NULL type")),
         }
     };

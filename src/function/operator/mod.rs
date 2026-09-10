@@ -2,6 +2,7 @@
 mod arithmetic;
 mod batch;
 mod date;
+pub mod decimal;
 mod string;
 
 pub use arithmetic::NumericArithmetic;
@@ -67,6 +68,16 @@ pub struct OperatorSignature {
 pub trait OperatorFunction: Debug + Send + Sync {
     fn name(&self) -> &'static str;
     fn supports(&self, signature: &OperatorSignature) -> bool;
+    /// Optional parameterized signature construction. Only adapters explicitly
+    /// installed with register_family participate; exact signatures override it.
+    /// Returned argument types require registered casts and retained type adapters.
+    fn specialize(
+        &self,
+        _operator: Operator,
+        _arguments: &[OperatorArgument<'_>],
+    ) -> Result<Option<OperatorSignature>> {
+        Ok(None)
+    }
     fn coercion(&self) -> CastMode {
         CastMode::Implicit
     }
@@ -206,6 +217,7 @@ struct Entry {
 #[derive(Clone, Debug, Default)]
 pub struct OperatorRegistry {
     entries: BTreeMap<(Operator, Vec<DataType>), Entry>,
+    families: BTreeMap<String, Arc<dyn OperatorFunction>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -216,6 +228,57 @@ impl OperatorRegistry {
         date::register(&mut registry);
         string::register(&mut registry);
         registry
+            .register_family("decimal", Arc::new(decimal::DecimalArithmetic))
+            .expect("unique decimal operator family");
+        registry
+    }
+    pub fn register_family(
+        &mut self,
+        name: &str,
+        function: Arc<dyn OperatorFunction>,
+    ) -> Result<()> {
+        if self.families.contains_key(name) {
+            return Err(Error::Catalog("operator family already registered".into()));
+        }
+        self.families.insert(name.to_owned(), function);
+        Ok(())
+    }
+    pub fn replace_family(
+        &mut self,
+        name: &str,
+        function: Arc<dyn OperatorFunction>,
+    ) -> Result<()> {
+        let entry = self
+            .families
+            .get_mut(name)
+            .ok_or_else(|| Error::Catalog("operator family not registered".into()))?;
+        *entry = function;
+        Ok(())
+    }
+    fn specialize(
+        &self,
+        operator: Operator,
+        arguments: &[OperatorArgument<'_>],
+    ) -> Result<Vec<Entry>> {
+        let mut entries = Vec::new();
+        for function in self.families.values() {
+            if let Some(signature) = function.specialize(operator, arguments)? {
+                if signature.operator != operator
+                    || signature.arguments.len() != operator.arity()
+                    || !function.supports(&signature)
+                {
+                    return Err(Error::Bind(
+                        "invalid parameterized operator signature".into(),
+                    ));
+                }
+                entries.push(Entry {
+                    signature,
+                    function: function.clone(),
+                    coercion: function.coercion(),
+                });
+            }
+        }
+        Ok(entries)
     }
     pub fn register(
         &mut self,
@@ -278,13 +341,28 @@ impl OperatorRegistry {
         arguments: &[DataType],
         types: &TypeRegistry,
     ) -> Result<BoundOperator> {
-        let entry = self
-            .entries
-            .get(&(operator, arguments.to_vec()))
-            .ok_or_else(|| {
-                Error::Bind(format!("no exact {operator:?} overload for {arguments:?}"))
-            })?;
-        Self::bind_entry(entry, types)
+        if let Some(entry) = self.entries.get(&(operator, arguments.to_vec())) {
+            return Self::bind_entry(entry, types);
+        }
+        let inputs: Vec<_> = arguments
+            .iter()
+            .map(|t| OperatorArgument {
+                data_type: t,
+                integer_literal: None,
+            })
+            .collect();
+        let entries: Vec<_> = self
+            .specialize(operator, &inputs)?
+            .into_iter()
+            .filter(|e| e.signature.arguments == arguments)
+            .collect();
+        if let [entry] = entries.as_slice() {
+            Self::bind_entry(entry, types)
+        } else {
+            Err(Error::Bind(format!(
+                "no unique exact {operator:?} overload for {arguments:?}"
+            )))
+        }
     }
     fn bind_entry(entry: &Entry, types: &TypeRegistry) -> Result<BoundOperator> {
         Ok(BoundOperator {
@@ -330,9 +408,11 @@ impl OperatorRegistry {
         }
         let mut best: Option<(&Entry, u64, Vec<CastMode>)> = None;
         let mut ambiguous = false;
+        let generated = self.specialize(operator, arguments)?;
         for entry in self
             .entries
             .values()
+            .chain(generated.iter())
             .filter(|entry| entry.signature.operator == operator)
         {
             query.check()?;
@@ -340,9 +420,13 @@ impl OperatorRegistry {
             let mut modes = Vec::with_capacity(arguments.len());
             for (argument, target) in arguments.iter().zip(&entry.signature.arguments) {
                 let literal = target.is_integer()
-                    && argument
-                        .integer_literal
-                        .is_some_and(|n| Value::Integer(n).fits_type(target));
+                    && argument.integer_literal.is_some_and(|n| {
+                        if target.is_unsigned_integer() {
+                            n >= 0 && Value::Unsigned(n as u128).fits_type(target)
+                        } else {
+                            Value::Integer(n).fits_type(target)
+                        }
+                    });
                 let mode = if literal {
                     CastMode::Explicit
                 } else {
@@ -351,6 +435,9 @@ impl OperatorRegistry {
                 let Some(mut part) = casts.coercion_cost(argument.data_type, target, mode) else {
                     break;
                 };
+                if argument.data_type.is_decimal() && target.is_decimal() {
+                    part = 0;
+                }
                 if literal && argument.data_type != target {
                     part = part.saturating_sub(90);
                 }
@@ -383,6 +470,7 @@ impl OperatorRegistry {
         self.entries
             .values()
             .map(|e| e.function.name())
+            .chain(self.families.values().map(|f| f.name()))
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .map(|name| ("operators", name))

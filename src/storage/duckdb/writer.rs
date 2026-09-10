@@ -1,10 +1,7 @@
 pub(super) mod constant;
 mod index;
 
-use super::{
-    binary::{Encoder, checksum, corrupt},
-    primitive::type_id,
-};
+use super::binary::{Encoder, checksum, corrupt};
 mod catalog;
 use crate::{
     catalog::{Catalog, TableDefinition},
@@ -411,14 +408,13 @@ fn segment(
                     .to_le_bytes(),
                 ),
                 _ => {
-                    let value = if value.is_null() { 0 } else { value.as_i128()? };
-                    let width = match data_type {
-                        DataType::TinyInt => 1,
-                        DataType::SmallInt => 2,
-                        DataType::Integer => 4,
-                        DataType::BigInt => 8,
-                        _ => 16,
+                    let value = match value {
+                        Value::Null => 0,
+                        Value::Decimal { value, .. } => *value,
+                        Value::Unsigned(value) => *value as i128,
+                        _ => value.as_i128()?,
                     };
+                    let width = super::primitive::width(data_type)?;
                     data.extend(&value.to_le_bytes()[..width]);
                 }
             }
@@ -501,15 +497,7 @@ fn statistics(output: &mut Encoder, data_type: Option<&DataType>, values: &[Valu
                         DataType::Date => output.signed(i64::from(value.as_date()?.days())),
                         DataType::Float => output.0.extend(value.as_f32()?.to_le_bytes()),
                         DataType::Double => output.0.extend(value.as_f64()?.to_le_bytes()),
-                        DataType::HugeInt => {
-                            let v = value.as_i128()?;
-                            output.signed((v >> 64) as i64);
-                            output.unsigned(v as u64);
-                        }
-                        _ => output.signed(
-                            i64::try_from(value.as_i128()?)
-                                .map_err(|_| corrupt("numeric statistics overflow"))?,
-                        ),
+                        _ => super::primitive::write_numeric(output, value, data_type)?,
                     }
                 }
                 output.end();

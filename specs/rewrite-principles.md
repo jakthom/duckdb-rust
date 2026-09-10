@@ -59,6 +59,12 @@ test parity. Earlier measured 1.25 allowances are historical evidence, not activ
 acceptance criteria. Work on performance should address regressions, without
 expanding into unrelated performance improvements.
 
+The 2026-09-10 clarification separates correctness from performance baseline
+selection: when pinned release and development behavior disagree, development
+is authoritative. For each comparable workload, performance must match or beat
+the faster of the two references. Preserve both outcomes and all known
+divergences; the detailed rules are in the acceptance requirement linked above.
+
 ### Interfaces are full contracts
 
 Each interface must specify the types and semantic invariants callers rely on, ownership and lifetimes, error behavior, concurrency and ordering, cancellation, resource accounting, configuration, and supported capabilities. Applicable contracts must also cover transaction visibility, durability, effects, serialization, and compatibility/version negotiation.

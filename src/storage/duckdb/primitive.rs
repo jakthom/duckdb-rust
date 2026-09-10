@@ -3,11 +3,18 @@ use crate::common::{DataType, Error, Result, Value};
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn width(data_type: &DataType) -> Result<usize> {
     match data_type {
-        DataType::Boolean | DataType::TinyInt => Ok(1),
-        DataType::SmallInt => Ok(2),
-        DataType::Integer | DataType::Float | DataType::Date => Ok(4),
-        DataType::BigInt | DataType::Double => Ok(8),
-        DataType::HugeInt => Ok(16),
+        DataType::Boolean | DataType::TinyInt | DataType::UTinyInt => Ok(1),
+        DataType::SmallInt | DataType::USmallInt => Ok(2),
+        DataType::Integer | DataType::UInteger | DataType::Float | DataType::Date => Ok(4),
+        DataType::BigInt | DataType::UBigInt | DataType::Double => Ok(8),
+        DataType::HugeInt | DataType::UHugeInt => Ok(16),
+        DataType::Decimal { width, .. } => Ok(match width {
+            1..=4 => 2,
+            5..=9 => 4,
+            10..=18 => 8,
+            19..=38 => 16,
+            _ => return Err(corrupt("invalid decimal width")),
+        }),
         _ => Err(Error::Unsupported(format!(
             "fixed-width storage for {data_type}"
         ))),
@@ -52,6 +59,20 @@ pub(super) fn scalar(data: &[u8], offset: usize, data_type: &DataType) -> Result
 /// Numeric codecs operate on physical integers. Reconstruct the logical value
 /// here; column validity is applied by the caller after segment decoding.
 pub(super) fn integer_value(value: i128, data_type: &DataType) -> Result<Value> {
+    if let Some(bits) = data_type.unsigned_bits() {
+        return Ok(Value::Unsigned(if bits == 128 {
+            value as u128
+        } else {
+            (value as u128) & ((1_u128 << bits) - 1)
+        }));
+    }
+    if let DataType::Decimal { width, scale } = data_type {
+        return Ok(Value::Decimal {
+            value,
+            width: *width,
+            scale: *scale,
+        });
+    }
     if *data_type == DataType::Date {
         let days = i32::try_from(value).map_err(|_| corrupt("DATE width overflow"))?;
         if days == i32::MIN {
@@ -75,8 +96,82 @@ pub(super) fn type_id(data_type: &DataType) -> Result<u64> {
         DataType::Double => Ok(23),
         DataType::Varchar => Ok(25),
         DataType::HugeInt => Ok(50),
+        DataType::UTinyInt => Ok(28),
+        DataType::USmallInt => Ok(29),
+        DataType::UInteger => Ok(30),
+        DataType::UBigInt => Ok(31),
+        DataType::UHugeInt => Ok(49),
+        DataType::Decimal { .. } => Ok(21),
         _ => Err(Error::Unsupported(format!(
             "DuckDB storage type {data_type}"
         ))),
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn write_type(output: &mut super::binary::Encoder, data_type: &DataType) -> Result<()> {
+    crate::common::type_registry::check_metadata(data_type)?;
+    output.property(100, type_id(data_type)?);
+    if let DataType::Decimal { width, scale } = data_type {
+        output.field(101);
+        output.boolean(true);
+        output.property(100, 2); // DECIMAL_TYPE_INFO
+        output.property(200, u64::from(*width));
+        if *scale != 0 {
+            output.property(201, u64::from(*scale));
+        }
+        output.end();
+    }
+    output.end();
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn write_numeric(
+    output: &mut super::binary::Encoder,
+    value: &Value,
+    data_type: &DataType,
+) -> Result<()> {
+    if data_type.is_unsigned_integer() {
+        let Value::Unsigned(n) = value else {
+            return Err(corrupt("unsigned numeric metadata"));
+        };
+        if *data_type == DataType::UHugeInt {
+            output.unsigned((n >> 64) as u64);
+        }
+        output.unsigned(*n as u64);
+    } else {
+        let n = match value {
+            Value::Decimal { value, .. } => *value,
+            _ => value.as_i128()?,
+        };
+        if width(data_type)? == 16 {
+            output.signed((n >> 64) as i64);
+            output.unsigned(n as u64);
+        } else {
+            output.signed(i64::try_from(n).map_err(|_| corrupt("numeric metadata overflow"))?);
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn read_numeric(
+    reader: &mut super::binary::Reader,
+    data_type: &DataType,
+) -> Result<Value> {
+    if data_type.is_unsigned_integer() {
+        let upper = if *data_type == DataType::UHugeInt {
+            u128::from(reader.unsigned()?) << 64
+        } else {
+            0
+        };
+        return Ok(Value::Unsigned(upper | u128::from(reader.unsigned()?)));
+    }
+    let n = if width(data_type)? == 16 {
+        (i128::from(reader.signed()?) << 64) | i128::from(reader.unsigned()?)
+    } else {
+        i128::from(reader.signed()?)
+    };
+    integer_value(n, data_type)
 }

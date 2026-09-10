@@ -227,6 +227,10 @@ fn print_result(result: &QueryResult, json: bool) -> Result<()> {
                         duckdb_rust::Value::Boolean(v) => serde_json::Value::Bool(*v),
                         duckdb_rust::Value::Integer(v) => serde_json::from_str(&v.to_string())
                             .unwrap_or_else(|_| serde_json::Value::String(v.to_string())),
+                        duckdb_rust::Value::Unsigned(_) | duckdb_rust::Value::Decimal { .. } => {
+                            serde_json::from_str(&value.to_string())
+                                .unwrap_or_else(|_| serde_json::Value::String(value.to_string()))
+                        }
                         duckdb_rust::Value::Float(v) if v.is_finite() => serde_json::json!(v),
                         duckdb_rust::Value::Float(v) => serde_json::Value::String(v.to_string()),
                         duckdb_rust::Value::Double(v) if v.is_finite() => serde_json::json!(v),

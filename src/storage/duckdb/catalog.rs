@@ -125,6 +125,33 @@ pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
         23 => DataType::Double,
         25 => DataType::Varchar,
         50 => DataType::HugeInt,
+        28 => DataType::UTinyInt,
+        29 => DataType::USmallInt,
+        30 => DataType::UInteger,
+        31 => DataType::UBigInt,
+        49 => DataType::UHugeInt,
+        21 => {
+            reader.field(101)?;
+            if !reader.boolean()? {
+                return Err(corrupt("missing decimal metadata"));
+            }
+            reader.field(100)?;
+            if reader.unsigned()? != 2 {
+                return Err(corrupt("invalid decimal type info"));
+            }
+            if reader.optional(101)? && !reader.string()?.is_empty() {
+                return Err(Error::Unsupported("aliased decimal metadata".into()));
+            }
+            let width = u8::try_from(reader.optional_unsigned(200, 0)?)
+                .map_err(|_| corrupt("decimal width overflow"))?;
+            let scale = u8::try_from(reader.optional_unsigned(201, 0)?)
+                .map_err(|_| corrupt("decimal scale overflow"))?;
+            reader.end()?;
+            let data_type = DataType::Decimal { width, scale };
+            crate::common::type_registry::check_metadata(&data_type)
+                .map_err(|_| corrupt("invalid decimal metadata"))?;
+            data_type
+        }
         id => return Err(Error::Unsupported(format!("DuckDB logical type {id}"))),
     };
     reader.end()?;
@@ -230,6 +257,17 @@ fn indexes(reader: &mut Reader) -> Result<()> {
                         }
                     }
                 }
+                reader.end()?;
+            }
+        }
+        // Index allocator options affect the foreign physical ART only. Rust
+        // reconstructs indexes from validated logical rows on load.
+        if reader.optional(103)? {
+            for _ in 0..reader.length()? {
+                reader.field(0)?;
+                reader.string()?;
+                reader.field(1)?;
+                constant::value(reader)?;
                 reader.end()?;
             }
         }

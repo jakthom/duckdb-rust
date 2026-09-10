@@ -4,6 +4,7 @@ pub mod ascii;
 mod batch;
 pub mod date;
 mod key;
+pub mod numeric;
 pub use key::KeyWriter;
 
 use std::{
@@ -196,6 +197,21 @@ impl TypeRegistry {
         registry
             .register(DataType::Date.family(), Arc::new(date::DateType))
             .expect("unique DATE family");
+        for data_type in [
+            DataType::UTinyInt,
+            DataType::USmallInt,
+            DataType::UInteger,
+            DataType::UBigInt,
+            DataType::UHugeInt,
+            DataType::Decimal {
+                width: 18,
+                scale: 3,
+            },
+        ] {
+            registry
+                .register(data_type.family(), Arc::new(numeric::ExactNumericTypes))
+                .expect("unique numeric family");
+        }
         registry
     }
     pub fn register(&mut self, family: &str, adapter: Arc<dyn TypeAdapter>) -> Result<()> {
@@ -227,14 +243,14 @@ impl TypeRegistry {
         self.validate_children(data_type)?;
         adapter.validate_type(data_type)?;
         let key_representation = adapter.key_representation(data_type);
-        if key_representation == KeyRepresentation::Integer && !data_type.is_integer() {
+        if key_representation == KeyRepresentation::Integer && !data_type.is_signed_integer() {
             return Err(Error::Bind(
                 "integer equality keys require a physical integer type".into(),
             ));
         }
         let ordering_representation = adapter.ordering_representation(data_type);
         if ordering_representation == OrderingRepresentation::SignedInteger
-            && !data_type.is_integer()
+            && !data_type.is_signed_integer()
         {
             return Err(Error::Bind(
                 "signed integer ordering requires a physical integer type".into(),
@@ -259,6 +275,13 @@ impl TypeRegistry {
             .ok_or_else(|| Error::Resource("type metadata exceeds 4096 nodes".into()))?;
         if depth > 64 {
             return Err(Error::Resource("type nesting exceeds 64".into()));
+        }
+        if let DataType::Decimal { width, scale } = data_type
+            && (!(1..=38).contains(width) || scale > width)
+        {
+            return Err(Error::Bind(
+                "DECIMAL requires width 1..38 and scale 0..width".into(),
+            ));
         }
         if let DataType::Extension(identity) = data_type {
             let super::TypeIdentity { name, parameters } = identity.as_ref();
@@ -378,14 +401,14 @@ pub struct PrimitiveTypes;
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for PrimitiveTypes {
     fn ordering_representation(&self, data_type: &DataType) -> OrderingRepresentation {
-        if data_type.is_integer() {
+        if data_type.is_signed_integer() {
             OrderingRepresentation::SignedInteger
         } else {
             OrderingRepresentation::Comparison
         }
     }
     fn key_representation(&self, data_type: &DataType) -> KeyRepresentation {
-        if data_type.is_integer() {
+        if data_type.is_signed_integer() {
             KeyRepresentation::Integer
         } else {
             KeyRepresentation::CanonicalBytes
@@ -398,7 +421,10 @@ impl TypeAdapter for PrimitiveTypes {
         "primitive-types"
     }
     fn validate_type(&self, data_type: &DataType) -> Result<()> {
-        if matches!(data_type, DataType::Date | DataType::Extension(_)) {
+        if matches!(data_type, DataType::Date | DataType::Extension(_))
+            || data_type.is_unsigned_integer()
+            || data_type.is_decimal()
+        {
             return Err(Error::Unsupported(
                 "type requires a separate adapter".into(),
             ));
@@ -428,7 +454,7 @@ impl TypeAdapter for PrimitiveTypes {
         right: &super::vector::Vector,
         context: &QueryContext,
     ) -> Result<Vec<Option<Ordering>>> {
-        if data_type.is_integer() {
+        if data_type.is_signed_integer() {
             batch::compare_values(left, right, context, |a, b| match (a, b) {
                 (Value::Integer(a), Value::Integer(b)) => Ok(a.cmp(b)),
                 _ => Err(Error::Internal("invalid integer comparison input".into())),

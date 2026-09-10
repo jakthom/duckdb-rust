@@ -13,6 +13,12 @@ pub enum DataType {
     Integer,
     BigInt,
     HugeInt,
+    UTinyInt,
+    USmallInt,
+    UInteger,
+    UBigInt,
+    UHugeInt,
+    Decimal { width: u8, scale: u8 },
     Float,
     Double,
     Varchar,
@@ -50,6 +56,12 @@ impl DataType {
             Self::Integer => "builtin.integer",
             Self::BigInt => "builtin.bigint",
             Self::HugeInt => "builtin.hugeint",
+            Self::UTinyInt => "builtin.utinyint",
+            Self::USmallInt => "builtin.usmallint",
+            Self::UInteger => "builtin.uinteger",
+            Self::UBigInt => "builtin.ubigint",
+            Self::UHugeInt => "builtin.uhugeint",
+            Self::Decimal { .. } => "builtin.decimal",
             Self::Float => "builtin.float",
             Self::Double => "builtin.double",
             Self::Varchar => "builtin.varchar",
@@ -69,6 +81,10 @@ impl DataType {
         }
     }
     pub fn is_integer(&self) -> bool {
+        self.is_signed_integer() || self.is_unsigned_integer()
+    }
+    /// Machine-width fast paths using i128 must require this capability.
+    pub fn is_signed_integer(&self) -> bool {
         matches!(
             self,
             Self::TinyInt | Self::SmallInt | Self::Integer | Self::BigInt | Self::HugeInt
@@ -76,7 +92,7 @@ impl DataType {
     }
 
     pub fn is_numeric(&self) -> bool {
-        self.is_integer() || self.is_floating()
+        self.is_integer() || self.is_floating() || self.is_decimal()
     }
 
     pub fn is_floating(&self) -> bool {
@@ -96,17 +112,7 @@ impl DataType {
             return Ok(right.clone());
         }
         if left.is_numeric() && right.is_numeric() {
-            if *left == Self::Double || *right == Self::Double {
-                return Ok(Self::Double);
-            }
-            if *left == Self::Float || *right == Self::Float {
-                return Ok(Self::Float);
-            }
-            return Ok(if *left == Self::HugeInt || *right == Self::HugeInt {
-                Self::HugeInt
-            } else {
-                Self::BigInt
-            });
+            return super::numeric::common_type(left, right);
         }
         Err(Error::Bind(format!(
             "incompatible types {left} and {right}"
@@ -117,6 +123,9 @@ impl DataType {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for DataType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Self::Decimal { width, scale } = self {
+            return write!(f, "DECIMAL({width},{scale})");
+        }
         if let Self::Extension(identity) = self {
             let TypeIdentity { name, parameters } = identity.as_ref();
             write!(f, "{name}")?;
@@ -147,6 +156,12 @@ impl fmt::Display for DataType {
                 Self::Integer => "INTEGER",
                 Self::BigInt => "BIGINT",
                 Self::HugeInt => "HUGEINT",
+                Self::UTinyInt => "UTINYINT",
+                Self::USmallInt => "USMALLINT",
+                Self::UInteger => "UINTEGER",
+                Self::UBigInt => "UBIGINT",
+                Self::UHugeInt => "UHUGEINT",
+                Self::Decimal { .. } => unreachable!("handled decimal type"),
                 Self::Float => "FLOAT",
                 Self::Double => "DOUBLE",
                 Self::Varchar => "VARCHAR",
@@ -164,6 +179,8 @@ pub enum Value {
     Null,
     Boolean(bool),
     Integer(i128),
+    Unsigned(u128),
+    Decimal { value: i128, width: u8, scale: u8 },
     Float(#[serde(with = "float32_bits")] f32),
     Double(#[serde(with = "float_bits")] f64),
     Varchar(String),
@@ -191,6 +208,13 @@ impl Value {
             Self::Integer(v) if i32::try_from(*v).is_ok() => DataType::Integer,
             Self::Integer(v) if i64::try_from(*v).is_ok() => DataType::BigInt,
             Self::Integer(_) => DataType::HugeInt,
+            Self::Unsigned(v) if u32::try_from(*v).is_ok() => DataType::UInteger,
+            Self::Unsigned(v) if u64::try_from(*v).is_ok() => DataType::UBigInt,
+            Self::Unsigned(_) => DataType::UHugeInt,
+            Self::Decimal { width, scale, .. } => DataType::Decimal {
+                width: *width,
+                scale: *scale,
+            },
             Self::Float(_) => DataType::Float,
             Self::Double(_) => DataType::Double,
             Self::Varchar(_) => DataType::Varchar,
@@ -218,6 +242,23 @@ impl Value {
                 DataType::HugeInt => true,
                 _ => false,
             },
+            Self::Unsigned(v) => data_type
+                .unsigned_bits()
+                .is_some_and(|bits| bits == 128 || *v < (1_u128 << bits)),
+            Self::Decimal {
+                value,
+                width,
+                scale,
+            } => {
+                *data_type
+                    == DataType::Decimal {
+                        width: *width,
+                        scale: *scale,
+                    }
+                    && (1..=38).contains(width)
+                    && scale <= width
+                    && value.unsigned_abs() < 10_u128.pow(u32::from(*width))
+            }
             Self::Extension(value) => {
                 matches!(value.data_type, DataType::Extension(_))
                     && value.data_type == *data_type
@@ -239,6 +280,8 @@ impl Value {
     pub fn as_i128(&self) -> Result<i128> {
         match self {
             Self::Integer(v) => Ok(*v),
+            Self::Unsigned(v) => i128::try_from(*v)
+                .map_err(|_| Error::Conversion("unsigned integer exceeds HUGEINT".into())),
             _ => Err(Error::Conversion(format!("{self} is not an integer"))),
         }
     }
@@ -253,6 +296,10 @@ impl Value {
     pub fn as_f64(&self) -> Result<f64> {
         match self {
             Self::Integer(v) => Ok(*v as f64),
+            Self::Unsigned(v) => Ok(*v as f64),
+            Self::Decimal { value, scale, .. } => {
+                Ok(*value as f64 / 10_f64.powi(i32::from(*scale)))
+            }
             Self::Float(v) => Ok(f64::from(*v)),
             Self::Double(v) => Ok(*v),
             _ => Err(Error::Conversion(format!("{self} is not numeric"))),
@@ -289,6 +336,29 @@ impl Value {
         match (self, other) {
             (Self::Null, Self::Null) => Ok(Ordering::Equal),
             (Self::Integer(a), Self::Integer(b)) => Ok(a.cmp(b)),
+            (Self::Unsigned(a), Self::Unsigned(b)) => Ok(a.cmp(b)),
+            (
+                Self::Decimal {
+                    value: a,
+                    scale: sa,
+                    ..
+                },
+                Self::Decimal {
+                    value: b,
+                    scale: sb,
+                    ..
+                },
+            ) => super::numeric::compare_decimal(*a, *sa, *b, *sb),
+            (Self::Integer(a), Self::Unsigned(b)) => Ok(if *a < 0 {
+                Ordering::Less
+            } else {
+                (*a as u128).cmp(b)
+            }),
+            (Self::Unsigned(a), Self::Integer(b)) => Ok(if *b < 0 {
+                Ordering::Greater
+            } else {
+                a.cmp(&(*b as u128))
+            }),
             (Self::Boolean(a), Self::Boolean(b)) => Ok(a.cmp(b)),
             (Self::Date(a), Self::Date(b)) => Ok(a.cmp(b)),
             (Self::Varchar(a), Self::Varchar(b)) => Ok(a.cmp(b)),
@@ -318,6 +388,14 @@ impl Value {
             Self::Integer(v) => {
                 key.push(2)?;
                 key.extend_from_slice(&v.to_le_bytes())?;
+            }
+            Self::Unsigned(v) => {
+                key.push(6)?;
+                key.extend_from_slice(&v.to_le_bytes())?;
+            }
+            Self::Decimal { value, .. } => {
+                key.push(7)?;
+                key.extend_from_slice(&value.to_le_bytes())?;
             }
             Self::Float(v) => {
                 key.push(5)?;
@@ -373,6 +451,8 @@ impl fmt::Display for Value {
             Self::Null => write!(f, "NULL"),
             Self::Boolean(v) => write!(f, "{v}"),
             Self::Integer(v) => write!(f, "{v}"),
+            Self::Unsigned(v) => write!(f, "{v}"),
+            Self::Decimal { value, scale, .. } => super::numeric::format_decimal(*value, *scale, f),
             Self::Float(v) => write!(f, "{v}"),
             Self::Double(v) => write!(f, "{v}"),
             Self::Varchar(v) => write!(f, "{v}"),

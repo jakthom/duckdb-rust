@@ -328,27 +328,30 @@ impl State<'_, '_> {
                             self.context.query,
                         )?
                         .unwrap_or(function_impl);
-                    let data_type = function_impl.return_type(
+                    let argument_types = function_impl.argument_types(
                         &arguments
                             .iter()
                             .map(|e| e.data_type.clone())
                             .collect::<Vec<_>>(),
                         self.context.query.types(),
                     )?;
-                    if name.eq_ignore_ascii_case("coalesce") || name.eq_ignore_ascii_case("nullif")
-                    {
-                        arguments = arguments
-                            .into_iter()
-                            .map(|e| {
-                                e.cast(
-                                    data_type.clone(),
-                                    CastMode::Implicit,
-                                    self.context.casts,
-                                    self.context.query.types(),
-                                )
-                            })
-                            .collect::<Result<Vec<_>>>()?;
+                    if argument_types.len() != arguments.len() {
+                        return Err(Error::Internal("scalar argument type count".into()));
                     }
+                    arguments = arguments
+                        .into_iter()
+                        .zip(argument_types.iter())
+                        .map(|(e, target)| {
+                            e.cast(
+                                target.clone(),
+                                CastMode::Implicit,
+                                self.context.casts,
+                                self.context.query.types(),
+                            )
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let data_type =
+                        function_impl.return_type(&argument_types, self.context.query.types())?;
                     Ok(BoundExpr {
                         data_type,
                         kind: ExprKind::Scalar(function_impl, arguments),

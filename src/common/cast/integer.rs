@@ -13,7 +13,7 @@ impl CastFunction for DigitIntegerCast {
     }
     fn supports(&self, spec: &CastSpec) -> bool {
         spec.source == DataType::Varchar
-            && spec.target.is_integer()
+            && spec.target.is_signed_integer()
             && spec.mode != CastMode::Implicit
     }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {

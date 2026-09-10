@@ -1,4 +1,4 @@
-use super::{Encoder, Result, TableDefinition, constant, type_id};
+use super::{Encoder, Result, TableDefinition, constant};
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(in crate::storage::duckdb) fn table_definition(
@@ -56,8 +56,7 @@ pub(in crate::storage::duckdb) fn column_definition(
     output.field(100);
     output.string(&column.name)?;
     output.field(101);
-    output.property(100, type_id(&column.data_type)?);
-    output.end();
+    super::super::primitive::write_type(output, &column.data_type)?;
     if !column.default.is_null() {
         output.field(102);
         output.boolean(true);

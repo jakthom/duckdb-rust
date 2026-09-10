@@ -3,6 +3,7 @@
 mod builtin;
 mod date;
 mod integer;
+pub mod numeric;
 
 pub use date::DateCast;
 
@@ -54,6 +55,7 @@ pub trait CastFunction: Debug + Send + Sync {
             DataType::Integer => 102,
             DataType::HugeInt => 103,
             DataType::Double => 104,
+            DataType::Decimal { .. } => 105,
             DataType::Varchar => 149,
             _ => 110,
         }
@@ -119,6 +121,7 @@ impl BoundCast {
 #[derive(Clone, Debug, Default)]
 pub struct CastRegistry {
     functions: BTreeMap<CastSpec, Arc<dyn CastFunction>>,
+    families: BTreeMap<(String, String), Arc<dyn CastFunction>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -189,7 +192,47 @@ impl CastRegistry {
                     .expect("unique DATE cast");
             }
         }
+        numeric::register(&mut registry);
         registry
+    }
+    /// A selected family adapter resolves parameterized types without expanding
+    /// every precision/scale pair. Exact registrations take precedence. Missing
+    /// families have no fallback; supports() controls each mode and parameter set.
+    pub fn register_family(
+        &mut self,
+        source: &str,
+        target: &str,
+        function: Arc<dyn CastFunction>,
+    ) -> Result<()> {
+        let key = (source.to_owned(), target.to_owned());
+        if self.families.contains_key(&key) {
+            return Err(Error::Bind("cast family is already registered".into()));
+        }
+        self.families.insert(key, function);
+        Ok(())
+    }
+    pub fn replace_family(
+        &mut self,
+        source: &str,
+        target: &str,
+        function: Arc<dyn CastFunction>,
+    ) -> Result<()> {
+        let entry = self
+            .families
+            .get_mut(&(source.to_owned(), target.to_owned()))
+            .ok_or_else(|| Error::Bind("cast family is not registered".into()))?;
+        *entry = function;
+        Ok(())
+    }
+    fn selected(&self, spec: &CastSpec) -> Option<&Arc<dyn CastFunction>> {
+        self.functions.get(spec).or_else(|| {
+            self.families
+                .get(&(
+                    spec.source.family().to_owned(),
+                    spec.target.family().to_owned(),
+                ))
+                .filter(|function| function.supports(spec))
+        })
     }
     pub fn register(&mut self, spec: CastSpec, function: Arc<dyn CastFunction>) -> Result<()> {
         super::type_registry::check_metadata(&spec.source)?;
@@ -202,7 +245,7 @@ impl CastRegistry {
     pub fn replace(&mut self, spec: CastSpec, function: Arc<dyn CastFunction>) -> Result<()> {
         super::type_registry::check_metadata(&spec.source)?;
         super::type_registry::check_metadata(&spec.target)?;
-        if !self.functions.contains_key(&spec) {
+        if self.selected(&spec).is_none() {
             return Err(Error::Bind("cannot replace an unregistered cast".into()));
         }
         self.install(spec, function)
@@ -231,10 +274,10 @@ impl CastRegistry {
             target: target.clone(),
             mode,
         };
-        let function =
-            self.functions.get(&spec).cloned().ok_or_else(|| {
-                Error::Bind(format!("no {mode:?} cast from {source} to {target}"))
-            })?;
+        let function = self
+            .selected(&spec)
+            .cloned()
+            .ok_or_else(|| Error::Bind(format!("no {mode:?} cast from {source} to {target}")))?;
         Ok(BoundCast {
             spec,
             source: source_type,
@@ -253,7 +296,7 @@ impl CastRegistry {
             target: target.clone(),
             mode,
         };
-        self.functions.get(&spec).map(|function| {
+        self.selected(&spec).map(|function| {
             if source == target {
                 0
             } else {
@@ -262,8 +305,12 @@ impl CastRegistry {
         })
     }
     pub fn adapters(&self) -> Vec<(&'static str, &'static str)> {
-        let names: std::collections::BTreeSet<_> =
-            self.functions.values().map(|f| f.name()).collect();
+        let names: std::collections::BTreeSet<_> = self
+            .functions
+            .values()
+            .chain(self.families.values())
+            .map(|f| f.name())
+            .collect();
         names.into_iter().map(|name| ("casts", name)).collect()
     }
 }
@@ -303,6 +350,10 @@ impl CastFunction for PrimitiveCast {
     fn supports(&self, spec: &CastSpec) -> bool {
         if matches!(spec.source, DataType::Date | DataType::Extension(_))
             || matches!(spec.target, DataType::Date | DataType::Extension(_))
+            || spec.source.is_unsigned_integer()
+            || spec.target.is_unsigned_integer()
+            || spec.source.is_decimal()
+            || spec.target.is_decimal()
         {
             return false;
         }

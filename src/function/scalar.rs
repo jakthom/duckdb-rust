@@ -11,6 +11,9 @@ struct Builtin(&'static str);
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
+    registry
+        .register_scalar(Arc::new(TypeOf(None)))
+        .expect("unique typeof");
     for name in [
         "abs",
         "lower",
@@ -41,6 +44,23 @@ impl ScalarFunction for Builtin {
             ArgumentEvaluation::Eager
         }
     }
+    fn argument_types(
+        &self,
+        arguments: &[DataType],
+        types: &crate::common::type_registry::TypeRegistry,
+    ) -> Result<Vec<DataType>> {
+        if matches!(self.0, "coalesce" | "nullif") {
+            return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
+        }
+        if self.0 == "round" && arguments.len() == 1 && arguments[0].is_unsigned_integer() {
+            return Ok(vec![match arguments[0] {
+                DataType::UBigInt => DataType::HugeInt,
+                DataType::UHugeInt => DataType::Double,
+                _ => DataType::BigInt,
+            }]);
+        }
+        Ok(arguments.to_vec())
+    }
     fn return_type(
         &self,
         arguments: &[DataType],
@@ -63,10 +83,18 @@ impl ScalarFunction for Builtin {
             {
                 Ok(DataType::BigInt)
             }
-            "abs" | "round"
+            "abs"
                 if count == 1 && (arguments[0].is_numeric() || arguments[0] == DataType::Null) =>
             {
                 Ok(arguments[0].clone())
+            }
+            "round"
+                if count == 1 && (arguments[0].is_numeric() || arguments[0] == DataType::Null) =>
+            {
+                Ok(match arguments[0] {
+                    DataType::Decimal { width, .. } => DataType::Decimal { width, scale: 0 },
+                    _ => arguments[0].clone(),
+                })
             }
             "sqrt"
                 if count == 1 && (arguments[0].is_numeric() || arguments[0] == DataType::Null) =>
@@ -127,6 +155,12 @@ impl ScalarFunction for Builtin {
                         .ok_or_else(|| Error::Execution("integer overflow".into()))?,
                 ),
                 Value::Float(v) => Value::Float(v.abs()),
+                Value::Unsigned(_) => args[0].clone(),
+                Value::Decimal {
+                    value,
+                    width,
+                    scale,
+                } => crate::common::numeric::decimal(value.abs(), *width, *scale)?,
                 _ => Value::Double(args[0].as_f64()?.abs()),
             },
             "lower" => Value::Varchar(args[0].to_string().to_lowercase()),
@@ -142,11 +176,69 @@ impl ScalarFunction for Builtin {
                 Value::Double(v.sqrt())
             }
             "round" => match &args[0] {
-                Value::Integer(_) => args[0].clone(),
+                Value::Integer(_) | Value::Unsigned(_) => args[0].clone(),
+                Value::Decimal {
+                    value,
+                    width,
+                    scale,
+                } => crate::common::numeric::decimal(
+                    crate::common::numeric::rescale(*value, *scale, 0)?,
+                    *width,
+                    0,
+                )?,
                 Value::Float(v) => Value::Float(v.round()),
                 _ => Value::Double(args[0].as_f64()?.round()),
             },
             _ => return Err(Error::Internal("unregistered builtin".into())),
         })
+    }
+}
+
+#[derive(Debug)]
+struct TypeOf(Option<DataType>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for TypeOf {
+    fn name(&self) -> &str {
+        "typeof"
+    }
+    fn argument_evaluation(&self) -> ArgumentEvaluation {
+        ArgumentEvaluation::TypeOnly
+    }
+    fn bind(
+        &self,
+        arguments: &dyn super::ScalarBindArguments,
+        query: &QueryContext,
+    ) -> Result<Option<Arc<dyn ScalarFunction>>> {
+        query.check()?;
+        if arguments.len() != 1 {
+            return Err(Error::Bind("typeof requires one argument".into()));
+        }
+        Ok(Some(Arc::new(Self(Some(arguments.data_type(0)?)))))
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _: &crate::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        if self.0.as_ref().is_some_and(|t| arguments == [t.clone()]) {
+            Ok(DataType::Varchar)
+        } else {
+            Err(Error::Bind(
+                "typeof requires contextual type binding".into(),
+            ))
+        }
+    }
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        if !arguments.is_empty() {
+            return Err(Error::Internal("typeof evaluated its argument".into()));
+        }
+        Ok(Value::Varchar(
+            self.0
+                .as_ref()
+                .ok_or_else(|| Error::Internal("unbound typeof".into()))?
+                .to_string(),
+        ))
     }
 }

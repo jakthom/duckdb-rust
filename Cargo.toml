@@ -83,6 +83,10 @@ name = "types"
 path = "test/component/types.rs"
 
 [[test]]
+name = "numeric"
+path = "test/component/numeric.rs"
+
+[[test]]
 name = "optimizer"
 path = "test/component/optimizer.rs"
 

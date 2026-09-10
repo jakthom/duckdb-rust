@@ -255,12 +255,7 @@ fn numeric_stat(reader: &mut Reader, data_type: &DataType) -> Result<Value> {
             DataType::Date => Value::Date(super::binary::date(reader.signed()?)?),
             DataType::Float => Value::Float(reader.float()?),
             DataType::Double => Value::Double(reader.double()?),
-            DataType::HugeInt => {
-                let upper = reader.signed()?;
-                let lower = reader.unsigned()?;
-                Value::Integer((i128::from(upper) << 64) | i128::from(lower))
-            }
-            _ => Value::Integer(i128::from(reader.signed()?)),
+            _ => super::primitive::read_numeric(reader, data_type)?,
         }
     } else {
         Value::Null

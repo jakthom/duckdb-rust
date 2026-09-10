@@ -1,11 +1,19 @@
 # Test and performance parity
 
 **Full test parity and zero performance regressions are not achieved.** The
-[accepted requirement](../specs/testing/parity.md) uses C++ DuckDB revision
-`99063af2bd7092aff02e14184a20e24699d34d71`. All previous 1.25 allowances are
+[accepted requirement](../specs/testing/parity.md) uses development revision
+`99063af2bd7092aff02e14184a20e24699d34d71` as the correctness authority when
+release and development disagree. Performance uses the faster pinned C++
+reference for each comparable workload. All previous 1.25 allowances are
 superseded. Faster workloads cannot compensate for slower workloads.
 
-The [latest performance comparisons](settings/README.md) pass all sixteen
+The [numeric progress report](numeric-port.md) records the current unsigned and
+decimal foundation, 38 selected SQL cases matching development, the refreshed
+full upstream run, Kani results, and open native-file and performance gaps.
+Seven of eight new numeric workloads fail the [faster-reference gate](numeric-performance-fastest.json).
+The feature slice is not complete under the acceptance requirements.
+
+The [earlier performance comparisons](settings/README.md) pass all sixteen
 measured workloads against both **v1.5.5** (`d8cdaa33fd`) and the pinned
 development build. ORDER BY ALL joins grouped SUM, ROLLUP, CUBE and the original
 twelve passing cases. Each uses 21 paired samples and the unchanged 1.0 maximum. The
@@ -50,7 +58,22 @@ full gate requires exact case identities and every scope obligation; a selected
 passing subset cannot satisfy it. A JSON-lines journal preserves each completed
 file even if the larger campaign stops before the final report.
 
-The [latest full campaign](upstream-parity-final.json), recorded before the
+The [current full campaign](upstream-parity-numeric.json) records **305 passed
+files**, 1,887 failures, 3,435 unsupported files, eight timeouts and three
+incomplete files. All 5,638 identities have exactly one outcome. Its 16,968
+passed SQL instances include prefixes of files that later fail; they are not
+16,968 passing files. The run retains the three-second per-file limit, two
+workers and unchanged assertions. Native/client mappings and other required
+scope obligations remain unverified or unported.
+
+Against the older report, 110 files moved into passing status and two formerly
+passing files now fail: `test/issues/rigger/test_536.test` exposes a VARCHAR
+value changed by numeric VALUES coercion, and `test/sql/cte/cte_schema.test`
+fails with an ambiguous table reference. Both remain explicit obligations;
+the net increase is not a claim that no regressions exist. Many formerly
+unsupported files now reach an assertion failure instead.
+
+The [preceding full campaign](upstream-parity-final.json), recorded before the
 subsequent performance changes, records 197 passed files,
 1,197 failures, 4,234 unsupported files, seven timeouts and three incomplete
 files. All 5,638 source identities have exactly one outcome. Its 14,583 passed
@@ -100,6 +123,12 @@ prepare the same queries over the same logical data. Timed execution includes
 complete result materialization and checksum validation. The driver alternates
 engine order, warms each case three times, and retains at least nine paired
 samples. Every median ratio above **1.0** fails.
+
+[`fastest_reference.py`](../scripts/fastest_reference.py) combines the two
+retained campaigns after checking source, binary, workload, host, configuration
+and case identities. It selects the smaller C++ median per workload and checks
+both retained Rust medians against it, without choosing the better Rust sample.
+Missing cases, incorrect results and mismatched identities are rejected.
 
 Reports identify source, workload, compiler, library, executable, configuration
 and host. They retain failed measurements. The C++ worker is an independent

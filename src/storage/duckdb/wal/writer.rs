@@ -390,8 +390,7 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
     e.property(100, rows.len() as u64);
     e.property(101, types.len() as u64);
     for data_type in types {
-        e.property(100, primitive::type_id(data_type)?);
-        e.end();
+        primitive::write_type(e, data_type)?;
     }
     e.property(102, types.len() as u64);
     for (column, data_type) in types.iter().enumerate() {
@@ -431,6 +430,8 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
                     Value::Null => bytes.resize(bytes.len() + width, 0),
                     Value::Boolean(value) => bytes.push(u8::from(*value)),
                     Value::Integer(value) => bytes.extend(&value.to_le_bytes()[..width]),
+                    Value::Unsigned(value) => bytes.extend(&value.to_le_bytes()[..width]),
+                    Value::Decimal { value, .. } => bytes.extend(&value.to_le_bytes()[..width]),
                     Value::Float(value) => bytes.extend(value.to_le_bytes()),
                     Value::Double(value) => bytes.extend(value.to_le_bytes()),
                     Value::Date(value) => bytes.extend(value.days().to_le_bytes()),

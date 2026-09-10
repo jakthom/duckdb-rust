@@ -22,6 +22,9 @@ pub struct FunctionEffects {
 pub enum ArgumentEvaluation {
     Eager,
     FirstNonNull,
+    /// Binding consumes only declared argument types. No argument expression
+    /// is evaluated at execution; the bound function receives an empty slice.
+    TypeOnly,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -57,6 +60,16 @@ pub trait ScalarFunction: Debug + Send + Sync {
         _query: &QueryContext,
     ) -> Result<Option<Arc<dyn ScalarFunction>>> {
         Ok(None)
+    }
+    /// Required logical argument types. The language binder inserts casts
+    /// through the selected cast registry, then checks the result signature.
+    /// Return one type per argument; adapters cannot change call arity here.
+    fn argument_types(
+        &self,
+        arguments: &[DataType],
+        _types: &crate::common::type_registry::TypeRegistry,
+    ) -> Result<Vec<DataType>> {
+        Ok(arguments.to_vec())
     }
     fn return_type(
         &self,

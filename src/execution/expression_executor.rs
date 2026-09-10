@@ -199,7 +199,13 @@ impl ExpressionEvaluator for ScalarEvaluator {
             },
             ExprKind::Scalar(function, arguments) => {
                 let mut values = Vec::with_capacity(arguments.len());
-                for argument in arguments {
+                for argument in arguments.iter().take(
+                    if matches!(function.argument_evaluation(), ArgumentEvaluation::TypeOnly) {
+                        0
+                    } else {
+                        arguments.len()
+                    },
+                ) {
                     let value = eval(argument)?;
                     if matches!(
                         function.argument_evaluation(),

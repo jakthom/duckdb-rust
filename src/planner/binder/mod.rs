@@ -120,6 +120,27 @@ impl State<'_, '_> {
             T::Int(_) | T::Integer(_) | T::Int4(_) | T::Int32 => Ok(DataType::Integer),
             T::BigInt(_) | T::Int8(_) | T::Int64 => Ok(DataType::BigInt),
             T::HugeInt | T::Int128 => Ok(DataType::HugeInt),
+            T::UTinyInt | T::UInt8 => Ok(DataType::UTinyInt),
+            T::USmallInt | T::UInt16 => Ok(DataType::USmallInt),
+            T::UInt32 => Ok(DataType::UInteger),
+            T::UBigInt | T::UInt64 => Ok(DataType::UBigInt),
+            T::UHugeInt | T::UInt128 => Ok(DataType::UHugeInt),
+            T::Numeric(info) | T::Decimal(info) | T::Dec(info) => {
+                let (width, scale) = match info {
+                    ast::ExactNumberInfo::None => (18, 3),
+                    ast::ExactNumberInfo::Precision(width) => (*width, 0),
+                    ast::ExactNumberInfo::PrecisionAndScale(width, scale) => (*width, *scale),
+                };
+                if !(1..=38).contains(&width) || scale < 0 || scale as u64 > width {
+                    return Err(Error::Bind(
+                        "DECIMAL requires width 1..38 and scale 0..width".into(),
+                    ));
+                }
+                Ok(DataType::Decimal {
+                    width: width as u8,
+                    scale: scale as u8,
+                })
+            }
             T::Double(_) | T::DoublePrecision | T::Float8 | T::Float64 => Ok(DataType::Double),
             T::Float(ast::ExactNumberInfo::None | ast::ExactNumberInfo::Precision(1..=24))
             | T::Real
@@ -147,6 +168,10 @@ impl State<'_, '_> {
                     })
                     .collect::<Result<Vec<_>>>()?
                     .join(".");
+                if name == "uinteger" && modifiers.is_empty() {
+                    self.context.query.types().bind(&DataType::UInteger)?;
+                    return Ok(DataType::UInteger);
+                }
                 let parameters = modifiers
                     .iter()
                     .map(|p| {
@@ -576,6 +601,25 @@ fn order_expressions(order: Option<&ast::OrderBy>, width: usize) -> Result<Vec<a
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn number(value: &str) -> Result<Value> {
+    if value.contains('.') && !value.contains(['e', 'E']) {
+        let unsigned = value.strip_prefix('-').unwrap_or(value);
+        let width = unsigned.len() - 1;
+        let scale = unsigned.len() - unsigned.find('.').unwrap() - 1;
+        if width <= 38 && width > 0 {
+            let (negative, magnitude) = crate::common::cast::numeric::parse_scaled(
+                value,
+                scale as u8,
+                &crate::parallel::QueryContext::background(),
+            )?;
+            let n = i128::try_from(magnitude)
+                .map_err(|_| Error::Conversion("decimal literal overflow".into()))?;
+            return crate::common::numeric::decimal(
+                if negative { -n } else { n },
+                width as u8,
+                scale as u8,
+            );
+        }
+    }
     if value.contains(['.', 'e', 'E']) {
         value
             .parse()

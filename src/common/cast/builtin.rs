@@ -5,7 +5,7 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
     if value.is_null() {
         return Ok(Value::Null);
     }
-    if target.is_integer() {
+    if target.is_signed_integer() {
         let value = match value {
             Value::Integer(v) => *v,
             Value::Double(v)
@@ -42,6 +42,8 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
         let value = match value {
             Value::Float(v) => return Ok(Value::Float(*v)),
             Value::Integer(v) => *v as f32,
+            Value::Unsigned(v) => *v as f32,
+            Value::Decimal { .. } => value.as_f64()? as f32,
             Value::Boolean(v) => u8::from(*v) as f32,
             Value::Varchar(v) => {
                 return v

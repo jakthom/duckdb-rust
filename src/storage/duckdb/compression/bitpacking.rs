@@ -21,11 +21,11 @@ macro_rules! decoder {
         impl SegmentDecoder for $name {
             fn id(&self) -> CodecId { CodecId(6) }
             fn name(&self) -> &'static str { $label }
-            fn supports(&self, kind: SegmentType<'_>) -> bool { matches!(kind, SegmentType::Values(t) if t.is_integer() || *t == DataType::Date) }
+            fn supports(&self, kind: SegmentType<'_>) -> bool { matches!(kind, SegmentType::Values(t) if t.is_integer() || t.is_decimal() || *t == DataType::Date) }
             fn decode(&self, input: DecodeInput<'_>, context: &DecodeContext<'_>) -> Result<Vec<Value>> {
                 context.query.check_rows(input.count)?;
                 match input.kind {
-                    SegmentType::Values(t) if t.is_integer() || *t == DataType::Date => bitpacking(input.data, input.count, t, context.vector_size.max(2048), context, packed::$unpack),
+                    SegmentType::Values(t) if self.supports(input.kind) => bitpacking(input.data, input.count, t, context.vector_size.max(2048), context, packed::$unpack),
                     _ => Err(Error::Unsupported("bitpacking segment type".into())),
                 }
             }
