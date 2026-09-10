@@ -391,11 +391,11 @@ fn sum_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> Opti
 /// too. Physical dispatch is monomorphic for this block, outside the hot loop.
 fn sum_proven_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> i128 {
     // The caller's column construction proves the physical kind. Keep a
-    // checked load so an internal misuse still fails, without carrying eight
+    // checked load so an internal misuse still fails, without carrying extra
     // validity accumulators and conditional-zero coefficients through the hot
     // loop. Nothing is published until this entire private reduction returns.
-    let mut lanes = [0_i64; 8];
-    let mut blocks = values.chunks_exact(8);
+    let mut lanes = [0_i64; 4];
+    let mut blocks = values.chunks_exact(4);
     for block in &mut blocks {
         for (lane, value) in lanes.iter_mut().zip(block) {
             *lane += integer(value).expect("validated narrow SUM input");
