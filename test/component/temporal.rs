@@ -1392,3 +1392,91 @@ fn text_result_transports_reject_unrenderable_temporals_before_emitting_diagnost
     assert_eq!(rows[2]["ok"], true);
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn nanosecond_text_checks_scale_before_remainder_without_narrowing_epoch_values() -> Result<()> {
+    use duckdb_rust::Error;
+    let directory = tempfile::tempdir()?;
+    for batched in [false, true] {
+        let path = directory
+            .path()
+            .join(format!("nanosecond-product-{batched}.duckdb"));
+        let open = || {
+            let checkpoint = FileCheckpoint::open(
+                &path,
+                OpenMode::ReadWrite,
+                Arc::new(DuckDbFormat::default()),
+            )?
+            .with_recovery(Arc::new(DuckDbWalRecovery))?;
+            DatabaseBuilder::new()
+                .batch_size(1)
+                .expressions(if batched {
+                    Arc::new(BatchedEvaluator)
+                } else {
+                    Arc::new(ScalarEvaluator)
+                })
+                .durability(Arc::new(FileWal::new(
+                    checkpoint,
+                    Arc::new(DuckDbTransactionLog),
+                )?))
+                .build()
+        };
+        let mut c = open()?.connect();
+        for kind in ["TIMESTAMP_NS", "TIMESTAMPTZ_NS"] {
+            let strict = c.prepare(&format!("SELECT epoch_ns(CAST($1 AS {kind}))"))?;
+            let tolerant = c.prepare(&format!("SELECT epoch_ns(TRY_CAST($1 AS {kind}))"))?;
+            for fraction in ["145224194", "145224500", "145224999"] {
+                let input = [Value::Varchar(format!("1677-09-21 00:12:43.{fraction}"))];
+                assert!(matches!(
+                    c.execute_prepared(&strict, &input),
+                    Err(Error::Conversion(_))
+                ));
+                assert_eq!(
+                    c.execute_prepared(&tolerant, &input)?.rows,
+                    vec![vec![Value::Null]]
+                );
+            }
+            for (fraction, ticks) in [
+                ("145225000", -9_223_372_036_854_775_000_i128),
+                ("145225001", -9_223_372_036_854_774_999),
+            ] {
+                assert_eq!(
+                    c.execute_prepared(
+                        &strict,
+                        &[Value::Varchar(format!("1677-09-21 00:12:43.{fraction}"))]
+                    )?
+                    .rows,
+                    vec![vec![Value::Integer(ticks)]]
+                );
+            }
+        }
+        assert_eq!(c.query("SELECT epoch_ns(make_timestamp_ns(-9223372036854775806)),TIME_NS '1677-09-21 00:12:43.145224194'")?.rows, vec![vec![Value::Integer(-9_223_372_036_854_775_806), Value::Temporal(TemporalValue::TimeNs(763_145_224_194))]]);
+        c.execute("CREATE TABLE t(id INTEGER PRIMARY KEY,t TIMESTAMP_NS UNIQUE); INSERT INTO t VALUES(1,TIMESTAMP_NS '1677-09-21 00:12:43.145225000')")?;
+        let before = c.query("SELECT * FROM t")?.rows;
+        assert!(
+            c.execute("UPDATE t SET t=TIMESTAMP_NS '1677-09-21 00:12:43.145224999'")
+                .is_err()
+        );
+        assert_eq!(c.query("SELECT * FROM t")?.rows, before);
+        c.execute("BEGIN; DELETE FROM t; ROLLBACK")?;
+        drop(c);
+        let mut c = open()?.connect();
+        assert_eq!(c.query("SELECT * FROM t")?.rows, before);
+        assert_eq!(
+            c.query("SELECT count(*) FROM t WHERE t=make_timestamp_ns(-9223372036854775000)")?
+                .rows,
+            vec![vec![Value::Integer(1)]]
+        );
+        c.checkpoint()?;
+        drop(c);
+        assert_eq!(
+            Database::open_read_only(&path)?
+                .connect()
+                .query("SELECT * FROM t")?
+                .rows,
+            before
+        );
+    }
+    Ok(())
+}

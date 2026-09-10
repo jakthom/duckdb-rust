@@ -151,6 +151,14 @@ SQL += [f"SELECT TIMESTAMP '{value}'{operator}INTERVAL '{unit}'"
         for value, operator in [('290309-12-22 (BC) 00:00:00', '-'),
                                 ('294247-01-10 04:00:54.775806', '+')]
         for unit in ['1us', '1second', '1hour', '1day', '1month', '1year']]
+SQL += [f"SELECT epoch_ns({kind} '1677-09-21 00:12:43.{fraction}')"
+        for kind in ['TIMESTAMP_NS', 'TIMESTAMPTZ_NS']
+        for fraction in ['145224194', '145224500', '145224999', '145225000', '145225001']]
+SQL += [
+    "SELECT epoch_ns(TRY_CAST('1677-09-21 00:12:43.145224999' AS TIMESTAMP_NS))",
+    "SELECT TIME_NS '1677-09-21 00:12:43.145224194'",
+    "SELECT epoch_ns(TIMESTAMP_NS '2262-04-11 23:47:16.854775806')",
+]
 RENDER_SQL = [
     "SELECT make_timestamp(-9223372036854775806)",
     "SELECT make_timestamp_ns(-9223372036854775806)",

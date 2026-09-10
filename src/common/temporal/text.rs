@@ -335,8 +335,15 @@ fn parse_inner(
     if nanos {
         TemporalValue::from_ticks(
             data_type,
-            finite_timestamp(i128::from(parts.micros) * 1000 + i128::from(parts.nanos))
-                .map_err(|_| invalid("timestamp nanoseconds outside finite range"))?,
+            // Core checks the scaled microseconds before adding the retained
+            // nanoremainder. A positive tail cannot rescue an overflowing
+            // negative product, even when the mathematical total would fit.
+            parts
+                .micros
+                .checked_mul(1000)
+                .and_then(|ticks| ticks.checked_add(parts.nanos))
+                .filter(|ticks| ticks.abs_diff(0) < i64::MAX as u64)
+                .ok_or_else(|| invalid("timestamp nanoseconds outside finite range"))?,
         )
     } else {
         TemporalValue::Timestamp(parts.micros).scale_timestamp(data_type)
