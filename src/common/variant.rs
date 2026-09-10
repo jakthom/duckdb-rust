@@ -39,7 +39,9 @@ impl<'a> Node<'a> {
         Ok(match self.resolved()? {
             Self::MapEntry(..) => 15,
             Self::Typed(_, Value::Null) => 16,
-            Self::Typed(ty, _) if ty.is_integer() || ty.is_decimal() => 2,
+            Self::Typed(ty, _) if ty.is_integer() || ty.is_decimal() || *ty == DataType::Bignum => {
+                2
+            }
             Self::Typed(ty, _) if ty.is_floating() => 3,
             Self::Typed(ty, _) => match ty {
                 DataType::Boolean => 1,
@@ -180,6 +182,7 @@ impl<'a> Node<'a> {
             DataType::UInteger => "UINT32",
             DataType::UBigInt => "UINT64",
             DataType::UHugeInt => "UINT128",
+            DataType::Bignum => "BIGNUM",
             DataType::Decimal { width, scale } => return Ok(format!("DECIMAL({width}, {scale})")),
             DataType::Float => "FLOAT",
             DataType::Double => "DOUBLE",
@@ -288,7 +291,7 @@ fn source_is_shreddable(ty: &DataType) -> bool {
             }
             _ => false,
         },
-        DataType::Null | DataType::Enum(_) | DataType::Extension(_) => false,
+        DataType::Null | DataType::Enum(_) | DataType::Bignum | DataType::Extension(_) => false,
         _ => true,
     }
 }

@@ -373,3 +373,52 @@ storage and the broader function/performance inventory remain open.
 
 The final instrumentation check completed in 31.30 seconds with zero errors,
 panics or open spans; temporary telemetry was deleted.
+
+### Exact BIGNUM children in UNION and VARIANT
+
+BIGNUM now participates in scalar-to-UNION injection and bidirectional VARIANT
+casts without narrowing its payload. `variant_typeof` retains BIGNUM identity,
+including values beyond 128 bits. Exact numeric comparison/key normalization uses
+cancellable decimal digit conversion, matching pinned
+`src/common/types/variant/variant_comparison.cpp`: integers, decimals and BIGNUM
+share NUMBER, while floating values remain a separate REAL category. A
+4,097-digit unit witness checks the unbounded exponent/digit path.
+
+Ordinary BIGNUM distinguishes negative zero. VARIANT equates both zero signs in
+comparison and keys, while casts, extraction, prepared values and private reopen
+retain the original `-0` payload. Same-type zero comparisons still invoke the
+retained selected BIGNUM adapter with canonical comparison arguments; a registry
+replacement/empty ambient registry test verifies this ownership. Other
+same-type comparisons retain their selected implementation. STRUCTs containing
+BIGNUM preserve source member order, consistent with the development shredding
+eligibility rules, rather than being presented as sorted shredded objects.
+
+The SQL regression carries mixed BIGNUM/DECIMAL/INTEGER/DOUBLE VARIANT values
+through nested casts, UNION access, DISTINCT subqueries, equality joins, sorting,
+window partitions, prepared comparison, indexed-row mutations, rollback and
+private JSON reopen. Native VARIANT storage is still not implemented or claimed.
+Ordinary check, nested 22/22, BIGNUM 2/2, three selected VARIANT units and
+all-target clippy pass. Coverage reports 281 files, 2,500 functions and 207
+interface methods with no missing attributes.
+
+The retained diagnostic campaign is **not passing**:
+`docs/nested-bignum-variant-exact-reference.json` has 11 matching cases out of 14
+against pinned development, with unchanged source. The earlier 10/13 report is
+also preserved. Three remaining witnesses are explicit:
+
+- Stored development VARIANT_NULL reports `IS NULL = false`, although scalar
+  `NULL::VARIANT` reports true. Rust currently uses SQL NULL in both contexts.
+- Development `count(DISTINCT v)` and `count(v)` return 8 for the retained stored
+  workload; Rust returns 4 and 7. The development DISTINCT subquery returns five
+  groups, matching Rust, so aggregate behavior is a separate obligation.
+- The REAL group's VARCHAR rendering is `1.0` in development and `1` in Rust.
+  VARIANT correctly uses its retained FLOAT/DOUBLE-to-VARCHAR cast; the scalar
+  owner will investigate that formatter rather than adding a VARIANT bypass.
+
+These observations remain open correctness work, not waived tests or evidence
+of full parity. LIST concat overloads, strict VARIANT temporal-string parsing,
+native defaults/storage and broader nested function coverage remain tracked.
+Kani stays at the lead's substantial integrated checkpoint.
+
+The final instrumentation check completed in approximately 68.28 seconds with
+zero errors, panics or open spans; temporary telemetry was deleted.

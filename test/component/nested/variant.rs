@@ -114,3 +114,70 @@ fn variant_private_reopen_preserves_dynamic_child_metadata() -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn bignum_variant_and_union_preserve_exact_values_across_typed_execution() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("bignum-variant.json");
+    let open = || -> Result<Database> {
+        DatabaseBuilder::new()
+            .durability(Arc::new(FileCheckpoint::open(
+                &path,
+                OpenMode::ReadWrite,
+                Arc::new(JsonSnapshotFormat),
+            )?))
+            .build()
+    };
+    let mut c = open()?.connect();
+    assert_eq!(c.query("SELECT variant_typeof('340282366920938463463374607431768211456'::BIGNUM::VARIANT),(-0.5::DOUBLE)::BIGNUM::VARIANT::BIGNUM::VARCHAR,((-0.5::DOUBLE)::BIGNUM::VARIANT)=(0::BIGNUM::VARIANT),(1::BIGNUM::VARIANT)=(1::INTEGER::VARIANT),(1::BIGNUM::VARIANT)=(1::DOUBLE::VARIANT),('340282366920938463463374607431768211456'::BIGNUM::VARIANT)=(340282366920938463463374607431768211456.0::DOUBLE::VARIANT),(1::BIGNUM::UNION(n BIGNUM)).n::VARCHAR,variant_typeof({'z':1::BIGNUM,'a':2}::VARIANT)")?.rows,
+        vec![vec![Value::Varchar("BIGNUM".into()),Value::Varchar("-0".into()),Value::Boolean(true),Value::Boolean(true),Value::Boolean(false),Value::Boolean(false),Value::Varchar("1".into()),Value::Varchar("OBJECT(z, a)".into())]]);
+    assert_eq!(c.query("SELECT ({'xs':['340282366920938463463374607431768211456'::BIGNUM,(-0.5::DOUBLE)::BIGNUM]}::VARIANT).xs[2]::BIGNUM::VARCHAR,([1::BIGNUM,NULL]::VARIANT)::BIGNUM[]::VARCHAR,(union_value(n:=(-0.5::DOUBLE)::BIGNUM)::VARIANT)::BIGNUM::VARCHAR")?.rows,
+        vec![vec![Value::Varchar("-0".into()),Value::Varchar("[1, NULL]".into()),Value::Varchar("-0".into())]]);
+    c.execute("CREATE TABLE t(id INTEGER PRIMARY KEY,v VARIANT); INSERT INTO t VALUES(1,(-0.5::DOUBLE)::BIGNUM::VARIANT),(2,0::BIGNUM::VARIANT),(3,0::INTEGER::VARIANT),(4,1::BIGNUM::VARIANT),(5,1.00::DECIMAL(12,2)::VARIANT),(6,'340282366920938463463374607431768211456'::BIGNUM::VARIANT),(7,1.0::DOUBLE::VARIANT),(8,NULL)")?;
+    assert_eq!(
+        c.query("SELECT count(*) FROM(SELECT DISTINCT v FROM t)")?
+            .rows,
+        vec![vec![Value::Integer(5)]]
+    );
+    assert_eq!(
+        c.query("SELECT count(*) FROM t a JOIN t b ON a.v=b.v")?
+            .rows,
+        vec![vec![Value::Integer(15)]]
+    );
+    assert_eq!(
+        c.query("SELECT id,count(*) OVER(PARTITION BY v) FROM t ORDER BY v,id")?
+            .rows,
+        [3, 3, 3, 2, 2, 1, 1, 1]
+            .into_iter()
+            .enumerate()
+            .map(|(i, n)| vec![Value::Integer(i as i128 + 1), Value::Integer(n)])
+            .collect::<Vec<_>>()
+    );
+    let prepared = c.prepare("SELECT count(*) FROM t WHERE v=$1::VARIANT")?;
+    let minus = duckdb_rust::common::BignumValue::from_f64(-0.5)?.value();
+    assert_eq!(
+        c.execute_prepared(&prepared, &[minus])?.rows,
+        vec![vec![Value::Integer(3)]]
+    );
+    let before = c.query("SELECT * FROM t ORDER BY id")?.rows;
+    c.execute("BEGIN; UPDATE t SET v={'n':'340282366920938463463374607431768211456'::BIGNUM}::VARIANT WHERE id=1; DELETE FROM t WHERE id=2; ROLLBACK")?;
+    assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, before);
+    c.execute("UPDATE t SET v={'n':'340282366920938463463374607431768211456'::BIGNUM}::VARIANT WHERE id=8")?;
+    let after = c.query("SELECT * FROM t ORDER BY id")?.rows;
+    drop(c);
+    let mut c = open()?.connect();
+    assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, after);
+    assert_eq!(
+        c.query("SELECT v::BIGNUM::VARCHAR FROM t WHERE id=1")?.rows,
+        vec![vec![Value::Varchar("-0".into())]]
+    );
+    assert_eq!(
+        c.query("SELECT v.n::BIGNUM::VARCHAR FROM t WHERE id=8")?
+            .rows,
+        vec![vec![Value::Varchar(
+            "340282366920938463463374607431768211456".into()
+        )]]
+    );
+    Ok(())
+}

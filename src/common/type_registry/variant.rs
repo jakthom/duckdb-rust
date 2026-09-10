@@ -27,25 +27,39 @@ struct NumberKey {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl NumberKey {
-    fn new(value: &Value) -> Result<Self> {
-        let (negative, magnitude, scale) = match value {
-            Value::Integer(value) => (*value < 0, value.unsigned_abs(), 0),
-            Value::Unsigned(value) => (false, *value, 0),
-            Value::Decimal { value, scale, .. } => (*value < 0, value.unsigned_abs(), *scale),
+    fn new(value: &Value, query: &QueryContext) -> Result<Self> {
+        query.check()?;
+        let (negative, mut digits, scale) = match value {
+            Value::Integer(value) => (*value < 0, value.unsigned_abs().to_string(), 0),
+            Value::Unsigned(value) => (false, value.to_string(), 0),
+            Value::Decimal { value, scale, .. } => {
+                (*value < 0, value.unsigned_abs().to_string(), *scale)
+            }
+            Value::Bignum(value) => {
+                let mut digits = value.to_decimal(|| query.check())?;
+                if value.is_negative() {
+                    digits.remove(0);
+                }
+                (value.is_negative(), digits, 0)
+            }
             _ => return Err(invalid()),
         };
-        if magnitude == 0 {
+        if digits == "0" {
             return Ok(Self {
                 class: 1,
                 exponent: 0,
                 digits: String::new(),
             });
         }
-        let digits = magnitude.to_string();
+        let exponent = i64::try_from(digits.len())
+            .map_err(|_| Error::Resource("VARIANT number exponent exceeds i64".into()))?
+            - 1
+            - i64::from(scale);
+        digits.truncate(digits.trim_end_matches('0').len());
         Ok(Self {
             class: if negative { 0 } else { 2 },
-            exponent: digits.len() as i64 - 1 - i64::from(scale),
-            digits: digits.trim_end_matches('0').to_owned(),
+            exponent,
+            digits,
         })
     }
     fn compare(&self, right: &Self) -> Ordering {
@@ -137,14 +151,22 @@ impl VariantType {
         if rank < 14 {
             let ((lt, lv), (rt, rv)) = (primitive(left)?, primitive(right)?);
             if lt == rt && !matches!(lt, DataType::Enum(_)) {
+                if let (Value::Bignum(left), Value::Bignum(right)) = (lv, rv)
+                    && left.is_zero()
+                    && right.is_zero()
+                {
+                    // VARIANT's NUMBER category equates signed zeros while
+                    // ordinary BIGNUM preserves their signs. Keep payloads
+                    // untouched and still invoke the retained child adapter.
+                    let zero = crate::common::BignumValue::from_u128(0).value();
+                    return self.types()?.bind(lt)?.compare(&zero, &zero, query);
+                }
                 return self.types()?.bind(lt)?.compare(lv, rv, query);
             }
         }
         match rank {
-            2 => {
-                Ok(NumberKey::new(primitive(left)?.1)?
-                    .compare(&NumberKey::new(primitive(right)?.1)?))
-            }
+            2 => Ok(NumberKey::new(primitive(left)?.1, query)?
+                .compare(&NumberKey::new(primitive(right)?.1, query)?)),
             3 => self.types()?.bind(&DataType::Double)?.compare(
                 &Value::Double(primitive(left)?.1.as_f64()?),
                 &Value::Double(primitive(right)?.1.as_f64()?),
@@ -203,7 +225,7 @@ impl VariantType {
         output.push(rank)?;
         match rank {
             16 => Ok(()),
-            2 => NumberKey::new(primitive(node)?.1)?.write(output),
+            2 => NumberKey::new(primitive(node)?.1, query)?.write(output),
             3 => {
                 let mut bytes = Vec::new();
                 self.types()?.bind(&DataType::Double)?.append_key(
