@@ -166,7 +166,7 @@ def equivalent(a, b, expected_error=None):
 def persistence(rust, cpp, directory):
     outcomes = []
     definition = "CREATE TABLE t(k DECIMAL(38,3) PRIMARY KEY, a UTINYINT DEFAULT 255, b USMALLINT DEFAULT 65535, c UINTEGER DEFAULT 4294967295, d UBIGINT DEFAULT 18446744073709551615, e UHUGEINT DEFAULT '340282366920938463463374607431768211455'); INSERT INTO t(k) VALUES (1.125),(-99999999999999999999999999999999999.999)"
-    query = "SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e,ceil(k)::VARCHAR AS ceiling_value,floor(k)::VARCHAR AS floor_value,sign(k) AS sign_value FROM t ORDER BY k"
+    query = "SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e,ceil(k)::VARCHAR AS ceiling_value,floor(k)::VARCHAR AS floor_value,sign(k) AS sign_value,round(k,2)::VARCHAR AS rounded_value,trunc(k,1)::VARCHAR AS truncated_value,trunc(e,-38)::VARCHAR AS unsigned_truncated FROM t ORDER BY k"
     for label, producer in [('cpp', cpp), ('rust-checkpoint', rust), ('rust-wal', Engine(rust.binary, True, ('--durability', 'wal')))]:
         result = {'producer': label, 'passed': False}
         outcomes.append(result)
@@ -181,12 +181,12 @@ def persistence(rust, cpp, directory):
             actual = command(rust, path, query, json_output=True, readonly=True)
             if actual != expected:
                 raise AssertionError({'cpp': expected, 'rust': actual})
-            command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET k=ceil(k)+0.25 WHERE k=1.125; INSERT INTO t(k) VALUES (3.375)")
+            command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET k=round(k,0)+1.25 WHERE k=1.125; INSERT INTO t(k) VALUES (3.375)")
             expected = command(cpp, path, query, json_output=True, readonly=True)
             actual = command(rust, path, query, json_output=True, readonly=True)
             if actual != expected or len(actual) != 3:
                 raise AssertionError({'cpp': expected, 'rust': actual})
-            command(cpp, path, "UPDATE t SET k=floor(k)+2.5 WHERE k=2.25; CHECKPOINT")
+            command(cpp, path, "UPDATE t SET k=trunc(k,0)+2.5 WHERE k=2.25; CHECKPOINT")
             expected = command(cpp, path, query, json_output=True, readonly=True)
             actual = command(rust, path, query, json_output=True, readonly=True)
             if actual != expected:
