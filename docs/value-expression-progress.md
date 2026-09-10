@@ -4,9 +4,12 @@ The [accepted milestone](../specs/value-expression-milestone.md) remains active.
 The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
-Latest source checkpoint: `88e9094`; the fifth-checkpoint section below tracks
-the passing 34-workload timing repair, controlled upstream refresh and Kani.
-Earlier sections retain historical results and limits.
+Latest integrated source: `748dfba`; the sixth-checkpoint section below tracks
+the combined family increments and qualified nested binding. Validation is in
+progress. The last pushed checkpoint is `135eece`, whose engine source
+`88e9094` passed the 34-workload timing gate and controlled upstream refresh.
+Those timings do not measure the new combined source. Earlier sections retain
+historical results and limits.
 
 ## First integrated checkpoint, 2026-09-10
 
@@ -581,3 +584,40 @@ The queued floating formatter, Base64, temporal aliases/strict VARIANT casts,
 sequence aliases and native VARIANT reader are not part of this frozen source;
 they require continuous integration and their own combined validation. The
 large value-and-expression milestone remains active and incomplete.
+
+## Sixth integrated checkpoint, 2026-09-10 (in progress)
+
+Source `748dfba` combines the selected floating VARCHAR formatter, Base64,
+nanosecond/TIMETZ functions and temporal aliases, strict VARIANT clock casts,
+sequence-concat aliases, native VARIANT read-side decoding and the lead's
+qualified nested-path binder repair. The new defaulted cast source context
+preserves ordinary selected overrides and lets retained VARIANT child casts
+request the development-specific strict clock policy without ambient lookups.
+The SQLLogicTest worker also now applies the source-backed empty/NUL rendering
+rules to rendered values rather than only VARCHAR payloads; its initial Base64
+8/17 failure and repaired 17/17 file are retained separately.
+
+The [qualified-path report](qualified-nested-values.md) records mixed decimal,
+nanosecond, LIST and STRUCT paths across scalar/batch evaluation, parameters,
+joins, grouping, sorting, windows, indexed-table mutations, rollback and native
+reopen. The [native VARIANT follow-up](nested-variant-native-qualified-reference.json)
+passes 49/49 against development semantics across three independent producer
+fixtures; all three earlier direct qualified-subscript join failures are fixed.
+Native VARIANT publication/WAL remain unsupported. The qualification campaign
+retains same-SELECT-list alias reuse and nested-shell-JSON representation gaps,
+not waived or normalized away.
+
+Ordinary check, all-target clippy, nested 28, contracts 27, grouping nine and
+subqueries 15 pass. Before the binder increment, the combined scalar/temporal
+suite also passed numeric 28, temporal 25, casts 12, floating seven and binary
+eight. Full workspace, instrumentation compatibility and the maintained Kani
+suite are running for this combined source; no result is claimed before they
+finish. New worker DATE/numeric/Object increments are not part of this source.
+
+No sixth-checkpoint performance or full upstream acceptance campaign has run.
+The fifth checkpoint's passing 34-workload campaign does not cover these new
+changes. The last remote PR checkpoint remains `135eece`; subsequent local
+commits require regression validation before another follow-up push. Native
+file-version/successor capability preservation and retained closed default
+expressions through selected statement services are the next shared storage
+integration work. Family implementations continue alongside that work.

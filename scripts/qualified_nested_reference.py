@@ -30,6 +30,7 @@ CASES = [
     ("inner_struct_precedence", "SELECT (SELECT t.xs[1] FROM (SELECT {'xs':[2]} t) q) AS v FROM (SELECT [1] xs) t"),
     ("grouped_outer_struct", "SELECT (SELECT t.a.b[1]) AS v FROM (SELECT {'b':[3]} a) t GROUP BY t.a"),
     ("qualify_alias", "SELECT [42] xs,row_number() OVER () n QUALIFY xs[1]=42"),
+    ("qualify_alias_scalar_projection", "SELECT n FROM (SELECT [42] xs,row_number() OVER () n QUALIFY xs[1]=42) q"),
     ("ambiguous_table", "SELECT b.xs[1] AS v FROM (SELECT [1] xs) a CROSS JOIN (SELECT [2] xs) b CROSS JOIN (SELECT [3] xs) b"),
     ("ambiguous_struct", "SELECT s.a.xs[1] AS v FROM (SELECT {'a':{'xs':[1]}} s) a CROSS JOIN (SELECT {'a':{'xs':[2]}} s) b"),
     ("ungrouped_path", "SELECT t.a.b[1] AS v,count(*) n FROM (SELECT {'b':[1]} a) t"),
