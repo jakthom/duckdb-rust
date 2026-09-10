@@ -98,6 +98,8 @@ do not establish diagnostic-category parity.
 | [Clock domain integrated](temporal-clock-domain-integrated.json) | 667/667 | 602/667 | 2/3 expanded | 1/3 expanded |
 | [Calendar boundary/nested WAL integration](temporal-calendar-boundary-integrated.json) | 688/688 | 623/688 | 3/3 expanded | 2/3 expanded |
 | [Temporal renderability](temporal-renderability-integrated.json) | 696/696 | 631/696 | 3/3 expanded | 2/3 expanded |
+| [Nanosecond lower-bound initial](temporal-nanosecond-lower-bound-initial.json) | 702/709 | 635/709 | 3/3 expanded | 2/3 expanded |
+| [Nanosecond lower-bound repair](temporal-nanosecond-lower-bound-repaired.json) | 709/709 | 642/709 | 3/3 expanded | 2/3 expanded |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -253,6 +255,23 @@ error from poisoning later evidence. Those rows verify retained category/message
 behavior explicitly; the full matrix's comparator still only asserts rejection
 presence for errors and is not an exhaustive diagnostic-equivalence claim.
 
+The lower-nanosecond text trial exposes seven additional mismatches. Parsing
+`1677-09-21 00:12:43.145224194` into TIMESTAMP_NS must reject the overflowing
+microseconds-times-1000 intermediate even though adding the positive nanosecond
+tail would produce a representable integer. The repair preserves that source
+operation order for TIMESTAMP_NS and TIMESTAMPTZ_NS. Prepared strict/TRY casts,
+adjacent accepted boundaries, invalid-update atomicity, rollback, native WAL,
+indexed lookup and checkpoint/reopen now exercise the rule. Raw epoch constructors
+still retain the same physically valid instants, and TIME_NS timestamp-text
+fallback retains its independently supported clock parsing behavior. The initial
+trial remains unchanged; the repaired development matrix passes all 709 cases.
+
+The string `concat` implementation still bypasses selected VARCHAR casts and
+therefore can render a physically valid but SQL-unrenderable timestamp. That
+witness remains open for the scalar owner's selected-cast repair. Development
+also has a distinct LIST-returning `concat` overload; the nested owner retains
+that missing overload as a separate obligation, not a temporal formatting shim.
+
 ## Checkpoint validation
 
 Routine checks pass: `cargo check`; ten temporal component tests plus DATE,
@@ -358,6 +377,15 @@ and deletes telemetry. Full Kani passes six of six maintained harnesses, none
 failed (50.659, 1.121, 0.710, 3.287, 3.381 and 102.139 seconds). These existing
 harnesses do not prove calendar rendering or error propagation. The new API,
 cast, transport and native regression tests supply the relevant executable checks.
+
+The lower-nanosecond stage passes twenty-one temporal, seven DATE and eleven
+cast tests, ordinary check and workspace/all-target clippy. Coverage reports
+281 files, 2500 functions and 207 interfaces with no missing instrumentation;
+all-target trace compilation passes in 76.81 seconds and deletes telemetry.
+Full `python3 scripts/verify_kani.py` again passes six of six maintained harnesses,
+none failed (52.151, 1.268, 0.838, 2.545, 2.994 and 96.191 seconds). The nanosecond
+parser boundary has executable regression coverage, not a new formal proof.
+No performance claim follows from this worker-local correctness campaign.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
