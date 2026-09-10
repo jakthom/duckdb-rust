@@ -13,8 +13,8 @@ impl State<'_, '_> {
     pub(super) fn group_by(
         &self,
         clause: &ast::GroupByExpr,
-        fields: &[Field],
-        items: &[(ast::Expr, String)],
+        fields: &Scope,
+        items: &[SelectItem],
     ) -> Result<BoundGroups> {
         let ast::GroupByExpr::Expressions(expressions, modifiers) = clause else {
             return Err(unsupported("GROUP BY ALL"));
@@ -34,8 +34,8 @@ impl State<'_, '_> {
     fn group_product(
         &self,
         expressions: &[ast::Expr],
-        fields: &[Field],
-        items: &[(ast::Expr, String)],
+        fields: &Scope,
+        items: &[SelectItem],
         groups: &mut Vec<(ast::Expr, BoundExpr)>,
         depth: usize,
     ) -> Result<Vec<GroupingSet>> {
@@ -58,8 +58,8 @@ impl State<'_, '_> {
     fn group_item(
         &self,
         expression: &ast::Expr,
-        fields: &[Field],
-        items: &[(ast::Expr, String)],
+        fields: &Scope,
+        items: &[SelectItem],
         groups: &mut Vec<(ast::Expr, BoundExpr)>,
         depth: usize,
     ) -> Result<Vec<GroupingSet>> {
@@ -119,21 +119,32 @@ impl State<'_, '_> {
                 self.group_item(expression, fields, items, groups, depth + 1)
             }
             _ => {
-                let expression = if let Some(index) = ordinal(expression, items.len())? {
-                    items[index].0.clone()
+                let selected = if let Some(index) = ordinal(expression, items.len())? {
+                    Some(&items[index])
                 } else if let ast::Expr::Identifier(name) = expression {
-                    if resolve(fields, std::slice::from_ref(&name.value)).is_ok() {
-                        expression.clone()
-                    } else {
-                        items
+                    match fields.resolve_optional(std::slice::from_ref(&name.value))? {
+                        Some(_) => None,
+                        None => items
                             .iter()
-                            .find(|(_, alias)| alias.eq_ignore_ascii_case(&name.value))
-                            .map(|(e, _)| e.clone())
-                            .unwrap_or_else(|| expression.clone())
+                            .find(|item| item.name.eq_ignore_ascii_case(&name.value)),
                     }
                 } else {
-                    expression.clone()
+                    None
                 };
+                let expression = selected
+                    .map(|item| &item.expression)
+                    .unwrap_or(expression)
+                    .clone();
+                if let Some(item) = selected.filter(|item| item.column.is_some()) {
+                    let index = if let Some(index) = item.group_index(fields, groups) {
+                        index
+                    } else {
+                        let index = groups.len();
+                        groups.push((expression, item.bind(self, fields, None)?));
+                        index
+                    };
+                    return Ok(vec![GroupingSet::new([index])]);
+                }
                 let index = if let Some(index) = group_index(&expression, fields, groups) {
                     index
                 } else {
@@ -151,7 +162,7 @@ impl State<'_, '_> {
         &self,
         expression: &ast::Expr,
         function: &ast::Function,
-        fields: &[Field],
+        fields: &Scope,
         grouping: Option<&GroupScope>,
     ) -> Result<BoundExpr> {
         let grouping = grouping
@@ -205,11 +216,11 @@ impl State<'_, '_> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GroupScope {
-    pub(super) fn index(&self, expression: &ast::Expr, fields: &[Field]) -> Option<usize> {
+    pub(super) fn index(&self, expression: &ast::Expr, fields: &Scope) -> Option<usize> {
         group_index(expression, fields, &self.groups).or_else(|| match expression {
             ast::Expr::Identifier(name)
                 if matches!(
-                    resolve_optional(fields, std::slice::from_ref(&name.value)),
+                    fields.resolve_optional(std::slice::from_ref(&name.value)),
                     Ok(None)
                 ) =>
             {
@@ -223,7 +234,7 @@ impl GroupScope {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn group_index(
     expression: &ast::Expr,
-    fields: &[Field],
+    fields: &Scope,
     groups: &[(ast::Expr, BoundExpr)],
 ) -> Option<usize> {
     if let ast::Expr::Nested(expression) = expression {
@@ -236,7 +247,10 @@ pub(super) fn group_index(
         }
         _ => None,
     };
-    let column = parts.and_then(|parts| resolve(fields, &parts).ok());
+    let column = match parts {
+        Some(parts) => fields.resolve_optional(&parts).ok()?,
+        None => None,
+    };
     groups.iter().position(|(ast, bound)| {
         ast == expression
             || column.is_some_and(

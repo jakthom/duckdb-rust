@@ -1,3 +1,4 @@
+use super::support::ProbePlan;
 use super::*;
 use duckdb_rust::{
     execution::{
@@ -7,76 +8,60 @@ use duckdb_rust::{
     planner::{BoundExpr, ExprKind, expression::BinaryOp, logical::JoinKind},
 };
 
-struct ProbePlan {
-    schema: Schema,
-    rows: Vec<Row>,
-    opens: Arc<AtomicUsize>,
-    reads: Arc<AtomicUsize>,
-    invalid: bool,
-}
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl std::fmt::Debug for ProbePlan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("probe-plan")
-    }
-}
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl ProbePlan {
-    fn new(values: &[i128]) -> Self {
-        Self {
-            schema: vec![Field::new("i", DataType::BigInt)],
-            rows: values.iter().map(|value| ints(&[*value])).collect(),
-            opens: Arc::new(AtomicUsize::new(0)),
-            reads: Arc::new(AtomicUsize::new(0)),
-            invalid: false,
+#[test]
+fn using_and_natural_joins_share_names_types_and_correlation_across_adapters() -> Result<()> {
+    use duckdb_rust::{
+        execution::{expression_executor::BatchedEvaluator, operator::join::NestedLoopJoin},
+        optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
+    };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for algorithm in [
+        Arc::new(HashJoin) as Arc<dyn JoinAlgorithm>,
+        Arc::new(NestedLoopJoin),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            for batch_size in [1, 3, 2048] {
+                for executor in executors() {
+                    let db = DatabaseBuilder::new()
+                        .physical_planner(Arc::new(NativePhysicalPlanner::with_joins(vec![
+                            algorithm.clone(),
+                            Arc::new(NestedLoopJoin),
+                        ])))
+                        .optimizer(optimizer.clone())
+                        .executor(executor)
+                        .expressions(Arc::new(BatchedEvaluator))
+                        .batch_size(batch_size)
+                        .build()?;
+                    for corpus in ["using.test", "using-chain.test", "using-development.test"] {
+                        runner::run_file(&db, &root.join("test/sql").join(corpus))?;
+                    }
+                    let mut connection = db.connect();
+                    for (kind, merged) in [
+                        ("INNER", DataType::Integer),
+                        ("LEFT", DataType::Integer),
+                        ("RIGHT", DataType::BigInt),
+                        ("FULL", DataType::BigInt),
+                    ] {
+                        let result = connection.query(&format!("SELECT k,a.k,b.k FROM (VALUES(1::INTEGER))a(k) {kind} JOIN (VALUES(1::BIGINT))b(k) USING(k)"))?;
+                        assert_eq!(
+                            result
+                                .columns
+                                .iter()
+                                .map(|field| field.data_type.clone())
+                                .collect::<Vec<_>>(),
+                            vec![merged, DataType::Integer, DataType::BigInt]
+                        );
+                        assert_eq!(result.rows, vec![ints(&[1, 1, 1])]);
+                    }
+                }
+            }
         }
     }
-}
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl PhysicalOperator for ProbePlan {
-    fn schema(&self) -> &Schema {
-        &self.schema
-    }
-    fn delivery(&self) -> DeliveryMode {
-        DeliveryMode::Incremental
-    }
-    fn open<'a>(&'a self, _: &'a ExecutionContext<'a>) -> Result<Stream<'a>> {
-        self.opens.fetch_add(1, Ordering::Relaxed);
-        Ok(Box::new(ProbeStream {
-            plan: self,
-            position: 0,
-        }))
-    }
-}
-struct ProbeStream<'a> {
-    plan: &'a ProbePlan,
-    position: usize,
-}
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl BatchStream for ProbeStream<'_> {
-    fn next(&mut self, max_rows: usize) -> Result<Option<DataChunk>> {
-        if self.plan.invalid {
-            return DataChunk::from_rows(
-                &[DataType::Varchar],
-                &[vec![Value::Varchar("invalid".into())]],
-            )
-            .map(Some);
-        }
-        let end = self
-            .position
-            .saturating_add(max_rows)
-            .min(self.plan.rows.len());
-        if self.position == end {
-            return Ok(None);
-        }
-        self.plan
-            .reads
-            .fetch_add(end - self.position, Ordering::Relaxed);
-        let result =
-            DataChunk::from_rows(&[DataType::BigInt], &self.plan.rows[self.position..end])?;
-        self.position = end;
-        Ok(Some(result))
-    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -105,6 +90,96 @@ fn join<'a>(
         condition,
         schema: &left.schema,
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn hash_outer_join_resumes_duplicates_checks_failures_and_keeps_owned_output() -> Result<()> {
+    let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
+    let tx = manager.begin()?;
+    let interrupt = InterruptHandle::default();
+    let query = QueryContext::new(interrupt.clone(), None, 3, 8)?;
+    let planner = NativePhysicalPlanner::default();
+    let context = ExecutionContext {
+        transaction: tx.as_ref(),
+        expressions: &ScalarEvaluator,
+        query: &query,
+        subquery_plans: &PreparedSubqueries::new(&planner),
+        subqueries: &StreamingSubqueries,
+        outer: None,
+        recursive: None,
+    };
+    let condition = equality(&query)?;
+    let left = ProbePlan::new(&[1, 3]);
+    let right = ProbePlan::new(&[1, 1, 1, 2]);
+    let schema = left.schema.iter().chain(&right.schema).cloned().collect();
+    let plan = || JoinPlan {
+        left: &left,
+        right: &right,
+        kind: JoinKind::Full,
+        condition: &condition,
+        schema: &schema,
+    };
+    let mut first = HashJoin.open(plan(), &context)?;
+    let mut second = HashJoin.open(plan(), &context)?;
+    assert_eq!(left.reads.load(Ordering::Relaxed), 0);
+    assert_eq!(right.reads.load(Ordering::Relaxed), 0);
+    let retained = first.next(1)?.unwrap();
+    assert_eq!(retained.rows().collect::<Vec<_>>(), vec![ints(&[1, 1])]);
+    assert_eq!(left.reads.load(Ordering::Relaxed), 1);
+    assert_eq!(right.reads.load(Ordering::Relaxed), 4);
+    let mut result = retained.rows().collect::<Vec<_>>();
+    while let Some(batch) = first.next(2)? {
+        assert!(batch.len() <= 2);
+        result.extend(batch.rows());
+    }
+    assert_eq!(
+        result,
+        vec![
+            ints(&[1, 1]),
+            ints(&[1, 1]),
+            ints(&[1, 1]),
+            vec![Value::Integer(3), Value::Null],
+            vec![Value::Null, Value::Integer(2)]
+        ]
+    );
+    assert!(first.next(0)?.is_none());
+    assert_eq!(
+        second.next(1)?.unwrap().rows().collect::<Vec<_>>(),
+        vec![ints(&[1, 1])]
+    );
+    interrupt.interrupt();
+    assert!(matches!(second.next(1), Err(Error::Interrupted)));
+    interrupt.reset();
+    assert!(second.next(1)?.is_none());
+    drop(first);
+    drop(second);
+    drop(left);
+    drop(right);
+    assert_eq!(retained.rows().collect::<Vec<_>>(), vec![ints(&[1, 1])]);
+    for oversized in [false, true] {
+        let left = ProbePlan::new(&[0]);
+        let mut right = ProbePlan::new(&(0..9).collect::<Vec<_>>());
+        right.invalid = !oversized;
+        let mut cursor = HashJoin.open(
+            JoinPlan {
+                left: &left,
+                right: &right,
+                kind: JoinKind::Full,
+                condition: &condition,
+                schema: &schema,
+            },
+            &context,
+        )?;
+        let failure = cursor.next(1);
+        if oversized {
+            assert!(matches!(failure, Err(Error::Resource(_))));
+        } else {
+            assert!(matches!(failure, Err(Error::Internal(_))));
+        }
+        assert!(cursor.next(1)?.is_none());
+    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

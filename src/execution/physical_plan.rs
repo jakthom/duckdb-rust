@@ -7,6 +7,8 @@ use super::{
         join::{HashJoin, JoinAlgorithm, JoinPlan, NestedLoopJoin},
         order::{RadixSort, SortAlgorithm},
         recursive::{RecursiveAlgorithm, RecursivePlan, StreamingRecursion},
+        set::{HashSetOperations, SetAlgorithm, SetPlan},
+        window::{PartitionedWindows, WindowAlgorithm, WindowPlan},
     },
     stream::{self, Stream},
     subquery::PreparedExpression,
@@ -17,7 +19,7 @@ use crate::{
     planner::{
         BoundExpr, ExprKind, LogicalPlan, PlanNode, Schema,
         aggregation::Aggregation,
-        logical::{JoinKind, OrderExpr},
+        logical::{JoinKind, OrderExpr, SetOperation},
     },
 };
 
@@ -52,6 +54,8 @@ pub struct NativePhysicalPlanner {
     recursion: Arc<dyn RecursiveAlgorithm>,
     aggregation: Arc<dyn AggregationAlgorithm>,
     sorting: Arc<dyn SortAlgorithm>,
+    sets: Arc<dyn SetAlgorithm>,
+    windows: Arc<dyn WindowAlgorithm>,
 }
 
 /// Both strategies retain scan demand, validation and predicate ordering.
@@ -81,6 +85,8 @@ impl Default for NativePhysicalPlanner {
             recursion: Arc::new(StreamingRecursion),
             aggregation: Arc::new(HashAggregation),
             sorting: Arc::new(RadixSort),
+            sets: Arc::new(HashSetOperations),
+            windows: Arc::new(PartitionedWindows::default()),
         }
     }
 }
@@ -103,6 +109,14 @@ impl NativePhysicalPlanner {
     }
     pub fn with_aggregation(mut self, algorithm: Arc<dyn AggregationAlgorithm>) -> Self {
         self.aggregation = algorithm;
+        self
+    }
+    pub fn with_windows(mut self, algorithm: Arc<dyn WindowAlgorithm>) -> Self {
+        self.windows = algorithm;
+        self
+    }
+    pub fn with_sets(mut self, algorithm: Arc<dyn SetAlgorithm>) -> Self {
+        self.sets = algorithm;
         self
     }
     pub fn with_sorting(mut self, algorithm: Arc<dyn SortAlgorithm>) -> Self {
@@ -156,6 +170,11 @@ enum Node {
         aggregation: Aggregation,
         algorithm: Arc<dyn AggregationAlgorithm>,
     },
+    Window {
+        input: Arc<dyn PhysicalOperator>,
+        expressions: Vec<crate::planner::window::WindowExpression>,
+        algorithm: Arc<dyn WindowAlgorithm>,
+    },
     Sort {
         input: Arc<dyn PhysicalOperator>,
         order: Vec<OrderExpr>,
@@ -163,7 +182,13 @@ enum Node {
     },
     Limit(Arc<dyn PhysicalOperator>, Option<usize>, usize),
     Distinct(Arc<dyn PhysicalOperator>),
-    Union(Arc<dyn PhysicalOperator>, Arc<dyn PhysicalOperator>, bool),
+    SetOperation {
+        left: Arc<dyn PhysicalOperator>,
+        right: Arc<dyn PhysicalOperator>,
+        kind: SetOperation,
+        all: bool,
+        algorithm: Arc<dyn SetAlgorithm>,
+    },
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -178,6 +203,8 @@ impl PhysicalPlanner for NativePhysicalPlanner {
             ("recursion", self.recursion.name()),
             ("aggregation", self.aggregation.name()),
             ("sorting", self.sorting.name()),
+            ("set_operations", self.sets.name()),
+            ("windows", self.windows.name()),
         ];
         adapters.extend(
             self.joins
@@ -268,6 +295,11 @@ impl PhysicalPlanner for NativePhysicalPlanner {
                 aggregation: aggregation.clone(),
                 algorithm: self.aggregation.clone(),
             },
+            PlanNode::Window { input, expressions } => Node::Window {
+                input: self.plan(input)?,
+                expressions: expressions.clone(),
+                algorithm: self.windows.clone(),
+            },
             PlanNode::Sort { input, order } => Node::Sort {
                 input: self.plan(input)?,
                 order: order.clone(),
@@ -279,17 +311,35 @@ impl PhysicalPlanner for NativePhysicalPlanner {
                 offset,
             } => Node::Limit(self.plan(input)?, *limit, *offset),
             PlanNode::Distinct(input) => Node::Distinct(self.plan(input)?),
-            PlanNode::Union { left, right, all } => {
-                Node::Union(self.plan(left)?, self.plan(right)?, *all)
-            }
+            PlanNode::SetOperation {
+                left,
+                right,
+                kind,
+                all,
+            } => Node::SetOperation {
+                left: self.plan(left)?,
+                right: self.plan(right)?,
+                kind: *kind,
+                all: *all,
+                algorithm: self.sets.clone(),
+            },
         };
         Ok(Arc::new(Operator {
             schema: logical.schema.clone(),
             delivery: match &node {
                 Node::Recursive { algorithm, .. } => algorithm.delivery(),
-                Node::Join { .. } | Node::Aggregate { .. } | Node::Sort { .. } => {
-                    DeliveryMode::Blocking
+                Node::Window {
+                    algorithm,
+                    expressions,
+                    ..
+                } => algorithm.delivery(expressions),
+                Node::SetOperation {
+                    kind: SetOperation::Intersect | SetOperation::Except,
+                    ..
                 }
+                | Node::Join { .. }
+                | Node::Aggregate { .. }
+                | Node::Sort { .. } => DeliveryMode::Blocking,
                 _ => DeliveryMode::Incremental,
             },
             node,
@@ -515,31 +565,22 @@ impl PhysicalOperator for Operator {
                     Ok(None)
                 })
             }
-            Node::Union(left, right, all) => {
-                let mut input = Some(stream::open(left.as_ref(), context)?);
-                let mut right = Some(right);
-                let mut seen = HashSet::new();
-                stream::from_fn(move |max_rows| {
-                    loop {
-                        let Some(cursor) = &mut input else {
-                            return Ok(None);
-                        };
-                        if let Some(batch) = cursor.next(max_rows)? {
-                            if *all {
-                                return Ok(Some(batch));
-                            }
-                            if let Some(batch) = distinct(batch, &mut seen, context)? {
-                                return Ok(Some(batch));
-                            }
-                        } else {
-                            input = right
-                                .take()
-                                .map(|right| stream::open(right.as_ref(), context))
-                                .transpose()?;
-                        }
-                    }
-                })
-            }
+            Node::SetOperation {
+                left,
+                right,
+                kind,
+                all,
+                algorithm,
+            } => algorithm.open(
+                SetPlan {
+                    left: left.as_ref(),
+                    right: right.as_ref(),
+                    kind: *kind,
+                    all: *all,
+                    schema,
+                },
+                context,
+            )?,
             Node::Join {
                 left,
                 right,
@@ -564,6 +605,18 @@ impl PhysicalOperator for Operator {
                 let mut input = stream::open(input.as_ref(), context)?;
                 algorithm.aggregate(input.as_mut(), aggregation, context)
             }),
+            Node::Window {
+                input,
+                expressions,
+                algorithm,
+            } => algorithm.open(
+                WindowPlan {
+                    input: input.as_ref(),
+                    expressions,
+                    schema,
+                },
+                context,
+            )?,
             Node::Sort {
                 input,
                 order,

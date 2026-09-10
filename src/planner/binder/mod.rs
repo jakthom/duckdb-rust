@@ -3,10 +3,12 @@ mod expression;
 mod grouping;
 mod query;
 mod recursive;
+mod scope;
 mod settings;
 mod statement;
 mod subquery;
 mod table;
+mod window;
 
 use std::{
     cell::RefCell,
@@ -25,6 +27,7 @@ use crate::{
     function::operator::{Operator, OperatorArgument},
     parser::ast,
 };
+use scope::{Relation, Scope, SelectItem};
 
 #[derive(Default)]
 pub struct SqlBinder;
@@ -71,7 +74,7 @@ struct CommonTable {
 
 #[derive(Clone)]
 struct CorrelationScope {
-    fields: Schema,
+    fields: Scope,
     /// Source column to grouped output position; None is an illegal ungrouped reference.
     columns: Vec<Option<usize>>,
 }
@@ -196,7 +199,7 @@ impl State<'_, '_> {
                 number(&format!("-{v}"))
             }
             _ => {
-                let bound = self.expr(expr, &[], None)?;
+                let bound = self.expr(expr, &Scope::default(), None)?;
                 if !constant_expression(&bound) {
                     return Err(unsupported(format!(
                         "a constant expression is required here: {expr}"
@@ -506,25 +509,6 @@ impl State<'_, '_> {
                 expressions,
             },
         })
-    }
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn expand_star(fields: &[Field], qualifier: Option<&str>, output: &mut Vec<(ast::Expr, String)>) {
-    for field in fields.iter().filter(|f| {
-        qualifier.is_none_or(|q| {
-            f.qualifier
-                .as_ref()
-                .is_some_and(|s| s.eq_ignore_ascii_case(q))
-        })
-    }) {
-        let name = ast::Ident::new(&field.name);
-        let expr = if let Some(q) = &field.qualifier {
-            ast::Expr::CompoundIdentifier(vec![ast::Ident::new(q), name])
-        } else {
-            ast::Expr::Identifier(name)
-        };
-        output.push((expr, field.name.clone()));
     }
 }
 

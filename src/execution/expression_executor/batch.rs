@@ -148,7 +148,15 @@ fn evaluate_columns(
             function.apply_batch(&DataChunk::new(columns, input.len())?, context.query())?
         }
         ExprKind::Unary(op, inner) => {
-            let values = eval(inner)?
+            let inner = eval(inner)?;
+            if inner.all_valid() && matches!(op, UnaryOp::IsNull | UnaryOp::IsNotNull) {
+                return Vector::constant(
+                    DataType::Boolean,
+                    Value::Boolean(*op == UnaryOp::IsNotNull),
+                    input.len(),
+                );
+            }
+            let values = inner
                 .values()
                 .map(|value| {
                     Ok(match op {
@@ -162,6 +170,40 @@ fn evaluate_columns(
                 })
                 .collect::<Result<_>>()?;
             Vector::flat(DataType::Boolean, values)?
+        }
+        ExprKind::Case(branches, otherwise) => {
+            let mut active = Vec::new();
+            let mut fallback = otherwise.as_ref();
+            for (condition, value) in branches {
+                let condition = eval(condition)?;
+                match condition.constant_value() {
+                    Some(Value::Boolean(true)) => {
+                        fallback = value;
+                        break;
+                    }
+                    Some(Value::Boolean(false) | Value::Null) => continue,
+                    _ => active.push((condition, eval(value)?)),
+                }
+            }
+            let otherwise = eval(fallback)?;
+            if active.is_empty() {
+                return Ok(otherwise);
+            }
+            let mut values = Vec::with_capacity(input.len());
+            for index in 0..input.len() {
+                if index % 1024 == 0 {
+                    context.query().check()?;
+                }
+                let column = active
+                    .iter()
+                    .find(|(condition, _)| {
+                        matches!(condition.get(index), Some(Value::Boolean(true)))
+                    })
+                    .map(|(_, value)| value)
+                    .unwrap_or(&otherwise);
+                values.push(column.get(index).expect("validated CASE column").clone());
+            }
+            Vector::flat(expression.data_type.clone(), values)?
         }
         ExprKind::Binary(op, left, right, data_type) => {
             let left = eval(left)?;

@@ -318,6 +318,39 @@ impl LogicalPlan {
                 }
                 output
             }
+            PlanNode::Window {
+                input,
+                expressions: windows,
+            } => {
+                input.validate_at(scope, level + 1)?;
+                let input = types(&input.schema);
+                let mut output = input.clone();
+                for window in windows {
+                    let args = expressions(&window.arguments, &input)?;
+                    expressions(&window.partition, &input)?;
+                    for key in &window.order {
+                        key.expression.validate_at(&input, level + 1, scope)?;
+                    }
+                    if let Some(filter) = &window.filter {
+                        filter.validate_at(&input, level + 1, scope)?;
+                        boolean(&filter.data_type)?;
+                    }
+                    require(
+                        window.options.filtered == window.filter.is_some(),
+                        "window filter metadata",
+                    )?;
+                    require(
+                        window
+                            .function
+                            .return_type(&args, window.options, query.types())?
+                            == window.data_type,
+                        "window result type",
+                    )?;
+                    window.frame.validate()?;
+                    output.push(window.data_type.clone());
+                }
+                output
+            }
             PlanNode::Sort { input, order } => {
                 input.validate_at(scope, level + 1)?;
                 for key in order {
@@ -330,12 +363,12 @@ impl LogicalPlan {
                 input.validate_at(scope, level + 1)?;
                 types(&input.schema)
             }
-            PlanNode::Union { left, right, .. } => {
+            PlanNode::SetOperation { left, right, .. } => {
                 left.validate_at(scope, level + 1)?;
                 right.validate_at(scope, level + 1)?;
                 require(
                     types(&left.schema) == types(&right.schema),
-                    "UNION input types",
+                    "set operation input types",
                 )?;
                 types(&left.schema)
             }

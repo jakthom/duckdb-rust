@@ -179,7 +179,7 @@ fn allocation_error(_: std::collections::TryReserveError) -> Error {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn visit_integers(
+pub(super) fn visit_integers(
     input: &Vector,
     context: &QueryContext,
     visit: impl FnMut(usize, Option<i128>),

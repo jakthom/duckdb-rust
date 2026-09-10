@@ -3,6 +3,7 @@ pub mod grouped;
 pub mod operator;
 mod scalar;
 mod settings;
+pub mod window;
 
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
@@ -106,6 +107,15 @@ pub trait AggregateFunction: Debug + Send + Sync {
         arguments: &[DataType],
         types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Box<dyn AggregateState>>;
+    /// Optional partition evaluation through the same window contract. None
+    /// requests the generic frame evaluator; callers never inspect function names.
+    fn evaluate_window(
+        &self,
+        _input: &window::WindowInput<'_>,
+        _query: &QueryContext,
+    ) -> Result<Option<Vec<Value>>> {
+        Ok(None)
+    }
     /// Optional pure grouped updates. Returning None retains ordered scalar
     /// states; callers must not infer this capability from a function's name.
     /// Construction has no effects. See GroupedAggregateState's full contract.
@@ -122,6 +132,7 @@ pub trait AggregateFunction: Debug + Send + Sync {
 pub struct FunctionRegistry {
     scalars: BTreeMap<String, Arc<dyn ScalarFunction>>,
     aggregates: BTreeMap<String, Arc<dyn AggregateFunction>>,
+    windows: BTreeMap<String, Arc<dyn window::WindowFunction>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -131,7 +142,29 @@ impl FunctionRegistry {
         scalar::register(&mut registry);
         aggregate::register(&mut registry);
         settings::register(&mut registry);
+        window::register(&mut registry);
         registry
+    }
+    pub fn register_window(&mut self, function: Arc<dyn window::WindowFunction>) -> Result<()> {
+        let key = function.name().to_ascii_lowercase();
+        if self.windows.contains_key(&key) {
+            return Err(Error::Catalog(format!(
+                "window function {key} already exists"
+            )));
+        }
+        self.windows.insert(key, function);
+        Ok(())
+    }
+    pub fn window(&self, name: &str) -> Result<Arc<dyn window::WindowFunction>> {
+        self.windows
+            .get(&name.to_ascii_lowercase())
+            .cloned()
+            .or_else(|| {
+                self.aggregate(name).map(|function| {
+                    Arc::new(window::AggregateWindow(function)) as Arc<dyn window::WindowFunction>
+                })
+            })
+            .ok_or_else(|| Error::Catalog(format!("window function {name} does not exist")))
     }
     pub fn register_scalar(&mut self, function: Arc<dyn ScalarFunction>) -> Result<()> {
         let key = function.name().to_ascii_lowercase();

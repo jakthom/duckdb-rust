@@ -14,8 +14,6 @@ use duckdb_rust::{
 mod effects;
 #[path = "sorting/keys.rs"]
 mod keys;
-#[path = "../../runner/mod.rs"]
-mod runner;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn algorithms() -> [Arc<dyn SortAlgorithm>; 2] {

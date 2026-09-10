@@ -44,11 +44,12 @@ impl LogicalPlan {
             PlanNode::Filter { input, .. }
             | PlanNode::Projection { input, .. }
             | PlanNode::Aggregate { input, .. }
+            | PlanNode::Window { input, .. }
             | PlanNode::Sort { input, .. }
             | PlanNode::Limit { input, .. }
             | PlanNode::Distinct(input) => visit(input),
             PlanNode::Join { left, right, .. }
-            | PlanNode::Union { left, right, .. }
+            | PlanNode::SetOperation { left, right, .. }
             | PlanNode::Recursive {
                 seed: left,
                 step: right,
@@ -94,6 +95,11 @@ impl LogicalPlan {
                     }
                 }
             }
+            PlanNode::Window { expressions, .. } => {
+                for expression in expressions {
+                    expression.visit_expressions(visit);
+                }
+            }
             PlanNode::Sort { order, .. } => {
                 for key in order {
                     visit(&key.expression);
@@ -106,7 +112,7 @@ impl LogicalPlan {
             | PlanNode::Range { .. }
             | PlanNode::Limit { .. }
             | PlanNode::Distinct(_)
-            | PlanNode::Union { .. } => (),
+            | PlanNode::SetOperation { .. } => (),
         }
     }
     /// Transform this node's expression roots without visiting input plans.
@@ -164,6 +170,13 @@ impl LogicalPlan {
                 }
                 PlanNode::Aggregate { input, aggregation }
             }
+            PlanNode::Window { input, expressions } => PlanNode::Window {
+                input,
+                expressions: expressions
+                    .into_iter()
+                    .map(|expression| expression.map_expressions(&mut map))
+                    .collect::<Result<_>>()?,
+            },
             PlanNode::Sort { input, order } => PlanNode::Sort {
                 input,
                 order: order
@@ -181,7 +194,7 @@ impl LogicalPlan {
             | PlanNode::Range { .. }
             | PlanNode::Limit { .. }
             | PlanNode::Distinct(_)
-            | PlanNode::Union { .. }) => node,
+            | PlanNode::SetOperation { .. }) => node,
         };
         Ok(self)
     }
@@ -212,6 +225,10 @@ impl LogicalPlan {
                 input: Box::new(map(*input)?),
                 aggregation,
             },
+            PlanNode::Window { input, expressions } => PlanNode::Window {
+                input: Box::new(map(*input)?),
+                expressions,
+            },
             PlanNode::Sort { input, order } => PlanNode::Sort {
                 input: Box::new(map(*input)?),
                 order,
@@ -226,10 +243,16 @@ impl LogicalPlan {
                 offset,
             },
             PlanNode::Distinct(input) => PlanNode::Distinct(Box::new(map(*input)?)),
-            PlanNode::Union { left, right, all } => PlanNode::Union {
+            PlanNode::SetOperation {
+                left,
+                right,
+                kind,
+                all,
+            } => PlanNode::SetOperation {
                 left: Box::new(map(*left)?),
                 right: Box::new(map(*right)?),
                 all,
+                kind,
             },
             PlanNode::Recursive {
                 id,
@@ -263,6 +286,14 @@ pub enum JoinKind {
     Full,
     Semi,
     Anti,
+}
+
+/// SQL multiset operations compare complete typed rows; NULLs compare equal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetOperation {
+    Union,
+    Intersect,
+    Except,
 }
 
 #[derive(Clone, Debug)]
@@ -326,6 +357,11 @@ pub enum PlanNode {
         input: Box<LogicalPlan>,
         aggregation: Aggregation,
     },
+    /// Append one result per input row for each independently bound window.
+    Window {
+        input: Box<LogicalPlan>,
+        expressions: Vec<super::window::WindowExpression>,
+    },
     Sort {
         input: Box<LogicalPlan>,
         order: Vec<OrderExpr>,
@@ -336,7 +372,8 @@ pub enum PlanNode {
         offset: usize,
     },
     Distinct(Box<LogicalPlan>),
-    Union {
+    SetOperation {
+        kind: SetOperation,
         left: Box<LogicalPlan>,
         right: Box<LogicalPlan>,
         all: bool,

@@ -99,6 +99,11 @@ impl BoundExpr {
         match &self.kind {
             ExprKind::Literal(_) | ExprKind::Column(_) | ExprKind::OuterColumn { .. } => true,
             ExprKind::Unary(_, inner) => inner.is_pure_and_total(),
+            ExprKind::Case(branches, otherwise) => {
+                branches.iter().all(|(condition, value)| {
+                    condition.is_pure_and_total() && value.is_pure_and_total()
+                }) && otherwise.is_pure_and_total()
+            }
             ExprKind::Binary(op, left, right, _) if !matches!(op, BinaryOp::And | BinaryOp::Or) => {
                 left.is_pure_and_total() && right.is_pure_and_total()
             }

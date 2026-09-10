@@ -32,3 +32,5 @@ pub trait Binder: Send + Sync {
     fn name(&self) -> &'static str;
     fn bind(&self, statement: &Statement, context: &BindContext<'_>) -> Result<BoundStatement>;
 }
+
+pub mod window;

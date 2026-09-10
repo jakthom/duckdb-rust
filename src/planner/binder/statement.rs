@@ -271,7 +271,7 @@ impl State<'_, '_> {
     pub(super) fn mutation_table(
         &mut self,
         table: &ast::TableWithJoins,
-    ) -> Result<(TableName, Schema)> {
+    ) -> Result<(TableName, Scope)> {
         if !table.joins.is_empty() {
             return Err(unsupported("joined mutation target"));
         }
@@ -282,7 +282,7 @@ impl State<'_, '_> {
             return Err(unsupported("mutation target"));
         };
         let name = table_name(name)?;
-        let fields = self.factor(&table.relation)?.schema;
+        let fields = self.factor(&table.relation)?.scope;
         Ok((name, fields))
     }
 

@@ -18,14 +18,23 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+#[path = "../runner/mod.rs"]
+mod runner;
+
 #[path = "execution/batches.rs"]
 mod batches;
 #[path = "execution/expressions.rs"]
 mod expressions;
 #[path = "execution/joins.rs"]
 mod joins;
+#[path = "execution/sets.rs"]
+mod sets;
 #[path = "execution/sorting.rs"]
 mod sorting;
+#[path = "execution/support.rs"]
+mod support;
+#[path = "execution/windows.rs"]
+mod windows;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn ints(values: &[i128]) -> Row {

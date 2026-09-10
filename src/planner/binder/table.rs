@@ -2,7 +2,7 @@ use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
-    pub(super) fn from(&mut self, from: &ast::TableWithJoins) -> Result<LogicalPlan> {
+    pub(super) fn from(&mut self, from: &ast::TableWithJoins) -> Result<Relation> {
         let mut left = self.factor(&from.relation)?;
         for joined in &from.joins {
             let right = self.factor(&joined.relation)?;
@@ -16,19 +16,149 @@ impl State<'_, '_> {
                 J::Anti(c) | J::LeftAnti(c) => (JoinKind::Anti, c),
                 _ => return Err(unsupported("join kind")),
             };
-            let mut fields = left.schema.clone();
-            fields.extend(right.schema.clone());
-            let condition = match constraint {
-                ast::JoinConstraint::None => BoundExpr::literal(Value::Boolean(true)),
-                ast::JoinConstraint::On(e) => self.boolean(self.expr(e, &fields, None)?)?,
-                _ => return Err(unsupported("NATURAL or USING join")),
-            };
-            left = join(left, right, kind, condition);
+            left = self.join_relation(left, right, kind, constraint)?;
         }
         Ok(left)
     }
 
-    pub(super) fn factor(&mut self, factor: &ast::TableFactor) -> Result<LogicalPlan> {
+    fn join_relation(
+        &self,
+        left: Relation,
+        right: Relation,
+        kind: JoinKind,
+        constraint: &ast::JoinConstraint,
+    ) -> Result<Relation> {
+        let offset = left.plan.schema.len();
+        let mut scope = left.scope.combine(&right.scope)?;
+        let names = match constraint {
+            ast::JoinConstraint::Using(names) => names
+                .iter()
+                .map(|name| {
+                    if name.0.len() != 1 {
+                        return Err(Error::Bind(
+                            "USING requires an unqualified column name".into(),
+                        ));
+                    }
+                    name.0[0]
+                        .as_ident()
+                        .map(|name| name.value.clone())
+                        .ok_or_else(|| unsupported(name))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            ast::JoinConstraint::Natural => {
+                let names: Vec<_> = left
+                    .scope
+                    .visible
+                    .iter()
+                    .filter_map(|&index| {
+                        let name = &left.scope[index].name;
+                        right
+                            .scope
+                            .visible
+                            .iter()
+                            .any(|&r| right.scope[r].name.eq_ignore_ascii_case(name))
+                            .then(|| name.clone())
+                    })
+                    .collect();
+                if names.is_empty() {
+                    return Err(Error::Bind("NATURAL join has no columns in common".into()));
+                }
+                names
+            }
+            _ => Vec::new(),
+        };
+        let mut condition = match constraint {
+            ast::JoinConstraint::On(expr) => self.boolean(self.expr(expr, &scope, None)?)?,
+            _ => BoundExpr::literal(Value::Boolean(true)),
+        };
+        let mut seen = HashSet::new();
+        let mut merged = Vec::new();
+        for name in names {
+            if !seen.insert(name.to_ascii_lowercase()) {
+                continue;
+            }
+            let l = left.scope.resolve(std::slice::from_ref(&name))?;
+            let r = right.scope.resolve(std::slice::from_ref(&name))? + offset;
+            let left_key = BoundExpr::column(l, scope[l].data_type.clone());
+            let right_key = BoundExpr::column(r, scope[r].data_type.clone());
+            let equality = self.binary(BinaryOp::Equal, left_key.clone(), right_key.clone())?;
+            condition = if matches!(condition.kind, ExprKind::Literal(Value::Boolean(true))) {
+                equality
+            } else {
+                self.binary(BinaryOp::And, condition, equality)?
+            };
+            let key = match kind {
+                JoinKind::Right => r,
+                JoinKind::Full => {
+                    let common = self
+                        .context
+                        .query
+                        .types()
+                        .common_type(&left_key.data_type, &right_key.data_type)?;
+                    let left_key = left_key.cast(
+                        common.clone(),
+                        CastMode::Implicit,
+                        self.context.casts,
+                        self.context.query.types(),
+                    )?;
+                    let right_key = right_key.cast(
+                        common.clone(),
+                        CastMode::Implicit,
+                        self.context.casts,
+                        self.context.query.types(),
+                    )?;
+                    let present = BoundExpr {
+                        data_type: DataType::Boolean,
+                        kind: ExprKind::Unary(UnaryOp::IsNotNull, Box::new(left_key.clone())),
+                    };
+                    merged.push(BoundExpr {
+                        data_type: common.clone(),
+                        kind: ExprKind::Case(vec![(present, left_key)], Box::new(right_key)),
+                    });
+                    scope.append(Field::new(&scope[l].name, common))
+                }
+                _ => l,
+            };
+            scope.merge_key(l, r, key);
+        }
+        if matches!(kind, JoinKind::Semi | JoinKind::Anti) {
+            scope.truncate(offset);
+        }
+        let mut plan = join(left.plan, right.plan, kind, condition);
+        if !merged.is_empty() {
+            let mut expressions: Vec<_> = plan
+                .schema
+                .iter()
+                .enumerate()
+                .map(|(index, field)| BoundExpr::column(index, field.data_type.clone()))
+                .collect();
+            expressions.extend(merged);
+            plan = LogicalPlan {
+                schema: scope.to_vec(),
+                node: PlanNode::Projection {
+                    input: Box::new(plan),
+                    expressions,
+                },
+            };
+        }
+        Ok(Relation { plan, scope })
+    }
+
+    pub(super) fn factor(&mut self, factor: &ast::TableFactor) -> Result<Relation> {
+        if let ast::TableFactor::NestedJoin {
+            table_with_joins,
+            alias: table_alias,
+        } = factor
+        {
+            let relation = self.from(table_with_joins)?;
+            return if let Some(table_alias) = table_alias {
+                let mut plan = relation.project_visible();
+                alias(&mut plan, table_alias)?;
+                Ok(plan.into())
+            } else {
+                Ok(relation)
+            };
+        }
         let (mut plan, table_alias) = match factor {
             ast::TableFactor::Table {
                 name,
@@ -124,13 +254,13 @@ impl State<'_, '_> {
         if let Some(table_alias) = table_alias {
             alias(&mut plan, table_alias)?;
         }
-        Ok(plan)
+        Ok(plan.into())
     }
 
     pub(super) fn order(
         &self,
         order: &ast::OrderByExpr,
-        fields: &[Field],
+        fields: &Scope,
         grouping: Option<&GroupScope>,
     ) -> Result<OrderExpr> {
         let expression = if let Some(index) = ordinal(&order.expr, fields.len())? {

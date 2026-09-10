@@ -10,6 +10,7 @@ use crate::{
     planner::{BoundExpr, ExprKind, Schema, logical::JoinKind},
 };
 
+mod hash;
 mod keys;
 mod membership;
 mod semi;
@@ -109,14 +110,17 @@ impl JoinAlgorithm for HashJoin {
         plan: JoinPlan<'a>,
         context: &'a ExecutionContext<'a>,
     ) -> Result<Stream<'a>> {
-        if matches!(plan.kind, JoinKind::Semi | JoinKind::Anti)
-            && let Some(keys) = EqualityKeys::bind(plan.condition, plan.left.schema().len())
-        {
+        let keys =
+            EqualityKeys::bind(plan.condition, plan.left.schema().len()).ok_or_else(|| {
+                crate::Error::Unsupported("hash join requires equal-typed pure total keys".into())
+            })?;
+        if matches!(plan.kind, JoinKind::Semi | JoinKind::Anti) {
             semi::open(plan, keys, context)
         } else {
-            Ok(materialized(self, plan, context))
+            hash::open(plan, keys, context)
         }
     }
+
     fn join(
         &self,
         left: &DataSet,

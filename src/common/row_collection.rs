@@ -56,7 +56,7 @@ impl RowCollection {
         self.reserve(chunk.len())?;
         if let [column] = chunk.columns() {
             column.append_to(&mut self.values);
-        } else {
+        } else if self.width != 0 {
             for index in 0..chunk.len() {
                 self.values.extend(chunk.columns().iter().map(|column| {
                     column
@@ -71,6 +71,18 @@ impl RowCollection {
     }
     pub fn len(&self) -> usize {
         self.count
+    }
+    /// Append a borrowed row without allocating a temporary row vector.
+    pub fn push(&mut self, row: &[Value]) -> Result<()> {
+        if row.len() != self.width {
+            return Err(Error::Internal(
+                "materialized row width differs from schema".into(),
+            ));
+        }
+        self.reserve(1)?;
+        self.values.extend_from_slice(row);
+        self.count += 1;
+        Ok(())
     }
     pub fn is_empty(&self) -> bool {
         self.count == 0

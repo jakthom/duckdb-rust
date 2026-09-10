@@ -39,59 +39,42 @@ impl State<'_, '_> {
         expression
     }
     pub(super) fn has_aggregate(&self, expr: &ast::Expr) -> bool {
-        match expr {
-            ast::Expr::Function(f)
-                if self
-                    .context
-                    .functions
-                    .aggregate(&f.name.to_string())
-                    .is_some()
-                    || f.name.to_string().eq_ignore_ascii_case("grouping")
-                    || f.name.to_string().eq_ignore_ascii_case("grouping_id") =>
-            {
-                true
-            }
-            ast::Expr::Function(f) => {
-                function_arguments(f).is_ok_and(|args| args.iter().any(|e| self.has_aggregate(e)))
-            }
-            ast::Expr::BinaryOp { left, right, .. } => {
-                self.has_aggregate(left) || self.has_aggregate(right)
-            }
-            ast::Expr::UnaryOp { expr, .. }
-            | ast::Expr::Nested(expr)
-            | ast::Expr::Cast { expr, .. }
-            | ast::Expr::IsNull(expr)
-            | ast::Expr::IsNotNull(expr) => self.has_aggregate(expr),
-            ast::Expr::Case {
-                operand,
-                conditions,
-                else_result,
-                ..
-            } => {
-                operand.as_ref().is_some_and(|e| self.has_aggregate(e))
-                    || conditions
-                        .iter()
-                        .any(|c| self.has_aggregate(&c.condition) || self.has_aggregate(&c.result))
-                    || else_result.as_ref().is_some_and(|e| self.has_aggregate(e))
-            }
-            ast::Expr::Between {
-                expr, low, high, ..
-            } => self.has_aggregate(expr) || self.has_aggregate(low) || self.has_aggregate(high),
-            ast::Expr::InList { expr, list, .. } => {
-                self.has_aggregate(expr) || list.iter().any(|e| self.has_aggregate(e))
-            }
-            ast::Expr::InSubquery { expr, .. } => self.has_aggregate(expr),
-            _ => false,
-        }
+        let mut aggregate = false;
+        let _ = window::visit_expression(expr, &mut |expr| {
+            aggregate |= self.is_aggregate(expr);
+            Ok(!aggregate)
+        });
+        aggregate
     }
 
     pub(super) fn expr(
         &self,
         expr: &ast::Expr,
-        fields: &[Field],
+        fields: &Scope,
         grouping: Option<&GroupScope>,
     ) -> Result<BoundExpr> {
         self.context.query.check()?;
+        if matches!(expr, ast::Expr::Function(function) if function.over.is_some())
+            && let Some(windows) = &fields.windows
+        {
+            return windows.bind(self, expr, fields, grouping);
+        }
+        if let ast::Expr::Identifier(name) = expr
+            && let Some(aliases) = fields.aliases.get(&name.value.to_ascii_lowercase())
+            && fields
+                .resolve_optional(std::slice::from_ref(&name.value))?
+                .is_none()
+        {
+            let [bound] = aliases.as_slice() else {
+                return Err(Error::Bind(format!("ambiguous SELECT alias {name}")));
+            };
+            if window::has_effects(bound) {
+                return Err(Error::Bind(
+                    "referenced alias expression has side effects".into(),
+                ));
+            }
+            return Ok(bound.clone());
+        }
         if let Some(grouping) = grouping
             && let Some(index) = grouping.index(expr, fields)
         {
@@ -261,7 +244,9 @@ impl State<'_, '_> {
                     || !function.within_group.is_empty()
                     || function.null_treatment.is_some()
                 {
-                    return Err(unsupported("window or ordered function"));
+                    return Err(Error::Bind(
+                        "window or ordered function is not allowed in this clause".into(),
+                    ));
                 }
                 let name = function.name.to_string();
                 if name.eq_ignore_ascii_case("grouping") || name.eq_ignore_ascii_case("grouping_id")

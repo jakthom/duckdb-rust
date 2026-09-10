@@ -4,6 +4,7 @@ use super::{AggregateFunction, AggregateState, FunctionRegistry};
 use crate::common::{DataType, Error, Result, Value};
 
 mod groups;
+mod window;
 
 #[derive(Debug)]
 struct Builtin(&'static str);
@@ -62,6 +63,13 @@ impl AggregateFunction for Builtin {
             value: Value::Null,
             seen: false,
         }))
+    }
+    fn evaluate_window(
+        &self,
+        input: &super::window::WindowInput<'_>,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Option<Vec<Value>>> {
+        window::evaluate(self, input, query)
     }
     fn create_grouped_state(
         &self,

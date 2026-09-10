@@ -13,10 +13,10 @@ impl State<'_, '_> {
     pub(super) fn column(
         &self,
         parts: &[String],
-        fields: &[Field],
+        fields: &Scope,
         grouping: Option<&GroupScope>,
     ) -> Result<BoundExpr> {
-        if let Some(index) = resolve_optional(fields, parts)? {
+        if let Some(index) = fields.resolve_optional(parts)? {
             if grouping.is_some() {
                 return Err(Error::Bind(format!(
                     "column \"{}\" must appear in the GROUP BY clause or must be part of an aggregate function.",
@@ -26,7 +26,7 @@ impl State<'_, '_> {
             return Ok(BoundExpr::column(index, fields[index].data_type.clone()));
         }
         for (depth, scope) in self.outer.iter().rev().enumerate() {
-            if let Some(index) = resolve_optional(&scope.fields, parts)? {
+            if let Some(index) = scope.fields.resolve_optional(parts)? {
                 let column = scope.columns[index].ok_or_else(|| {
                     Error::Bind(format!(
                         "outer column {} must appear in GROUP BY",
@@ -48,7 +48,7 @@ impl State<'_, '_> {
     pub(super) fn subquery(
         &self,
         query: &ast::Query,
-        fields: &[Field],
+        fields: &Scope,
         grouping: Option<&GroupScope>,
         form: SubqueryForm,
     ) -> Result<BoundExpr> {
@@ -57,7 +57,7 @@ impl State<'_, '_> {
         }
         let mut outer = self.outer.clone();
         outer.push(CorrelationScope {
-            fields: fields.to_vec(),
+            fields: fields.clone(),
             columns: (0..fields.len())
                 .map(|column| match grouping {
                     None => Some(column),

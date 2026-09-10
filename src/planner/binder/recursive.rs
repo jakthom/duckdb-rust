@@ -83,7 +83,8 @@ impl State<'_, '_> {
             step = self.coerce_plan(step, &types, CastMode::Implicit)?;
             return Ok(LogicalPlan {
                 schema: seed.schema.clone(),
-                node: PlanNode::Union {
+                node: PlanNode::SetOperation {
+                    kind: crate::planner::logical::SetOperation::Union,
                     left: Box::new(seed),
                     right: Box::new(step),
                     all,

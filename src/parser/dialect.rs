@@ -29,6 +29,9 @@ impl Dialect for RewriteDialect {
     fn is_identifier_part(&self, ch: char) -> bool {
         DuckDbDialect.is_identifier_part(ch)
     }
+    fn supports_window_function_null_treatment_arg(&self) -> bool {
+        true
+    }
     delegate_flags!(
         supports_trailing_commas,
         supports_filter_during_aggregation,

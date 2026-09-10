@@ -39,7 +39,7 @@ impl State<'_, '_> {
                 if !order.is_empty() {
                     let order = order
                         .iter()
-                        .map(|o| self.order(o, &plan.schema, None))
+                        .map(|o| self.order(o, &Scope::from(plan.schema.clone()), None))
                         .collect::<Result<_>>()?;
                     plan = LogicalPlan {
                         schema: plan.schema.clone(),
@@ -92,7 +92,7 @@ impl State<'_, '_> {
                     .iter()
                     .map(|row| {
                         row.iter()
-                            .map(|e| self.expr(e, &[], None))
+                            .map(|e| self.expr(e, &Scope::default(), None))
                             .collect::<Result<Vec<_>>>()
                     })
                     .collect::<Result<Vec<_>>>()?;
@@ -126,7 +126,7 @@ impl State<'_, '_> {
                 })
             }
             ast::SetExpr::SetOperation {
-                op: ast::SetOperator::Union,
+                op,
                 set_quantifier,
                 left,
                 right,
@@ -134,7 +134,7 @@ impl State<'_, '_> {
                 let mut left = self.set(left)?;
                 let mut right = self.set(right)?;
                 if left.schema.len() != right.schema.len() {
-                    return Err(Error::Bind("UNION column counts differ".into()));
+                    return Err(Error::Bind(format!("{op} column counts differ")));
                 }
                 let types = left
                     .schema
@@ -156,7 +156,16 @@ impl State<'_, '_> {
                 };
                 Ok(LogicalPlan {
                     schema: left.schema.clone(),
-                    node: PlanNode::Union {
+                    node: PlanNode::SetOperation {
+                        kind: match op {
+                            ast::SetOperator::Union => super::super::logical::SetOperation::Union,
+                            ast::SetOperator::Intersect => {
+                                super::super::logical::SetOperation::Intersect
+                            }
+                            ast::SetOperator::Except | ast::SetOperator::Minus => {
+                                super::super::logical::SetOperation::Except
+                            }
+                        },
                         left: Box::new(left),
                         right: Box::new(right),
                         all,
@@ -174,8 +183,6 @@ impl State<'_, '_> {
     ) -> Result<LogicalPlan> {
         if select.top.is_some()
             || select.into.is_some()
-            || select.qualify.is_some()
-            || !select.named_window.is_empty()
             || !select.lateral_views.is_empty()
             || select.prewhere.is_some()
             || !select.connect_by.is_empty()
@@ -195,21 +202,27 @@ impl State<'_, '_> {
             schema: vec![],
             node: PlanNode::Values(vec![vec![]]),
         };
+        let mut scope = Scope::default();
         for (index, from) in select.from.iter().enumerate() {
             let next = self.from(from)?;
+            scope = if index == 0 {
+                next.scope
+            } else {
+                scope.combine(&next.scope)?
+            };
             input = if index == 0 {
-                next
+                next.plan
             } else {
                 join(
                     input,
-                    next,
+                    next.plan,
                     JoinKind::Inner,
                     BoundExpr::literal(Value::Boolean(true)),
                 )
             };
         }
         if let Some(predicate) = &select.selection {
-            let predicate = self.boolean(self.expr(predicate, &input.schema, None)?)?;
+            let predicate = self.boolean(self.expr(predicate, &scope, None)?)?;
             input = LogicalPlan {
                 schema: input.schema.clone(),
                 node: PlanNode::Filter {
@@ -218,10 +231,10 @@ impl State<'_, '_> {
                 },
             };
         }
-        let mut items = Vec::<(ast::Expr, String)>::new();
+        let mut items = Vec::<SelectItem>::new();
         for item in &select.projection {
             match item {
-                ast::SelectItem::UnnamedExpr(e) => items.push((
+                ast::SelectItem::UnnamedExpr(e) => items.push(SelectItem::expression(
                     e.clone(),
                     match e {
                         ast::Expr::Identifier(i) => i.value.clone(),
@@ -232,11 +245,11 @@ impl State<'_, '_> {
                     },
                 )),
                 ast::SelectItem::ExprWithAlias { expr, alias } => {
-                    items.push((expr.clone(), alias.value.clone()))
+                    items.push(SelectItem::expression(expr.clone(), alias.value.clone()))
                 }
                 ast::SelectItem::Wildcard(options) => {
                     check_wildcard(options)?;
-                    expand_star(&input.schema, None, &mut items);
+                    items.extend(scope.star(None)?);
                 }
                 ast::SelectItem::QualifiedWildcard(
                     ast::SelectItemQualifiedWildcardKind::ObjectName(name),
@@ -244,14 +257,7 @@ impl State<'_, '_> {
                 ) => {
                     check_wildcard(options)?;
                     let name = name.to_string();
-                    if !input.schema.iter().any(|f| {
-                        f.qualifier
-                            .as_ref()
-                            .is_some_and(|q| q.eq_ignore_ascii_case(&name))
-                    }) {
-                        return Err(Error::Bind(format!("table {name} not found")));
-                    }
-                    expand_star(&input.schema, Some(&name), &mut items);
+                    items.extend(scope.star(Some(&name))?);
                 }
                 _ => return Err(unsupported(item)),
             }
@@ -260,21 +266,39 @@ impl State<'_, '_> {
             return Err(Error::Bind("SELECT has no columns".into()));
         }
         let order = order_expressions(order, items.len())?;
-        let bound_groups = self.group_by(&select.group_by, &input.schema, &items)?;
+        let mut windows = window::Windows::new(&select.named_window)?;
+        let roots = items
+            .iter()
+            .map(|item| &item.expression)
+            .chain(select.having.iter())
+            .chain(select.qualify.iter())
+            .chain(order.iter().map(|key| &key.expr))
+            .collect::<Vec<_>>();
+        for expression in &roots {
+            windows.gather(expression)?;
+        }
+        let window_keys = windows
+            .calls
+            .iter()
+            .flat_map(|(_, spec)| {
+                spec.partition_by
+                    .iter()
+                    .chain(spec.order_by.iter().map(|key| &key.expr))
+            })
+            .collect::<Vec<_>>();
+        let bound_groups = self.group_by(&select.group_by, &scope, &items)?;
         let groups = bound_groups.groups;
         let aggregate = bound_groups.explicit
-            || items.iter().any(|(e, _)| self.has_aggregate(e))
-            || select
-                .having
-                .as_ref()
-                .is_some_and(|e| self.has_aggregate(e))
-            || order.iter().any(|o| self.has_aggregate(&o.expr));
+            || roots
+                .iter()
+                .chain(&window_keys)
+                .any(|expr| self.has_aggregate(expr));
         let grouping = aggregate.then(|| {
             let aliases = items
                 .iter()
-                .filter_map(|(expression, name)| {
-                    grouping::group_index(expression, &input.schema, &groups)
-                        .map(|index| (name.to_ascii_lowercase(), index))
+                .filter_map(|item| {
+                    item.group_index(&scope, &groups)
+                        .map(|index| (item.name.to_ascii_lowercase(), index))
                 })
                 .collect();
             GroupScope {
@@ -283,21 +307,34 @@ impl State<'_, '_> {
                 outputs: RefCell::new(Vec::new()),
             }
         });
+        if !windows.calls.is_empty()
+            && let Some(grouping) = &grouping
+        {
+            for expression in roots.iter().chain(&window_keys) {
+                self.collect_aggregates(expression, &scope, grouping)?;
+            }
+        }
+        let window_input_width = grouping.as_ref().map_or(input.schema.len(), |grouping| {
+            grouping.groups.len() + grouping.outputs.borrow().len()
+        });
+        let mut projection_scope = scope.clone();
+        let window_scope = std::rc::Rc::new(window::WindowScope::new(window_input_width, windows));
+        projection_scope.windows = Some(window_scope.clone());
         let mut expressions = items
             .iter()
-            .map(|(e, _)| self.expr(e, &input.schema, grouping.as_ref()))
+            .map(|item| item.bind(self, &projection_scope, grouping.as_ref()))
             .collect::<Result<Vec<_>>>()?;
         let mut fields: Schema = items
             .iter()
             .zip(&expressions)
-            .map(|((_, name), e)| Field::new(name, e.data_type.clone()))
+            .map(|(item, e)| Field::new(&item.name, e.data_type.clone()))
             .collect();
         let visible = fields.len();
         let having = select
             .having
             .as_ref()
             .map(|e| {
-                self.expr(e, &input.schema, grouping.as_ref())
+                self.expr(e, &scope, grouping.as_ref())
                     .and_then(|e| self.boolean(e))
             })
             .transpose()?;
@@ -308,7 +345,9 @@ impl State<'_, '_> {
             } else if let ast::Expr::Identifier(name) = &item.expr {
                 resolve(&fields[..visible], std::slice::from_ref(&name.value)).ok()
             } else {
-                items.iter().position(|(e, _)| *e == item.expr)
+                items
+                    .iter()
+                    .position(|selected| selected.expression == item.expr)
             };
             let index = if let Some(index) = projected {
                 index
@@ -316,7 +355,7 @@ impl State<'_, '_> {
                 if distinct {
                     return Err(unsupported("DISTINCT ordering by an unselected expression"));
                 }
-                let expr = self.expr(&item.expr, &input.schema, grouping.as_ref())?;
+                let expr = self.expr(&item.expr, &projection_scope, grouping.as_ref())?;
                 fields.push(Field::new(item.expr.to_string(), expr.data_type.clone()));
                 expressions.push(expr);
                 fields.len() - 1
@@ -332,6 +371,26 @@ impl State<'_, '_> {
                 nulls_first,
             });
         }
+        let qualify = if let Some(expression) = &select.qualify {
+            let mut qualify_scope = projection_scope.clone();
+            for (index, item) in items.iter().enumerate() {
+                let name = item.name.to_ascii_lowercase();
+                qualify_scope
+                    .aliases
+                    .entry(name)
+                    .or_default()
+                    .push(expressions[index].clone());
+            }
+            Some(self.boolean(self.expr(expression, &qualify_scope, grouping.as_ref())?)?)
+        } else {
+            None
+        };
+        if qualify.is_some() && window_scope.is_empty() {
+            return Err(Error::Bind(
+                "QUALIFY requires at least one window function".into(),
+            ));
+        }
+        let bound_windows = window_scope.take();
         if let Some(grouping) = grouping {
             let outputs = grouping.outputs.into_inner();
             let mut schema: Schema = grouping
@@ -361,6 +420,31 @@ impl State<'_, '_> {
             ));
         }
         if let Some(predicate) = having {
+            input = LogicalPlan {
+                schema: input.schema.clone(),
+                node: PlanNode::Filter {
+                    input: Box::new(input),
+                    predicate,
+                },
+            };
+        }
+        if !bound_windows.is_empty() {
+            let mut schema = input.schema.clone();
+            schema.extend(bound_windows.iter().map(|(expression, bound)| {
+                Field::new(expression.to_string(), bound.data_type.clone())
+            }));
+            input = LogicalPlan {
+                schema,
+                node: PlanNode::Window {
+                    input: Box::new(input),
+                    expressions: bound_windows
+                        .into_iter()
+                        .map(|(_, window)| window)
+                        .collect(),
+                },
+            };
+        }
+        if let Some(predicate) = qualify {
             input = LogicalPlan {
                 schema: input.schema.clone(),
                 node: PlanNode::Filter {
