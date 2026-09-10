@@ -56,6 +56,19 @@ impl Dialect for RewriteDialect {
         supports_comma_separated_trim,
     );
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
+        if let Token::Word(word) = parser.peek_token().token
+            && word.quote_style.is_none()
+            && matches!(word.keyword, Keyword::CEIL | Keyword::FLOOR)
+            && parser.peek_nth_token(1).token == Token::LParen
+        {
+            // DuckDB uses ordinary catalog functions, not sqlparser's special
+            // numeric-scale / datetime-TO grammar. Preserve the normal AST and
+            // selected binding path, including invalid-arity diagnostics.
+            return Some((|| {
+                let name = parser.parse_object_name(false)?;
+                parser.parse_function(name)
+            })());
+        }
         if parser.parse_keyword(Keyword::INTERVAL) {
             return Some(interval_literal(parser));
         }
@@ -132,4 +145,45 @@ fn grouping_items(parser: &mut Parser) -> Result<Vec<Vec<Expr>>, ParserError> {
     })?;
     parser.expect_token(&Token::RParen)?;
     Ok(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parser::{DuckDbParser, Parser, Statement};
+    use sqlparser::ast::{self, Expr, FunctionArguments, SelectItem, SetExpr};
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn numeric_direction_syntax_retains_ordinary_function_arguments() {
+        for (call, arity) in [
+            ("ceil()", 0),
+            ("CeIl(1,-1)", 2),
+            ("floor(1,'s')", 2),
+            ("floor(1,$1)", 2),
+            ("ceiling(1)", 1),
+        ] {
+            let statements = DuckDbParser.parse(&format!("SELECT {call}")).unwrap();
+            let Statement::Sql(statement) = &statements[0] else {
+                panic!("SQL statement");
+            };
+            let ast::Statement::Query(query) = statement.as_ref() else {
+                panic!("query");
+            };
+            let SetExpr::Select(select) = query.body.as_ref() else {
+                panic!("select");
+            };
+            let SelectItem::UnnamedExpr(Expr::Function(function)) = &select.projection[0] else {
+                panic!("ordinary function: {call}");
+            };
+            let FunctionArguments::List(arguments) = &function.args else {
+                panic!("arguments");
+            };
+            assert_eq!(arguments.args.len(), arity);
+        }
+        assert!(
+            DuckDbParser
+                .parse("SELECT floor(TIMESTAMP '2024-01-01' TO DAY)")
+                .is_err()
+        );
+    }
 }
