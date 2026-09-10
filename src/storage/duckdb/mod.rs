@@ -2,6 +2,7 @@ mod binary;
 mod catalog;
 mod columns;
 pub mod compression;
+mod nested;
 mod primitive;
 mod temporal;
 #[cfg(test)]

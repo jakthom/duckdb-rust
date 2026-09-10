@@ -11,6 +11,34 @@ from reference_version import TARGETS, require_reference
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = {
+    "nested_scalar": """
+        SET force_compression='uncompressed';
+        CREATE TABLE t(id INTEGER, xs INTEGER[], a INTEGER[2],
+          s STRUCT(x DECIMAL(8,2),y VARCHAR), m MAP(INTEGER,VARCHAR),
+          u UNION(i INTEGER,s VARCHAR));
+        INSERT INTO t VALUES
+          (1,[1,NULL,3],[1,2],{'x':1.25,'y':'a'},map([1,2],['a',NULL]),union_value(i:=7)),
+          (2,[],[NULL,4],{'x':NULL,'y':NULL},map([],[]),union_value(s:='x')),
+          (3,NULL,NULL,NULL,NULL,NULL);
+        CHECKPOINT;
+    """,
+    "nested_bitpacking": """
+        SET force_compression='bitpacking';
+        CREATE TABLE t AS SELECT i::INTEGER id,
+          CASE WHEN i%17=0 THEN NULL WHEN i%13=0 THEN [] ELSE [i,NULL,i+1] END xs,
+          [i,NULL]::BIGINT[2] a,
+          {'x':(i%100)::DECIMAL(8,2),'y':CASE WHEN i%19=0 THEN NULL ELSE 'v'||i END} s
+        FROM range(10013) r(i);
+        CHECKPOINT;
+    """,
+    "nested_rowgroups": """
+        SET force_compression='bitpacking';
+        CREATE TABLE t AS SELECT i::INTEGER id,
+          CASE WHEN i%17=0 THEN NULL WHEN i%13=0 THEN [] ELSE [i,NULL,i+1] END xs,
+          {'x':i::BIGINT,'y':CASE WHEN i%19=0 THEN NULL ELSE i::INTEGER END} s
+        FROM range(125013) r(i);
+        CHECKPOINT;
+    """,
     "dates_scalar": """
         SET force_compression='uncompressed';
         CREATE TABLE t(id INTEGER, d DATE, c DATE DEFAULT DATE '2000-02-29');

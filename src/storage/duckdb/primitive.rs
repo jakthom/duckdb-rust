@@ -144,6 +144,7 @@ pub(super) fn type_id(data_type: &DataType) -> Result<u64> {
         DataType::UHugeInt => Ok(49),
         DataType::Decimal { .. } => Ok(21),
         DataType::Enum(_) => Ok(104),
+        DataType::Nested(metadata) => super::nested::type_id(metadata),
         _ => Err(Error::Unsupported(format!(
             "DuckDB storage type {data_type}"
         ))),
@@ -154,6 +155,9 @@ pub(super) fn type_id(data_type: &DataType) -> Result<u64> {
 pub(super) fn write_type(output: &mut super::binary::Encoder, data_type: &DataType) -> Result<()> {
     crate::common::type_registry::check_metadata(data_type)?;
     output.property(100, type_id(data_type)?);
+    if let DataType::Nested(metadata) = data_type {
+        super::nested::write_info(output, metadata)?;
+    }
     if let DataType::Decimal { width, scale } = data_type {
         output.field(101);
         output.boolean(true);

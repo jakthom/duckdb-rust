@@ -16,7 +16,7 @@ const META_SIZE: usize = 4088;
 const META_PAYLOAD: usize = META_SIZE - 8;
 
 #[derive(Default)]
-struct Arena {
+pub(super) struct Arena {
     blocks: Vec<Vec<u8>>,
     metadata: Vec<(u64, u64)>,
 }
@@ -273,6 +273,20 @@ fn column_data(
     values: &[Value],
     row_start: usize,
 ) -> Result<u64> {
+    let bytes = column_bytes(arena, data_type, values, row_start)?;
+    arena.metadata(&bytes)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn column_bytes(
+    arena: &mut Arena,
+    data_type: &DataType,
+    values: &[Value],
+    row_start: usize,
+) -> Result<Vec<u8>> {
+    if matches!(data_type, DataType::Nested(_)) {
+        return super::nested::write_column(arena, data_type, values, row_start);
+    }
     let mut segments = Vec::new();
     for (chunk, values) in values.chunks(2048).enumerate() {
         if matches!(data_type, DataType::Varchar | DataType::Blob) {
@@ -311,6 +325,23 @@ fn column_data(
         output.0.extend(segment);
     }
     output.field(101);
+    output.0.extend(validity_bytes(arena, values, row_start)?);
+    output.end();
+    Ok(output.0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn validity_bytes(
+    arena: &mut Arena,
+    values: &[Value],
+    row_start: usize,
+) -> Result<Vec<u8>> {
+    let mut output = Encoder::default();
+    if values.is_empty() {
+        output.property(100, 0);
+        output.end();
+        return Ok(output.0);
+    }
     output.property(100, 1);
     output.property(100, row_start as u64);
     output.property(101, values.len() as u64);
@@ -336,8 +367,7 @@ fn column_data(
     statistics(&mut output, None, values)?;
     output.end();
     output.end();
-    output.end();
-    arena.metadata(&output.0)
+    Ok(output.0)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -346,6 +376,18 @@ fn segment(
     data_type: &DataType,
     values: &[Value],
     row_start: usize,
+) -> Result<Vec<u8>> {
+    segment_with_statistics(arena, data_type, values, row_start, data_type, values)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn segment_with_statistics(
+    arena: &mut Arena,
+    data_type: &DataType,
+    values: &[Value],
+    row_start: usize,
+    statistics_type: &DataType,
+    statistics_values: &[Value],
 ) -> Result<Vec<u8>> {
     let mut data = Vec::new();
     let mut overflow_blocks = Vec::new();
@@ -441,7 +483,7 @@ fn segment(
     output.end();
     output.property(103, 1);
     output.field(104);
-    statistics(&mut output, Some(data_type), values)?;
+    statistics(&mut output, Some(statistics_type), statistics_values)?;
     if !overflow_blocks.is_empty() {
         output.field(105);
         output.boolean(true);
@@ -456,7 +498,11 @@ fn segment(
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn statistics(output: &mut Encoder, data_type: Option<&DataType>, values: &[Value]) -> Result<()> {
+pub(super) fn statistics(
+    output: &mut Encoder,
+    data_type: Option<&DataType>,
+    values: &[Value],
+) -> Result<()> {
     output.field(100);
     output.boolean(values.iter().any(Value::is_null));
     output.field(101);
@@ -464,6 +510,9 @@ fn statistics(output: &mut Encoder, data_type: Option<&DataType>, values: &[Valu
     output.property(102, 0);
     output.field(103);
     match data_type {
+        Some(DataType::Nested(metadata)) => {
+            super::nested::write_statistics(output, metadata, values)?
+        }
         None => {}
         // The writer's legacy compatibility target predates interval stats.
         Some(DataType::Interval) => {}

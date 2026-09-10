@@ -3,6 +3,7 @@ use super::{
     binary::{Reader, corrupt},
     catalog::block_pointer,
 };
+mod string_statistics;
 use crate::{
     catalog::TableDefinition,
     common::{DataType, Error, Result, Row, Value},
@@ -155,7 +156,7 @@ pub(super) fn read_column_ownership(
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn read_column(
+pub(super) fn read_column(
     blocks: &Blocks,
     decoders: &DecoderRegistry,
     reader: &mut Reader,
@@ -163,11 +164,51 @@ fn read_column(
     count: usize,
     row_start: usize,
 ) -> Result<Vec<Value>> {
+    if let Some(data_type @ DataType::Nested(_)) = data_type {
+        return super::nested::read_column(blocks, decoders, reader, data_type, count, row_start);
+    }
+    let mut output = read_segments(
+        blocks, decoders, reader, data_type, data_type, count, row_start,
+    )?;
+    if output.len() != count {
+        return Err(corrupt("column row count mismatch"));
+    }
+    if data_type.is_some() {
+        reader.field(101)?;
+        let validity = read_column(blocks, decoders, reader, None, count, row_start)?;
+        for (value, valid) in output.iter_mut().zip(validity) {
+            if valid != Value::Boolean(true) {
+                *value = Value::Null;
+            } else if value.is_null() {
+                return Err(corrupt("valid row has no decoded value"));
+            }
+        }
+    }
+    reader.end()?;
+    Ok(output)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn read_segments(
+    blocks: &Blocks,
+    decoders: &DecoderRegistry,
+    reader: &mut Reader,
+    data_type: Option<&DataType>,
+    physical: Option<&DataType>,
+    count: usize,
+    row_start: usize,
+) -> Result<Vec<Value>> {
     let mut output = Vec::new();
     if reader.optional(100)? {
         for _ in 0..reader.length()? {
-            if reader.optional(100)? && reader.unsigned()? != (row_start + output.len()) as u64 {
-                return Err(corrupt("noncontiguous column segment identity"));
+            if reader.optional(100)? {
+                let actual = reader.unsigned()?;
+                let expected = (row_start + output.len()) as u64;
+                if actual != expected {
+                    return Err(corrupt(format!(
+                        "noncontiguous column segment identity: {actual}, expected {expected}, type {data_type:?}"
+                    )));
+                }
             }
             let segment_count = usize::try_from(reader.optional_unsigned(101, 0)?)
                 .map_err(|_| corrupt("segment count overflow"))?;
@@ -225,7 +266,7 @@ fn read_column(
             output.extend(decoders.decode(
                 CodecId(compression),
                 DecodeInput {
-                    kind: data_type.map_or(SegmentType::Validity, SegmentType::Values),
+                    kind: physical.map_or(SegmentType::Validity, SegmentType::Values),
                     count: segment_count,
                     data,
                     statistics: &statistics,
@@ -238,21 +279,6 @@ fn read_column(
             )?);
         }
     }
-    if output.len() != count {
-        return Err(corrupt("column row count mismatch"));
-    }
-    if data_type.is_some() {
-        reader.field(101)?;
-        let validity = read_column(blocks, decoders, reader, None, count, row_start)?;
-        for (value, valid) in output.iter_mut().zip(validity) {
-            if valid != Value::Boolean(true) {
-                *value = Value::Null;
-            } else if value.is_null() {
-                return Err(corrupt("valid row has no decoded value"));
-            }
-        }
-    }
-    reader.end()?;
     Ok(output)
 }
 
@@ -268,7 +294,7 @@ pub(super) fn segment_byte_size(reader: &mut Reader) -> Result<Option<usize>> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> Result<Statistics> {
+pub(super) fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> Result<Statistics> {
     reader.field(100)?;
     reader.boolean()?;
     reader.field(101)?;
@@ -278,17 +304,9 @@ fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> Result<Stati
     reader.field(103)?;
     let mut minimum = Value::Null;
     match data_type {
+        Some(DataType::Nested(metadata)) => super::nested::read_statistics(reader, metadata)?,
         Some(DataType::Varchar | DataType::Blob) => {
-            reader.field(200)?;
-            reader.blob()?;
-            reader.field(201)?;
-            reader.blob()?;
-            reader.field(202)?;
-            reader.boolean()?;
-            reader.field(203)?;
-            reader.boolean()?;
-            reader.field(204)?;
-            reader.unsigned()?;
+            string_statistics::read(reader)?;
         }
         Some(data_type) => {
             if *data_type == DataType::Interval {

@@ -8,6 +8,9 @@ use duckdb_rust::{
 };
 use std::{cmp::Ordering, sync::Arc};
 
+#[path = "nested/native.rs"]
+mod native;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn nested_sql_constructors_casts_and_accessors() -> Result<()> {

@@ -113,6 +113,14 @@ pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
+    logical_type_at(reader, 0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn logical_type_at(reader: &mut Reader, depth: usize) -> Result<DataType> {
+    if depth > 64 {
+        return Err(Error::Resource("native type nesting exceeds 64".into()));
+    }
     reader.field(100)?;
     let data_type = match reader.unsigned()? {
         1 => DataType::Null,
@@ -174,6 +182,7 @@ pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
             reader.end()?;
             DataType::enumeration(labels).map_err(|_| corrupt("invalid ENUM dictionary"))?
         }
+        id @ (100 | 101 | 102 | 107 | 108) => super::nested::read_type(reader, id, depth)?,
         21 => {
             reader.field(101)?;
             if !reader.boolean()? {

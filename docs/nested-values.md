@@ -35,8 +35,50 @@ UNION now has a named `union_value` constructor, field extraction, widening by d
 
 After incorporating the first combined temporal/BLOB/UUID base, ordinary check, nested tests (5), binary-scalar tests (4), temporal tests (2) and clippy passed. After the NULL-cast integration, nested (5), type (13) and cast (8) tests and clippy passed again. This is another integrable increment, not completion of UNION, the function catalog, or the nested milestone.
 
-## Remaining work
+## Native checkpoint integration increment
+
+LIST, ARRAY, STRUCT, MAP and UNION now serialize native child metadata, statistics,
+validity and column streams. Native reads preserve active-NULL UNION members,
+NULL containers, empty lists/maps, fixed array cardinality and decimal children.
+Primitive codec selection remains through the supplied decoder registry. The
+shared reader also consumes bounded development string statistics (fields
+204–207) while preserving legacy statistics decoding.
+
+Independent pinned release and development fixtures are retained under
+`test/data/duckdb/nested-{release,development}/`, with producer identity, SQL,
+hashes and observed codecs. Four of six files pass exact selected-value reads;
+the release 125,013-row file also passes Rust publication and exact reopen. The
+10,013-row development fixture remains unsupported because its VARCHAR child
+uses DICT_FSST codec 15; the development 125,013-row fixture uses unsupported
+ROARING codec 13 for child validity. A specifically named negative regression
+records these gaps; it is not a compatibility pass. Both original failed fixtures
+are retained unchanged for decoder follow-ups.
+
+The first large-file run found an incorrect child coordinate assumption:
+C++ applies the enclosing row-group origin recursively to all segment identities,
+including LIST/ARRAY children, while list endpoints remain local. Both reader
+and writer were repaired, and the multi-row-group fixtures cover the regression.
+A selected three-row release-producer file also passed Rust update/insert,
+Rust reopen, and independent reopen by both pinned C++ CLIs.
+
+This is an internal storage increment, not completion of the family assignment.
+Nested WAL, native non-NULL defaults, dynamic VARIANT/TUPLE persistence, the
+remaining string/validity decoders and adversarial/resource expansion remain open. No
+acceptance performance measurements were taken. Kani is run by the integration
+lead at combined checkpoints; the first combined checkpoint reported five of
+five maintained harnesses passing, with bounded coverage rather than full parity.
+
+For this checkpoint increment, ordinary check, nested tests (8, including one
+explicit unsupported-codec test), existing compatibility tests (14), the focused
+packed-string-statistics unit test and all-target clippy passed. Coverage reports
+241 files, 2,088 functions, 201 interface methods and no missing attributes.
+The final instrumentation check passed in 28.01 seconds with zero reported errors,
+panics or open spans; temporary telemetry was deleted. An earlier overlapping
+trace/check attempt returned nonzero despite a completed compiler invocation;
+the stable retry is the executed passing instrumentation result.
+
+## Remaining work (continuing assignment)
 
 All six requested families remain in scope. UNION enum tags and broader member-coercion coverage; VARIANT dynamic semantics; TUPLE/unnamed rows; ordered list aggregation and remaining nested functions; slicing, lambdas and shape/coercion edge cases; formatting and mixed-family semantics need expansion. ARRAY/common-type, STRUCT field-union and composite overload ranking rules need broader reference coverage.
 
-Native DuckDB nested checkpoint/WAL codecs are not implemented in this increment. The private JSON round trip is not native compatibility evidence. Native default and ART encoding reject nested values explicitly, and native nested indexes must follow reference-supported behavior rather than a blanket assumption that every type is indexable. Further tests must include nested registry replacement, adversarial payload/resource cases, alternate execution/index compositions, mixed temporal/scalar families, independent C++ files, native rollback/recovery/reopen, upstream regressions and isolated faster-reference performance campaigns.
+Native DuckDB nested WAL and non-NULL default codecs are not implemented yet. The private JSON round trip is not native compatibility evidence. Native default and ART encoding reject nested values explicitly, and native nested indexes must follow reference-supported behavior rather than a blanket assumption that every type is indexable. Further tests must include nested registry replacement, adversarial payload/resource cases, alternate execution/index compositions, mixed temporal/scalar families, independent C++ files, native rollback/recovery/reopen, upstream regressions and isolated faster-reference performance campaigns.
