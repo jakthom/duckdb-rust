@@ -34,6 +34,21 @@ pub(super) fn integer_literal_fits(value: &BoundExpr, target: &DataType) -> bool
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn scalar_argument_cast_mode(
+    expression: &BoundExpr,
+    target: &DataType,
+    selected: CastMode,
+) -> CastMode {
+    if selected == CastMode::Implicit
+        && (string_literal(expression) || integer_literal_fits(expression, target))
+    {
+        CastMode::Explicit
+    } else {
+        selected
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn combination_cast_mode(
         &self,

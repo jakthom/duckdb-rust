@@ -56,6 +56,22 @@ pub trait ScalarBindArguments {
         self.data_type(index).map(|_| None)
     }
     fn constant(&self, index: usize) -> Result<Value>;
+    /// Request a closed, effect-free argument converted through the frontend's
+    /// selected cast registry and evaluator. SQL literal privileges apply only
+    /// to an Implicit request; Explicit and Assignment retain their exact mode.
+    /// Validate the converted logical value and preserve every cast/evaluator
+    /// failure. Frontends without this capability must reject it explicitly.
+    fn constant_as(
+        &self,
+        index: usize,
+        _target: &DataType,
+        _mode: crate::common::cast::CastMode,
+    ) -> Result<Value> {
+        self.data_type(index)?;
+        Err(Error::Unsupported(
+            "frontend does not support selected typed constant arguments".into(),
+        ))
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

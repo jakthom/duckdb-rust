@@ -48,3 +48,35 @@ Table-in/out functions can produce multiple outputs for one input and can requir
 ## Verification requirements
 
 Test binding errors separately from execution errors; vary argument types, NULL patterns, constant/dictionary vectors, parallelism, repeated preparation, and serialization. Aggregate tests need empty input, partial-state combination, DISTINCT/FILTER where supported, and cleanup after failure. Table functions need projection/filter pushdown equivalence and accurate end-of-stream behavior. Native registration tests, C v1/v2 callback tests, and extension ABI checks are separate families in [component/API testing](../testing/component-api.md) and [compatibility](../testing/compatibility.md).
+
+## Rewrite selected typed-constant requests
+
+This section is a provisional rewrite interface contract, separate from the
+source-system description above. A scalar specialization may request
+`ScalarBindArguments::constant_as(index, target, mode)` when closed argument
+values determine result metadata, such as DECIMAL rounding precision.
+
+The language frontend owns that request. It must reject missing positions and
+arguments with relational dependencies or declared effects before evaluation.
+It must use the selected cast registry and expression evaluator, including the
+ordinary argument-cast mode and literal-identity policy, and validate the returned
+logical value. SQL string literals and fitting integer literals may receive the
+SQL frontend's explicit-cast privilege only for an Implicit request. Explicit
+and Assignment requests retain their selected mode; typed API parameters are
+not SQL literals. Identity conversion follows the same ordinary expression path.
+
+The returned Value is owned, including owned/shared immutable child payloads;
+it does not borrow a binder, registry or evaluator. NULL remains a typed request
+result that the selected function must interpret explicitly. This is not an
+ambient default cast, expression serialization format, or permission to evaluate
+volatile functions during catalog loading. Prepared execution must bind against
+its supplied parameter values and selected statement services.
+
+Cast, validation, evaluator, resource and cancellation failures propagate.
+Malformed adapter/evaluator output is an Internal contract failure, not a
+legitimate NULL or recoverable conversion. No fallback may call `Value::cast`
+or a private built-in registry. Frontends that do not implement typed constant
+requests explicitly return Unsupported; existing metadata and untyped constant
+requests remain separate capabilities. The ordinary scalar call path and typed
+constant path share one cast-mode selection helper so their policies cannot
+silently diverge.

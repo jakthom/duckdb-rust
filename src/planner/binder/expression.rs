@@ -38,15 +38,11 @@ impl State<'_, '_> {
             .zip(argument_types.iter())
             .enumerate()
             .map(|(index, (e, target))| {
-                let selected_mode = function_impl.argument_cast_mode(index);
-                let mode = if selected_mode == CastMode::Implicit
-                    && (super::coercion::string_literal(&e)
-                        || super::coercion::integer_literal_fits(&e, target))
-                {
-                    CastMode::Explicit
-                } else {
-                    selected_mode
-                };
+                let mode = super::coercion::scalar_argument_cast_mode(
+                    &e,
+                    target,
+                    function_impl.argument_cast_mode(index),
+                );
                 e.cast(
                     target.clone(),
                     mode,
@@ -699,6 +695,25 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))
     }
     fn constant(&self, index: usize) -> Result<Value> {
+        self.evaluate_constant(self.closed_argument(index)?)
+    }
+    fn constant_as(&self, index: usize, target: &DataType, mode: CastMode) -> Result<Value> {
+        let expression = self.closed_argument(index)?;
+        let mode = super::coercion::scalar_argument_cast_mode(expression, target, mode);
+        let expression = expression.clone().cast(
+            target.clone(),
+            mode,
+            self.context.casts,
+            self.context.query.types(),
+        )?;
+        self.evaluate_constant(&expression)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl FunctionArguments<'_, '_> {
+    fn closed_argument(&self, index: usize) -> Result<&BoundExpr> {
+        self.context.query.check()?;
         let expression = self
             .arguments
             .get(index)
@@ -708,6 +723,9 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
                 "function requires a constant argument without effects".into(),
             ));
         }
+        Ok(expression)
+    }
+    fn evaluate_constant(&self, expression: &BoundExpr) -> Result<Value> {
         let value =
             self.context
                 .expressions
