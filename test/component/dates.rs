@@ -24,6 +24,7 @@ use duckdb_rust::{
 };
 
 mod date_cast_context;
+mod date_syntax;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn date(text: &str) -> Value {
@@ -354,8 +355,11 @@ fn date_literals_defaults_and_try_cast_honor_selected_adapters() -> Result<()> {
     for sql in [
         "SELECT DATE 'epoch'",
         "SELECT CAST('epoch' AS DATE)",
+        "SELECT DATE('epoch')",
+        "SELECT ignored.\"DATE\"('epoch') FILTER (WHERE nonexistent)",
         "SELECT TRY_CAST('epoch' AS DATE)",
         "CREATE TABLE defaults(d DATE DEFAULT DATE 'epoch')",
+        "CREATE TABLE defaults(d DATE DEFAULT DATE('epoch'))",
     ] {
         assert!(matches!(c.execute(sql), Err(Error::Resource(_))), "{sql}");
     }

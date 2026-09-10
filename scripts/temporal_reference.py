@@ -225,10 +225,37 @@ RENDER_SQL = [
     "SELECT TRY_CAST([make_timestamp_ns(-9223372036854775806)] AS VARCHAR)",
     "SELECT TRY_CAST(make_timestamp(-9223372036854775806)::VARIANT AS VARCHAR)",
 ]
+SQL += [f'SELECT DATE({value})' for value in CAST_VALUES.values()]
+SQL += [
+    "SELECT DATE('2000-01-01 24:00:00'),DATE(NULL),typeof(DATE(NULL))",
+    "SELECT main.date('2000-01-01'),nonexistent.schema.\"DATE\"('2000-01-01')",
+    "SELECT DATE(DISTINCT '2000-01-01'),DATE(ALL '2000-01-01')",
+    "SELECT DATE('2000-01-01' ORDER BY nonexistent)",
+    "SELECT DATE('2000-01-01') FILTER (WHERE nonexistent)",
+    "SELECT DATE('2000-01-01') WITHIN GROUP (ORDER BY nonexistent)",
+    "SELECT DATE('2000-01-01' IGNORE NULLS),DATE('2000-01-01' RESPECT NULLS)",
+    "SELECT DATE(x := '2000-01-01'),DATE(x => '2000-01-01')",
+    "SELECT DATE(DATE('2000-01-01')),DATE((SELECT '2000-01-01'))",
+    "SELECT DATE(TIMESTAMP_NS '1969-12-31 23:59:59.999999999')",
+    "SELECT DATE(s),min(DATE(s)) OVER(ORDER BY s) FROM (VALUES ('2000-01-01 24:00:00'),('2000-01-02'),(NULL)) t(s) ORDER BY s",
+    "SELECT DATE()",
+    "SELECT DATE(1,2)",
+    "SELECT DATE(*)",
+    "SELECT DATE(ALL *)",
+    "SELECT DATE(DISTINCT *)",
+    "SELECT DATE(* ORDER BY nonexistent)",
+    "SELECT DATE('2000-01-01') OVER ()",
+    "SELECT nonexistent.DATE('2000-01-01') OVER ()",
+    "SELECT '-291000-01-01'::DATE:VARCHAR",
+    "SELECT '291000-01-01 (BC)'::DATE:VARCHAR",
+    "SELECT {'d':DATE('2000-01-01')}::VARCHAR,struct_pack(d := DATE('2000-01-01'))::VARCHAR",
+    # Parsed MAP literals remain a separate nested-family execution obligation.
+    "SELECT MAP {'d':DATE('2000-01-01')}::VARCHAR",
+]
 SQL += RENDER_SQL
 BOUNDARY_DEFINITION = "CREATE TABLE clock_boundaries(id INTEGER PRIMARY KEY,n TIME_NS UNIQUE,u TIME,z TIMETZ,child STRUCT(n TIME_NS,z TIMETZ),items TIME_NS[]); INSERT INTO clock_boundaries SELECT id,v,v::TIME,(v::TIME)::TIMETZ,{'n':v,'z':(v::TIME)::TIMETZ},[v,NULL] FROM (VALUES(1,TIME_NS '24:00:00'),(2,TIME_NS '24:00:00.000000001'),(3,TIME_NS '24:00:00.000000999'),(4,make_time(23,59,60.49999999999999)::TIME_NS)) t(id,v)"
 BOUNDARY_QUERY = "SELECT id,n::VARCHAR AS n,u::VARCHAR AS u,z::VARCHAR AS z,child::VARCHAR AS child,items::VARCHAR AS items,(DATE '2000-01-01'+u)::VARCHAR AS shifted FROM clock_boundaries ORDER BY id"
-DATE_DEFINITION = "CREATE TABLE calendar_dates(k DATE UNIQUE,d DATE DEFAULT DATE '2000-01-01 12:34:56',p STRUCT(d DATE)); INSERT INTO calendar_dates(k,p) VALUES (DATE '5881580-07-10 24:00:00',CAST({'d':'5881580-07-10'}::VARIANT AS STRUCT(d DATE))),(DATE '5877642-06-25 (BC) 24:00:00',CAST({'d':'5877642-06-25 (BC)'}::VARIANT AS STRUCT(d DATE))),(DATE '2000-01-01 12:34:56',CAST({'d':'2000-01-01'}::VARIANT AS STRUCT(d DATE)))"
+DATE_DEFINITION = "CREATE TABLE calendar_dates(k DATE UNIQUE,d DATE DEFAULT DATE('2000-01-01 12:34:56'),p STRUCT(d DATE)); INSERT INTO calendar_dates(k,p) VALUES (DATE '5881580-07-10 24:00:00',CAST({'d':'5881580-07-10'}::VARIANT AS STRUCT(d DATE))),(DATE('5877642-06-25 (BC) 24:00:00'),CAST({'d':'5877642-06-25 (BC)'}::VARIANT AS STRUCT(d DATE))),(nonexistent.date('2000-01-01 12:34:56'),CAST({'d':'2000-01-01'}::VARIANT AS STRUCT(d DATE)))"
 DATE_QUERY = "SELECT k::VARCHAR AS k,d::VARCHAR AS d,p::VARCHAR AS p FROM calendar_dates ORDER BY k"
 DEFINITION = "CREATE TABLE t(id INTEGER PRIMARY KEY,tm TIME DEFAULT TIME '12:00:00',ts TIMESTAMP_US DEFAULT TIMESTAMP_US 'epoch',s TIMESTAMP_S DEFAULT TIMESTAMP_S 'epoch',ms TIMESTAMP_MS DEFAULT TIMESTAMP_MS 'epoch',ns DATETIME(9) DEFAULT DATETIME(9) 'epoch',z TIMESTAMPTZ DEFAULT TIMESTAMPTZ 'epoch',tz TIMETZ DEFAULT TIMETZ '12:00:00+02',iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t(id) VALUES(1); INSERT INTO t VALUES (2,NULL,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-01 12:00:00.123',TIMESTAMP_NS '2000-01-01 12:00:00.123456789',TIMESTAMPTZ '2000-01-01 12:00:00+02',TIMETZ '00:00:00-05:30',INTERVAL '-1 month 30 days -00:00:00.000001')"
 DEFINITION += "; INSERT INTO t(id,ts) VALUES (3,TIMESTAMP '290309-12-22 (BC) 00:00:00'),(4,TIMESTAMP '294247-01-10 04:00:54.775806')"
@@ -332,7 +359,7 @@ def main():
                         raise AssertionError(case['initial_calendar_dates'])
                     command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET ts=TIMESTAMP '1970-01-02',iv=iv+INTERVAL '1 day' WHERE id=1")
                     command(rust, path, "BEGIN; DELETE FROM clock_boundaries; ROLLBACK; UPDATE clock_boundaries SET n=(n::TIME)::TIME_NS WHERE id=3")
-                    command(rust, path, "BEGIN; DELETE FROM calendar_dates; ROLLBACK; UPDATE calendar_dates SET k=DATE '2000-01-02 24:00:00',p=CAST({'d':'2000-01-02'}::VARIANT AS STRUCT(d DATE)) WHERE k=DATE '2000-01-01'")
+                    command(rust, path, "BEGIN; DELETE FROM calendar_dates; ROLLBACK; UPDATE calendar_dates SET k=DATE('2000-01-02 24:00:00'),p=CAST({'d':'2000-01-02'}::VARIANT AS STRUCT(d DATE)) WHERE k=DATE('2000-01-01')")
                     expected = command(cpp_cli, path, QUERY, json_output=True, readonly=True)
                     actual_rows = command(rust, path, QUERY, json_output=True, readonly=True)
                     if expected != actual_rows:

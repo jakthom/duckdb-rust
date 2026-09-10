@@ -55,7 +55,23 @@ impl Dialect for RewriteDialect {
         supports_select_wildcard_replace,
         supports_comma_separated_trim,
     );
+    fn parse_infix(
+        &self,
+        parser: &mut Parser,
+        expr: &Expr,
+        precedence: u8,
+    ) -> Option<Result<Expr, ParserError>> {
+        if parser.peek_token().token == Token::Colon {
+            return Some(Err(ParserError::ParserError(
+                "syntax error at or near \":\"".into(),
+            )));
+        }
+        DuckDbDialect.parse_infix(parser, expr, precedence)
+    }
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
+        if let Some(expression) = super::date_call::parse(parser) {
+            return Some(expression);
+        }
         if let Token::Word(word) = parser.peek_token().token
             && word.quote_style.is_none()
             && matches!(word.keyword, Keyword::CEIL | Keyword::FLOOR)

@@ -139,6 +139,10 @@ impl State<'_, '_> {
         }
         let recurse = |e: &ast::Expr| self.expr(e, fields, grouping);
         match expr {
+            ast::Expr::Wildcard(_) | ast::Expr::QualifiedWildcard(_, _) => Err(Error::Bind(
+                "STAR expression is only allowed as the root element of an expression. Use COLUMNS(*) instead."
+                    .into(),
+            )),
             ast::Expr::Value(value) if matches!(&value.value, ast::Value::Placeholder(_)) => {
                 if !self.parameters_allowed {
                     return Err(unsupported("SET statements cannot have parameters"));

@@ -53,6 +53,18 @@ and strict VARIANT parsing. Implementations may reuse the parsed suffix without
 copying an unbounded input string, but must retain clock validity, checked
 arithmetic, cancellation and the format/range diagnostic distinction.
 
+Source observation: a non-window call whose final qualified identifier is
+`date` (case-insensitive, including quoted names) becomes a DATE cast during
+parsing. The development transformer checks one argument and discards argument
+names, DISTINCT, local ordering, FILTER, WITHIN GROUP and null-treatment
+modifiers. OVER takes an earlier window-function branch and is not cast sugar.
+The implementation must retain normal cast selection rather than introducing a
+scalar catalog entry or bypassing a selected adapter. A single infix colon is
+invalid syntax; dictionary, named-argument and slice colons have separate grammar
+roles and must not be rejected globally.
+
+Source: [expression transformer](../../../duckdb/src/parser/peg/transformer/transform_expression.cpp).
+
 Decimal arithmetic must preserve both precision and scale constraints; temporal types have units and semantic distinctions that cannot be recovered from an integer's width alone. String and binary values differ even when both have byte storage. LIST and fixed-size ARRAY differ in shape constraints. MAP and UNION add semantic structure over nested storage. These are engineering obligations derived from the type model, not permission to interchange physically similar types.
 
 ## Cross-component invariants

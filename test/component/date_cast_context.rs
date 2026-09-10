@@ -171,6 +171,29 @@ fn date_source_context_crosses_prepared_nested_indexes_wal_rollback_and_reopen()
                     .build()
             };
             let mut c = open()?.connect();
+            c.execute("CREATE TABLE date_calls(k DATE UNIQUE,d DATE DEFAULT date('2000-01-01 24:00:00'),p STRUCT(d DATE))")?;
+            let call_insert =
+                c.prepare("INSERT INTO date_calls(k,p) VALUES (DATE($1),{'d':DATE($1)})")?;
+            c.execute_prepared(
+                &call_insert,
+                &[Value::Varchar("2001-01-01 24:00:00".into())],
+            )?;
+            let call_rows = vec![vec![
+                date("2001-01-01"),
+                date("2000-01-01"),
+                date("2001-01-01"),
+            ]];
+            assert_eq!(c.query("SELECT k,d,p.d FROM date_calls")?.rows, call_rows);
+            c.execute("BEGIN; UPDATE date_calls SET k=DATE('2002-01-01'); ROLLBACK")?;
+            assert_eq!(c.query("SELECT k,d,p.d FROM date_calls")?.rows, call_rows);
+            assert!(matches!(
+                c.execute_prepared(
+                    &call_insert,
+                    &[Value::Varchar("2001-01-01 25:00:00".into())]
+                ),
+                Err(Error::Conversion(_))
+            ));
+            assert_eq!(c.query("SELECT k,d,p.d FROM date_calls")?.rows, call_rows);
             c.execute("CREATE TABLE calendar(k DATE UNIQUE,d DATE DEFAULT DATE '2000-01-01 12:34:56',p STRUCT(d DATE))")?;
             let insert = c.prepare("INSERT INTO calendar(k,p) VALUES (CAST($1 AS DATE),CAST({'d':$2}::VARIANT AS STRUCT(d DATE)))")?;
             for (input, canonical) in [
@@ -241,6 +264,15 @@ fn date_source_context_crosses_prepared_nested_indexes_wal_rollback_and_reopen()
             drop(c);
             let mut c = open()?.connect();
             assert_eq!(c.query(projection)?.rows, committed);
+            let call_lookup = c.prepare("SELECT k,d,p.d FROM date_calls WHERE k=DATE($1)")?;
+            assert_eq!(
+                c.execute_prepared(
+                    &call_lookup,
+                    &[Value::Varchar("2001-01-01 24:00:00".into())]
+                )?
+                .rows,
+                call_rows
+            );
             assert_eq!(
                 c.query("SELECT p.d FROM calendar WHERE k=DATE '2000-01-02 24:00:00'")?
                     .rows,
@@ -248,6 +280,13 @@ fn date_source_context_crosses_prepared_nested_indexes_wal_rollback_and_reopen()
             );
             c.checkpoint()?;
             drop(c);
+            assert_eq!(
+                Database::open_read_only(&path)?
+                    .connect()
+                    .query("SELECT k,d,p.d FROM date_calls")?
+                    .rows,
+                call_rows
+            );
             assert_eq!(
                 Database::open_read_only(&path)?
                     .connect()
