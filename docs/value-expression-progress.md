@@ -225,3 +225,70 @@ payload metadata are delivered worker increments awaiting subsequent integration
 VARIANT/TUPLE runtime behavior, BIT/BIGNUM/GEOMETRY, named types/index DDL,
 remaining coercion/functions, nested WAL/defaults and broader combined workloads
 remain required work, not deferred completion claims.
+
+## Fourth integrated checkpoint, 2026-09-10
+
+The combined source at `b43faaa` adds usable value/expression paths while the
+same milestone remains active:
+
+- BIT uses packed logical bits with explicit lengths, typed casts, all-width
+  bitwise operators, scalar functions, aggregate/window behavior and native
+  checkpoint/WAL paths. BIT children now participate in VARIANT. Independent
+  native fixtures exposed and repaired empty-BLOB conversion and legacy FSST
+  NULL handling. The [BIT report](bit-values.md) retains both failed and repaired
+  reference trials, including still-open syntax and TRY_CAST context differences.
+- VARIANT retains declared dynamic child metadata and selected adapters, exact
+  integer/decimal number keys, object/array access and mixed relational behavior.
+  It supports private persistence, not native VARIANT compatibility. TUPLE adds
+  positional metadata, empty/singleton syntax, casts/accessors, mixed queries,
+  prepared mutations and private reopen. Independent development ID110 streams
+  are readable; native TUPLE publication remains explicitly unsupported until
+  version-aware writing is integrated. See [nested values](nested-values.md).
+- Streaming INTERVAL and clock scanners preserve checked progress and pinned
+  parsing/rounding behavior. Text acceptance and physical validity are distinct:
+  SQL constructors and casts can produce clocks slightly beyond 24h. The
+  provisional physical domain includes these source-backed witnesses without
+  broadening text grammar or claiming arbitrary native/API raw-value support.
+  The [clock campaign](temporal-clock-domain-integrated.json) records development
+  667/667 selected SQL cases and 2/3 expanded native producers; release is 602/667
+  and 1/3. Nested native WAL remains an executable failing obligation at
+  `cargo run --example temporal_nested_wal_obligation`, not an ignored pass.
+- Native DECIMAL sentinels now become temporary NULL placeholders before the
+  enclosing validity mask is applied, including every physical coefficient
+  width. A valid row with no decoded value remains corruption. The independent
+  TUPLE fixture exposed this compatibility bug.
+- Shared binding preserves SQL literal identity across early CASE pruning and
+  distinguishes typed API parameters from literals. Scalar and operator overloads
+  can use fitting integer literals at all supported signed widths. Explicit
+  casts, unary plus, CASE and parameters do not acquire that privilege merely
+  because their values are constant. Prepared index lookups remain tested.
+- Cast attempts retain invalid-input versus fatal failure origin independently
+  of the public error category. Source/output validation and infrastructure
+  failures cannot become TRY_CAST NULLs. LIST/ARRAY/STRUCT/UNION propagate partial
+  child NULLs; invalid converted MAP keys reject the whole map; VARIANT extraction
+  rejects the whole value on a child conversion failure. Ordinary CAST keeps
+  the original diagnostic category. Tests cover selected replacements, malformed
+  validators, both evaluators/optimizers, prepared updates and rollback.
+
+The complete workspace suite passed at this checkpoint, retaining the two
+existing external-CLI analytics omissions. Check and all-target clippy passed;
+all 35 Python harness tests passed. Instrumentation coverage reports 273 files,
+2,408 functions, 207 interface methods and no missing attributes. The trace check
+passed in 66.20 s with zero errors/panics/open spans and deleted temporary telemetry.
+
+Full `python3 scripts/verify_kani.py` ran with Kani 0.67.0 on this frozen combined
+source: 6/6 maintained harnesses passed, zero failures. Times were TIMETZ packing
+63.232 s, unsigned keys 0.828 s, dense offsets 0.511 s, ROWS clipping 2.583 s,
+uniform bounds 2.847 s and packed byte counts 97.648 s. The TIMETZ proof now uses
+the wider supported clock domain. Caller-location (1) and foreign-function (1)
+constructs remained unreachable; atomic fence/subtraction constructs remained
+sequential. The parser verifier build retains its unused-variable warning.
+These bounded proofs do not establish parser, cast-protocol, recursive-value,
+native-file, transaction or concurrent execution parity.
+
+No new acceptance performance campaign or complete upstream refresh has run for
+this checkpoint. The 34 passing measurements and no-lost-prefix upstream result
+in checkpoint three belong to that earlier source, not this code. Further
+regression investigation and a coordinated quiet campaign are required before
+claiming preservation on the follow-up. The last pushed checkpoint is `ae0cd51`;
+this fourth checkpoint and subsequent internal work are not yet pushed.
