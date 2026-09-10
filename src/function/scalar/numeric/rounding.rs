@@ -150,11 +150,7 @@ impl ScalarFunction for Rounding {
             .map(|i| arguments.data_type(i))
             .collect::<Result<Vec<_>>>()?;
         let targets = self.targets(&source)?;
-        if targets[0].is_decimal()
-            && arguments
-                .constant_if_closed(0)?
-                .is_some_and(|value| value.is_null())
-        {
+        if targets[0].is_decimal() && arguments.is_provably_null(0)? {
             return Ok(Some(Arc::new(Self {
                 name: self.name,
                 policy: self.policy,
@@ -171,7 +167,22 @@ impl ScalarFunction for Rounding {
             if arguments.len() == 1 {
                 Some(0)
             } else {
-                match arguments.constant_as(1, &DataType::Integer, CastMode::Implicit)? {
+                // The native decimal binder's DefaultCastAs wraps a direct
+                // string literal's local conversion failure as InvalidInput.
+                // Typed expressions/parameters do not have that provenance;
+                // child errors and selected validation failures retain their
+                // category. BoundCast reports source/output validation as
+                // Internal before this family-specific context is applied.
+                let string_literal = arguments.is_string_literal(1)?;
+                let precision = arguments
+                    .constant_as(1, &DataType::Integer, CastMode::Implicit)
+                    .map_err(|error| match error {
+                        Error::Conversion(message) if string_literal => {
+                            Error::InvalidInput(format!("Failed to cast value: {message}"))
+                        }
+                        other => other,
+                    })?;
+                match precision {
                     Value::Integer(value) => {
                         Some(i32::try_from(value).map_err(|_| {
                             Error::Internal("rounding constant is not INTEGER".into())

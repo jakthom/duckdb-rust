@@ -122,6 +122,11 @@ SQL += [
     "SELECT trunc(340282366920938463463374607431768211455::UHUGEINT,-38)",
 ]
 for name in ('round','trunc','round_even','roundbankers'):
+    SQL += [f"SELECT CASE WHEN false THEN {name}(CAST('bad' AS DECIMAL(4,2)),1) ELSE 1 END",
+            f"SELECT {name}(NULL::DECIMAL(4,2),'bad'),typeof({name}(NULL::DECIMAL(4,2),'bad'))"]
+    ERROR_CASES += [(f"SELECT CASE WHEN false THEN {name}(1.25::DECIMAL(4,2),'bad') ELSE 1 END", 'Invalid Input Error'),
+                    (f"SELECT CASE WHEN false THEN {name}(1.25::DECIMAL(4,2),CAST('bad' AS INTEGER)) ELSE 1 END", 'Conversion Error')]
+for name in ('round','trunc','round_even','roundbankers'):
     ERROR_CASES += [(f'SELECT {name}({arguments}) FROM range(2) t(i)','Binder Error') for arguments in
                     ("1.25::DECIMAL(4,2),1.5", "1.25::DECIMAL(4,2),'1'::VARCHAR",
                      '1.25::DECIMAL(4,2),i::INTEGER', '1.25::DOUBLE,i::BIGINT',

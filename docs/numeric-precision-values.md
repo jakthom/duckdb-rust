@@ -58,3 +58,18 @@ CASE regression above was found afterward, so these tests are not a complete
 correctness verdict. Trace refresh, upstream rounding files, repaired paired
 evidence and the lead's maintained integrated Kani checkpoint are pending.
 No performance acceptance measurement is claimed.
+
+The CASE regression is repaired through the separate selected speculative NULL
+probe; required DECIMAL precision still uses `constant_as` and still raises
+errors even inside an unreachable branch, matching development's binding stage.
+An independent follow-up established its contextual error distinction: a direct
+SQL precision literal `'bad'` fails with Invalid Input Error in the decimal
+binder's DefaultCastAs, while `CAST('bad' AS INTEGER)` fails with Conversion
+Error during child evaluation. The scalar family reclassifies only the former
+provenance; typed VARCHAR and parameters receive no literal privilege. Selected
+source/output validation remains Internal, and Resource/Interrupted are not
+reclassified. Tests cover the repaired branch, NULL short-circuiting, required
+precision errors, malformed selected cast results, typed expressions/parameters
+and replacement failure provenance. Focused precision tests, contracts 29,
+operators 10 and all-target clippy pass. The repaired paired report follows on
+the refreshed integration base; the initial observations above remain intact.

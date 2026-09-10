@@ -45,6 +45,9 @@ impl ScalarBindArguments for Arguments {
             Ok(None)
         }
     }
+    fn is_provably_null(&self, index: usize) -> Result<bool> {
+        self.data_type(index).map(|_| false)
+    }
     fn constant_as(&self, index: usize, target: &DataType, mode: CastMode) -> Result<Value> {
         assert_eq!(*target, DataType::Integer);
         assert_eq!(mode, CastMode::Implicit);
@@ -352,6 +355,18 @@ impl CastFunction for PrecisionCast {
         if value == &Value::Varchar("fatal".into()) {
             return Err(Error::Resource("precision cast resource".into()));
         }
+        if value == &Value::Varchar("conversion".into()) {
+            return Err(Error::Conversion("precision conversion".into()));
+        }
+        if value == &Value::Varchar("invalid".into()) {
+            return Ok(Value::Varchar("malformed precision".into()));
+        }
+        if value == &Value::Varchar("wide".into()) {
+            return Ok(Value::Integer(i128::MAX));
+        }
+        if value == &Value::Varchar("null".into()) {
+            return Ok(Value::Null);
+        }
         Ok(Value::Integer(1))
     }
 }
@@ -401,6 +416,21 @@ fn precision_rounding_selects_casts_contextual_nulls_parameters_and_floating_edg
                 c.query("SELECT round_even(1)"),
                 Err(Error::Bind(_))
             ));
+            for name in ["round", "trunc", "round_even", "roundbankers"] {
+                assert_eq!(c.query(&format!("SELECT CASE WHEN false THEN {name}(CAST('bad' AS DECIMAL(4,2)),1) ELSE 1 END"))?.rows,vec![vec![decimal(10,11,1)?]]);
+                assert_eq!(
+                    c.query(&format!("SELECT {name}(NULL::DECIMAL(4,2),'bad')"))?
+                        .rows,
+                    vec![vec![Value::Null]]
+                );
+                assert!(matches!(
+                    c.query(&format!(
+                        "SELECT CASE WHEN false THEN {name}(1.25::DECIMAL(4,2),'bad') ELSE 1 END"
+                    )),
+                    Err(Error::InvalidInput(_))
+                ));
+                assert!(matches!(c.query(&format!("SELECT CASE WHEN false THEN {name}(1.25::DECIMAL(4,2),CAST('bad' AS INTEGER)) ELSE 1 END")),Err(Error::Conversion(_))));
+            }
             assert!(matches!(
                 c.query("SELECT TRY_CAST(round(127::TINYINT,-1) AS VARCHAR)"),
                 Err(Error::OutOfRange(_))
@@ -458,6 +488,31 @@ fn precision_rounding_selects_casts_contextual_nulls_parameters_and_floating_edg
                 selected.query("SELECT TRY_CAST(round(1.25::DECIMAL(4,2),'fatal') AS VARCHAR)"),
                 Err(Error::Resource(_))
             ));
+            assert!(matches!(
+                selected.query("SELECT round(1.25::DECIMAL(4,2),'conversion')"),
+                Err(Error::InvalidInput(_))
+            ));
+            assert!(matches!(
+                selected.query("SELECT round(1.25::DECIMAL(4,2),'conversion'::INTEGER)"),
+                Err(Error::Conversion(_))
+            ));
+            assert!(matches!(
+                selected.query("SELECT round(1.25::DECIMAL(4,2),'conversion'::VARCHAR)"),
+                Err(Error::Bind(_))
+            ));
+            assert!(matches!(
+                selected.execute_params(
+                    "SELECT round(1.25::DECIMAL(4,2),$1)",
+                    &[Value::Varchar("conversion".into())]
+                ),
+                Err(Error::Bind(_))
+            ));
+            for malformed in ["invalid", "wide", "null"] {
+                assert!(matches!(
+                    selected.query(&format!("SELECT round(1.25::DECIMAL(4,2),'{malformed}')")),
+                    Err(Error::Internal(_))
+                ));
+            }
         }
     }
     Ok(())
