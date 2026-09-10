@@ -1,0 +1,2646 @@
+{
+  "recorded_at": "2026-09-10T20:51:00.729092+00:00",
+  "source_sha256": "1e3575d8162b3586c2101c784ff5437c2476968609e74d0d85ca569c536dc83e",
+  "rust_binary_sha256": "f8a6ffcfe389f04568787c5fa899523856e31e81f37c472329fbdd564b469d42",
+  "script_sha256": "b6fa839137a53b80037f3ae5662848aab2bcafd2d7d796ed0a84073718220f3a",
+  "reference_identity": {
+    "target": "development",
+    "required_version": "2.0.0-dev84019",
+    "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "reported_source_id": "99063af2bd",
+    "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+    "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+  },
+  "sql": [
+    {
+      "function": "concat",
+      "sql": "SELECT concat([1,NULL],[2],NULL)::VARCHAR value,typeof(concat([1],[2])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, NULL, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, NULL, 2]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat(NULL::INTEGER[],NULL::INTEGER[])::VARCHAR value,concat(NULL,NULL) scalar_value,typeof(concat([],NULL)) empty_type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "empty_type": "\"NULL\"[]",
+            "scalar_value": "",
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "scalar_value": "",
+            "empty_type": "\"NULL\"[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([true],[1])::VARCHAR value,typeof(concat([true],[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, 1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 1]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([{'b':true}],[{'b':2::UTINYINT}])::VARCHAR value,typeof(concat([{'b':true}],[{'b':2::UTINYINT}])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "STRUCT(b UTINYINT)[]",
+            "value": "[{'b': 1}, {'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'b': 1}, {'b': 2}]",
+            "type": "STRUCT(b UTINYINT)[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([1]::INTEGER[1],[2]::BIGINT[1],NULL)::VARCHAR value,typeof(concat([1]::INTEGER[1],[2]::BIGINT[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "BIGINT[]",
+            "value": "[1, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 2]",
+            "type": "BIGINT[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([{'a':1}],[{'b':2}])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat(NULL::INTEGER[2],[1]::INTEGER[1])::VARCHAR value,concat([1],NULL::INTEGER[]) IS NULL missing",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "missing": false,
+            "value": "[1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1]",
+            "missing": false
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT typeof(concat([make_timestamp_ns(-9223372036854775806)])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([1.25::DECIMAL(12,2)],[NULL],[2.50::DECIMAL(12,2)])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat(['101'::BIT],[NULL],['0'::BIT])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([1],1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT concat([1],1)\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT concat([1],1)\nBinder Error: Cannot concatenate types INTEGER[] and INTEGER - an explicit cast is required\n\nLINE 1: SELECT concat([1],1)\n                          ^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([1],'[2]')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT concat([1],'[2]')\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT concat([1],'[2]')\nBinder Error: Cannot concatenate types INTEGER[] and VARCHAR - an explicit cast is required\n\nLINE 1: SELECT concat([1],'[2]')\n                          ^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([1],['2'])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT concat([1],['2'])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT concat([1],['2'])\nBinder Error: Cannot concatenate lists of types INTEGER[] and VARCHAR[] - an explicit cast is required\n\nLINE 1: SELECT concat([1],['2'])\n                          ^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([true],[1.0::DOUBLE])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT concat([true],[1.0::DOUBLE])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT concat([true],[1.0::DOUBLE])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DOUBLE[] - an explicit cast is required\n\nLINE 1: SELECT concat([true],[1.0::DOUBLE])\n                             ^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([true],[1.2::DECIMAL(2,1)])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT concat([true],[1.2::DECIMAL(2,1)])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT concat([true],[1.2::DECIMAL(2,1)])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DECIMAL(2,1)[] - an explicit cast is required\n\nLINE 1: SELECT concat([true],[1.2::DECIMAL(2,1)])\n                             ^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "concat",
+      "sql": "SELECT concat([1],{'n':2})",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT concat([1],{'n':2})\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Nested(Struct([(\"n\", Integer)]))] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT concat([1],{'n':2})\nBinder Error: Cannot concatenate types INTEGER[] and STRUCT(n INTEGER) - an explicit cast is required\n\nLINE 1: SELECT concat([1],{'n':2})\n                          ^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([1,NULL],[2],NULL)::VARCHAR value,typeof(list_concat([1],[2])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, NULL, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, NULL, 2]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat(NULL::INTEGER[],NULL::INTEGER[])::VARCHAR value,list_concat(NULL,NULL) scalar_value,typeof(list_concat([],NULL)) empty_type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "empty_type": "\"NULL\"[]",
+            "scalar_value": null,
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "scalar_value": null,
+            "empty_type": "\"NULL\"[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([true],[1])::VARCHAR value,typeof(list_concat([true],[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, 1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 1]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([{'b':true}],[{'b':2::UTINYINT}])::VARCHAR value,typeof(list_concat([{'b':true}],[{'b':2::UTINYINT}])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "STRUCT(b UTINYINT)[]",
+            "value": "[{'b': 1}, {'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'b': 1}, {'b': 2}]",
+            "type": "STRUCT(b UTINYINT)[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([1]::INTEGER[1],[2]::BIGINT[1],NULL)::VARCHAR value,typeof(list_concat([1]::INTEGER[1],[2]::BIGINT[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "BIGINT[]",
+            "value": "[1, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 2]",
+            "type": "BIGINT[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([{'a':1}],[{'b':2}])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat(NULL::INTEGER[2],[1]::INTEGER[1])::VARCHAR value,list_concat([1],NULL::INTEGER[]) IS NULL missing",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "missing": false,
+            "value": "[1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1]",
+            "missing": false
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT typeof(list_concat([make_timestamp_ns(-9223372036854775806)])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([1.25::DECIMAL(12,2)],[NULL],[2.50::DECIMAL(12,2)])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat(['101'::BIT],[NULL],['0'::BIT])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat() value,typeof(list_concat()) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "VARCHAR",
+            "value": ""
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "",
+            "type": "VARCHAR"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat(NULL) value,list_concat(NULL,NULL) repeated,typeof(list_concat(NULL)) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "repeated": null,
+            "type": "\"NULL\"",
+            "value": null
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": null,
+            "repeated": null,
+            "type": "\"NULL\""
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat(NULL::INTEGER[])::VARCHAR value,list_concat([NULL])::VARCHAR child",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "child": "[NULL]",
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "child": "[NULL]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([1],1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat([1],1)\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat([1],1)\nBinder Error: No function matches the given name and argument types 'list_concat(INTEGER[], INTEGER_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_concat([1],1)\n               ^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([1],'[2]')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat([1],'[2]')\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat([1],'[2]')\nBinder Error: No function matches the given name and argument types 'list_concat(INTEGER[], STRING_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_concat([1],'[2]')\n               ^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([1],['2'])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat([1],['2'])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat([1],['2'])\nBinder Error: Cannot concatenate lists of types INTEGER[] and VARCHAR[] - an explicit cast is required\n\nLINE 1: SELECT list_concat([1],['2'])\n                               ^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([true],[1.0::DOUBLE])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat([true],[1.0::DOUBLE])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat([true],[1.0::DOUBLE])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DOUBLE[] - an explicit cast is required\n\nLINE 1: SELECT list_concat([true],[1.0::DOUBLE])\n                                  ^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([true],[1.2::DECIMAL(2,1)])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat([true],[1.2::DECIMAL(2,1)])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat([true],[1.2::DECIMAL(2,1)])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DECIMAL(2,1)[] - an explicit cast is required\n\nLINE 1: SELECT list_concat([true],[1.2::DECIMAL(2,1)])\n                                  ^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat([1],{'n':2})",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat([1],{'n':2})\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Nested(Struct([(\"n\", Integer)]))] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat([1],{'n':2})\nBinder Error: No function matches the given name and argument types 'list_concat(INTEGER[], STRUCT(n INTEGER))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_concat([1],{'n':2})\n               ^^^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat(1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat(1)\nBinder Error: Cannot concatenate types [Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat(1)\nBinder Error: No function matches the given name and argument types 'list_concat(INTEGER_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_concat(1)\n               ^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat('text')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat('text')\nBinder Error: Cannot concatenate types [Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat('text')\nBinder Error: No function matches the given name and argument types 'list_concat(STRING_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_concat('text')\n               ^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_concat",
+      "sql": "SELECT list_concat(NULL::VARCHAR)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_concat(NULL::VARCHAR)\nBinder Error: Cannot concatenate types [Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_concat(NULL::VARCHAR)\nBinder Error: No function matches the given name and argument types 'list_concat(VARCHAR)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_concat(NULL::VARCHAR)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([1,NULL],[2],NULL)::VARCHAR value,typeof(list_cat([1],[2])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, NULL, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, NULL, 2]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat(NULL::INTEGER[],NULL::INTEGER[])::VARCHAR value,list_cat(NULL,NULL) scalar_value,typeof(list_cat([],NULL)) empty_type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "empty_type": "\"NULL\"[]",
+            "scalar_value": null,
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "scalar_value": null,
+            "empty_type": "\"NULL\"[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([true],[1])::VARCHAR value,typeof(list_cat([true],[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, 1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 1]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([{'b':true}],[{'b':2::UTINYINT}])::VARCHAR value,typeof(list_cat([{'b':true}],[{'b':2::UTINYINT}])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "STRUCT(b UTINYINT)[]",
+            "value": "[{'b': 1}, {'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'b': 1}, {'b': 2}]",
+            "type": "STRUCT(b UTINYINT)[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([1]::INTEGER[1],[2]::BIGINT[1],NULL)::VARCHAR value,typeof(list_cat([1]::INTEGER[1],[2]::BIGINT[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "BIGINT[]",
+            "value": "[1, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 2]",
+            "type": "BIGINT[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([{'a':1}],[{'b':2}])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat(NULL::INTEGER[2],[1]::INTEGER[1])::VARCHAR value,list_cat([1],NULL::INTEGER[]) IS NULL missing",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "missing": false,
+            "value": "[1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1]",
+            "missing": false
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT typeof(list_cat([make_timestamp_ns(-9223372036854775806)])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([1.25::DECIMAL(12,2)],[NULL],[2.50::DECIMAL(12,2)])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat(['101'::BIT],[NULL],['0'::BIT])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat() value,typeof(list_cat()) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "VARCHAR",
+            "value": ""
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "",
+            "type": "VARCHAR"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat(NULL) value,list_cat(NULL,NULL) repeated,typeof(list_cat(NULL)) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "repeated": null,
+            "type": "\"NULL\"",
+            "value": null
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": null,
+            "repeated": null,
+            "type": "\"NULL\""
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat(NULL::INTEGER[])::VARCHAR value,list_cat([NULL])::VARCHAR child",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "child": "[NULL]",
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "child": "[NULL]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([1],1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat([1],1)\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat([1],1)\nBinder Error: No function matches the given name and argument types 'list_cat(INTEGER[], INTEGER_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_cat([1],1)\n               ^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([1],'[2]')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat([1],'[2]')\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat([1],'[2]')\nBinder Error: No function matches the given name and argument types 'list_cat(INTEGER[], STRING_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_cat([1],'[2]')\n               ^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([1],['2'])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat([1],['2'])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat([1],['2'])\nBinder Error: Cannot concatenate lists of types INTEGER[] and VARCHAR[] - an explicit cast is required\n\nLINE 1: SELECT list_cat([1],['2'])\n                            ^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([true],[1.0::DOUBLE])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat([true],[1.0::DOUBLE])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat([true],[1.0::DOUBLE])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DOUBLE[] - an explicit cast is required\n\nLINE 1: SELECT list_cat([true],[1.0::DOUBLE])\n                               ^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([true],[1.2::DECIMAL(2,1)])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat([true],[1.2::DECIMAL(2,1)])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat([true],[1.2::DECIMAL(2,1)])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DECIMAL(2,1)[] - an explicit cast is required\n\nLINE 1: SELECT list_cat([true],[1.2::DECIMAL(2,1)])\n                               ^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat([1],{'n':2})",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat([1],{'n':2})\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Nested(Struct([(\"n\", Integer)]))] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat([1],{'n':2})\nBinder Error: No function matches the given name and argument types 'list_cat(INTEGER[], STRUCT(n INTEGER))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_cat([1],{'n':2})\n               ^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat(1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat(1)\nBinder Error: Cannot concatenate types [Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat(1)\nBinder Error: No function matches the given name and argument types 'list_cat(INTEGER_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_cat(1)\n               ^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat('text')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat('text')\nBinder Error: Cannot concatenate types [Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat('text')\nBinder Error: No function matches the given name and argument types 'list_cat(STRING_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_cat('text')\n               ^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "list_cat",
+      "sql": "SELECT list_cat(NULL::VARCHAR)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT list_cat(NULL::VARCHAR)\nBinder Error: Cannot concatenate types [Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT list_cat(NULL::VARCHAR)\nBinder Error: No function matches the given name and argument types 'list_cat(VARCHAR)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlist_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT list_cat(NULL::VARCHAR)\n               ^^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([1,NULL],[2],NULL)::VARCHAR value,typeof(array_concat([1],[2])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, NULL, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, NULL, 2]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat(NULL::INTEGER[],NULL::INTEGER[])::VARCHAR value,array_concat(NULL,NULL) scalar_value,typeof(array_concat([],NULL)) empty_type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "empty_type": "\"NULL\"[]",
+            "scalar_value": null,
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "scalar_value": null,
+            "empty_type": "\"NULL\"[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([true],[1])::VARCHAR value,typeof(array_concat([true],[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, 1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 1]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([{'b':true}],[{'b':2::UTINYINT}])::VARCHAR value,typeof(array_concat([{'b':true}],[{'b':2::UTINYINT}])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "STRUCT(b UTINYINT)[]",
+            "value": "[{'b': 1}, {'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'b': 1}, {'b': 2}]",
+            "type": "STRUCT(b UTINYINT)[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([1]::INTEGER[1],[2]::BIGINT[1],NULL)::VARCHAR value,typeof(array_concat([1]::INTEGER[1],[2]::BIGINT[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "BIGINT[]",
+            "value": "[1, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 2]",
+            "type": "BIGINT[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([{'a':1}],[{'b':2}])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat(NULL::INTEGER[2],[1]::INTEGER[1])::VARCHAR value,array_concat([1],NULL::INTEGER[]) IS NULL missing",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "missing": false,
+            "value": "[1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1]",
+            "missing": false
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT typeof(array_concat([make_timestamp_ns(-9223372036854775806)])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([1.25::DECIMAL(12,2)],[NULL],[2.50::DECIMAL(12,2)])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat(['101'::BIT],[NULL],['0'::BIT])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat() value,typeof(array_concat()) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "VARCHAR",
+            "value": ""
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "",
+            "type": "VARCHAR"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat(NULL) value,array_concat(NULL,NULL) repeated,typeof(array_concat(NULL)) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "repeated": null,
+            "type": "\"NULL\"",
+            "value": null
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": null,
+            "repeated": null,
+            "type": "\"NULL\""
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat(NULL::INTEGER[])::VARCHAR value,array_concat([NULL])::VARCHAR child",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "child": "[NULL]",
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "child": "[NULL]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([1],1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat([1],1)\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat([1],1)\nBinder Error: No function matches the given name and argument types 'array_concat(INTEGER[], INTEGER_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_concat([1],1)\n               ^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([1],'[2]')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat([1],'[2]')\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat([1],'[2]')\nBinder Error: No function matches the given name and argument types 'array_concat(INTEGER[], STRING_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_concat([1],'[2]')\n               ^^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([1],['2'])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat([1],['2'])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat([1],['2'])\nBinder Error: Cannot concatenate lists of types INTEGER[] and VARCHAR[] - an explicit cast is required\n\nLINE 1: SELECT array_concat([1],['2'])\n                                ^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([true],[1.0::DOUBLE])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat([true],[1.0::DOUBLE])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat([true],[1.0::DOUBLE])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DOUBLE[] - an explicit cast is required\n\nLINE 1: SELECT array_concat([true],[1.0::DOUBLE])\n                                   ^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([true],[1.2::DECIMAL(2,1)])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat([true],[1.2::DECIMAL(2,1)])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat([true],[1.2::DECIMAL(2,1)])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DECIMAL(2,1)[] - an explicit cast is required\n\nLINE 1: SELECT array_concat([true],[1.2::DECIMAL(2,1)])\n                                   ^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat([1],{'n':2})",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat([1],{'n':2})\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Nested(Struct([(\"n\", Integer)]))] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat([1],{'n':2})\nBinder Error: No function matches the given name and argument types 'array_concat(INTEGER[], STRUCT(n INTEGER))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_concat([1],{'n':2})\n               ^^^^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat(1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat(1)\nBinder Error: Cannot concatenate types [Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat(1)\nBinder Error: No function matches the given name and argument types 'array_concat(INTEGER_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_concat(1)\n               ^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat('text')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat('text')\nBinder Error: Cannot concatenate types [Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat('text')\nBinder Error: No function matches the given name and argument types 'array_concat(STRING_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_concat('text')\n               ^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_concat",
+      "sql": "SELECT array_concat(NULL::VARCHAR)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_concat(NULL::VARCHAR)\nBinder Error: Cannot concatenate types [Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_concat(NULL::VARCHAR)\nBinder Error: No function matches the given name and argument types 'array_concat(VARCHAR)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_concat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_concat(NULL::VARCHAR)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([1,NULL],[2],NULL)::VARCHAR value,typeof(array_cat([1],[2])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, NULL, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, NULL, 2]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat(NULL::INTEGER[],NULL::INTEGER[])::VARCHAR value,array_cat(NULL,NULL) scalar_value,typeof(array_cat([],NULL)) empty_type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "empty_type": "\"NULL\"[]",
+            "scalar_value": null,
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "scalar_value": null,
+            "empty_type": "\"NULL\"[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([true],[1])::VARCHAR value,typeof(array_cat([true],[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "INTEGER[]",
+            "value": "[1, 1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 1]",
+            "type": "INTEGER[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([{'b':true}],[{'b':2::UTINYINT}])::VARCHAR value,typeof(array_cat([{'b':true}],[{'b':2::UTINYINT}])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "STRUCT(b UTINYINT)[]",
+            "value": "[{'b': 1}, {'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'b': 1}, {'b': 2}]",
+            "type": "STRUCT(b UTINYINT)[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([1]::INTEGER[1],[2]::BIGINT[1],NULL)::VARCHAR value,typeof(array_cat([1]::INTEGER[1],[2]::BIGINT[1])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "BIGINT[]",
+            "value": "[1, 2]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1, 2]",
+            "type": "BIGINT[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([{'a':1}],[{'b':2}])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[{'a': 1, 'b': NULL}, {'a': NULL, 'b': 2}]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat(NULL::INTEGER[2],[1]::INTEGER[1])::VARCHAR value,array_cat([1],NULL::INTEGER[]) IS NULL missing",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "missing": false,
+            "value": "[1]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1]",
+            "missing": false
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT typeof(array_cat([make_timestamp_ns(-9223372036854775806)])) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "type": "TIMESTAMP_NS[]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([1.25::DECIMAL(12,2)],[NULL],[2.50::DECIMAL(12,2)])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[1.25, NULL, 2.50]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat(['101'::BIT],[NULL],['0'::BIT])::VARCHAR value",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[101, NULL, 0]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat() value,typeof(array_cat()) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "type": "VARCHAR",
+            "value": ""
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "",
+            "type": "VARCHAR"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat(NULL) value,array_cat(NULL,NULL) repeated,typeof(array_cat(NULL)) type",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "repeated": null,
+            "type": "\"NULL\"",
+            "value": null
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": null,
+            "repeated": null,
+            "type": "\"NULL\""
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat(NULL::INTEGER[])::VARCHAR value,array_cat([NULL])::VARCHAR child",
+      "expected_error": null,
+      "rust": {
+        "rows": [
+          {
+            "child": "[NULL]",
+            "value": "[]"
+          }
+        ]
+      },
+      "development": {
+        "rows": [
+          {
+            "value": "[]",
+            "child": "[NULL]"
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([1],1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat([1],1)\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat([1],1)\nBinder Error: No function matches the given name and argument types 'array_cat(INTEGER[], INTEGER_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_cat([1],1)\n               ^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([1],'[2]')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat([1],'[2]')\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat([1],'[2]')\nBinder Error: No function matches the given name and argument types 'array_cat(INTEGER[], STRING_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_cat([1],'[2]')\n               ^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([1],['2'])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat([1],['2'])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat([1],['2'])\nBinder Error: Cannot concatenate lists of types INTEGER[] and VARCHAR[] - an explicit cast is required\n\nLINE 1: SELECT array_cat([1],['2'])\n                             ^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([true],[1.0::DOUBLE])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat([true],[1.0::DOUBLE])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat([true],[1.0::DOUBLE])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DOUBLE[] - an explicit cast is required\n\nLINE 1: SELECT array_cat([true],[1.0::DOUBLE])\n                                ^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([true],[1.2::DECIMAL(2,1)])",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat([true],[1.2::DECIMAL(2,1)])\nBinder Error: types have no common coercion target\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat([true],[1.2::DECIMAL(2,1)])\nBinder Error: Cannot concatenate lists of types BOOLEAN[] and DECIMAL(2,1)[] - an explicit cast is required\n\nLINE 1: SELECT array_cat([true],[1.2::DECIMAL(2,1)])\n                                ^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat([1],{'n':2})",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat([1],{'n':2})\nBinder Error: Cannot concatenate types [Nested(List(Integer)), Nested(Struct([(\"n\", Integer)]))] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat([1],{'n':2})\nBinder Error: No function matches the given name and argument types 'array_cat(INTEGER[], STRUCT(n INTEGER))'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_cat([1],{'n':2})\n               ^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat(1)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat(1)\nBinder Error: Cannot concatenate types [Integer] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat(1)\nBinder Error: No function matches the given name and argument types 'array_cat(INTEGER_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_cat(1)\n               ^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat('text')",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat('text')\nBinder Error: Cannot concatenate types [Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat('text')\nBinder Error: No function matches the given name and argument types 'array_cat(STRING_LITERAL)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_cat('text')\n               ^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    },
+    {
+      "function": "array_cat",
+      "sql": "SELECT array_cat(NULL::VARCHAR)",
+      "expected_error": "Binder Error",
+      "rust": {
+        "error": "duckdb-rust: SELECT array_cat(NULL::VARCHAR)\nBinder Error: Cannot concatenate types [Varchar] - an explicit cast is required\n"
+      },
+      "development": {
+        "error": "duckdb: SELECT array_cat(NULL::VARCHAR)\nBinder Error: No function matches the given name and argument types 'array_cat(VARCHAR)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tarray_cat([ANY[]...]) -> ANY[]\n\n\nLINE 1: SELECT array_cat(NULL::VARCHAR)\n               ^^^^^^^^^^^^^^^^^^^^^^^^\n"
+      },
+      "passed": true
+    }
+  ],
+  "native": [
+    {
+      "function": "concat",
+      "producer": "rust",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "fdc4cd66c3e21216744ec35008f60af86d99efe717f31f702a1c853f77aa5c13"
+    },
+    {
+      "function": "concat",
+      "producer": "development",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "c6ea9acbeae3597b15eeb6b1d587fed1de97162f63f6188846ad1081a4ff6ab7"
+    },
+    {
+      "function": "list_concat",
+      "producer": "rust",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "fdc4cd66c3e21216744ec35008f60af86d99efe717f31f702a1c853f77aa5c13"
+    },
+    {
+      "function": "list_concat",
+      "producer": "development",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "19a4b6c282fdd7f1df8c5449b4b7f558bbe7b9471714c4d14db52348da3c9267"
+    },
+    {
+      "function": "list_cat",
+      "producer": "rust",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "fdc4cd66c3e21216744ec35008f60af86d99efe717f31f702a1c853f77aa5c13"
+    },
+    {
+      "function": "list_cat",
+      "producer": "development",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "68503f9a4fbb5db26943a44f306760c6427c46c17ae82ba45773d21835dc7701"
+    },
+    {
+      "function": "array_concat",
+      "producer": "rust",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "fdc4cd66c3e21216744ec35008f60af86d99efe717f31f702a1c853f77aa5c13"
+    },
+    {
+      "function": "array_concat",
+      "producer": "development",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "50c834c13beb2cab9bd26bd6a514b462a6cfb807b3303ca68998c9f9827f0513"
+    },
+    {
+      "function": "array_cat",
+      "producer": "rust",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "fdc4cd66c3e21216744ec35008f60af86d99efe717f31f702a1c853f77aa5c13"
+    },
+    {
+      "function": "array_cat",
+      "producer": "development",
+      "passed": true,
+      "stages": [
+        {
+          "stage": "initial",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "rust_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[]"
+            }
+          ]
+        },
+        {
+          "stage": "development_mutation",
+          "rust": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ],
+          "development": [
+            {
+              "id": 1,
+              "value": "[{'n': 1.25, 'ts': '2000-01-01 00:00:00.123456789', 'b': 101}, {'n': NULL, 'ts': NULL, 'b': NULL}, NULL]"
+            },
+            {
+              "id": 2,
+              "value": "[NULL]"
+            }
+          ]
+        }
+      ],
+      "initial_checkpoint_sha256": "9149c7d76247b91f4617ba6dbe164c52e8e01de9ed7dcf06657bac11c7e65981"
+    }
+  ],
+  "full_parity": false,
+  "scope": "Selected typed LIST/ARRAY concat SQL and mixed DECIMAL/TIMESTAMP_NS/BIT native checkpoint/mutation/reopen. Optional sequence-only aliases are explicitly listed. No ||, benchmark or full nested parity claim.",
+  "functions": [
+    "concat",
+    "list_concat",
+    "list_cat",
+    "array_concat",
+    "array_cat"
+  ],
+  "source_unchanged": true,
+  "passed": true
+}

@@ -30,12 +30,20 @@ SETUP = """CREATE TABLE t(id INTEGER PRIMARY KEY,xs STRUCT(n DECIMAL(12,2),ts TI
 INSERT INTO t VALUES(1,concat([{'n':1.25,'ts':TIMESTAMP_NS '2000-01-01 00:00:00.123456789','b':'101'::BIT}],NULL,[{'n':NULL,'ts':NULL,'b':NULL}])),
 (2,concat(NULL::STRUCT(n DECIMAL(12,2),ts TIMESTAMP_NS,b BIT)[],[]));"""
 QUERY = "SELECT id,xs::VARCHAR value FROM t ORDER BY id"
+ALIASES = ["list_concat", "list_cat", "array_concat", "array_cat"]
+ALIAS_QUERIES = [
+    "SELECT concat() value,typeof(concat()) type",
+    "SELECT concat(NULL) value,concat(NULL,NULL) repeated,typeof(concat(NULL)) type",
+    "SELECT concat(NULL::INTEGER[])::VARCHAR value,concat([NULL])::VARCHAR child",
+]
+ALIAS_ERRORS = ["SELECT concat(1)", "SELECT concat('text')", "SELECT concat(NULL::VARCHAR)"]
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rust",type=Path,default=ROOT/"target/debug/duckdb-rust")
     parser.add_argument("--report",type=Path,required=True)
+    parser.add_argument("--aliases",action="store_true",help="Also verify all four sequence-only catalog aliases")
     args=parser.parse_args()
     if args.report.exists(): raise FileExistsError("Preserve earlier evidence; choose a new report path")
     require_checkout(TARGETS["development"].source,"development")
@@ -46,27 +54,33 @@ def main():
     report={"recorded_at":datetime.now(timezone.utc).isoformat(),"source_sha256":before,
             "rust_binary_sha256":digest(args.rust),"script_sha256":digest(Path(__file__)),
             "reference_identity":identity,"sql":[],"native":[],"full_parity":False,
-            "scope":"Selected typed LIST/ARRAY concat SQL and mixed DECIMAL/TIMESTAMP_NS/BIT native checkpoint/mutation/reopen. No ||/alias, benchmark or full nested parity claim."}
-    for sql in QUERIES+ERRORS:
-        case={"sql":sql,"expected_error":"Binder Error" if sql in ERRORS else None}
-        report["sql"].append(case)
-        for label,engine in [("rust",rust),("development",cpp)]:
-            try: case[label]={"rows":command(engine,":memory:",sql,json_output=True)}
-            except Exception as error: case[label]={"error":str(error)}
-        case["passed"]=(all("Binder Error" in case[label].get("error","") for label in ["rust","development"])
-                        if sql in ERRORS else "rows" in case["rust"] and case["rust"]==case["development"])
+            "scope":"Selected typed LIST/ARRAY concat SQL and mixed DECIMAL/TIMESTAMP_NS/BIT native checkpoint/mutation/reopen. Optional sequence-only aliases are explicitly listed. No ||, benchmark or full nested parity claim.",
+            "functions":["concat"]+(ALIASES if args.aliases else [])}
+    for function in report["functions"]:
+        queries=QUERIES+(ALIAS_QUERIES if function in ALIASES else [])
+        errors=ERRORS+(ALIAS_ERRORS if function in ALIASES else [])
+        for template in queries+errors:
+            sql=template.replace("concat(",function+"(")
+            case={"function":function,"sql":sql,"expected_error":"Binder Error" if template in errors else None}
+            report["sql"].append(case)
+            for label,engine in [("rust",rust),("development",cpp)]:
+                try: case[label]={"rows":command(engine,":memory:",sql,json_output=True)}
+                except Exception as error: case[label]={"error":str(error)}
+            case["passed"]=(all("Binder Error" in case[label].get("error","") for label in ["rust","development"])
+                            if template in errors else "rows" in case["rust"] and case["rust"]==case["development"])
     with tempfile.TemporaryDirectory(prefix="nested-concat-reference-") as directory:
-        for producer,engine in [("rust",rust),("development",cpp)]:
-            case={"producer":producer,"passed":False,"stages":[]}
+        for function,producer,engine in [(function,producer,engine) for function in report["functions"]
+                                        for producer,engine in [("rust",rust),("development",cpp)]]:
+            case={"function":function,"producer":producer,"passed":False,"stages":[]}
             report["native"].append(case)
             try:
-                path=Path(directory)/f"{producer}.duckdb"
-                command(engine,path,SETUP)
+                path=Path(directory)/f"{function}-{producer}.duckdb"
+                command(engine,path,SETUP.replace("concat(",function+"("))
                 case["initial_checkpoint_sha256"]=digest(path)
                 for stage,writer,sql in [("initial",None,None),
                     ("rust_mutation",rust,"BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET xs=concat(xs,[NULL]) WHERE id=1"),
                     ("development_mutation",cpp,"UPDATE t SET xs=concat(xs,[NULL]) WHERE id=2; CHECKPOINT")]:
-                    if writer: command(writer,path,sql)
+                    if writer: command(writer,path,sql.replace("concat(",function+"("))
                     actual=command(rust,path,QUERY,json_output=True,readonly=True)
                     expected=command(cpp,path,QUERY,json_output=True,readonly=True)
                     case["stages"].append({"stage":stage,"rust":actual,"development":expected})

@@ -434,6 +434,41 @@ root NULL as genuine SQL NULL. All six diagnostic probes are retained; the
 ordinary comparison campaign still has three failures (11/14 matches). No
 optimizer-specific accident has been copied into generic Rust values.
 
+Source inspection of the pinned development revision supports two distinct
+explanations for those diagnostic differences. `VariantColumnData::Append`
+writes the root validity column, but its `FinalizeAppend` does not finalize
+that validity into parent statistics. STRUCT and ordinary scalar columns do.
+The VARIANT child finalization targets `VariantStats::GetUnshreddedStats`, not
+the parent root flags. Stale parent nullability would explain why statistics
+propagation folds the stored predicate to false and replaces `count(v)` with
+`count_star`. This is a source-backed diagnosis, not a validated C++ patch.
+
+Separately, `MultiStageAggregateRewriter` constructs DISTINCT aggregate group
+keys by copying the raw aggregate children. Unlike ordinary GROUP BY and
+SELECT DISTINCT binding, that construction does not insert the VARIANT
+logical comparator. The pinned comparator source explicitly distinguishes
+physical reversible encoding from logical equivalence across numeric widths.
+This is consistent with seven physical non-NULL variants being counted after
+statistics propagation is disabled, while the DISTINCT subquery has four
+logical non-NULL groups plus SQL NULL. Neither finding changes the default
+development acceptance baseline or grants permission to reproduce a planner
+accident in generic Rust value semantics.
+
+Relevant pinned sources are
+[VARIANT append/finalization](../../duckdb/src/storage/table/variant_column_data.cpp),
+[STRUCT finalization](../../duckdb/src/storage/table/struct_column_data.cpp),
+[child statistics propagation](../../duckdb/src/storage/table/column_data.cpp),
+[DISTINCT aggregate rewriting](../../duckdb/src/optimizer/multi_stage_aggregate_rewriter.cpp),
+[COUNT statistics](../../duckdb/src/function/aggregate/distributive/count.cpp),
+and [VARIANT logical comparison](../../duckdb/src/function/scalar/variant/variant_comparator.cpp).
+
+`docs/nested-bignum-variant-plan-reference.json` retains six EXPLAIN outputs
+alongside the same optimizer-mode probes. The default predicate plan projects
+literal `false`; both count branches use `count_star`. With only statistics
+propagation disabled, the predicate is retained and both branches use
+`count(#0)`. This fresh unchanged-source campaign still has 11/14 exact matches
+and the same three failures. No C++ source patch or rebuild was performed.
+
 ### Typed sequence concat integration
 
 The existing selected `concat` catalog entry now delegates LIST/ARRAY arguments
@@ -473,12 +508,38 @@ zero errors, panics or open spans; temporary telemetry was deleted. Kani remains
 the lead's substantial combined-checkpoint responsibility.
 
 The provisional scalar LIST guard and negative assertion are removed. No
-duplicate catalog name was registered. `list_concat`/`array_concat` aliases and
-registry-aware `||` specialization remain separate follow-ups, along with the
-previously recorded VARIANT and native-storage gaps.
+duplicate catalog name was registered. The subsequent alias increment is
+described below. Registry-aware `||` specialization remains separate work,
+along with the previously recorded VARIANT and native-storage gaps.
 
 The later [selected floating-text increment](floating-text-values.md) repairs
 the REAL `1.0` VARCHAR witness through the retained scalar cast, including
 nested child casting and concat. The historical 11/14 diagnostic above is
 unchanged; the stored VARIANT NULL/count observations are not resolved by that
 formatter repair.
+### Sequence concat catalog aliases
+
+`list_concat`, `list_cat`, `array_concat` and `array_cat` reuse the same selected
+sequence implementation and retain their catalog names after binding. Their
+LIST-only signatures reject scalar inputs, including string literals and typed
+VARCHAR NULLs. All-untyped-NULL calls return SQL NULL, whereas typed NULL lists
+produce an empty non-NULL LIST. The development zero-argument variadic signature
+returns empty VARCHAR. These distinctions are checked against the pinned CLI,
+not inferred from the scalar `concat` name.
+
+The mixed DECIMAL/TIMESTAMP_NS/BIT component workload now runs through all five
+names, including prepared insertion, joins, windows, indexed-row mutations,
+rollback and native reopen. Selected signature units also execute with an empty
+ambient type registry. `docs/nested-concat-alias-reference.json` records 104/104
+matching SQL/error checks and ten independent native producer paths (Rust and
+development for each name). Each path passes initial, Rust mutation/rollback and
+C++ mutation/checkpoint/reopen states. Source was unchanged throughout this
+correctness campaign; no throughput or `||` support claim is made.
+
+Ordinary check, nested 25/25, contracts 27/27, casts 11/11, types 15/15, binary
+scalars 5/5 and both selected concat units pass, as does all-target clippy.
+Coverage reports 284 files, 2,568 functions and 208 interface methods without
+missing attributes. Instrumentation compatibility completed in 36.43 seconds
+with zero error returns, panics or open spans; temporary telemetry was deleted.
+Kani is reserved for the lead's subsequent substantial integrated checkpoint;
+this alias increment does not claim a new independent proof run.

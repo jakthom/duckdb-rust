@@ -75,10 +75,11 @@ def main():
             report["development_optimizer_diagnostics"].append(case)
             try:
                 case["rows"] = command(cpp, ":memory:", setting + setup + sql, json_output=True)
+                case["explain"] = command(cpp, ":memory:", setting + setup + "EXPLAIN " + sql)
             except Exception as error:
                 case["error"] = str(error)
     report["source_unchanged"] = before == source_fingerprint()
-    report["passed"] = report["source_unchanged"] and all(case["passed"] for case in report["cases"]) and all("rows" in case for case in report["development_optimizer_diagnostics"])
+    report["passed"] = report["source_unchanged"] and all(case["passed"] for case in report["cases"]) and all("rows" in case and "explain" in case for case in report["development_optimizer_diagnostics"])
     args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     print(json.dumps({"report": str(args.report), "passed": report["passed"], "matches": sum(case["passed"] for case in report["cases"]), "total": len(CASES), "mismatches": [case["name"] for case in report["cases"] if not case["passed"]]}))
     raise SystemExit(0 if report["passed"] else 1)
