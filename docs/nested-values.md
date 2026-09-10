@@ -476,3 +476,9 @@ The provisional scalar LIST guard and negative assertion are removed. No
 duplicate catalog name was registered. `list_concat`/`array_concat` aliases and
 registry-aware `||` specialization remain separate follow-ups, along with the
 previously recorded VARIANT and native-storage gaps.
+
+The later [selected floating-text increment](floating-text-values.md) repairs
+the REAL `1.0` VARCHAR witness through the retained scalar cast, including
+nested child casting and concat. The historical 11/14 diagnostic above is
+unchanged; the stored VARIANT NULL/count observations are not resolved by that
+formatter repair.
