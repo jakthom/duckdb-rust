@@ -36,7 +36,7 @@ pub enum CastNullHandling {
     /// Ordinary casts preserve NULL without calling the adapter.
     Propagate,
     /// Typed NULL is significant input, e.g. an active NULL UNION member.
-    /// Non-NULL input still cannot become NULL outside TRY_CAST.
+    /// This does not grant permission to turn non-NULL input into NULL.
     Call,
 }
 
@@ -51,7 +51,8 @@ pub struct CastSpec {
 /// Pure, deterministic, synchronous conversion of a physical value. Ordinary
 /// casts receive non-NULL input. A selected Call capability also receives NULL.
 /// The input fits `spec.source`; output fits `spec.target`, and a non-NULL input
-/// must remain non-NULL.
+/// must remain non-NULL unless the selected `may_return_null` capability says
+/// otherwise (for example, extracting a NULL active UNION child into VARIANT).
 /// Invalid values return Conversion. Configuration/unsupported pairs are
 /// rejected at binding. Other errors (including cancellation and resource
 /// failures) must never be disguised as invalid input, even for TRY_CAST.
@@ -61,6 +62,13 @@ pub struct CastSpec {
 pub trait CastFunction: Debug + Send + Sync {
     fn null_handling(&self, _spec: &CastSpec) -> CastNullHandling {
         CastNullHandling::Propagate
+    }
+    /// Whether valid non-NULL input may produce SQL NULL. This describes cast
+    /// semantics, not error suppression: invalid output and every non-Conversion
+    /// error remain errors, including under TRY_CAST. Independent of input NULL
+    /// handling; default casts must preserve non-NULL input validity.
+    fn may_return_null(&self, _spec: &CastSpec) -> bool {
+        false
     }
     fn name(&self) -> &'static str;
     fn supports(&self, spec: &CastSpec) -> bool;
@@ -150,6 +158,8 @@ pub struct BoundCast {
     source: super::type_registry::BoundType,
     target: super::type_registry::BoundType,
     function: Arc<dyn CastFunction>,
+    null_handling: CastNullHandling,
+    may_return_null: bool,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -167,6 +177,8 @@ impl BoundCast {
     ) -> Result<Option<Vec<usize>>> {
         if !self.function.preserves_integer_value(&self.spec)
             || !self.is_total()
+            || self.may_return_null
+            || self.null_handling != CastNullHandling::Propagate
             || !self.spec.source.unsigned_bits().is_some_and(|bits| {
                 self.spec
                     .target
@@ -258,9 +270,10 @@ impl BoundCast {
                 if index % 1024 == 0 {
                     context.check()?;
                 }
-                if (!a.is_null() && b.is_null())
-                    || (self.function.null_handling(&self.spec) == CastNullHandling::Propagate
-                        && a.is_null() != b.is_null())
+                if (!a.is_null() && b.is_null() && !self.may_return_null)
+                    || (self.null_handling == CastNullHandling::Propagate
+                        && a.is_null()
+                        && !b.is_null())
                 {
                     return Err(Error::Internal("cast batch changed NULL semantics".into()));
                 }
@@ -292,14 +305,15 @@ impl BoundCast {
         if self.source.requires_logical_validation() {
             self.source.validate(value, context)?;
         }
-        if value.is_null() && self.function.null_handling(&self.spec) == CastNullHandling::Propagate
-        {
+        if value.is_null() && self.null_handling == CastNullHandling::Propagate {
             return Ok(Value::Null);
         }
         let output = self.function.cast(value, &self.spec, context);
         context.check()?;
         let output = output?;
-        if (output.is_null() && !value.is_null()) || !output.fits_type(&self.spec.target) {
+        if (output.is_null() && !value.is_null() && !self.may_return_null)
+            || !output.fits_type(&self.spec.target)
+        {
             return Err(Error::Internal(format!(
                 "cast adapter {} returned an invalid physical value for {}",
                 self.adapter(),
@@ -497,6 +511,8 @@ impl CastRegistry {
             None => function,
         };
         Ok(BoundCast {
+            null_handling: function.null_handling(&spec),
+            may_return_null: function.may_return_null(&spec),
             spec,
             source: source_type,
             target: target_type,
