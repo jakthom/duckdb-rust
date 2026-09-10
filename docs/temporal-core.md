@@ -54,6 +54,22 @@ timestamp text first parses at microsecond precision. These rules differ from
 release truncation. TIME_NS-to-TIME also rounds, while TIME_NS epoch/extraction
 functions truncate sub-microsecond values according to their own core overloads.
 
+`nanosecond` retains exact TIME_NS and TIMESTAMP_NS/TIMESTAMPTZ_NS overloads;
+ordinary clock and interval overloads preserve local components and signed
+interval remainders. Untyped NULL is ambiguous, typed NULL and infinite dates/
+timestamps propagate NULL, and the earliest physical nanosecond timestamp day
+retains development's fatal INTERNAL error. This does not add a `nanosecond`
+date_part specifier or a plural function alias. `timetz_byte_comparable` returns
+the core's biased UBIGINT key, preserving the same offset tie-breaker as TIMETZ
+comparison. Prepared boundary tests compare all pairs in a 25-value clock/offset
+grid, including constructor-produced values past midnight.
+
+TIMESTAMP_US aliases TIMESTAMP; DATETIME accepts precisions zero through nine.
+DATETIME(10) rejects even though development's separate TIMESTAMP syntax accepts
+precision ten. Native default metadata recognizes TIMESTAMP_US and exactly one
+integral literal precision for the timestamp type constructor. It does not
+evaluate stored expressions or broaden unknown/named/other parameterized types.
+
 Constant date_part normally returns BIGINT (epoch returns DOUBLE); dynamic
 specifier expressions return DOUBLE. Integer interval epoch units normalize
 months to thirty days with checked intermediate additions, whereas floating
@@ -100,6 +116,8 @@ do not establish diagnostic-category parity.
 | [Temporal renderability](temporal-renderability-integrated.json) | 696/696 | 631/696 | 3/3 expanded | 2/3 expanded |
 | [Nanosecond lower-bound initial](temporal-nanosecond-lower-bound-initial.json) | 702/709 | 635/709 | 3/3 expanded | 2/3 expanded |
 | [Nanosecond lower-bound repair](temporal-nanosecond-lower-bound-repaired.json) | 709/709 | 642/709 | 3/3 expanded | 2/3 expanded |
+| [Functions/keys/aliases initial](temporal-function-keys-reference-initial.json) | 749/750 | 679/750 | 0/3 expanded | 2/3 expanded |
+| [Functions/keys/aliases repair](temporal-function-keys-reference-repaired.json) | 750/750 | 680/750 | 3/3 expanded | 2/3 expanded |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -266,11 +284,32 @@ still retain the same physically valid instants, and TIME_NS timestamp-text
 fallback retains its independently supported clock parsing behavior. The initial
 trial remains unchanged; the repaired development matrix passes all 709 cases.
 
-The string `concat` implementation still bypasses selected VARCHAR casts and
-therefore can render a physically valid but SQL-unrenderable timestamp. That
-witness remains open for the scalar owner's selected-cast repair. Development
-also has a distinct LIST-returning `concat` overload; the nested owner retains
-that missing overload as a separate obligation, not a temporal formatting shim.
+At the renderability checkpoint, string `concat` still bypassed selected VARCHAR
+casts and could render a physically valid but SQL-unrenderable timestamp. The
+combined scalar/nested [concat repair](concat-cast-regression.md) now uses retained
+string casts and the distinct LIST-returning overload. No temporal formatting
+exception is embedded in concat.
+
+The function/key trial catches the DATETIME(10) distinction and missing native
+TIMESTAMP_US default metadata. Its other two development-native failures expose
+a transport difference: the C++ shell emits large unsigned keys as JSON strings
+while Rust emits exact integers; the release shell's outer JSON encoding can
+round numeric values. The repaired native projection casts keys to VARCHAR in
+both engines for exact comparison, while typed SQL and API tests still require
+UBIGINT. Neither a float tolerance nor a lossy numeric normalization is used.
+Expanded default schemas include TIMESTAMP_US and DATETIME(9) declarations and
+literals, and both readers repeat the functions after rollback/update/reopen.
+The failed initial report remains unchanged.
+
+The [unchanged function/key upstream refresh](upstream-temporal-function-keys.json)
+passes eleven of 26 TIME/TIMESTAMP files, fails ten and leaves five ICU-dependent
+files unsupported. No previously passing file is lost. The formerly unsupported
+TIMESTAMP_US file now passes nine records before a separate `FROM VALUES` parser
+gap. The TIME_NS nanosecond query now executes, but its integer-declared
+SQLLogicTest column preserves a `0.0` versus `0` expectation mismatch; TIMETZ
+collation similarly retains boolean spelling normalization. VARIANT strict TIME,
+timestamp avg, NULL-precision diagnostics, epoch DOUBLE normalization and later
+catalog functions remain explicit obligations. No upstream assertion is changed.
 
 ## Checkpoint validation
 
@@ -386,6 +425,25 @@ Full `python3 scripts/verify_kani.py` again passes six of six maintained harness
 none failed (52.151, 1.268, 0.838, 2.545, 2.994 and 96.191 seconds). The nanosecond
 parser boundary has executable regression coverage, not a new formal proof.
 No performance claim follows from this worker-local correctness campaign.
+
+The function/key/alias stage passes twenty-three temporal, eleven cast and seven
+DATE tests, its adjacent native-metadata/truncation test, check and workspace/
+all-target clippy. The native test rejects unknown and other parameterized types,
+non-literal expressions, NULL/invalid precision and every truncated prefix of a
+valid object. An initial unit-fixture encoding omitted a nested logical-type
+field and failed; the corrected fixture and decoder pass without general stored-
+expression evaluation. Coverage reports 284 files, 2565 functions and 208
+interfaces with no missing entries; traced all-target check passes in 33.93
+seconds and deletes telemetry. The upstream worker builds in release mode.
+Final-source Kani 0.67.0 passes all six maintained harnesses, none failed
+(51.677, 0.885, 0.529, 2.341, 2.835 and 75.134 seconds). The earlier pre-repair
+function-source run also passed six of six. These proofs retain their existing
+packing/key/index/window/byte-count scope; neither metadata parsing nor the
+new function catalog is proven complete. Performance remains a separate,
+lead-coordinated combined measurement.
+The final `cargo test --workspace` run also passes, including all native recovery
+tail boundaries, with only the two preexisting external-CLI analytics tests
+ignored. No test is newly ignored or weakened for this increment.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.

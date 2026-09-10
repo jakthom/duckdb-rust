@@ -106,7 +106,23 @@ CAST_VALUES = {
     'INTERVAL': "INTERVAL '1 month 2 days 03:04:05'",
 }
 SQL += [f'SELECT ({value})::{target}' for value in CAST_VALUES.values() for target in CAST_VALUES]
-SQL += [f'SELECT {name}({value})' for name in ('year','month','day','quarter','dayofyear','dayofweek','isodow','century','decade','millennium','hour','minute','second','millisecond','microsecond','epoch','epoch_ms','epoch_us','epoch_ns','isfinite','isinf','last_day','dayname','monthname') for value in CAST_VALUES.values()]
+SQL += [f'SELECT {name}({value})' for name in ('year','month','day','quarter','dayofyear','dayofweek','isodow','century','decade','millennium','hour','minute','second','millisecond','microsecond','epoch','epoch_ms','epoch_us','epoch_ns','isfinite','isinf','last_day','dayname','monthname','nanosecond','timetz_byte_comparable') for value in CAST_VALUES.values()]
+SQL += [
+    "SELECT nanosecond(NULL)",
+    "SELECT nanosecond(NULL::TIMESTAMP_NS),nanosecond(TIMESTAMP_NS 'infinity'),nanosecond(INTERVAL '-1us')",
+    "SELECT nanosecond(TIME_NS '24:00:00.000000999'),nanosecond(make_time(23,59,60.5)::TIME_NS)",
+    "SELECT nanosecond(make_timestamp(-9223372036854775806))",
+    "SELECT nanosecond(TIMESTAMP_NS '1969-12-31 23:59:59.999999999'),nanosecond(TIMESTAMP_NS '2000-01-01 23:59:59.999999500')",
+    "SELECT nanoseconds(TIME '12:34:56')",
+    "SELECT date_part('nanosecond',TIME_NS '12:34:56.123456789')",
+    "SELECT timetz_byte_comparable(NULL),typeof(timetz_byte_comparable(NULL)),timetz_byte_comparable(make_time(23,59,60.5)::TIMETZ)",
+    "SELECT z,timetz_byte_comparable(z) FROM (VALUES (TIMETZ '00:00:00+15:59:59'),(TIMETZ '13:00:00+01'),(TIMETZ '12:00:00+00'),(TIMETZ '24:00:00-15:59:59'),(NULL)) t(z) ORDER BY z",
+    "SELECT NULL::DATETIME(11)",
+    "SELECT NULL::TIMESTAMP_US(3)",
+]
+SQL += [f"SELECT typeof({kind} '2000-01-01'),{kind} '2000-01-01 12:00:00.123456789'"
+        for kind in ['DATETIME', 'DATETIME(0)', 'DATETIME(3)', 'DATETIME(6)',
+                     'DATETIME(9)', 'DATETIME(10)', 'TIMESTAMP_US']]
 CLOCK_TEXT = [
     '1:', '1:2', '1:02:', '1:2:3', '12:34:56junk', '12:34:56 +02',
     '12:34:56+2', '12:34:56+02', '12:34:56+02junk', '12:34:56Z',
@@ -160,6 +176,7 @@ SQL += [
     "SELECT epoch_ns(TIMESTAMP_NS '2262-04-11 23:47:16.854775806')",
 ]
 RENDER_SQL = [
+    "SELECT nanosecond(make_timestamp_ns(-9223372036854775806))",
     "SELECT make_timestamp(-9223372036854775806)",
     "SELECT make_timestamp_ns(-9223372036854775806)",
     "SELECT {'t':make_timestamp_ns(-9223372036854775806)}",
@@ -172,9 +189,9 @@ RENDER_SQL = [
 SQL += RENDER_SQL
 BOUNDARY_DEFINITION = "CREATE TABLE clock_boundaries(id INTEGER PRIMARY KEY,n TIME_NS UNIQUE,u TIME,z TIMETZ,child STRUCT(n TIME_NS,z TIMETZ),items TIME_NS[]); INSERT INTO clock_boundaries SELECT id,v,v::TIME,(v::TIME)::TIMETZ,{'n':v,'z':(v::TIME)::TIMETZ},[v,NULL] FROM (VALUES(1,TIME_NS '24:00:00'),(2,TIME_NS '24:00:00.000000001'),(3,TIME_NS '24:00:00.000000999'),(4,make_time(23,59,60.49999999999999)::TIME_NS)) t(id,v)"
 BOUNDARY_QUERY = "SELECT id,n::VARCHAR AS n,u::VARCHAR AS u,z::VARCHAR AS z,child::VARCHAR AS child,items::VARCHAR AS items,(DATE '2000-01-01'+u)::VARCHAR AS shifted FROM clock_boundaries ORDER BY id"
-DEFINITION = "CREATE TABLE t(id INTEGER PRIMARY KEY,tm TIME DEFAULT TIME '12:00:00',ts TIMESTAMP DEFAULT TIMESTAMP 'epoch',s TIMESTAMP_S DEFAULT TIMESTAMP_S 'epoch',ms TIMESTAMP_MS DEFAULT TIMESTAMP_MS 'epoch',ns TIMESTAMP_NS DEFAULT TIMESTAMP_NS 'epoch',z TIMESTAMPTZ DEFAULT TIMESTAMPTZ 'epoch',tz TIMETZ DEFAULT TIMETZ '12:00:00+02',iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t(id) VALUES(1); INSERT INTO t VALUES (2,NULL,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-01 12:00:00.123',TIMESTAMP_NS '2000-01-01 12:00:00.123456789',TIMESTAMPTZ '2000-01-01 12:00:00+02',TIMETZ '00:00:00-05:30',INTERVAL '-1 month 30 days -00:00:00.000001')"
+DEFINITION = "CREATE TABLE t(id INTEGER PRIMARY KEY,tm TIME DEFAULT TIME '12:00:00',ts TIMESTAMP_US DEFAULT TIMESTAMP_US 'epoch',s TIMESTAMP_S DEFAULT TIMESTAMP_S 'epoch',ms TIMESTAMP_MS DEFAULT TIMESTAMP_MS 'epoch',ns DATETIME(9) DEFAULT DATETIME(9) 'epoch',z TIMESTAMPTZ DEFAULT TIMESTAMPTZ 'epoch',tz TIMETZ DEFAULT TIMETZ '12:00:00+02',iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t(id) VALUES(1); INSERT INTO t VALUES (2,NULL,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-01 12:00:00.123',TIMESTAMP_NS '2000-01-01 12:00:00.123456789',TIMESTAMPTZ '2000-01-01 12:00:00+02',TIMETZ '00:00:00-05:30',INTERVAL '-1 month 30 days -00:00:00.000001')"
 DEFINITION += "; INSERT INTO t(id,ts) VALUES (3,TIMESTAMP '290309-12-22 (BC) 00:00:00'),(4,TIMESTAMP '294247-01-10 04:00:54.775806')"
-QUERY = "SELECT id,tm::VARCHAR AS tm,ts::VARCHAR AS ts,s::VARCHAR AS s,ms::VARCHAR AS ms,ns::VARCHAR AS ns,z::VARCHAR AS z,tz::VARCHAR AS tz,iv::VARCHAR AS iv,(ts+INTERVAL '0us')::VARCHAR AS calendar_roundtrip FROM t ORDER BY id"
+QUERY = "SELECT id,tm::VARCHAR AS tm,ts::VARCHAR AS ts,s::VARCHAR AS s,ms::VARCHAR AS ms,ns::VARCHAR AS ns,z::VARCHAR AS z,tz::VARCHAR AS tz,iv::VARCHAR AS iv,(ts+INTERVAL '0us')::VARCHAR AS calendar_roundtrip,nanosecond(ns) AS ns_part,timetz_byte_comparable(tz)::VARCHAR AS tz_key FROM t ORDER BY id"
 
 
 def equivalent(left, right):
