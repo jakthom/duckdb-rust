@@ -64,7 +64,7 @@ pub(super) fn write(
             "WAL nested child expansion exceeds remaining cell budget".into(),
         ));
     }
-    let children = child_values(metadata, values)?;
+    let children = child_values(metadata, values, context)?;
     match metadata {
         NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_) => {
             e.property(103, children.len() as u64);

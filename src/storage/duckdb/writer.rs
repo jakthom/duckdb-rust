@@ -6,6 +6,7 @@ mod catalog;
 use crate::{
     catalog::{Catalog, TableDefinition},
     common::{DataType, Error, Result, Row, Value},
+    parallel::QueryContext,
     storage::{TableStorage, table::Snapshot},
 };
 pub(super) use catalog::{column_definition, table_definition};
@@ -178,6 +179,7 @@ fn encode_checkpoint(
     snapshot: &Snapshot,
     previous: Option<super::CheckpointIdentity>,
 ) -> Result<Vec<u8>> {
+    let context = QueryContext::background().with_types(snapshot.type_registry());
     let tables = snapshot.tables()?;
     let schemas = snapshot.schemas()?;
     let mut arena = Arena::default();
@@ -196,11 +198,11 @@ fn encode_checkpoint(
     }
     for table in tables {
         let rows: Vec<Row> = snapshot
-            .scan(&table.name, &crate::parallel::QueryContext::background())?
+            .scan(&table.name, &context)?
             .into_iter()
             .map(|(_, row)| row)
             .collect();
-        let pointer = table_data(&mut arena, &table, &rows)?;
+        let pointer = table_data(&mut arena, &table, &rows, &context)?;
         catalog.property(99, 1);
         catalog.field(100);
         catalog.boolean(true);
@@ -242,7 +244,12 @@ fn encode_checkpoint(
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn table_data(arena: &mut Arena, table: &TableDefinition, rows: &[Row]) -> Result<u64> {
+fn table_data(
+    arena: &mut Arena,
+    table: &TableDefinition,
+    rows: &[Row],
+    context: &QueryContext,
+) -> Result<u64> {
     let mut output = Encoder::default();
     output.property(100, table.columns.len() as u64);
     for (index, column) in table.columns.iter().enumerate() {
@@ -252,6 +259,7 @@ fn table_data(arena: &mut Arena, table: &TableDefinition, rows: &[Row]) -> Resul
             &mut output,
             Some(&column.data_type),
             &rows.iter().map(|r| r[index].clone()).collect::<Vec<_>>(),
+            context,
         )?;
         output.end();
     }
@@ -265,7 +273,7 @@ fn table_data(arena: &mut Arena, table: &TableDefinition, rows: &[Row]) -> Resul
         output.property(102, table.columns.len() as u64);
         for (index, column) in table.columns.iter().enumerate() {
             let values: Vec<_> = rows.iter().map(|r| r[index].clone()).collect();
-            let pointer = column_data(arena, &column.data_type, &values, group * 122880)?;
+            let pointer = column_data(arena, &column.data_type, &values, group * 122880, context)?;
             output.pointer(pointer);
         }
         output.property(103, 0);
@@ -280,8 +288,9 @@ fn column_data(
     data_type: &DataType,
     values: &[Value],
     row_start: usize,
+    context: &QueryContext,
 ) -> Result<u64> {
-    let bytes = column_bytes(arena, data_type, values, row_start)?;
+    let bytes = column_bytes(arena, data_type, values, row_start, context)?;
     arena.metadata(&bytes)
 }
 
@@ -291,9 +300,11 @@ pub(super) fn column_bytes(
     data_type: &DataType,
     values: &[Value],
     row_start: usize,
+    context: &QueryContext,
 ) -> Result<Vec<u8>> {
+    context.check()?;
     if matches!(data_type, DataType::Nested(_)) {
-        return super::nested::write_column(arena, data_type, values, row_start);
+        return super::nested::write_column(arena, data_type, values, row_start, context);
     }
     let mut segments = Vec::new();
     for (chunk, values) in values.chunks(2048).enumerate() {
@@ -325,11 +336,18 @@ pub(super) fn column_bytes(
                     data_type,
                     &values[start..end],
                     row_start + chunk * 2048 + start,
+                    context,
                 )?);
                 start = end;
             }
         } else {
-            segments.push(segment(arena, data_type, values, row_start + chunk * 2048)?);
+            segments.push(segment(
+                arena,
+                data_type,
+                values,
+                row_start + chunk * 2048,
+                context,
+            )?);
         }
     }
     let mut output = Encoder::default();
@@ -338,7 +356,9 @@ pub(super) fn column_bytes(
         output.0.extend(segment);
     }
     output.field(101);
-    output.0.extend(validity_bytes(arena, values, row_start)?);
+    output
+        .0
+        .extend(validity_bytes(arena, values, row_start, context)?);
     output.end();
     Ok(output.0)
 }
@@ -348,7 +368,9 @@ pub(super) fn validity_bytes(
     arena: &mut Arena,
     values: &[Value],
     row_start: usize,
+    context: &QueryContext,
 ) -> Result<Vec<u8>> {
+    context.check()?;
     let mut output = Encoder::default();
     if values.is_empty() {
         output.property(100, 0);
@@ -377,7 +399,7 @@ pub(super) fn validity_bytes(
     output.end();
     output.property(103, codec);
     output.field(104);
-    statistics(&mut output, None, values)?;
+    statistics(&mut output, None, values, context)?;
     output.end();
     output.end();
     Ok(output.0)
@@ -389,8 +411,11 @@ fn segment(
     data_type: &DataType,
     values: &[Value],
     row_start: usize,
+    context: &QueryContext,
 ) -> Result<Vec<u8>> {
-    segment_with_statistics(arena, data_type, values, row_start, data_type, values)
+    segment_with_statistics(
+        arena, data_type, values, row_start, data_type, values, context,
+    )
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -401,7 +426,9 @@ pub(super) fn segment_with_statistics(
     row_start: usize,
     statistics_type: &DataType,
     statistics_values: &[Value],
+    context: &QueryContext,
 ) -> Result<Vec<u8>> {
+    context.check()?;
     let mut data = Vec::new();
     let mut overflow_blocks = Vec::new();
     if matches!(
@@ -417,11 +444,11 @@ pub(super) fn segment_with_statistics(
                 Value::Varchar(v) => v.as_bytes(),
                 Value::Blob(v) => v.as_slice(),
                 Value::Bit(v) => {
-                    bit_bytes = v.to_native(|| Ok(()))?;
+                    bit_bytes = v.to_native(|| context.check())?;
                     &bit_bytes
                 }
                 Value::Bignum(v) => {
-                    bit_bytes = v.to_native(|| Ok(()))?;
+                    bit_bytes = v.to_native(|| context.check())?;
                     &bit_bytes
                 }
                 _ => &[],
@@ -508,7 +535,12 @@ pub(super) fn segment_with_statistics(
     output.end();
     output.property(103, 1);
     output.field(104);
-    statistics(&mut output, Some(statistics_type), statistics_values)?;
+    statistics(
+        &mut output,
+        Some(statistics_type),
+        statistics_values,
+        context,
+    )?;
     if !overflow_blocks.is_empty() {
         output.field(105);
         output.boolean(true);
@@ -527,7 +559,9 @@ pub(super) fn statistics(
     output: &mut Encoder,
     data_type: Option<&DataType>,
     values: &[Value],
+    context: &QueryContext,
 ) -> Result<()> {
+    context.check()?;
     output.field(100);
     output.boolean(values.iter().any(Value::is_null));
     output.field(101);
@@ -536,7 +570,7 @@ pub(super) fn statistics(
     output.field(103);
     match data_type {
         Some(DataType::Nested(metadata)) => {
-            super::nested::write_statistics(output, metadata, values)?
+            super::nested::write_statistics(output, metadata, values, context)?
         }
         None => {}
         // The writer's legacy compatibility target predates interval stats.

@@ -234,7 +234,12 @@ mod tests {
             let mut output = Encoder::default();
             output.property(200, state);
             output.field(225);
-            super::super::super::writer::statistics(&mut output, Some(&unshredded_type()), &[])?;
+            super::super::super::writer::statistics(
+                &mut output,
+                Some(&unshredded_type()),
+                &[],
+                &crate::parallel::QueryContext::background(),
+            )?;
             if state == 2 {
                 let shredded = NestedType::Struct(vec![
                     (
@@ -250,7 +255,12 @@ mod tests {
                 output.field(230);
                 write_type(&mut output, &shredded)?;
                 output.field(235);
-                super::super::super::writer::statistics(&mut output, Some(&shredded), &[])?;
+                super::super::super::writer::statistics(
+                    &mut output,
+                    Some(&shredded),
+                    &[],
+                    &crate::parallel::QueryContext::background(),
+                )?;
             }
             let mut reader = Reader::new(output.0);
             read_statistics(&mut reader)?;

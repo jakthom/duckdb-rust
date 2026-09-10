@@ -2,12 +2,15 @@ use super::super::writer::{
     Arena, column_bytes, segment_with_statistics, statistics, validity_bytes,
 };
 use super::*;
+use crate::parallel::QueryContext;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(in crate::storage::duckdb) fn child_values(
     metadata: &NestedType,
     values: &[Value],
+    context: &QueryContext,
 ) -> Result<Vec<(DataType, Vec<Value>)>> {
+    context.check()?;
     if values.len() > 16_777_216 {
         return Err(Error::Resource(
             "nested column exceeds 16 million values".into(),
@@ -34,6 +37,7 @@ pub(in crate::storage::duckdb) fn child_values(
     };
     let data_type = metadata.clone().data_type();
     for value in values {
+        context.check()?;
         if !value.fits_type(&data_type) {
             return Err(Error::Conversion(
                 "native nested column shape mismatch".into(),
@@ -124,8 +128,9 @@ pub(in crate::storage::duckdb) fn write_statistics(
     output: &mut Encoder,
     metadata: &NestedType,
     values: &[Value],
+    context: &QueryContext,
 ) -> Result<()> {
-    let children = child_values(metadata, values)?;
+    let children = child_values(metadata, values, context)?;
     output.field(200);
     if matches!(
         metadata,
@@ -134,7 +139,7 @@ pub(in crate::storage::duckdb) fn write_statistics(
         output.unsigned(children.len() as u64);
     }
     for (ty, values) in children {
-        statistics(output, Some(&ty), &values)?;
+        statistics(output, Some(&ty), &values, context)?;
     }
     Ok(())
 }
@@ -145,11 +150,12 @@ pub(in crate::storage::duckdb) fn write_column(
     data_type: &DataType,
     values: &[Value],
     row_start: usize,
+    context: &QueryContext,
 ) -> Result<Vec<u8>> {
     let DataType::Nested(metadata) = data_type else {
         return Err(Error::Internal("native nested column type".into()));
     };
-    let children = child_values(metadata, values)?;
+    let children = child_values(metadata, values, context)?;
     let variable = matches!(
         metadata.as_ref(),
         NestedType::List(_) | NestedType::Map { .. }
@@ -185,13 +191,16 @@ pub(in crate::storage::duckdb) fn write_column(
                 row_start + start,
                 data_type,
                 &values[start..start + offsets.len()],
+                context,
             )?);
         }
     } else {
         output.property(100, 0);
     }
     output.field(101);
-    output.0.extend(validity_bytes(arena, values, row_start)?);
+    output
+        .0
+        .extend(validity_bytes(arena, values, row_start, context)?);
     output.field(102);
     let structure = matches!(
         metadata.as_ref(),
@@ -203,7 +212,7 @@ pub(in crate::storage::duckdb) fn write_column(
     for (ty, values) in children {
         output
             .0
-            .extend(column_bytes(arena, &ty, &values, row_start)?);
+            .extend(column_bytes(arena, &ty, &values, row_start, context)?);
     }
     output.end();
     Ok(output.0)

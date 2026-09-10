@@ -37,6 +37,11 @@ impl Default for Snapshot {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
+    /// Retain this snapshot's selected type services for native serialization.
+    /// A codec must not substitute the ambient or builtin registry.
+    pub fn type_registry(&self) -> Arc<crate::common::type_registry::TypeRegistry> {
+        self.types.clone()
+    }
     pub fn new(types: Arc<crate::common::type_registry::TypeRegistry>) -> Self {
         Self {
             schemas: BTreeSet::from(["main".into()]),

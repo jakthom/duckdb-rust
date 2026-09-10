@@ -62,6 +62,15 @@ Formats without such metadata keep their selected stateless encoder. These
 representation choices remain provisional; the identity, failure and ownership
 contracts do not depend on a particular object layout.
 
+Native snapshot serialization takes its type services from the snapshot's
+retained registry, including recursive child/statistics encoding. WAL child
+encoding uses the selected log context. Neither path may construct builtin
+type services to interpret dynamic values. Native statistics still describe
+the native physical ordering; a replacement SQL comparator cannot redefine
+the C++ file's statistics ordering. The current synchronous snapshot encoder
+has a background maintenance context, not a new promise of interruptible
+filesystem operations or a global byte budget.
+
 Three complementary test classes are required: ordinary close/reopen and checkpoint tests; process-interruption/WAL replay tests; and injected file-write or synchronization failures. The native storage fuzzer performs operation sequences with one-shot filesystem faults and verifies the next reopen against the last expected state. It is not a general malformed-database-byte generator.
 
 Assertions should separate acknowledged commits, rejected commits, and indeterminate external failures. Check table contents, catalog objects, indexes, and future database usability, not just whether opening succeeds. Historical storage files and cross-version readers add a separate format-compatibility obligation described in [compatibility testing](../testing/compatibility.md). Relevant code and execution limitations for fault campaigns are in [fuzzing](../testing/fuzzer.md) and [stress](../testing/stress.md).
