@@ -11,6 +11,43 @@ from reference_version import TARGETS, require_reference
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = {
+    "nested_variant_unshredded": """
+        SET force_compression='uncompressed';
+        SET variant_minimum_shredding_size=-1;
+        CREATE TABLE t(id INTEGER PRIMARY KEY,v VARIANT,s STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs VARIANT[]);
+        INSERT INTO t(id,v) VALUES
+          (0,NULL),(1,(-0.5::DOUBLE)::BIGNUM::VARIANT),
+          (2,'340282366920938463463374607431768211456'::BIGNUM::VARIANT),
+          (3,18446744073709551615::UBIGINT::VARIANT),
+          (4,{'a':1,'d':12.50::DECIMAL(12,2)}::VARIANT),
+          (5,{'a':NULL,'c':['101'::BIT,NULL]}::VARIANT),
+          (6,[1::VARIANT,'str'::VARIANT,NULL]::VARIANT),(7,[]::VARIANT),
+          (8,struct_pack()::VARIANT),(9,true::VARIANT),
+          (10,UUID '80000000-0000-0000-0000-000000000001'::VARIANT),
+          (11,'a\\x00b'::BLOB::VARIANT),(12,'101010101'::BIT::VARIANT),
+          (13,TIMESTAMP_NS '2000-01-01 00:00:00.123456789'::VARIANT),
+          (14,TIME '24:00:00'::VARIANT),(15,INTERVAL '1 month 2 days 3 microseconds'::VARIANT),
+          (16,(-128)::TINYINT::VARIANT),(17,65535::USMALLINT::VARIANT),
+          (18,1.5::FLOAT::VARIANT),(19,2.5::DOUBLE::VARIANT),
+          (20,'🦆'::VARIANT),(21,false::VARIANT),(22,DATE '-infinity'::VARIANT);
+        UPDATE t SET s={'d':id::DECIMAL(12,2),'ts':TIMESTAMP_NS '2000-01-01 00:00:00.123456789'},xs=[v,NULL];
+        CHECKPOINT;
+    """,
+    "nested_variant_shredded": """
+        SET force_compression='uncompressed';
+        SET variant_minimum_shredding_size=0;
+        CREATE TABLE t(id INTEGER PRIMARY KEY,v VARIANT,s STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs VARIANT[]);
+        INSERT INTO t(id,v) VALUES
+          (0,{'a':1,'items':[1,2],'d':12.50::DECIMAL(12,2)}::VARIANT),
+          (1,{'a':2,'items':[3,NULL],'d':1.25::DECIMAL(12,2)}::VARIANT),
+          (2,{'a':NULL,'items':[],'d':NULL}::VARIANT),
+          (3,{'a':'str','items':[4,5],'extra':'leftover'}::VARIANT),
+          (4,{'items':[6],'d':2.50::DECIMAL(12,2)}::VARIANT),
+          (5,NULL),(6,'scalar leftover'::VARIANT),
+          (7,[1::VARIANT,'str'::VARIANT,NULL]::VARIANT);
+        UPDATE t SET s={'d':id::DECIMAL(12,2),'ts':TIMESTAMP_NS '2000-01-01 00:00:00.123456789'},xs=[v,NULL];
+        CHECKPOINT;
+    """,
     "bit_scalar": """
         SET force_compression='uncompressed';
         CREATE TABLE t(id INTEGER PRIMARY KEY, b BIT DEFAULT '001', xs BIT[], s STRUCT(b BIT,d DECIMAL(8,2)));
@@ -236,8 +273,9 @@ def main():
             if name in HISTORICAL:
                 path.write_bytes(HISTORICAL[name].read_bytes())
             else:
-                if name == "nested_tuple":
-                    setup = f"ATTACH '{path}' AS fixture (STORAGE_VERSION 'v2.0.0'); USE fixture; "
+                if name == "nested_tuple" or name.startswith("nested_variant_") and args.target == "release":
+                    storage_version = "v2.0.0" if name == "nested_tuple" else "v1.5.0"
+                    setup = f"ATTACH '{path}' AS fixture (STORAGE_VERSION '{storage_version}'); USE fixture; "
                     subprocess.run([str(binary), "-c", setup + sql], check=True, stdout=subprocess.DEVNULL)
                 else:
                     subprocess.run([str(binary), str(path), "-c", sql], check=True, stdout=subprocess.DEVNULL)
@@ -269,6 +307,8 @@ def main():
                 metadata["sql"] = sql.strip()
                 if name == "nested_tuple":
                     metadata["storage_version"] = "v2.0.0"
+                if name.startswith("nested_variant_") and args.target == "release":
+                    metadata["storage_version"] = "v1.5.0"
                 if name.startswith("dates_"):
                     metadata["query"] = "SELECT id, d::VARCHAR AS d, c::VARCHAR AS c FROM t ORDER BY id"
                 if name in ["alprd", "alp_float"]:

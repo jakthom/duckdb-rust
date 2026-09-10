@@ -1,6 +1,110 @@
 //! Pinned native VARIANT metadata. The public logical type remains dynamic;
 //! these canonical fields describe its unshredded physical child streams only.
 use super::*;
+mod payload;
+mod shredded;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn read_column(
+    blocks: &super::super::Blocks,
+    decoders: &DecoderRegistry,
+    reader: &mut Reader,
+    count: usize,
+    row_start: usize,
+) -> Result<Vec<Value>> {
+    let extra = if reader.optional(99)? && reader.boolean()? {
+        reader.field(100)?;
+        if reader.unsigned()? != 1 {
+            return Err(corrupt("VARIANT column has non-VARIANT extra data"));
+        }
+        reader.field(101)?;
+        let ty = logical_type_at(reader, 1)?;
+        validate_shredded_metadata(&ty)?;
+        reader.end()?;
+        Some(ty)
+    } else {
+        None
+    };
+    super::super::columns::read_segments(
+        blocks,
+        decoders,
+        reader,
+        Some(&NestedType::Variant.data_type()),
+        None,
+        0,
+        row_start,
+    )?;
+    reader.field(101)?;
+    let validity =
+        super::super::columns::read_column(blocks, decoders, reader, None, count, row_start)?;
+    if validity
+        .iter()
+        .any(|value| !matches!(value, Value::Boolean(_)))
+    {
+        return Err(corrupt(
+            "VARIANT root validity must contain explicit Boolean values",
+        ));
+    }
+    reader.field(102)?;
+    let unshredded = super::super::columns::read_column(
+        blocks,
+        decoders,
+        reader,
+        Some(&unshredded_type()),
+        count,
+        row_start,
+    )?;
+    let shredded = if let Some(ty) = &extra {
+        reader.field(103)?;
+        Some(super::super::columns::read_column(
+            blocks,
+            decoders,
+            reader,
+            Some(ty),
+            count,
+            row_start,
+        )?)
+    } else {
+        None
+    };
+    reader.end()?;
+    let mut budget = payload::Budget::new();
+    let mut result = Vec::new();
+    result
+        .try_reserve_exact(count)
+        .map_err(|_| Error::Resource("cannot allocate native VARIANT rows".into()))?;
+    for (row, valid) in validity.iter().enumerate() {
+        if *valid == Value::Boolean(false) {
+            result.push(Value::Null);
+            continue;
+        }
+        let unshredded = payload::Unshredded::new(&unshredded[row], &mut budget)?;
+        // Native shredded-vector reconstruction uses VariantBuilder's
+        // CollectObjectChildren(LEXICOGRAPHIC), including leftover subtrees.
+        // Ordinary unshredded columns retain their stored member ordering.
+        let unshredded = if extra.is_some() {
+            unshredded.map(payload::Unshredded::with_ordered_objects)
+        } else {
+            unshredded
+        };
+        let value = if let (Some(ty), Some(shredded)) = (&extra, &shredded) {
+            shredded::decode(ty, &shredded[row], unshredded.as_ref(), 0, &mut budget)?
+                .unwrap_or((DataType::Null, Value::Null))
+        } else {
+            let value = unshredded
+                .ok_or_else(|| corrupt("valid VARIANT row has no unshredded payload"))?
+                .decode(0, &mut budget)?;
+            if value.1.is_null() {
+                return Err(corrupt(
+                    "unshredded VARIANT root NULL must use root validity",
+                ));
+            }
+            value
+        };
+        result.push(payload::envelope(value)?);
+    }
+    Ok(result)
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn fields() -> Vec<(String, DataType)> {
@@ -57,7 +161,7 @@ fn validate_shredded_metadata(data_type: &DataType) -> Result<()> {
             pending.extend(metadata.children());
         }
     }
-    Ok(())
+    shredded::validate(data_type)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

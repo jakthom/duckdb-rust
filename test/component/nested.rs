@@ -18,6 +18,8 @@ mod native;
 mod tuple;
 #[path = "nested/variant.rs"]
 mod variant;
+#[path = "nested/variant_native.rs"]
+mod variant_native;
 #[path = "nested/wal.rs"]
 mod wal;
 

@@ -32,6 +32,39 @@ Decimal arithmetic must preserve both precision and scale constraints; temporal 
 
 The parser can represent an unresolved type expression; binding resolves it into a concrete `LogicalType`; physical planning and vector allocation depend on that resolved type. Serialization must retain the metadata needed to reconstruct the same type. Arrow and public APIs must express supported logical distinctions or reject unsupported conversions explicitly. Extension-defined type identity and lifetime must survive catalog lookup and prepared execution.
 
+### Dynamic VARIANT storage and reconstruction
+
+Source observation: VARIANT logical ID109 carries canonical physical children
+`keys VARCHAR[]`, `children STRUCT(keys_index UINTEGER, values_index UINTEGER)[]`,
+`values STRUCT(type_id UTINYINT, byte_offset UINTEGER)[]`, and `data BLOB`.
+Persistent columns have independent root validity and unshredded children; an
+optional ordinary typed tree describes shredded values. This physical STRUCT
+layout does not turn the logical column into a user STRUCT.
+
+Shredded wrappers distinguish a missing OBJECT field (NULL typed value and
+leftover index zero), a present NULL (NULL typed value and NULL leftover index),
+and an unshredded leftover (one-based index). A present typed primitive or ARRAY
+does not consult its unused leftover index. OBJECT reconstruction merges typed
+and leftover fields. Development's canonical shredded-vector reconstruction
+emits OBJECT keys lexicographically, including leftover subtrees; an ordinary
+unshredded column retains its stored member ordering. Root NULL uses row validity,
+not the nested VARIANT_NULL tag.
+
+JSON-to-VARIANT conversion retains empty keys and case-distinct keys, and
+collapses only exact duplicate keys, keeping the last value. Engineering
+implication: a dynamic OBJECT representation must not silently inherit ordinary
+SQL STRUCT's nonempty, case-insensitively unique field-name restrictions.
+Readers must retain declared scalar widths and units, validate offsets and child
+references before following them, and bound depth, repeated visits and logical
+materialization independently. Publication compatibility is a separate
+requirement from recognizing a read-side layout.
+
+Sources: [canonical types](../../../duckdb/src/common/types.cpp),
+[VARIANT column storage](../../../duckdb/src/storage/table/variant_column_data.cpp),
+[iterators](../../../duckdb/src/common/types/variant/variant_iterator.cpp),
+[canonical builder](../../../duckdb/src/include/duckdb/common/types/variant/variant_builder.hpp),
+[JSON conversion](../../../duckdb/src/include/duckdb/function/cast/variant/json_to_variant.hpp).
+
 ## Verification requirements
 
 Use type/cast SQL cases and native common/vector tests from [component/API coverage](../testing/component-api.md). Include boundary numeric values, failed narrowing casts, decimal rounding/overflow, temporal boundaries, embedded binary zeros, nested NULLs, empty collections, aliases, and type serialization round trips. Compare logical values and type metadata independently: equal formatted output does not prove identical types. External-format round trips belong additionally to [file-format](file-formats.md) and [Arrow](arrow-adbc.md) verification.

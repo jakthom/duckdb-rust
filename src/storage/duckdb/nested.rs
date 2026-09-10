@@ -88,6 +88,9 @@ pub(super) fn read_column(
     let DataType::Nested(metadata) = data_type else {
         return Err(Error::Internal("nested column metadata".into()));
     };
+    if matches!(metadata.as_ref(), NestedType::Variant) {
+        return variant::read_column(blocks, decoders, reader, count, row_start);
+    }
     let variable = matches!(
         metadata.as_ref(),
         NestedType::List(_) | NestedType::Map { .. }
