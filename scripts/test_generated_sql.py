@@ -16,7 +16,7 @@ from upstream_suite import ROOT
 class GeneratedSQL(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        subprocess.run(["cargo", "build", "--offline", "--release", "--bin", "duckdb-rust-test-worker"], cwd=ROOT, check=True)
+        subprocess.run(["cargo", "build", "--offline", "--release", "--no-default-features", "--bin", "duckdb-rust-test-worker"], cwd=ROOT, check=True)
 
     def test_seeded_transactions_and_null_partitions_match_independent_sqlite(self):
         for seed in range(16):

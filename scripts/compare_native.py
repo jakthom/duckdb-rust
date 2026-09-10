@@ -98,7 +98,8 @@ def main():
     compile_command = ["c++", "-std=c++17", "-O3", "-DNDEBUG", "-I" + str(source / "src/include"),
                        str(ROOT / "benchmark/reference.cpp"), str(library), "-Wl,-rpath," + str(library.parent), "-o", str(cpp)]
     subprocess.run(compile_command, check=True)
-    subprocess.run(["cargo", "build", "--offline", "--release", "--bin", "duckdb-rust-measure"], cwd=ROOT, check=True)
+    rust_build = ["cargo", "build", "--offline", "--release", "--no-default-features", "--bin", "duckdb-rust-measure"]
+    subprocess.run(rust_build, cwd=ROOT, check=True)
     rust = ROOT / "target/release/duckdb-rust-measure"
     source_hash = hashlib.sha256()
     from source_identity import vendored_sources
@@ -115,6 +116,7 @@ def main():
               "cpp_build_configuration_sha256": digest(build / "CMakeCache.txt"), "compile_command": compile_command,
               "compiler": subprocess.check_output(["c++", "--version"], text=True).strip(),
               "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+              "rust_build_command": rust_build,
               "rust_source_sha256": source_hash.hexdigest(), "rust_binary_sha256": digest(rust),
               "workloads_path": str(workloads_path), "workloads_sha256": digest(workloads_path), "platform": platform.platform(),
               "machine": platform.machine(), "workloads": [], "passed": False,

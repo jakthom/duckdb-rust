@@ -131,7 +131,7 @@ def main():
     before_build = source_fingerprint()
     build_command = None
     if args.rust is None:
-        build_command = ['cargo', 'build', '--offline', '--release', '--bin', 'duckdb-rust-test-worker']
+        build_command = ['cargo', 'build', '--offline', '--release', '--no-default-features', '--bin', 'duckdb-rust-test-worker']
         subprocess.run(build_command, cwd=ROOT, check=True)
     rust = (args.rust or ROOT/'target/release/duckdb-rust-test-worker').resolve(strict=True)
     if source_fingerprint() != before_build:

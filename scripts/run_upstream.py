@@ -112,7 +112,8 @@ def main():
     if args.timeout <= 0 or not 1 <= args.jobs <= 8:
         raise ValueError("positive timeout and 1..8 workers required")
     manifest = verify(DESTINATION)
-    subprocess.run(["cargo", "build", "--offline", "--release", "--bin", "duckdb-rust-test-worker"], cwd=ROOT, check=True)
+    rust_build = ["cargo", "build", "--offline", "--release", "--no-default-features", "--bin", "duckdb-rust-test-worker"]
+    subprocess.run(rust_build, cwd=ROOT, check=True)
     binary = ROOT / "target/release/duckdb-rust-test-worker"
     source_hash = hashlib.sha256()
     from source_identity import vendored_sources
@@ -124,6 +125,7 @@ def main():
         raise ValueError("selection contains no upstream SQL files")
     report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "upstream_revision": REVISION,
               "archive_sha256": manifest["archive_sha256"], "manifest_sha256": digest(DESTINATION / "manifest.json"),
+              "rust_build_command": rust_build,
               "rust_source_sha256": source_hash.hexdigest(), "rust_binary_sha256": digest(binary),
               "harness_sha256": {name: digest(ROOT / "scripts" / name) for name in ("sqllogic.py", "run_upstream.py", "upstream_suite.py")},
               "source_assets_retained": len(manifest["files"]), "upstream_inventory": manifest["counts"],

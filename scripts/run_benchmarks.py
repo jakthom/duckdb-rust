@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--iterations", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=256)
     args = parser.parse_args()
-    subprocess.run(["cargo", "build", "--offline", "--release", "--bin", "duckdb-rust-benchmark"], cwd=ROOT, check=True)
+    subprocess.run(["cargo", "build", "--offline", "--release", "--no-default-features", "--bin", "duckdb-rust-benchmark"], cwd=ROOT, check=True)
     binary = ROOT / "target/release/duckdb-rust-benchmark"
     source_hash = hashlib.sha256()
     from source_identity import vendored_sources
