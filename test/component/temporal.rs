@@ -519,84 +519,92 @@ fn temporal_functions_extract_epoch_constructors_and_infinity_are_typed() -> Res
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn temporal_functions_cross_nested_values_parameters_indexes_mutations_and_reopen() -> Result<()> {
     let directory = tempfile::tempdir()?;
-    for batched in [false, true] {
-        for hashed in [false, true] {
-            let path = directory
-                .path()
-                .join(format!("calendar-{batched}-{hashed}.json"));
-            let open = || {
-                DatabaseBuilder::new()
-                    .batch_size(2)
-                    .expressions(if batched {
-                        Arc::new(BatchedEvaluator)
-                    } else {
-                        Arc::new(ScalarEvaluator)
-                    })
-                    .indexes(if hashed {
-                        Arc::new(HashIndexFactory)
-                    } else {
-                        Arc::new(BTreeIndexFactory)
-                    })
-                    .durability(Arc::new(FileCheckpoint::open(
-                        &path,
-                        OpenMode::ReadWrite,
-                        Arc::new(JsonSnapshotFormat),
-                    )?))
-                    .build()
-            };
-            let mut c = open()?.connect();
-            c.execute("CREATE TABLE events(id INTEGER PRIMARY KEY,ts TIMESTAMP_NS UNIQUE,payload STRUCT(occurred TIMESTAMP,budget DECIMAL(8,2)),samples TIMESTAMP[],span INTERVAL)")?;
-            let insert=c.prepare("INSERT INTO events SELECT $1,$2,{'occurred':$2::TIMESTAMP,'budget':$3::DECIMAL(8,2)},[$2::TIMESTAMP,NULL],INTERVAL ($4) DAY")?;
-            for (id, time, budget, days) in [
-                (1, "2000-01-31 23:59:59.999999500", "1.25", 1.9),
-                (2, "2000-02-01 00:00:00", "2.50", -1.9),
-            ] {
+    let formats: Vec<Arc<dyn SnapshotFormat>> = vec![
+        Arc::new(JsonSnapshotFormat),
+        Arc::new(DuckDbFormat::default()),
+    ];
+    for format in formats {
+        for batched in [false, true] {
+            for hashed in [false, true] {
+                let path = directory
+                    .path()
+                    .join(format!("calendar-{}-{batched}-{hashed}.db", format.name()));
+                let open = || {
+                    DatabaseBuilder::new()
+                        .batch_size(2)
+                        .expressions(if batched {
+                            Arc::new(BatchedEvaluator)
+                        } else {
+                            Arc::new(ScalarEvaluator)
+                        })
+                        .indexes(if hashed {
+                            Arc::new(HashIndexFactory)
+                        } else {
+                            Arc::new(BTreeIndexFactory)
+                        })
+                        .durability(Arc::new(FileCheckpoint::open(
+                            &path,
+                            OpenMode::ReadWrite,
+                            format.clone(),
+                        )?))
+                        .build()
+                };
+                let mut c = open()?.connect();
+                c.execute("CREATE TABLE events(id INTEGER PRIMARY KEY,ts TIMESTAMP_NS UNIQUE,payload STRUCT(occurred TIMESTAMP,budget DECIMAL(8,2)),samples TIMESTAMP[],span INTERVAL)")?;
+                let insert=c.prepare("INSERT INTO events SELECT $1,$2,{'occurred':$2::TIMESTAMP,'budget':$3::DECIMAL(8,2)},[$2::TIMESTAMP,NULL],INTERVAL ($4) DAY")?;
+                for (id, time, budget, days) in [
+                    (1, "2000-01-31 23:59:59.999999500", "1.25", 1.9),
+                    (2, "2000-02-01 00:00:00", "2.50", -1.9),
+                ] {
+                    c.execute_prepared(
+                        &insert,
+                        &[
+                            Value::Integer(id),
+                            Value::Temporal(TemporalValue::parse(time, &DataType::TimestampNs)?),
+                            Value::Varchar(budget.into()),
+                            Value::Double(days),
+                        ],
+                    )?;
+                }
                 c.execute_prepared(
                     &insert,
-                    &[
-                        Value::Integer(id),
-                        Value::Temporal(TemporalValue::parse(time, &DataType::TimestampNs)?),
-                        Value::Varchar(budget.into()),
-                        Value::Double(days),
-                    ],
+                    &[Value::Integer(3), Value::Null, Value::Null, Value::Null],
                 )?;
-            }
-            c.execute_prepared(
-                &insert,
-                &[Value::Integer(3), Value::Null, Value::Null, Value::Null],
-            )?;
-            assert!(
-                c.execute("INSERT INTO events(id,ts) VALUES(4,TIMESTAMP_NS '2000-02-01')")
-                    .is_err()
-            );
-            let projection = "SELECT id,year(ts),list_extract(samples,1),struct_extract(payload,'occurred')+span FROM events ORDER BY id";
-            let rows = c.query(projection)?.rows;
-            assert_eq!(rows[0][1], Value::Integer(2000));
-            assert_eq!(rows[0][2].to_string(), "2000-02-01 00:00:00");
-            assert_eq!(rows[0][3].to_string(), "2000-02-02 00:00:00");
-            assert_eq!(rows[1][3].to_string(), "2000-01-31 00:00:00");
-            assert!(rows[2][1..].iter().all(Value::is_null));
-            assert_eq!(
-                c.query("SELECT count(*) FROM events a JOIN events b ON year(a.ts)=year(b.ts)")?
+                assert!(
+                    c.execute("INSERT INTO events(id,ts) VALUES(4,TIMESTAMP_NS '2000-02-01')")
+                        .is_err()
+                );
+                let projection = "SELECT id,year(ts),list_extract(samples,1),struct_extract(payload,'occurred')+span FROM events ORDER BY id";
+                let rows = c.query(projection)?.rows;
+                assert_eq!(rows[0][1], Value::Integer(2000));
+                assert_eq!(rows[0][2].to_string(), "2000-02-01 00:00:00");
+                assert_eq!(rows[0][3].to_string(), "2000-02-02 00:00:00");
+                assert_eq!(rows[1][3].to_string(), "2000-01-31 00:00:00");
+                assert!(rows[2][1..].iter().all(Value::is_null));
+                assert_eq!(
+                    c.query(
+                        "SELECT count(*) FROM events a JOIN events b ON year(a.ts)=year(b.ts)"
+                    )?
                     .rows,
-                vec![vec![Value::Integer(4)]]
-            );
-            assert_eq!(c.query("SELECT year(ts),sum(struct_extract(payload,'budget')) FROM events GROUP BY year(ts) ORDER BY year(ts)")?.rows[0],vec![Value::Integer(2000),Value::Decimal{value:375,width:38,scale:2}]);
-            assert_eq!(c.query("SELECT id,epoch_us(min(struct_extract(payload,'occurred')) OVER (ORDER BY ts ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) FROM events ORDER BY id")?.rows[0][1],Value::Integer(949363200000000));
-            c.execute("BEGIN; UPDATE events SET span=INTERVAL 9 DAY; DELETE FROM events WHERE year(ts)=2000; ROLLBACK")?;
-            assert_eq!(c.query(projection)?.rows, rows);
-            c.execute(
+                    vec![vec![Value::Integer(4)]]
+                );
+                assert_eq!(c.query("SELECT year(ts),sum(struct_extract(payload,'budget')) FROM events GROUP BY year(ts) ORDER BY year(ts)")?.rows[0],vec![Value::Integer(2000),Value::Decimal{value:375,width:38,scale:2}]);
+                assert_eq!(c.query("SELECT id,epoch_us(min(struct_extract(payload,'occurred')) OVER (ORDER BY ts ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) FROM events ORDER BY id")?.rows[0][1],Value::Integer(949363200000000));
+                c.execute("BEGIN; UPDATE events SET span=INTERVAL 9 DAY; DELETE FROM events WHERE year(ts)=2000; ROLLBACK")?;
+                assert_eq!(c.query(projection)?.rows, rows);
+                c.execute(
                 "UPDATE events SET samples=[make_timestamp(0),NULL],span=to_hours(2) WHERE id=1",
             )?;
-            let committed = c.query("SELECT * FROM events ORDER BY id")?.rows;
-            drop(c);
-            assert_eq!(
-                open()?
-                    .connect()
-                    .query("SELECT * FROM events ORDER BY id")?
-                    .rows,
-                committed
-            );
+                let committed = c.query("SELECT * FROM events ORDER BY id")?.rows;
+                drop(c);
+                assert_eq!(
+                    open()?
+                        .connect()
+                        .query("SELECT * FROM events ORDER BY id")?
+                        .rows,
+                    committed
+                );
+            }
         }
     }
     Ok(())
