@@ -34,6 +34,19 @@ impl ScalarFunction for BinaryFunction {
     fn name(&self) -> &str {
         self.0
     }
+    fn argument_types(
+        &self,
+        arguments: &[DataType],
+        _: &crate::common::type_registry::TypeRegistry,
+    ) -> Result<Vec<DataType>> {
+        if matches!(self.0, "encode" | "unhex" | "from_hex" | "hex" | "to_hex")
+            && arguments.len() == 1
+            && matches!(arguments[0], DataType::Enum(_))
+        {
+            return Ok(vec![DataType::Varchar]);
+        }
+        Ok(arguments.to_vec())
+    }
     fn bind(
         &self,
         arguments: &dyn super::ScalarBindArguments,

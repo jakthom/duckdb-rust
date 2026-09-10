@@ -95,6 +95,10 @@ name = "binary_scalars"
 path = "test/component/binary_scalars.rs"
 
 [[test]]
+name = "enumeration"
+path = "test/component/enumeration.rs"
+
+[[test]]
 name = "nested"
 path = "test/component/nested.rs"
 

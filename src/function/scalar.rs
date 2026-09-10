@@ -53,6 +53,12 @@ impl ScalarFunction for Builtin {
         if matches!(self.0, "coalesce" | "nullif") {
             return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
         }
+        if matches!(self.0, "lower" | "upper" | "length" | "char_length")
+            && arguments.len() == 1
+            && matches!(arguments[0], DataType::Enum(_))
+        {
+            return Ok(vec![DataType::Varchar]);
+        }
         if self.0 == "trunc" && arguments == [DataType::Null] {
             return Ok(vec![DataType::BigInt]);
         }

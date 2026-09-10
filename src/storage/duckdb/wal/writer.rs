@@ -433,6 +433,7 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
                     Value::Integer(value) => bytes.extend(&value.to_le_bytes()[..width]),
                     Value::Unsigned(value) => bytes.extend(&value.to_le_bytes()[..width]),
                     Value::Uuid(value) => bytes.extend((*value ^ (1_u128 << 127)).to_le_bytes()),
+                    Value::Enum(value) => bytes.extend(&value.ordinal.to_le_bytes()[..width]),
                     Value::Decimal { value, .. } => bytes.extend(&value.to_le_bytes()[..width]),
                     Value::Float(value) => bytes.extend(value.to_le_bytes()),
                     Value::Double(value) => bytes.extend(value.to_le_bytes()),

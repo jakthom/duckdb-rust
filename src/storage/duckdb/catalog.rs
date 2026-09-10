@@ -142,6 +142,36 @@ pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
         30 => DataType::UInteger,
         31 => DataType::UBigInt,
         49 => DataType::UHugeInt,
+        104 => {
+            reader.field(101)?;
+            if !reader.boolean()? {
+                return Err(corrupt("missing ENUM metadata"));
+            }
+            reader.field(100)?;
+            if reader.unsigned()? != 6 {
+                return Err(corrupt("invalid ENUM type info"));
+            }
+            if reader.optional(101)? && !reader.string()?.is_empty() {
+                return Err(Error::Unsupported("aliased ENUM metadata".into()));
+            }
+            reader.field(200)?;
+            let size = reader.length()?;
+            reader.field(201)?;
+            if reader.length()? != size {
+                return Err(corrupt("ENUM dictionary size mismatch"));
+            }
+            let mut labels = Vec::with_capacity(size);
+            let mut remaining = 16_usize * 1024 * 1024;
+            for _ in 0..size {
+                let label = reader.string()?;
+                remaining = remaining
+                    .checked_sub(label.len())
+                    .ok_or_else(|| Error::Resource("ENUM labels exceed 16 MiB".into()))?;
+                labels.push(label);
+            }
+            reader.end()?;
+            DataType::enumeration(labels).map_err(|_| corrupt("invalid ENUM dictionary"))?
+        }
         21 => {
             reader.field(101)?;
             if !reader.boolean()? {

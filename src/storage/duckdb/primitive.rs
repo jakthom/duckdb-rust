@@ -10,6 +10,7 @@ pub(super) fn width(data_type: &DataType) -> Result<usize> {
         DataType::Integer | DataType::UInteger | DataType::Float | DataType::Date => Ok(4),
         DataType::BigInt | DataType::UBigInt | DataType::Double => Ok(8),
         DataType::HugeInt | DataType::UHugeInt | DataType::Uuid => Ok(16),
+        DataType::Enum(metadata) => Ok(metadata.physical_width()),
         DataType::Decimal { width, .. } => Ok(match width {
             1..=4 => 2,
             5..=9 => 4,
@@ -64,6 +65,15 @@ pub(super) fn scalar(data: &[u8], offset: usize, data_type: &DataType) -> Result
 /// Numeric codecs operate on physical integers. Reconstruct the logical value
 /// here; column validity is applied by the caller after segment decoding.
 pub(super) fn integer_value(value: i128, data_type: &DataType) -> Result<Value> {
+    if let DataType::Enum(metadata) = data_type {
+        let mask = (1_u64 << (metadata.physical_width() * 8)) - 1;
+        let ordinal = (value as u64 & mask) as u32;
+        if u64::from(ordinal) == mask || metadata.labels.is_empty() {
+            return Ok(Value::Null);
+        }
+        return Value::enumeration(data_type, ordinal)
+            .map_err(|_| corrupt("ENUM column ordinal is outside its dictionary"));
+    }
     if *data_type == DataType::Uuid {
         return Ok(Value::Uuid((value as u128) ^ (1_u128 << 127)));
     }
@@ -133,6 +143,7 @@ pub(super) fn type_id(data_type: &DataType) -> Result<u64> {
         DataType::UBigInt => Ok(31),
         DataType::UHugeInt => Ok(49),
         DataType::Decimal { .. } => Ok(21),
+        DataType::Enum(_) => Ok(104),
         _ => Err(Error::Unsupported(format!(
             "DuckDB storage type {data_type}"
         ))),
@@ -153,6 +164,17 @@ pub(super) fn write_type(output: &mut super::binary::Encoder, data_type: &DataTy
         }
         output.end();
     }
+    if let DataType::Enum(metadata) = data_type {
+        output.field(101);
+        output.boolean(true);
+        output.property(100, 6); // ENUM_TYPE_INFO
+        output.property(200, metadata.labels.len() as u64);
+        output.property(201, metadata.labels.len() as u64);
+        for label in &metadata.labels {
+            output.string(label)?;
+        }
+        output.end();
+    }
     output.end();
     Ok(())
 }
@@ -163,6 +185,10 @@ pub(super) fn write_numeric(
     value: &Value,
     data_type: &DataType,
 ) -> Result<()> {
+    if let Value::Enum(value) = value {
+        output.unsigned(u64::from(value.ordinal));
+        return Ok(());
+    }
     if data_type.is_unsigned_integer() {
         let Value::Unsigned(n) = value else {
             return Err(corrupt("unsigned numeric metadata"));
@@ -192,6 +218,12 @@ pub(super) fn read_numeric(
     reader: &mut super::binary::Reader,
     data_type: &DataType,
 ) -> Result<Value> {
+    if matches!(data_type, DataType::Enum(_)) {
+        let ordinal = u32::try_from(reader.unsigned()?)
+            .map_err(|_| corrupt("ENUM metadata ordinal overflow"))?;
+        return Value::enumeration(data_type, ordinal)
+            .map_err(|_| corrupt("ENUM metadata ordinal is outside its dictionary"));
+    }
     if data_type.is_unsigned_integer() {
         let upper = if *data_type == DataType::UHugeInt {
             u128::from(reader.unsigned()?) << 64

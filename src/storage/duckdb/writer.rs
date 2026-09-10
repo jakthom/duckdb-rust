@@ -422,6 +422,7 @@ fn segment(
                         Value::Decimal { value, .. } => *value,
                         Value::Unsigned(value) => *value as i128,
                         Value::Uuid(value) => (*value ^ (1_u128 << 127)) as i128,
+                        Value::Enum(value) => i128::from(value.ordinal),
                         _ => value.as_i128()?,
                     };
                     let width = super::primitive::width(data_type)?;

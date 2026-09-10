@@ -82,7 +82,9 @@ pub(super) fn value(reader: &mut Reader) -> Result<Value> {
                 crate::common::scalar::parse_blob(&reader.string()?, || Ok(()))
                     .map_err(|_| corrupt("invalid serialized BLOB literal"))?,
             ),
-            DataType::Uuid => super::super::primitive::read_numeric(reader, &data_type)?,
+            DataType::Uuid | DataType::Enum(_) => {
+                super::super::primitive::read_numeric(reader, &data_type)?
+            }
             _ if data_type.is_decimal() || data_type.is_unsigned_integer() => {
                 super::super::primitive::read_numeric(reader, &data_type)?
             }
