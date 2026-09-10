@@ -7,8 +7,14 @@ use serde::{Deserialize, Serialize};
 use super::{DataType, Date, Error, Result};
 
 mod interval;
+mod text;
 
 pub const MICROS_PER_DAY: i64 = 86_400_000_000;
+/// Provisional physical domain closed under the selected SQL clock constructors
+/// and casts. make_time's leap-second rounding can produce 24:00:00.5; text
+/// parsing is independently stricter. Arbitrary native/API raw clocks are not
+/// accepted merely because they fit a signed storage word.
+pub const MAX_CLOCK_MICROS: i64 = MICROS_PER_DAY + 500_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TemporalValue {
@@ -86,10 +92,10 @@ impl TemporalValue {
     }
     pub fn validate(self) -> Result<()> {
         let valid = match self {
-            Self::Time(v) => (0..=MICROS_PER_DAY).contains(&v),
-            Self::TimeNs(v) => (0..=MICROS_PER_DAY * 1000).contains(&v),
+            Self::Time(v) => (0..=MAX_CLOCK_MICROS).contains(&v),
+            Self::TimeNs(v) => (0..=MAX_CLOCK_MICROS * 1000).contains(&v),
             Self::TimeTz { micros, offset } => {
-                (0..=MICROS_PER_DAY).contains(&micros) && (-57599..=57599).contains(&offset)
+                (0..=MAX_CLOCK_MICROS).contains(&micros) && (-57599..=57599).contains(&offset)
             }
             Self::Interval { .. } => true,
             _ => self.ticks()? != i64::MIN,
@@ -185,82 +191,7 @@ impl TemporalValue {
         if *data_type == DataType::Interval {
             return interval::parse(text, check);
         }
-        let text = text.trim();
-        // Narrow timestamp literals are parsed at microsecond precision first,
-        // then rounded half away from the epoch, including negative instants.
-        if matches!(data_type, DataType::TimestampS | DataType::TimestampMs) {
-            return Self::parse_checked(text, &DataType::Timestamp, check)?
-                .scale_timestamp(data_type);
-        }
-        if matches!(
-            data_type,
-            DataType::Time | DataType::TimeNs | DataType::TimeTz
-        ) {
-            if let Some(position) = text.find(['+', '-', 'Z', 'z'])
-                && text[..position]
-                    .bytes()
-                    .filter(|byte| *byte == b':')
-                    .count()
-                    != 2
-            {
-                return Err(invalid("standalone time offset requires seconds"));
-            }
-            let precision = if *data_type == DataType::TimeNs {
-                1_000_000_000
-            } else {
-                1_000_000
-            };
-            let (ticks, offset) = parse_time(text, precision)?;
-            return if *data_type == DataType::TimeTz {
-                let value = Self::TimeTz {
-                    micros: ticks,
-                    offset: offset.unwrap_or(0),
-                };
-                value.validate()?;
-                Ok(value)
-            } else {
-                Self::from_ticks(data_type, ticks)
-            };
-        }
-        let precision = data_type
-            .timestamp_precision()
-            .ok_or_else(|| invalid("expected temporal type"))?;
-        if text.eq_ignore_ascii_case("infinity") {
-            return Self::from_ticks(data_type, i64::MAX);
-        }
-        if text.eq_ignore_ascii_case("-infinity") {
-            return Self::from_ticks(data_type, -i64::MAX);
-        }
-        if text.eq_ignore_ascii_case("epoch") {
-            return Self::from_ticks(data_type, 0);
-        }
-        let split = text
-            .char_indices()
-            .find(|(i, c)| {
-                (*c == 'T' || *c == ' ')
-                    && text.as_bytes()[*i + 1..]
-                        .first()
-                        .is_some_and(u8::is_ascii_digit)
-            })
-            .map(|(i, _)| i);
-        let (date_text, time) = split.map_or((text, "00:00:00"), |i| (&text[..i], &text[i + 1..]));
-        let date = Date::parse_checked(date_text, check)?;
-        if !date.is_finite() {
-            return Err(invalid("timestamp date must be finite"));
-        }
-        let (clock, offset) = parse_time(time, precision)?;
-        let adjustment = if data_type.has_time_zone() {
-            i128::from(offset.unwrap_or(0)) * i128::from(precision)
-        } else {
-            0
-        };
-        let ticks = i128::from(date.days()) * 86400 * i128::from(precision) + i128::from(clock)
-            - adjustment;
-        let ticks = i64::try_from(ticks).map_err(|_| invalid("timestamp outside finite range"))?;
-        if ticks.abs_diff(0) >= i64::MAX as u64 {
-            return Err(invalid("timestamp outside finite range"));
-        }
-        Self::from_ticks(data_type, ticks)
+        text::parse(text, data_type, check)
     }
     pub fn date(self) -> Result<Date> {
         if !self.is_finite() {
@@ -338,9 +269,9 @@ mod verification {
         let other_micros: i64 = kani::any();
         let other_offset: i32 = kani::any();
         // Physical TIME/TIMETZ validity is established before keys or storage.
-        kani::assume((0..=MICROS_PER_DAY).contains(&micros));
+        kani::assume((0..=MAX_CLOCK_MICROS).contains(&micros));
         kani::assume((-57599..=57599).contains(&offset));
-        kani::assume((0..=MICROS_PER_DAY).contains(&other_micros));
+        kani::assume((0..=MAX_CLOCK_MICROS).contains(&other_micros));
         kani::assume((-57599..=57599).contains(&other_offset));
         let value = TemporalValue::TimeTz { micros, offset };
         let other = TemporalValue::TimeTz {
@@ -354,85 +285,6 @@ mod verification {
             micros == other_micros && offset == other_offset
         );
     }
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn parse_time(text: &str, precision: i64) -> Result<(i64, Option<i32>)> {
-    let split = text.find(['+', '-', 'Z', 'z']);
-    let (clock, zone) = split.map_or((text, None), |i| (&text[..i], Some(&text[i..])));
-    let mut pieces = clock.split(':');
-    let hour = pieces
-        .next()
-        .ok_or_else(|| invalid("invalid time"))?
-        .parse::<i64>()
-        .map_err(|_| invalid("invalid hour"))?;
-    let minute = pieces
-        .next()
-        .ok_or_else(|| invalid("invalid time"))?
-        .parse::<i64>()
-        .map_err(|_| invalid("invalid minute"))?;
-    let second = pieces.next().unwrap_or("0");
-    if pieces.next().is_some() {
-        return Err(invalid("invalid time"));
-    }
-    let (seconds, fraction) = second.split_once('.').unwrap_or((second, ""));
-    let seconds = seconds
-        .parse::<i64>()
-        .map_err(|_| invalid("invalid second"))?;
-    if !(0..=24).contains(&hour)
-        || !(0..60).contains(&minute)
-        || !(0..60).contains(&seconds)
-        || !fraction.bytes().all(|b| b.is_ascii_digit())
-    {
-        return Err(invalid("time outside range"));
-    }
-    let mut subsecond = 0;
-    let mut factor = precision / 10;
-    for digit in fraction.bytes() {
-        if factor == 0 {
-            break;
-        }
-        subsecond += i64::from(digit - b'0') * factor;
-        factor /= 10;
-    }
-    let ticks = ((hour * 60 + minute) * 60 + seconds) * precision + subsecond;
-    if ticks > 86400 * precision {
-        return Err(invalid("time outside range"));
-    }
-    let offset = zone.map(parse_offset).transpose()?;
-    Ok((ticks, offset))
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn parse_offset(text: &str) -> Result<i32> {
-    if text.eq_ignore_ascii_case("z") {
-        return Ok(0);
-    }
-    let sign = if text.starts_with('-') { -1 } else { 1 };
-    let text = &text[1..];
-    let parts: Vec<&str> = if text.contains(':') {
-        text.split(':').collect()
-    } else if text.len() == 4 && text.is_ascii() {
-        vec![&text[..2], &text[2..]]
-    } else {
-        vec![text]
-    };
-    if parts.len() > 3 {
-        return Err(invalid("invalid UTC offset"));
-    }
-    let mut values = [0; 3];
-    for (slot, part) in values.iter_mut().zip(parts) {
-        *slot = part
-            .parse::<i32>()
-            .map_err(|_| invalid("invalid UTC offset"))?;
-    }
-    if !(0..24).contains(&values[0])
-        || !(0..60).contains(&values[1])
-        || !(0..60).contains(&values[2])
-    {
-        return Err(invalid("UTC offset outside range"));
-    }
-    Ok(sign * (values[0] * 3600 + values[1] * 60 + values[2]))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

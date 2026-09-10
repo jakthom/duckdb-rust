@@ -72,7 +72,7 @@ fn temporal_literals_keep_type_precision_nulls_and_canonical_comparison() -> Res
     assert_eq!(c.query("SELECT INTERVAL '1 month' = INTERVAL '30 days', TIMETZ '13:00:00+01' = TIMETZ '12:00:00+00', TIMETZ '13:00:00+01' < TIMETZ '12:00:00+00', TRY_CAST('25:00' AS TIME)")?.rows, vec![vec![Value::Boolean(true),Value::Boolean(false),Value::Boolean(true),Value::Null]]);
     for invalid in [
         TemporalValue::Time(-1),
-        TemporalValue::TimeNs(86_400_000_000_001),
+        TemporalValue::TimeNs(86_400_500_000_001),
         TemporalValue::Timestamp(i64::MIN),
         TemporalValue::TimeTz {
             micros: 0,
@@ -830,4 +830,109 @@ fn interval_plural_units_and_conversion_diagnostics_keep_prepared_cast_semantics
         }
     }
     Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn clock_text_offsets_timestamp_fallback_and_suffixes_cross_native_wal_and_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    for batched in [false, true] {
+        let path = directory.path().join(format!("clock-{batched}.duckdb"));
+        Database::open(&path)?.connect().execute(
+            "CREATE TABLE t(id INTEGER PRIMARY KEY,n TIME_NS,z TIMETZ,ts TIMESTAMPTZ_NS UNIQUE)",
+        )?;
+        let open = || {
+            let checkpoint = FileCheckpoint::open(
+                &path,
+                OpenMode::ReadWrite,
+                Arc::new(DuckDbFormat::default()),
+            )?
+            .with_recovery(Arc::new(DuckDbWalRecovery))?;
+            DatabaseBuilder::new()
+                .batch_size(1)
+                .expressions(if batched {
+                    Arc::new(BatchedEvaluator)
+                } else {
+                    Arc::new(ScalarEvaluator)
+                })
+                .durability(Arc::new(FileWal::new(
+                    checkpoint,
+                    Arc::new(DuckDbTransactionLog),
+                )?))
+                .build()
+        };
+        let mut c = open()?.connect();
+        let insert = c.prepare("INSERT INTO t VALUES ($1,CAST($2 AS TIME_NS),CAST($3 AS TIMETZ),CAST($4 AS TIMESTAMPTZ_NS))")?;
+        for (id, n, z, ts) in [
+            (
+                1,
+                "2000-01-01 12:34:56.123456789 America/New_York",
+                "2000-01-01 12:34:56+02",
+                "2000 01 02 1:02:03.000000001 UTC",
+            ),
+            (
+                2,
+                "1:02:",
+                "12:34:56+00:99:99junk",
+                "2000-01-01 12:34:56+99:99:99",
+            ),
+            (
+                3,
+                "12:34:56.000000001ignored",
+                "12:34:56 +02",
+                "2000-01-01 1:",
+            ),
+        ] {
+            c.execute_prepared(
+                &insert,
+                &[
+                    Value::Integer(id),
+                    Value::Varchar(n.into()),
+                    Value::Varchar(z.into()),
+                    Value::Varchar(ts.into()),
+                ],
+            )?;
+        }
+        let before = c.query("SELECT * FROM t ORDER BY id")?.rows;
+        assert_eq!(before[0][1].to_string(), "12:34:56.123456789");
+        assert_eq!(before[0][2].to_string(), "10:34:56+00");
+        assert_eq!(before[0][3].to_string(), "2000-01-02 01:02:03.000000001+00");
+        assert_eq!(before[1][2].to_string(), "12:34:56+01:40:39");
+        assert_eq!(before[1][3].to_string(), "1999-12-28 07:54:17+00");
+        assert_eq!(
+            c.query("SELECT count(*) FROM t a JOIN t b ON a.ts=b.ts")?
+                .rows[0][0],
+            Value::Integer(3)
+        );
+        c.execute("BEGIN; UPDATE t SET n=TIME_NS '1:',z=TIMETZ '1:02:'; DELETE FROM t WHERE id=2; ROLLBACK")?;
+        assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, before);
+        drop(c);
+        let mut c = open()?.connect();
+        assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, before);
+        c.checkpoint()?;
+        drop(c);
+        let mut c = Database::open_read_only(&path)?.connect();
+        assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, before);
+        for sql in [
+            "SELECT TIMETZ '12:34:56Z'",
+            "SELECT TIMETZ '12:34:56+2'",
+            "SELECT TIMESTAMP '2000-01-01 12:34:56+000000'",
+            "SELECT TIMESTAMP '2000-01-01 '",
+            "SELECT TIMESTAMPTZ '2000-01-01 12:34:56 America/New_York'",
+            "SELECT TIMESTAMP '2000-01-01 12:34:56  UTC'",
+        ] {
+            assert!(c.query(sql).is_err(), "{sql}");
+        }
+    }
+    Ok(())
+}
+
+#[path = "../obligations/clock_domain.rs"]
+mod clock_domain;
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn clock_physical_domain_crosses_casts_nested_checkpoints_keys_and_calendar_rollover() -> Result<()>
+{
+    clock_domain::run(false)
 }

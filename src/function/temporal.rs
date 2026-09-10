@@ -337,13 +337,24 @@ fn make_time(arguments: &[Value]) -> Result<i64> {
     let hour = arguments[0].as_i128()?;
     let minute = arguments[1].as_i128()?;
     let second = arguments[2].as_f64()?;
-    if !(0..=24).contains(&hour) || !(0..60).contains(&minute) || !(0.0..60.0).contains(&second) {
+    if !(0..=24).contains(&hour) || !(0..60).contains(&minute) || !second.is_finite() {
         return Err(invalid("time fields outside range"));
     }
-    let micros = ((hour * 60 + minute) * 60) * 1_000_000 + (second * 1_000_000.0).round() as i128;
-    if micros > i128::from(MICROS_PER_DAY) {
+    // Development separately casts whole seconds and rounds their fraction.
+    // IsValidTime permits leap second 60 and a carried microsecond component.
+    let whole = if (0.0..=60.0).contains(&second) {
+        second.trunc()
+    } else {
+        second.round_ties_even()
+    };
+    let fraction = ((second - whole) * 1_000_000.0).round();
+    if !(0.0..=60.0).contains(&whole)
+        || !(0.0..=1_000_000.0).contains(&fraction)
+        || (hour == 24 && (minute != 0 || whole != 0.0 || fraction != 0.0))
+    {
         return Err(invalid("time fields outside range"));
     }
+    let micros = ((hour * 60 + minute) * 60 + whole as i128) * 1_000_000 + fraction as i128;
     Ok(micros as i64)
 }
 
