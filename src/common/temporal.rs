@@ -16,6 +16,18 @@ pub const MICROS_PER_DAY: i64 = 86_400_000_000;
 /// accepted merely because they fit a signed storage word.
 pub const MAX_CLOCK_MICROS: i64 = MICROS_PER_DAY + 500_000;
 
+/// Calendar construction has a narrower path than the physical timestamp
+/// domain: the start of its day must fit before the clock is added. A later
+/// clock/offset cannot repair that intermediate overflow.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn timestamp_from_calendar(date: Date, clock: i64) -> Result<i64> {
+    i64::from(date.days())
+        .checked_mul(MICROS_PER_DAY)
+        .and_then(|ticks| ticks.checked_add(clock))
+        .filter(|ticks| ticks.abs_diff(0) < i64::MAX as u64)
+        .ok_or_else(|| invalid("Date and time not in timestamp range"))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TemporalValue {
     Time(i64),

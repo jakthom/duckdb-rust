@@ -1094,3 +1094,141 @@ fn temporal_text_errors_distinguish_format_range_offsets_and_precision_without_s
     }
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn calendar_timestamp_intermediate_overflow_preserves_mutations_indexes_wal_and_reopen()
+-> Result<()> {
+    use duckdb_rust::Error;
+    let directory = tempfile::tempdir()?;
+    for batched in [false, true] {
+        let path = directory
+            .path()
+            .join(format!("calendar-boundary-{batched}.duckdb"));
+        let open = || {
+            let checkpoint = FileCheckpoint::open(
+                &path,
+                OpenMode::ReadWrite,
+                Arc::new(DuckDbFormat::default()),
+            )?
+            .with_recovery(Arc::new(DuckDbWalRecovery))?;
+            DatabaseBuilder::new()
+                .batch_size(1)
+                .expressions(if batched {
+                    Arc::new(BatchedEvaluator)
+                } else {
+                    Arc::new(ScalarEvaluator)
+                })
+                .durability(Arc::new(FileWal::new(
+                    checkpoint,
+                    Arc::new(DuckDbTransactionLog),
+                )?))
+                .build()
+        };
+        let mut c = open()?.connect();
+        c.execute("CREATE TABLE t(id INTEGER PRIMARY KEY,t TIMESTAMP UNIQUE); INSERT INTO t VALUES(1,TIMESTAMP '290309-12-22 (BC) 00:00:00'),(2,TIMESTAMP '294247-01-10 04:00:54.775806')")?;
+        let before = c.query("SELECT * FROM t ORDER BY t")?.rows;
+        for (sql, category, message) in [
+            (
+                "SELECT TIMESTAMP '290309-12-21 (BC) 23:59:59.999999'",
+                0,
+                "timestamp field value out of range",
+            ),
+            (
+                "SELECT DATE '290309-12-21 (BC)'+TIME '23:59:59.999999'",
+                1,
+                "Timestamp out of range",
+            ),
+            (
+                "SELECT DATE '294247-01-10'+TIMETZ '04:00:54.775807+01'",
+                1,
+                "Timestamp with time zone out of range",
+            ),
+            (
+                "SELECT make_timestamp(-290308,12,21,23,59,59.999999)",
+                0,
+                "Date and time not in timestamp range",
+            ),
+            (
+                "SELECT DATE '290309-12-21 (BC)'+INTERVAL '1day'",
+                0,
+                "Date and time not in timestamp range",
+            ),
+            (
+                "UPDATE t SET t=t-INTERVAL '1us' WHERE id=1",
+                0,
+                "Date and time not in timestamp range",
+            ),
+            (
+                "UPDATE t SET t=t+INTERVAL '1us' WHERE id=2",
+                0,
+                "Date and time not in timestamp range",
+            ),
+            (
+                "UPDATE t SET t=t-INTERVAL '1month' WHERE id=1",
+                0,
+                "Date and time not in timestamp range",
+            ),
+            (
+                "UPDATE t SET t=t+INTERVAL '1month' WHERE id=2",
+                0,
+                "Date and time not in timestamp range",
+            ),
+        ] {
+            let error = c.query(sql).unwrap_err();
+            assert!(
+                if category == 0 {
+                    matches!(error, Error::Conversion(_))
+                } else {
+                    matches!(error, Error::OutOfRange(_))
+                },
+                "{sql}: {error}"
+            );
+            assert!(error.to_string().contains(message), "{sql}: {error}");
+            assert_eq!(c.query("SELECT * FROM t ORDER BY t")?.rows, before);
+        }
+        let raw = c.prepare("SELECT CAST($1 AS TIMESTAMP)+INTERVAL '1day'")?;
+        assert!(
+            matches!(c.execute_prepared(&raw, &[Value::Temporal(TemporalValue::Timestamp(-i64::MAX+1))]), Err(Error::Conversion(message)) if message == "Date out of range in timestamp conversion")
+        );
+        assert_eq!(
+            c.query("SELECT t+INTERVAL '-1day 24hours' FROM t ORDER BY t")?
+                .rows,
+            before
+                .iter()
+                .map(|row| vec![row[1].clone()])
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            c.query("SELECT count(*) FROM t a JOIN t b ON a.t=b.t")?
+                .rows,
+            vec![vec![Value::Integer(2)]]
+        );
+        assert_eq!(
+            c.query("SELECT min(t) OVER(),max(t) OVER() FROM t ORDER BY t")?
+                .rows,
+            vec![vec![before[0][1].clone(), before[1][1].clone()]; 2]
+        );
+        c.execute(
+            "BEGIN; UPDATE t SET t=t+INTERVAL '1us' WHERE id=1; DELETE FROM t WHERE id=2; ROLLBACK",
+        )?;
+        drop(c);
+        let mut c = open()?.connect();
+        assert_eq!(c.query("SELECT * FROM t ORDER BY t")?.rows, before);
+        c.execute("UPDATE t SET t=t+INTERVAL '1us' WHERE id=1; UPDATE t SET t=t-INTERVAL '1us' WHERE id=2")?;
+        let after = c.query("SELECT * FROM t ORDER BY t")?.rows;
+        drop(c);
+        let mut c = open()?.connect();
+        assert_eq!(c.query("SELECT * FROM t ORDER BY t")?.rows, after);
+        c.checkpoint()?;
+        drop(c);
+        assert_eq!(
+            Database::open_read_only(&path)?
+                .connect()
+                .query("SELECT * FROM t ORDER BY t")?
+                .rows,
+            after
+        );
+    }
+    Ok(())
+}

@@ -1,6 +1,6 @@
 //! Core clock/timestamp text scanning. Named zones are ignored only for naive
 //! timestamps; zoned values require UTC or explicit numeric offsets without ICU.
-use super::{MICROS_PER_DAY, TemporalValue, invalid};
+use super::{MICROS_PER_DAY, TemporalValue, invalid, timestamp_from_calendar};
 use crate::common::{DataType, Date, Error, Result};
 
 struct Scanner<'a, 'c> {
@@ -150,7 +150,8 @@ fn timestamp(
         } else if date == Date::NEG_INFINITY {
             -i64::MAX
         } else {
-            finite_timestamp(i128::from(date.days()) * i128::from(MICROS_PER_DAY))?
+            timestamp_from_calendar(date, 0)
+                .map_err(|_| invalid("timestamp outside finite range"))?
         };
         return Ok(Parts { micros, nanos: 0 });
     }
@@ -176,9 +177,8 @@ fn timestamp(
     if clock.pos != end {
         return Err(invalid("invalid timestamp clock suffix"));
     }
-    parts.micros = finite_timestamp(
-        i128::from(date.days()) * i128::from(MICROS_PER_DAY) + i128::from(parts.micros),
-    )?;
+    parts.micros = timestamp_from_calendar(date, parts.micros)
+        .map_err(|_| invalid("timestamp outside finite range"))?;
     let mut suffix = Scanner {
         bytes,
         pos: end,

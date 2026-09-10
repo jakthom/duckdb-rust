@@ -1,5 +1,8 @@
 use super::*;
-use crate::common::{Date, TemporalValue, temporal::MICROS_PER_DAY};
+use crate::common::{
+    Date, TemporalValue,
+    temporal::{MICROS_PER_DAY, timestamp_from_calendar},
+};
 
 #[derive(Debug)]
 pub struct TemporalArithmetic;
@@ -36,6 +39,24 @@ fn calendar_months(date: Date, months: i32) -> Result<Date> {
         }
         day -= 1;
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn calendar_interval(date: Date, clock: i64, months: i32, days: i32, micros: i64) -> Result<i64> {
+    let date = calendar_months(date, months)?;
+    // Check component additions in the source order. In particular, overflow
+    // in the day component is not repaired by cancelling microseconds later.
+    let days = date
+        .days()
+        .checked_add(days)
+        .and_then(|value| value.checked_add((micros / MICROS_PER_DAY) as i32))
+        .filter(|value| value.abs_diff(0) < i32::MAX as u32)
+        .ok_or_else(|| Error::OutOfRange("Date out of range".into()))?;
+    let clock = clock + micros % MICROS_PER_DAY;
+    let days = days
+        .checked_add(clock.div_euclid(MICROS_PER_DAY) as i32)
+        .ok_or_else(|| Error::Conversion("Date and time not in timestamp range".into()))?;
+    timestamp_from_calendar(Date::from_days(days)?, clock.rem_euclid(MICROS_PER_DAY))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -156,11 +177,21 @@ impl OperatorFunction for TemporalArithmetic {
                     -i64::MAX
                 }
             } else {
-                i64::try_from(
-                    i128::from(date.days()) * i128::from(MICROS_PER_DAY) + i128::from(time)
-                        - i128::from(offset) * 1_000_000,
-                )
-                .map_err(|_| overflow())?
+                let range_error = || {
+                    Error::OutOfRange(
+                        if signature.result == DataType::TimestampTz {
+                            "Timestamp with time zone out of range"
+                        } else {
+                            "Timestamp out of range"
+                        }
+                        .into(),
+                    )
+                };
+                timestamp_from_calendar(date, time)
+                    .map_err(|_| range_error())?
+                    .checked_sub(i64::from(offset) * 1_000_000)
+                    .filter(|ticks| ticks.abs_diff(0) < i64::MAX as u64)
+                    .ok_or_else(range_error)?
             };
             return TemporalValue::from_ticks(&signature.result, ticks).map(Value::Temporal);
         }
@@ -193,9 +224,21 @@ impl OperatorFunction for TemporalArithmetic {
             }));
         }
         let (date, clock) = match value {
-            Value::Date(date) => (*date, 0),
+            Value::Date(date) => {
+                if date.is_finite() {
+                    timestamp_from_calendar(*date, 0)?;
+                }
+                (*date, 0)
+            }
             _ => {
                 let t = value.as_temporal()?;
+                if t.is_finite() {
+                    // Timestamp::Convert checks the day start even when the
+                    // original raw instant itself fits the physical domain.
+                    timestamp_from_calendar(t.date()?, 0).map_err(|_| {
+                        Error::Conversion("Date out of range in timestamp conversion".into())
+                    })?;
+                }
                 (
                     t.date()?,
                     if t.is_finite() {
@@ -215,14 +258,7 @@ impl OperatorFunction for TemporalArithmetic {
                 },
             )));
         }
-        let date = calendar_months(date, months)?;
-        let ticks = (i128::from(date.days()) + i128::from(days)) * i128::from(MICROS_PER_DAY)
-            + i128::from(clock)
-            + i128::from(micros);
-        let ticks = i64::try_from(ticks).map_err(|_| overflow())?;
-        if ticks.abs_diff(0) >= i64::MAX as u64 {
-            return Err(overflow());
-        }
+        let ticks = calendar_interval(date, clock, months, days, micros)?;
         Ok(Value::Temporal(TemporalValue::Timestamp(ticks)))
     }
 }

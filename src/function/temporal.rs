@@ -2,7 +2,10 @@
 //! emulated by consulting the machine's local timezone.
 use super::{FunctionRegistry, ScalarBindArguments, ScalarFunction};
 use crate::{
-    common::{DataType, Date, Error, Result, TemporalValue, Value, temporal::MICROS_PER_DAY},
+    common::{
+        DataType, Date, Error, Result, TemporalValue, Value,
+        temporal::{MICROS_PER_DAY, timestamp_from_calendar},
+    },
     parallel::QueryContext,
 };
 use std::sync::Arc;
@@ -223,10 +226,7 @@ impl ScalarFunction for TemporalFunction {
             "make_timestamp" if arguments.len() == 6 => {
                 let date = make_date(&arguments[..3])?;
                 let clock = make_time(&arguments[3..])?;
-                let micros = i64::try_from(
-                    i128::from(date.days()) * i128::from(MICROS_PER_DAY) + i128::from(clock),
-                )
-                .map_err(|_| invalid("timestamp range"))?;
+                let micros = timestamp_from_calendar(date, clock)?;
                 return TemporalValue::from_ticks(&DataType::Timestamp, micros)
                     .map(Value::Temporal);
             }
