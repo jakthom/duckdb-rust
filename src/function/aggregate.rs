@@ -397,17 +397,21 @@ fn sum_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> Opti
 /// Caller proves the sum of all input magnitudes fits i64, so every lane does
 /// too. Physical dispatch is monomorphic for this block, outside the hot loop.
 fn sum_proven_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> i128 {
-    let mut lanes = [0_i64; 4];
-    let mut valid = true;
-    let mut blocks = values.chunks_exact(4);
+    // Keep physical-kind validation independent in each lane too. A shared
+    // boolean reduction otherwise links every coefficient load even though
+    // the arithmetic accumulators are independent. Reduce both only once.
+    let mut lanes = [0_i64; 8];
+    let mut validity = [true; 8];
+    let mut blocks = values.chunks_exact(8);
     for block in &mut blocks {
-        for (lane, value) in lanes.iter_mut().zip(block) {
+        for ((lane, valid), value) in lanes.iter_mut().zip(&mut validity).zip(block) {
             let value = integer(value);
-            valid &= value.is_some();
+            *valid &= value.is_some();
             *lane += value.unwrap_or_default();
         }
     }
     let mut sum: i128 = lanes.into_iter().map(i128::from).sum();
+    let mut valid = validity.into_iter().all(|valid| valid);
     for value in blocks.remainder() {
         let value = integer(value);
         valid &= value.is_some();
@@ -418,4 +422,64 @@ fn sum_proven_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) 
     // a sum if an internal caller supplied a different physical kind.
     assert!(valid, "validated narrow SUM input");
     sum
+}
+
+#[cfg(test)]
+mod reduction_tests {
+    use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn coefficient(value: &Value) -> Option<i64> {
+        match value {
+            Value::Decimal { value, .. } => Some(*value as i64),
+            _ => None,
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn proven_reduction_lanes_and_tails_match_wide_signed_arithmetic() {
+        for count in (0..34).chain([63, 64, 65, 1023, 1024, 1025]) {
+            let maximum = i64::MAX / count.max(1) as i64;
+            for sign in [-1_i64, 1] {
+                let values = (0..count)
+                    .map(|index| Value::Decimal {
+                        value: i128::from(if index % 3 == 0 { -sign } else { sign })
+                            * i128::from(maximum - index as i64),
+                        width: 38,
+                        scale: 2,
+                    })
+                    .collect::<Vec<_>>();
+                // The helper's arithmetic precondition is the magnitude
+                // bound, independent of a particular SQL declaration width.
+                let expected: i128 = values
+                    .iter()
+                    .map(|v| i128::from(coefficient(v).unwrap()))
+                    .sum();
+                assert_eq!(sum_proven_narrow(&values, coefficient), expected);
+            }
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn proven_reduction_never_discards_wrong_physical_kinds_in_any_lane_or_tail() {
+        for count in 1..34 {
+            for position in 0..count {
+                let mut values = vec![
+                    Value::Decimal {
+                        value: 1,
+                        width: 2,
+                        scale: 0
+                    };
+                    count
+                ];
+                values[position] = Value::Null;
+                assert!(
+                    std::panic::catch_unwind(|| sum_proven_narrow(&values, coefficient)).is_err(),
+                    "count={count}, position={position}"
+                );
+            }
+        }
+    }
 }
