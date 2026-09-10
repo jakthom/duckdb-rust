@@ -49,7 +49,7 @@ impl Scanner<'_, '_> {
             value = value
                 .checked_mul(10)
                 .and_then(|n| n.checked_add(i64::from(digit - b'0')))
-                .ok_or_else(|| invalid("Could not convert string to INT64"))?;
+                .ok_or_else(|| Error::InvalidInput("Could not convert string to INT64".into()))?;
             self.advance()?;
         }
         if self.pos == start {
@@ -157,7 +157,7 @@ struct Parts {
 fn addition(number: i64, multiplier: i64) -> Result<i64> {
     number
         .checked_mul(multiplier)
-        .ok_or_else(|| invalid("interval value is out of range"))
+        .ok_or_else(|| Error::OutOfRange("interval value is out of range".into()))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -170,46 +170,67 @@ fn fractional(fraction: f64, multiplier: i64) -> i64 {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn component_overflow(component: usize) -> Error {
+    Error::OutOfRange(
+        if component == 0 {
+            "interval value is out of range"
+        } else {
+            "interval fraction is out of range"
+        }
+        .into(),
+    )
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Parts {
     fn months(&mut self, number: i64, multiplier: i64, fraction: f64) -> Result<()> {
-        for value in [
+        for (component, value) in [
             addition(number, multiplier)?,
             fractional(fraction, multiplier),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let value = i32::try_from(value).map_err(|_| {
-                invalid(&format!("Type INT64 with value {value} can't be cast because the value is out of range for the destination type INT32"))
+                Error::InvalidInput(format!("Type INT64 with value {value} can't be cast because the value is out of range for the destination type INT32"))
             })?;
             self.months = self
                 .months
                 .checked_add(value)
-                .ok_or_else(|| invalid("interval value is out of range"))?;
+                .ok_or_else(|| component_overflow(component))?;
         }
         Ok(())
     }
     fn days(&mut self, number: i64, multiplier: i64, fraction: f64) -> Result<()> {
-        for value in [
+        for (component, value) in [
             addition(number, multiplier)?,
             fractional(fraction, multiplier),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let value = i32::try_from(value).map_err(|_| {
-                invalid(&format!("Type INT64 with value {value} can't be cast because the value is out of range for the destination type INT32"))
+                Error::InvalidInput(format!("Type INT64 with value {value} can't be cast because the value is out of range for the destination type INT32"))
             })?;
             self.days = self
                 .days
                 .checked_add(value)
-                .ok_or_else(|| invalid("interval value is out of range"))?;
+                .ok_or_else(|| component_overflow(component))?;
         }
         Ok(())
     }
     fn micros(&mut self, number: i64, multiplier: i64, fraction: f64) -> Result<()> {
-        for value in [
+        for (component, value) in [
             addition(number, multiplier)?,
             fractional(fraction, multiplier),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             self.micros = self
                 .micros
                 .checked_add(value)
-                .ok_or_else(|| invalid("interval value is out of range"))?;
+                .ok_or_else(|| component_overflow(component))?;
         }
         Ok(())
     }
@@ -265,15 +286,15 @@ impl Parts {
         self.months = self
             .months
             .checked_neg()
-            .ok_or_else(|| invalid("AGO interval value is out of range"))?;
+            .ok_or_else(|| Error::OutOfRange("AGO interval value is out of range".into()))?;
         self.days = self
             .days
             .checked_neg()
-            .ok_or_else(|| invalid("AGO interval value is out of range"))?;
+            .ok_or_else(|| Error::OutOfRange("AGO interval value is out of range".into()))?;
         self.micros = self
             .micros
             .checked_neg()
-            .ok_or_else(|| invalid("AGO interval value is out of range"))?;
+            .ok_or_else(|| Error::OutOfRange("AGO interval value is out of range".into()))?;
         Ok(())
     }
     fn value(self) -> TemporalValue {

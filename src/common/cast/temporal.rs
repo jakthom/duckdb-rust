@@ -1,4 +1,6 @@
-use super::{CastFunction, CastMode, CastRegistry, CastSpec};
+use super::{
+    CastBehavior, CastFailure, CastFunction, CastMode, CastRegistry, CastResult, CastSpec,
+};
 use crate::{
     common::{DataType, Error, Result, TemporalValue, Value, temporal::TEMPORAL_TYPES},
     parallel::QueryContext,
@@ -92,6 +94,24 @@ impl CastFunction for TemporalCast {
                         | TimestampTzNs
                 )
         )
+    }
+    fn cast_attempt(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        _behavior: CastBehavior,
+        context: &QueryContext,
+    ) -> CastResult<Value> {
+        // This adapter performs only its own pure temporal conversion. Source
+        // and output validators run outside it; there are no child adapters
+        // whose fatal failures could be mistaken for local input rejection.
+        self.cast(value, spec, context)
+            .map_err(|error| match error {
+                Error::Conversion(_) | Error::InvalidInput(_) | Error::OutOfRange(_) => {
+                    CastFailure::invalid_input(error)
+                }
+                _ => CastFailure::fatal(error),
+            })
     }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {
         context.check()?;

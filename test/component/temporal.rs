@@ -936,3 +936,67 @@ fn clock_physical_domain_crosses_casts_nested_checkpoints_keys_and_calendar_roll
 {
     clock_domain::run(false)
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn interval_cast_categories_remain_exact_while_try_cast_suppresses_only_local_input_failures()
+-> Result<()> {
+    use duckdb_rust::Error;
+    for batched in [false, true] {
+        let mut c = DatabaseBuilder::new()
+            .batch_size(1)
+            .expressions(if batched {
+                Arc::new(BatchedEvaluator)
+            } else {
+                Arc::new(ScalarEvaluator)
+            })
+            .build()?
+            .connect();
+        let strict = c.prepare("SELECT CAST($1 AS INTERVAL)")?;
+        let tolerant = c.prepare("SELECT TRY_CAST($1 AS INTERVAL)")?;
+        for text in [
+            "2147483648 days",
+            "-2147483649 months",
+            "9223372036854775808us",
+        ] {
+            let input = [Value::Varchar(text.into())];
+            let error = c.execute_prepared(&strict, &input).unwrap_err();
+            assert!(matches!(error, Error::InvalidInput(_)), "{text}: {error}");
+            assert_eq!(
+                c.execute_prepared(&tolerant, &input)?.rows,
+                vec![vec![Value::Null]]
+            );
+        }
+        for text in [
+            "9223372036854775807us 1us",
+            "-2147483648 months ago",
+            "9223372036854775807 hours",
+            "2147483647 months 0.1 years",
+        ] {
+            let input = [Value::Varchar(text.into())];
+            let error = c.execute_prepared(&strict, &input).unwrap_err();
+            assert!(matches!(error, Error::OutOfRange(_)), "{text}: {error}");
+            assert_eq!(
+                c.execute_prepared(&tolerant, &input)?.rows,
+                vec![vec![Value::Null]]
+            );
+        }
+        assert!(matches!(
+            c.query("SELECT TRY_CAST(CAST('2147483648 days' AS INTERVAL) AS VARCHAR)"),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(
+            c.query("SELECT TRY_CAST(make_time(25,0,0) AS VARCHAR)")
+                .is_err()
+        );
+        assert_eq!(
+            c.query("SELECT TRY_CAST(['1 day','2147483648 days','9223372036854775807us 1us'] AS INTERVAL[])::VARCHAR")?.rows,
+            vec![vec![Value::Varchar("[1 day, NULL, NULL]".into())]]
+        );
+        assert!(matches!(
+            c.query("SELECT CAST(['1 day','2147483648 days'] AS INTERVAL[])"),
+            Err(Error::InvalidInput(_))
+        ));
+    }
+    Ok(())
+}
