@@ -31,6 +31,85 @@ fn bit(text: &str) -> Value {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn bit_type_modifiers_keep_development_grammar_and_persist_only_logical_metadata() -> Result<()> {
+    use sqlparser::{dialect::PostgreSqlDialect, parser::Parser};
+
+    // The dependency's other dialects retain their numeric precision grammar.
+    assert!(Parser::parse_sql(&PostgreSqlDialect {}, "SELECT '1'::BIT(-1)").is_err());
+    assert!(Parser::parse_sql(&PostgreSqlDialect {}, "SELECT '1'::BIT(1.0)").is_err());
+    assert!(Parser::parse_sql(&PostgreSqlDialect {}, "SELECT '1'::BIT(19)").is_ok());
+    let directory = tempfile::tempdir()?;
+    for (number, format) in [
+        Arc::new(JsonSnapshotFormat) as Arc<dyn SnapshotFormat>,
+        Arc::new(DuckDbFormat::default()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = directory.path().join(format!("bit-modifiers-{number}.db"));
+        let open = || {
+            DatabaseBuilder::new()
+                .durability(Arc::new(FileCheckpoint::open(
+                    &path,
+                    OpenMode::ReadWrite,
+                    format.clone(),
+                )?))
+                .build()
+        };
+        {
+            let mut c = open()?.connect();
+            for modifier in [
+                "-1",
+                "+1",
+                "-9223372036854775808",
+                "9223372036854775808",
+                "1.0",
+                "1+2",
+                "missing_name",
+                "missing_function()",
+                "1/0",
+                "1,2",
+            ] {
+                for kind in ["BIT", "BIT VARYING"] {
+                    let result = c.query(&format!("SELECT '001'::{kind}({modifier}) AS b"))?;
+                    assert_eq!(result.columns[0].data_type, DataType::Bit);
+                    assert_eq!(result.rows, vec![vec![bit("001")]]);
+                }
+            }
+            for modifier in ["-1", "+1", "-9223372036854775808", "9223372036854775807"] {
+                assert_eq!(
+                    c.query(&format!("SELECT '001'::BITSTRING({modifier})"))?
+                        .rows,
+                    vec![vec![bit("001")]]
+                );
+            }
+            for modifier in ["9223372036854775808", "-9223372036854775809", "1.0", "1,2"] {
+                let error = c
+                    .query(&format!("SELECT '1'::BITSTRING({modifier})"))
+                    .unwrap_err();
+                assert!(matches!(error, Error::Bind(_)), "{modifier}: {error}");
+            }
+            assert!(matches!(c.query("SELECT '1'::BIT()"), Err(Error::Parse(_))));
+            c.execute("CREATE TABLE b(k BIT(missing_name) PRIMARY KEY, v BIT VARYING(1/0), s BITSTRING(-1)); INSERT INTO b VALUES ('00','001','101')")?;
+            c.execute_params("UPDATE b SET v=$1 WHERE k='00'::BIT", &[bit("111")])?;
+            c.execute("BEGIN; UPDATE b SET s='0'; ROLLBACK")?;
+        }
+        let result = open()?
+            .connect()
+            .query("SELECT k,v,s FROM b WHERE k='00'::BIT")?;
+        assert!(
+            result
+                .columns
+                .iter()
+                .all(|column| column.data_type == DataType::Bit)
+        );
+        assert_eq!(result.rows, vec![vec![bit("00"), bit("111"), bit("101")]]);
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn empty_blob_bit_try_failures_remain_fatal_through_nested_parameters_and_mutations() -> Result<()>
 {
     let interrupt = duckdb_rust::parallel::InterruptHandle::default();

@@ -12518,7 +12518,16 @@ impl<'a> Parser<'a> {
                 }
                 Keyword::BYTES => Ok(DataType::Bytes(self.parse_optional_precision()?)),
                 Keyword::BIT => {
-                    if self.parse_keyword(Keyword::VARYING) {
+                    if dialect_of!(self is DuckDbDialect) {
+                        let _ = self.parse_keyword(Keyword::VARYING);
+                        if self.consume_token(&Token::LParen) {
+                            // DuckDB parses these expressions, then discards the
+                            // modifiers without binding or evaluating them.
+                            let _ = self.parse_comma_separated(Parser::parse_expr)?;
+                            self.expect_token(&Token::RParen)?;
+                        }
+                        Ok(DataType::Bit(None))
+                    } else if self.parse_keyword(Keyword::VARYING) {
                         Ok(DataType::BitVarying(self.parse_optional_precision()?))
                     } else {
                         Ok(DataType::Bit(self.parse_optional_precision()?))
@@ -13838,6 +13847,13 @@ impl<'a> Parser<'a> {
                     Token::Word(w) => modifiers.push(w.to_string()),
                     Token::Number(n, _) => modifiers.push(n),
                     Token::SingleQuotedString(s) => modifiers.push(s),
+                    sign @ (Token::Minus | Token::Plus) if dialect_of!(self is DuckDbDialect) => {
+                        let number = self.next_token();
+                        match number.token {
+                            Token::Number(n, _) => modifiers.push(format!("{sign}{n}")),
+                            _ => self.expected("numeric type modifier after sign", number)?,
+                        }
+                    }
 
                     Token::Comma => {
                         continue;
