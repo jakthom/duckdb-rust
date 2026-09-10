@@ -208,6 +208,20 @@ VARIANT-specific strict TIME parser gap and, importantly, reveals a real calenda
 intermediate-overflow bug in timestamp arithmetic. That witnessed failure is
 retained for repair, not classified as an expected diagnostic-only difference.
 
+The calendar reconstruction repair checks the day-times-microseconds product,
+then the clock and only then a zoned offset. A mathematically representable final
+sum cannot repair an earlier overflow. Interval arithmetic retains checked day
+components, normalizes the clock carry, and checks the reconstructed day start;
+DATE and raw timestamp inputs also take their source calendar-conversion path.
+The [targeted unchanged boundary follow-up](upstream-temporal-calendar-boundary.json)
+advances from four to eighteen of twenty-three records. All reached boundary
+rejections now pass; the next failure is integer-typed SQLLogicTest normalization
+of epoch's DOUBLE output. Both independent C++ CLIs render the same fractional
+DOUBLE as Rust, but the unchanged harness expectation is retained as a failure.
+The later age function remains absent. Native WAL/index mutation tests verify
+that rejected minimum/maximum updates leave state unchanged, positive adjacent
+updates persist, rollback works, and checkpoint/reopen retains both extrema.
+
 ## Checkpoint validation
 
 Routine checks pass: `cargo check`; ten temporal component tests plus DATE,
@@ -289,6 +303,14 @@ The full maintained Kani 0.67.0 suite again passes six of six harnesses, none fa
 packing/key/index/window/byte-count suite, not a proof of parsing or TRY_CAST
 completeness. The compiler reports caller-location and foreign-call constructs
 that remain unreachable in successful harnesses; atomics are sequentially modeled.
+
+The calendar-boundary checkpoint passes seventeen temporal and seven DATE tests,
+ordinary check and workspace/all-target clippy. Coverage reports 273 files, 2417
+functions, 207 interfaces and no missing entries; all-target trace compilation
+passes in 30.16 seconds and deletes telemetry. Full Kani again passes six of six
+maintained harnesses (56.627, 0.817, 0.508, 2.270, 2.390 and 104.033 seconds),
+with no failures. The new calendar overflow contract has executable SQL/native
+regression coverage, not a new formal arithmetic proof.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
