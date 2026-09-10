@@ -184,6 +184,12 @@ fn numeric_directions_bind_exact_types_and_selected_casts() -> Result<()> {
                 .batch_size(2)
                 .build()?
                 .connect();
+            assert_eq!(
+                c.query("SELECT ceil,floor FROM (VALUES (1,2)) t(ceil,floor)")?
+                    .rows,
+                vec![vec![Value::Integer(1), Value::Integer(2)]]
+            );
+            assert_eq!(c.query("SELECT ceil(floor.x) AS floor FROM (VALUES (1.25::DECIMAL(4,2)),(-1.25)) floor(x) ORDER BY floor")?.rows,vec![vec![decimal(-1,4,0)?],vec![decimal(2,4,0)?]]);
             assert_eq!(c.query("SELECT ceil(1.25::DECIMAL(38,2)),floor(-1.25::DECIMAL(38,2)),sign(-1.25::DECIMAL(38,2)),ceil(1::INTEGER),floor(1::FLOAT),sign('340282366920938463463374607431768211455'::UHUGEINT),sign(NULL),ceil(NULL),floor(NULL)")?.rows,vec![vec![decimal(2,38,0)?,decimal(-2,38,0)?,Value::Integer(-1),Value::Double(1.0),Value::Float(1.0),Value::Integer(1),Value::Null,Value::Null,Value::Null]]);
             for ty in [
                 "TINYINT",
@@ -365,5 +371,125 @@ fn numeric_directions_cross_relations_mutation_rollback_and_reopen() -> Result<(
         ]]
     );
     c.execute("CHECKPOINT")?;
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn full_scale_decimal_text_retains_declared_width_and_sql_cast_boundaries() -> Result<()> {
+    let casts = CastRegistry::builtins();
+    let types = builtin_types();
+    let query = QueryContext::background();
+    for width in 1..=38 {
+        let bound = casts.bind(
+            &DataType::Decimal {
+                width,
+                scale: width,
+            },
+            &DataType::Varchar,
+            CastMode::Explicit,
+            &types,
+        )?;
+        for coefficient in [
+            -10_i128.pow(u32::from(width)) + 1,
+            -1,
+            0,
+            1,
+            10_i128.pow(u32::from(width)) - 1,
+        ] {
+            let value = decimal(coefficient, width, width)?;
+            // Independent decimal point placement in the digit sequence.
+            let mut digits = coefficient.unsigned_abs().to_string();
+            while digits.len() < usize::from(width) {
+                digits.insert(0, '0');
+            }
+            digits.insert(0, '.');
+            if coefficient < 0 {
+                digits.insert(0, '-');
+            }
+            assert_eq!(bound.apply(&value, &query)?, Value::Varchar(digits));
+            assert!(
+                value
+                    .to_string()
+                    .starts_with(if coefficient < 0 { "-0." } else { "0." }),
+                "diagnostic Display is unchanged"
+            );
+        }
+        let vector = Vector::flat(
+            DataType::Decimal {
+                width,
+                scale: width,
+            },
+            vec![
+                decimal(1, width, width)?,
+                Value::Null,
+                decimal(-1, width, width)?,
+            ],
+        )?;
+        for input in [vector.clone(), Arc::new(vector).select(vec![2, 0, 1, 2])?] {
+            assert_eq!(
+                bound
+                    .apply_batch(&input, &query)?
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                input
+                    .values()
+                    .map(|value| bound.apply(value, &query))
+                    .collect::<Result<Vec<_>>>()?
+            );
+        }
+    }
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            let mut c = DatabaseBuilder::new()
+                .expressions(expressions.clone())
+                .optimizer(optimizer)
+                .build()?
+                .connect();
+            assert_eq!(c.query("SELECT (0.9::DECIMAL(1,1))::VARCHAR,(0::DECIMAL(1,1))::VARCHAR,(0.9::DECIMAL(2,1))::VARCHAR,(-0.9::DECIMAL(1,1))::VARCHAR,concat(0.9::DECIMAL(1,1)),[0.9::DECIMAL(1,1),NULL]::VARCHAR")?.rows,vec![vec![Value::Varchar(".9".into()),Value::Varchar(".0".into()),Value::Varchar("0.9".into()),Value::Varchar("-.9".into()),Value::Varchar(".9".into()),Value::Varchar("[.9, NULL]".into())]]);
+            assert_eq!(
+                c.execute_params(
+                    "SELECT $1::VARCHAR,ceil($1)::VARCHAR",
+                    &[decimal(-1250, 4, 4)?]
+                )?[0]
+                    .rows,
+                vec![vec![
+                    Value::Varchar("-.1250".into()),
+                    Value::Varchar("0".into())
+                ]]
+            );
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("full-scale-text.duckdb");
+    {
+        let mut c = Database::open(&path)?.connect();
+        c.execute("CREATE TABLE t(k VARCHAR PRIMARY KEY,d DECIMAL(4,4),n DECIMAL(4,4)[]); INSERT INTO t VALUES ((0.125::DECIMAL(4,4))::VARCHAR,0.125,[0.125,NULL]); BEGIN; UPDATE t SET k=(-d)::VARCHAR; ROLLBACK")?;
+    }
+    let mut c = Database::open(&path)?.connect();
+    let prepared = c.prepare("SELECT d::VARCHAR,n::VARCHAR FROM t WHERE k=$1::VARCHAR")?;
+    assert_eq!(
+        c.execute_prepared(&prepared, &[decimal(1250, 4, 4)?])?.rows,
+        vec![vec![
+            Value::Varchar(".1250".into()),
+            Value::Varchar("[.1250, NULL]".into())
+        ]]
+    );
+    c.execute("CHECKPOINT")?;
+    drop(c);
+    assert_eq!(
+        Database::open(&path)?
+            .connect()
+            .query("SELECT k=d::VARCHAR FROM t")?
+            .rows,
+        vec![vec![Value::Boolean(true)]]
+    );
     Ok(())
 }

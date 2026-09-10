@@ -59,14 +59,22 @@ impl Dialect for RewriteDialect {
         if let Token::Word(word) = parser.peek_token().token
             && word.quote_style.is_none()
             && matches!(word.keyword, Keyword::CEIL | Keyword::FLOOR)
-            && parser.peek_nth_token(1).token == Token::LParen
         {
             // DuckDB uses ordinary catalog functions, not sqlparser's special
             // numeric-scale / datetime-TO grammar. Preserve the normal AST and
             // selected binding path, including invalid-arity diagnostics.
             return Some((|| {
-                let name = parser.parse_object_name(false)?;
-                parser.parse_function(name)
+                let mut parts = vec![parser.parse_identifier()?];
+                while parser.consume_token(&Token::Period) {
+                    parts.push(parser.parse_identifier()?);
+                }
+                if parser.peek_token().token == Token::LParen {
+                    parser.parse_function(sqlparser::ast::ObjectName::from(parts))
+                } else if parts.len() == 1 {
+                    Ok(Expr::Identifier(parts.remove(0)))
+                } else {
+                    Ok(Expr::CompoundIdentifier(parts))
+                }
             })());
         }
         if parser.parse_keyword(Keyword::INTERVAL) {

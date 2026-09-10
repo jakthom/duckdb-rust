@@ -199,6 +199,21 @@ impl ExactNumericCast {
             DataType::Varchar => match value {
                 Value::Float(value) => super::floating_text::float(*value).map(Value::Varchar),
                 Value::Double(value) => super::floating_text::double(*value).map(Value::Varchar),
+                Value::Decimal {
+                    value,
+                    width,
+                    scale,
+                } if width == scale => {
+                    // DecimalToString::FormatDecimal omits the major zero when
+                    // declared precision has no integral digits. Keep this SQL
+                    // cast rule separate from diagnostic Value display.
+                    Ok(Value::Varchar(format!(
+                        "{}.{:0digits$}",
+                        if *value < 0 { "-" } else { "" },
+                        value.unsigned_abs(),
+                        digits = usize::from(*scale)
+                    )))
+                }
                 _ => Ok(Value::Varchar(value.to_string())),
             },
             DataType::Float => {

@@ -66,6 +66,8 @@ for kind in ('FLOAT','DOUBLE'):
     values = ','.join(f"('{value}'::{kind})" for value in ('-inf','-1.25','-1.0','-0.25','-0.0','0.0','0.25','1.0','1.25','inf','nan'))
     SQL.append(f"SELECT x::VARCHAR,ceil(x)::VARCHAR,floor(x)::VARCHAR,sign(x),typeof(ceil(x)) FROM (VALUES {values}) t(x) ORDER BY x")
 SQL += [
+    "SELECT ceil,floor FROM (VALUES (1,2)) t(ceil,floor)",
+    "SELECT ceil(floor.x) AS floor FROM (VALUES (1.25::DECIMAL(4,2)),(-1.25)) floor(x) ORDER BY floor",
     "SELECT typeof(ceil(NULL)),typeof(floor(NULL)),typeof(sign(NULL)),ceil(NULL),sign(NULL)",
     "SELECT sign('-170141183460469231731687303715884105728'::HUGEINT),sign('340282366920938463463374607431768211455'::UHUGEINT),sign('0.00000000000000000000000000000000000001'::DECIMAL(38,38))",
     "SELECT [ceil(1.25::FLOAT),floor(-1.25::FLOAT),NULL]::VARCHAR,concat(ceil(1.25::DOUBLE)),{'x':floor(-1.25::DECIMAL(38,2))}::VARCHAR",

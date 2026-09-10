@@ -69,3 +69,29 @@ parity. After merging the integration lead's source, numeric 31, casts 12 and
 binary scalar 8 tests pass. The paired report remains unsuccessful until the
 eight development formatting mismatches are repaired; the remaining 28
 release-only mismatches are retained earlier numeric/version divergences.
+
+The selected decimal text cast now omits the major zero exactly when width
+equals scale. Generic diagnostic `Value` display is unchanged. A new component
+test checks all 38 widths, signs, zero, retained batch casts, nested/concat text,
+both evaluators/optimizers, typed parameters, text primary-key lookup and native
+WAL/checkpoint/reopen. Unquoted `ceil`/`floor` identifiers, qualified columns and
+aliases also use ordinary identifier grammar instead of the parser's special
+datetime function production. Two additional paired SQL queries retain these
+identifier cases.
+
+The [repaired paired campaign](numeric-direction-reference-repaired.json) builds
+production binaries in 1m31s on unchanged source: development **228/228 SQL**,
+release **200/228 SQL**, and **3/3 native producers on each pin**. All 166 added
+numeric-direction checks now match both references. The 28 retained
+release-only disagreements remain, so the strict all-pin wrapper exits 1; this
+does not hide or normalize any development mismatch. Native results include
+exact final values and hashes of each produced checkpoint/WAL.
+
+Numeric 32, casts 12, floating 7, binary scalars 8 and the parser AST unit pass.
+Workspace/all-target check and clippy pass. Coverage reports 299 files, 2,701
+functions and 209 interface methods without omissions. Instrumentation
+compatibility passes in 38.78 seconds, with zero error returns, panics or open
+spans; temporary telemetry is deleted. These are ordinary integrated-source
+checks, not a new worker Kani run. The lead owns the maintained substantial
+checkpoint before marking this stage complete. Precision rounding continues
+next through an explicit selected typed-constant binding seam.
