@@ -97,6 +97,7 @@ do not establish diagnostic-category parity.
 | [Clock domain investigation](temporal-clock-domain-reference.json) | 666/667 | 601/667 | 0/3 expanded | 0/3 expanded |
 | [Clock domain integrated](temporal-clock-domain-integrated.json) | 667/667 | 602/667 | 2/3 expanded | 1/3 expanded |
 | [Calendar boundary/nested WAL integration](temporal-calendar-boundary-integrated.json) | 688/688 | 623/688 | 3/3 expanded | 2/3 expanded |
+| [Temporal renderability](temporal-renderability-integrated.json) | 696/696 | 631/696 | 3/3 expanded | 2/3 expanded |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -230,6 +231,28 @@ The later age function remains absent. Native WAL/index mutation tests verify
 that rejected minimum/maximum updates leave state unchanged, positive adjacent
 updates persist, rollback works, and checkpoint/reopen retains both extrema.
 
+Physical timestamp validity is distinct from calendar text renderability. Huge
+TIMESTAMP_S/MS payloads and a partial earliest microsecond/nanosecond day can be
+valid stored instants while the C++ formatter rejects them. Temporal diagnostic
+Display is now infallible, including invalid public offset extrema, and uses a
+typed raw fallback when its calendar date cannot be represented. Selected SQL
+VARCHAR casts check renderability first, including nested children; pinned
+development surfaces these underlying string-cast failures as INTERNAL due to
+its non-fallible operator metadata. TRY_CAST does not suppress them. Release's
+fatal Conversion category remains an explicit diagnostic disagreement.
+
+CLI plain/JSON output and the verification transport check the complete result
+before emitting text, so direct SELECT cannot leak diagnostic fallback as a
+successful C++ text-result match. Typed API results, keys, native WAL, rollback
+and reopen still preserve the raw values. The initial new nested-VARCHAR test
+exposed its direct Display bypass; the single selected nested-cast guard repaired
+it without changing retained child conversions. The recursive renderability
+walk is bounded and cooperative. Each of the eight independent render-error
+witnesses uses fresh Rust/C++ databases, preventing an earlier C++ INTERNAL
+error from poisoning later evidence. Those rows verify retained category/message
+behavior explicitly; the full matrix's comparator still only asserts rejection
+presence for errors and is not an exhaustive diagnostic-equivalence claim.
+
 ## Checkpoint validation
 
 Routine checks pass: `cargo check`; ten temporal component tests plus DATE,
@@ -326,6 +349,15 @@ tests pass, as do ordinary check/clippy and the standalone mixed-WAL executable.
 Its promotion adds an eighteenth ordinary temporal test without changing the
 matrix's assertions. The latest 688-case differential run is correctness
 evidence; performance measurements remain the lead's isolated combined gate.
+
+The renderability stage passes twenty temporal, eleven cast and nineteen nested
+tests, its adjacent cancellation/raw-validity test, check and workspace/all-target
+clippy. Coverage reports 276 files, 2445 functions and 207 interfaces, with no
+missing instrumentation; all-target trace compilation passes in 36.65 seconds
+and deletes telemetry. Full Kani passes six of six maintained harnesses, none
+failed (50.659, 1.121, 0.710, 3.287, 3.381 and 102.139 seconds). These existing
+harnesses do not prove calendar rendering or error propagation. The new API,
+cast, transport and native regression tests supply the relevant executable checks.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
