@@ -20,8 +20,9 @@ fatal temporal/STRUCT conversion under CAST and TRY_CAST, failed multirow UPDATE
 atomicity and rollback. Combined local suites pass BIGNUM (3), binary scalars
 (5), contracts (26), temporal (20), and nested (21); workspace check and clippy
 pass. Instrumentation inventory is 282 files, 2,523 functions and 208 interface
-methods with no missing attributes. Trace compilation is being checked, not
-reported complete yet. The integration lead owns the combined maintained Kani
+methods with no missing attributes. Exhaustive trace compilation passes in
+50.56 seconds with no errors and deletes temporary telemetry. The integration
+lead owns the combined maintained Kani
 checkpoint under the exploratory policy; this internal fix is not a subsystem
 completion or performance claim.
 

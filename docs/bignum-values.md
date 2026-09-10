@@ -18,7 +18,7 @@ reopen. String-column/codec dispatch includes BIGNUM logical type ID 39 and chec
 NULL placeholders through the outer validity contract. Non-NULL native constant
 string compression remains explicitly unsupported, as for the other string-
 physical families. This prerequisite's persistence tests use Rust-produced files;
-independent C++-produced BIGNUM compatibility evidence is still to be added.
+the follow-up independent campaign below adds C++-produced interchange evidence.
 
 Independent development SQL/source inspection exposed important distinctions:
 
@@ -76,11 +76,37 @@ Three component tests now cover these SQL/operator/group/window paths,
 scalar/batched evaluation, both optimizers, typed prepared arithmetic and
 rollback of exact updates. BIGNUM (3), numeric (27), operators (10), grouping
 (9), BIT (7) and binary scalar (4) suites pass, as do ordinary workspace check
-and clippy. A new paired BIGNUM campaign script is prepared but has not yet
-been run; independent native interchange is still an explicit outstanding
-validation step, and no performance or substantial-stage completion is claimed.
+and clippy. The focused cumulative-window exhaustive trace agrees with
+development on negative zero followed by 2^128, with 59,909 operations and no
+errors, panics or open spans; temporary telemetry was deleted. An earlier form
+without the ORDER key in projection encountered a handled binder resolution
+probe while still producing the correct output; the narrowed trace avoids that
+unrelated probe. This is correctness investigation, not timing evidence.
 
-Remaining scalar functions, independent paired compatibility campaigns,
+## Independent paired checkpoint
+
+`CARGO_BUILD_JOBS=2 python3 scripts/bignum_reference.py --report
+docs/bignum-reference-initial.json` built uninstrumented production binaries in
+1 minute 47 seconds. The retained report verifies both pinned identities,
+binary/source hashes and unchanged source, and records complete raw typed SQL
+outcomes. Development passes 45/45 SQL cases; release passes 39/45. The six
+release disagreements are fractional VARCHAR/ENUM conversion (three cases) and
+TRY_CAST overflow categories (three cases). Development remains authoritative.
+The script exits 1 because its all-pins aggregate is strict; the independent
+`development_passed` result is true. No assertion or diagnostic body is rewritten
+to conceal a disagreement; category-label casing alone is normalized for the
+declared error-category comparison.
+
+Native interchange passes 3/3 producer paths on both pins: C++ checkpoint,
+Rust checkpoint and Rust WAL. Each path checks independent typed rows and
+indexed lookups before and after Rust mutation/rollback and C++ mutation/reopen.
+Inputs include distinct negative-zero/positive-zero primary keys, fractional
+defaults, a beyond-128-bit key, NULL and a 10,000-digit overflow-stored value.
+Producer-local values are preserved even when the two pins' default-expression
+conversion differs. This is an exact row/interchange check, not a claim that
+every native codec, format version or BIGNUM workload is covered.
+
+Remaining scalar functions, broader independent compatibility campaigns,
 mixed-family VARIANT/UNION support,
 broader upstream mappings, diagnostics and controlled faster-reference performance
 are continuing work. The lead runs and investigates the maintained Kani suite
