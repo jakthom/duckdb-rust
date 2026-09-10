@@ -57,7 +57,7 @@ fn canonical_variant_encoder_preserves_exact_scalar_tags_widths_and_bytes() -> R
         ("'24:00:00+05:30'::TIMETZ", 26),
         ("'2000-01-01 00:00:00+00'::TIMESTAMPTZ", 27),
         ("INTERVAL '1 month -2 days 3 microseconds'", 28),
-        ("'-0'::BIGNUM", 31),
+        ("(-0.5::DOUBLE)::BIGNUM", 31),
         ("'340282366920938463463374607431768211456'::BIGNUM", 31),
         ("'101010101'::BIT", 32),
         ("'2000-01-01 00:00:00.123456789+00'::TIMESTAMPTZ_NS", 34),
@@ -74,6 +74,10 @@ fn canonical_variant_encoder_preserves_exact_scalar_tags_widths_and_bytes() -> R
             "{sql}"
         );
         let decoded = decode(&rows[0])?;
+        assert!(
+            super::super::exact::equivalent(&original, &decoded, &variant, &query)?,
+            "{sql}"
+        );
         assert_eq!(
             variant.compare(&original, &decoded, &query)?,
             Ordering::Equal,
@@ -86,6 +90,11 @@ fn canonical_variant_encoder_preserves_exact_scalar_tags_widths_and_bytes() -> R
             (Value::Float(a), Value::Float(b)) => assert_eq!(a.to_bits(), b.to_bits()),
             (Value::Double(a), Value::Double(b)) => assert_eq!(a.to_bits(), b.to_bits()),
             _ => assert_eq!(original.1, decoded.1, "{sql}"),
+        }
+        if sql == "(-0.5::DOUBLE)::BIGNUM" {
+            assert!(
+                matches!(&decoded.1, Value::Bignum(value) if value.is_zero() && value.is_negative())
+            );
         }
         if tag == 15 {
             let Value::Blob(bytes) = &fields[3] else {
@@ -129,6 +138,10 @@ fn canonical_variant_encoder_reserves_contiguous_children_and_preserves_logical_
         let original = connection.query(&format!("SELECT {sql}"))?.rows[0][0].clone();
         let rows = encode_rows(std::slice::from_ref(&original), &variant, &query)?;
         let decoded = decode(&rows[0])?;
+        assert!(
+            super::super::exact::equivalent(&original, &decoded, &variant, &query)?,
+            "{sql}"
+        );
         assert_eq!(original.is_null(), decoded.is_null(), "{sql}");
         if !original.is_null() {
             assert_eq!(
@@ -173,6 +186,9 @@ fn canonical_variant_encoder_reserves_contiguous_children_and_preserves_logical_
     );
     assert_eq!(payload::sequence(&fields[1])?.len(), 6);
     let decoded = decode(&encoded[0])?;
+    assert!(super::super::exact::equivalent(
+        &original, &decoded, &variant, &query
+    )?);
     assert_eq!(
         variant.compare(&original, &decoded, &query)?,
         Ordering::Equal
@@ -318,6 +334,9 @@ fn canonical_variant_encoder_roundtrips_independent_native_children_without_publ
         let text = connection.prepare("SELECT ($1)::VARCHAR,variant_typeof($1)")?;
         for (original, encoded) in values.iter().zip(encoded) {
             let decoded = decode(&encoded)?;
+            assert!(super::super::exact::equivalent(
+                original, &decoded, &bound, &query
+            )?);
             assert_eq!(original.is_null(), decoded.is_null());
             if !original.is_null() {
                 assert_eq!(bound.compare(original, &decoded, &query)?, Ordering::Equal);

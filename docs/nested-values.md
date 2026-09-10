@@ -762,3 +762,44 @@ completed in 36.90 seconds with zero errors, panics or open spans; temporary
 telemetry was deleted. The lead owns the maintained Kani run at the substantial
 integrated checkpoint. There is no new performance or native VARIANT publication
 claim here, and the broader nested/function inventory remains unfinished.
+
+### Exact canonical VARIANT content prerequisite
+
+A family-private traversal now compares canonical native content without
+allocating a normalized tree or encoded byte buffers. It uses borrowed child
+views and validates both roots with the retained selected VARIANT adapter.
+Scalar SQL comparisons, equality keys, casts and the ambient registry are not
+used. LIST/ARRAY/TUPLE, MAP entry objects, STRUCT/OBJECT, transparent UNION and
+VARIANT wrappers, ENUM labels and typed-NULL hints follow only the canonical
+wire distinctions. Ordered exact object names, missing versus present-NULL
+members and root SQL NULL remain distinct.
+
+Non-NULL numeric widths, decimal metadata/coefficient, floating bits, temporal
+physical fields, BIT length and BIGNUM sign/magnitude remain exact. The tests
+explicitly reject pairs that SQL equates but native content must distinguish,
+including signed floating zero, DECIMAL widths, BIGNUM negative zero and interval
+fields. The old encoder test used VARCHAR `'-0'`, which normalizes to positive
+BIGNUM zero; its strengthened witness now uses DOUBLE(-0.5) and explicitly
+checks that negative-zero payload survives decoding. No production BIGNUM
+semantics changed in this increment.
+
+Three focused units cover the all-pairs canonical-encoding oracle, exact empty/
+case-distinct/embedded-zero object names, reordered or absent members, malformed
+shapes, retained selected validation, fatal errors, cancellation and limits.
+The traversal caps each input path at depth 64, the call at 16,777,216 logical
+visits (including repeated Arc children), and compared variable scalar/key bytes
+at 64 MiB across both inputs. This is local work accounting, not a database-wide
+memory guarantee. Existing encoder tests now apply exact equivalence to every
+scalar/container round trip and all 117 selected values from the three independent
+native files; those files remain unchanged.
+
+The module is test-compiled while the lead owns Snapshot layout integration,
+selected writer context and format/WAL capability negotiation. This internal
+prerequisite does not enable publication, relax generic Snapshot equality, or
+claim independent C++ consumption of a Rust-produced VARIANT file. Ordinary
+check, library 54/54, nested 35/35, casts 12/12, types 15/15, contracts 27/27 and
+all-target clippy pass. Coverage reports 307 files, 2,824 functions and 211
+interface methods with no missing attributes. The maintained Kani run remains
+part of the lead's substantial integrated checkpoint. Instrumentation compatibility
+completed in 35.23 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted.

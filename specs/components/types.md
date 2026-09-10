@@ -107,6 +107,19 @@ references before following them, and bound depth, repeated visits and logical
 materialization independently. Publication compatibility is a separate
 requirement from recognizing a read-side layout.
 
+Engineering implication for checkpoint layout validation: native canonicalization
+can replace a retained STRUCT with OBJECT metadata, normalize LIST/ARRAY/TUPLE
+to a dynamic ARRAY, resolve UNION/VARIANT wrappers, map ENUM labels to VARCHAR,
+and erase pre-cast typed-NULL hints. Exact content equivalence may recognize
+these changes only. It must preserve non-NULL scalar tags and widths, decimal
+precision/scale/coefficient, floating payload bits (including signed zero and
+NaN payloads), BIGNUM negative zero, BIT length, temporal physical fields,
+ordered exact OBJECT names, child NULLs and root row validity. SQL VARIANT
+comparison or equality keys are not a suitable oracle: they intentionally
+equate several representation-distinct scalar values. Retained selected type
+validation remains required before a bounded native-content traversal; no
+implicit cast or ambient adapter replacement is authorized by this equivalence.
+
 Sources: [canonical types](../../../duckdb/src/common/types.cpp),
 [VARIANT column storage](../../../duckdb/src/storage/table/variant_column_data.cpp),
 [iterators](../../../duckdb/src/common/types/variant/variant_iterator.cpp),

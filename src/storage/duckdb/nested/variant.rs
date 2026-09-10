@@ -4,6 +4,10 @@ use super::*;
 mod encoding;
 mod payload;
 mod shredded;
+// Exact content traversal is an internal prerequisite for the format owner's
+// layout-validation/publication seam, not a change to SQL VARIANT equality.
+#[cfg(test)]
+mod exact;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn encode_rows(
