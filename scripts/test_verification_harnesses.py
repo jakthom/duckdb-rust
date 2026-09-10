@@ -50,6 +50,49 @@ class LogicTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             check_query(record, {"columns": ["VARCHAR"], "rows": [["a"], ["b"]]}, {})
 
+    def test_exact_numeric_fallback_uses_returned_type_without_tolerance(self):
+        for kind, actual, expected in [
+                ('DOUBLE', '42', '42.000000'), ('FLOAT', '-0.0', '0'),
+                ('INTEGER', '42', '4.2e1'), ('UTINYINT', '255', '255.000'),
+                ('UHUGEINT', str(2**128-1), str(2**128-1)+'.0'),
+                ('HUGEINT', str(-2**127), str(-2**127)+'.000'),
+                ('DECIMAL(38,0)', '9'*38, '9'*38+'.0'),
+                ('DECIMAL(4,4)', '.1250', '0.125'),
+                ('DOUBLE', 'nan', 'NAN'), ('FLOAT', '-inf', '-infinity')]:
+            # Even a T header does not override a returned numeric logical type.
+            check_query(Record(1, ('query', 'T'), expected=(expected,)),
+                        {'columns': [kind], 'rows': [[actual]]}, {})
+        for kind, actual, expected in [
+                ('VARCHAR', '42', '42.000000'), ('BOOLEAN', '1', '1.0'),
+                ('BLOB', '42', '42.0'), ('DOUBLE', '42.1235', '42.12345'),
+                ('INTEGER', '42', '43.0'), ('UTINYINT', '256', '256.0'),
+                ('INTEGER', '1.2', '1.20'), ('DOUBLE', 'NULL', '0'),
+                ('DOUBLE', 'nan', 'inf'), ('DOUBLE', 'inf', '-infinity'),
+                ('DECIMAL(4,2)', '999', '999.0'),
+                ('DECIMAL(4,2)', '.123', '0.1230'),
+                ('DECIMAL(0,0)', '0', '0.0'),
+                ('INTEGER', '1e100000', '10e99999')]:
+            with self.assertRaises(AssertionError, msg=(kind, actual, expected)):
+                check_query(Record(1, ('query', 'R'), expected=(expected,)),
+                            {'columns': [kind], 'rows': [[actual]]}, {})
+
+    def test_numeric_fallback_preserves_text_regex_hash_and_column_association(self):
+        check_query(Record(1, ('query', 'II'), expected=('42.000\t42',)),
+                    {'columns': ['DOUBLE', 'VARCHAR'], 'rows': [['42', '42']]}, {})
+        for record, response in [
+                (Record(1, ('query', 'RI'), expected=('42\t42.000',)),
+                 {'columns': ['DOUBLE', 'VARCHAR'], 'rows': [['42', '42']]}),
+                (Record(1, ('query', 'R'), expected=(r'<REGEX>:42\.0',)),
+                 {'columns': ['DOUBLE'], 'rows': [['42']]}),
+                (Record(1, ('query', 'R'), expected=(hash_values(['42.0']),)),
+                 {'columns': ['DOUBLE'], 'rows': [['42']]}),
+                (Record(1, ('query', 'RR', 'valuesort'), expected=('1.0', '2.0')),
+                 {'columns': ['DOUBLE', 'VARCHAR'], 'rows': [['2', '1']]})]:
+            with self.assertRaises(AssertionError):
+                check_query(record, response, {})
+        check_query(Record(1, ('query', 'RR', 'valuesort'), expected=('1.0', '2.0')),
+                    {'columns': ['DOUBLE', 'DOUBLE'], 'rows': [['2', '1']]}, {})
+
     def test_nested_loops_substitute_sql_and_named_connections(self):
         engine = RecordingEngine()
         runner = Runner(engine)

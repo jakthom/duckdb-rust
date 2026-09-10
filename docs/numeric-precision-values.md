@@ -99,3 +99,13 @@ the family now reports the source integer/DECIMAL domain rather than generic
 `numeric value`. Focused precision tests and all-target clippy pass after that
 wording repair. The oracle discrepancy is separately coordinated with the lead;
 no expected values or source SQL assertions have been changed.
+
+Final interface instrumentation compatibility passes on `e101f1e` in 55.38
+seconds with no error returns, panics or open spans. A focused trace then builds
+in 3m00s and executes selected decimal precision, banker's rounding, nullable
+column truncation and the repaired lazy CASE together. It returns two identical
+rows `1.3, 1.2, 0, 1.0`: 63,331 completed operations, six intentional conversion
+error returns from the unsuccessful speculative cast probe, zero panics and zero
+open spans. The query succeeds and temporary telemetry is deleted. Traced
+durations are not performance measurements. The lead still owns the maintained
+integrated Kani checkpoint before substantial-stage completion.

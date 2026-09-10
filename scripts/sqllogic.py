@@ -1,5 +1,6 @@
 """DuckDB SQLLogicTest records, oracles and execution, independent of transport."""
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import hashlib
 import re
 
@@ -51,6 +52,61 @@ def matches(actual, expected):
     return actual == expected
 
 
+def numeric_matches(actual, expected, kind):
+    """Conservative exact subset of upstream CompareValues' typed fallback.
+
+    Authority is the returned logical type, not the SQLLogicTest I/R marker.
+    No tolerance, rounding, cast engine, or formatted/hash-value rewriting is
+    introduced here. Approximate FLOAT comparisons and expected values requiring
+    a lossy cast remain explicit oracle limitations.
+    """
+    integer_bits = {'TINYINT': 8, 'SMALLINT': 16, 'INTEGER': 32, 'BIGINT': 64,
+                    'HUGEINT': 128, 'UTINYINT': 8, 'USMALLINT': 16,
+                    'UINTEGER': 32, 'UBIGINT': 64, 'UHUGEINT': 128}
+    decimal = re.fullmatch(r'DECIMAL\(([0-9]+),\s*([0-9]+)\)', kind)
+    floating = kind in ('FLOAT', 'DOUBLE')
+    if kind not in integer_bits and not decimal and not floating:
+        return False
+    number = r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?'
+    special = r'[+-]?(?:nan|inf|infinity)'
+    if any(not re.fullmatch(number, value)
+           and not (floating and re.fullmatch(special, value, re.IGNORECASE))
+           for value in (actual, expected)):
+        return False
+    try:
+        left, right = Decimal(actual), Decimal(expected)
+    except (InvalidOperation, ValueError):
+        return False
+    if left.is_nan() or right.is_nan():
+        return floating and left.is_nan() and right.is_nan()
+    if left != right:
+        return False
+    if not left.is_finite():
+        return floating
+    if kind in integer_bits:
+        # Bound the exponent before integer construction, then check exact
+        # integrality and the full declared signed/unsigned domain.
+        if left.adjusted() > 38 or left != left.to_integral_value():
+            return False
+        bits = integer_bits[kind]
+        lower, upper = (0, 1 << bits) if kind.startswith('U') else (-(1 << (bits - 1)), 1 << (bits - 1))
+        return lower <= int(left) < upper
+    if decimal:
+        width, scale = map(int, decimal.groups())
+        if not 1 <= width <= 38 or not 0 <= scale <= width:
+            return False
+        if left.is_zero():
+            return True
+        _, digits, exponent = left.as_tuple()
+        trailing = 0
+        for digit in reversed(digits):
+            if digit != 0:
+                break
+            trailing += 1
+        return exponent + trailing >= -scale and left.adjusted() < width - scale
+    return True
+
+
 def hash_values(values):
     digest = hashlib.md5(usedforsecurity=False)
     for value in values:
@@ -83,7 +139,13 @@ def check_query(record, response, labels):
         # Upstream permits either one value per line or a tab-separated row.
         row_wise = columns > 1 and all(len(line.split("\t")) == columns for line in expected)
         values = [cell for line in expected for cell in (line.split("\t") if row_wise else [line])]
-        if len(actual) != len(values) or not all(matches(a, e) for a, e in zip(actual, values)):
+        # Flattened mixed-type valuesort loses column ownership. Until that
+        # transport carries it explicitly, do not guess a numeric type from
+        # the sorted position and accidentally relax VARCHAR comparisons.
+        numeric_fallback = mode != 'valuesort' or len(set(response['columns'])) == 1
+        if len(actual) != len(values) or not all(
+                matches(a, e) or (numeric_fallback and numeric_matches(a, e, response['columns'][index % columns]))
+                for index, (a, e) in enumerate(zip(actual, values))):
             raise AssertionError(f"expected {values[:12]}, got {actual[:12]} ({len(actual)} values)")
     elif len(words) < 4 and actual:
         raise AssertionError(f"expected an empty result, got {actual[:12]}")
