@@ -63,7 +63,12 @@ impl Dialect for RewriteDialect {
             && word.quote_style.is_none()
             && matches!(
                 word.value.to_ascii_lowercase().as_str(),
-                "time_ns" | "timestamp_s" | "timestamp_ms" | "timestamp_ns" | "timestamptz_ns"
+                "time_ns"
+                    | "timestamp_s"
+                    | "timestamp_ms"
+                    | "timestamp_us"
+                    | "timestamp_ns"
+                    | "timestamptz_ns"
             )
             && matches!(parser.peek_nth_token(1).token, Token::SingleQuotedString(_))
         {

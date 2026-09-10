@@ -28,6 +28,8 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "second",
         "microsecond",
         "millisecond",
+        "nanosecond",
+        "timetz_byte_comparable",
         "quarter",
         "dayofyear",
         "dayofweek",
@@ -119,6 +121,7 @@ impl ScalarFunction for TemporalFunction {
             ) => vec![BigInt],
             ("to_seconds" | "to_milliseconds", 1) => vec![Double],
             ("epoch_ms", 1) if arguments[0].is_signed_integer() => vec![BigInt],
+            ("timetz_byte_comparable", 1) if arguments[0] == Null => vec![TimeTz],
             _ => arguments.to_vec(),
         };
         if !self.name.starts_with("make_")
@@ -126,9 +129,9 @@ impl ScalarFunction for TemporalFunction {
             && let Some(last) = types.last_mut()
         {
             // Core overloads use microsecond TIMESTAMP; NS has an exact
-            // overload only for epoch_ns. Coercion happens before evaluation.
+            // overload for epoch_ns and nanosecond. Coercion happens before evaluation.
             if matches!(last, TimestampS | TimestampMs)
-                || (*last == TimestampNs && self.name != "epoch_ns")
+                || (*last == TimestampNs && !matches!(self.name, "epoch_ns" | "nanosecond"))
             {
                 *last = Timestamp;
             }
@@ -161,6 +164,14 @@ impl ScalarFunction for TemporalFunction {
             ) => Interval,
             ("to_seconds" | "to_milliseconds", [Double]) => Interval,
             ("epoch_ms", [BigInt]) => Timestamp,
+            ("timetz_byte_comparable", [TimeTz]) => UBigInt,
+            (
+                "nanosecond",
+                [
+                    Date | Timestamp | TimestampNs | TimestampTz | TimestampTzNs | Time | TimeNs
+                    | TimeTz | Interval,
+                ],
+            ) => BigInt,
             (
                 "date_part" | "datepart",
                 [
@@ -261,6 +272,19 @@ impl ScalarFunction for TemporalFunction {
             }
             _ => (),
         }
+        if self.name == "timetz_byte_comparable" {
+            let Value::Temporal(value) = arguments[0] else {
+                return Err(Error::Internal("expected bound TIMETZ input".into()));
+            };
+            let bits = value.packed_time_tz()?;
+            // The core biases the UTC-adjusted clock by its maximum offset.
+            // Widen before shifting so a future physical-domain experiment
+            // cannot silently overflow the public UBIGINT result.
+            let key = u128::from(bits) + ((u128::from(bits & 0xff_ffff) * 1_000_000) << 24);
+            let key = u64::try_from(key)
+                .map_err(|_| Error::OutOfRange("TIMETZ comparison key outside UBIGINT".into()))?;
+            return Ok(Value::Unsigned(u128::from(key)));
+        }
         let value = arguments
             .last()
             .ok_or_else(|| Error::Internal("temporal function input".into()))?;
@@ -274,6 +298,9 @@ impl ScalarFunction for TemporalFunction {
         }
         if !finite {
             return Ok(Value::Null);
+        }
+        if self.name == "nanosecond" {
+            return nanosecond(value);
         }
         let part = if matches!(self.name, "date_part" | "datepart") {
             match &arguments[0] {
@@ -295,6 +322,36 @@ impl ScalarFunction for TemporalFunction {
         }
         Ok(result)
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn nanosecond(value: &Value) -> Result<Value> {
+    use TemporalValue::*;
+    let result = match value {
+        Value::Date(_) => 0,
+        Value::Temporal(TimeNs(ticks)) => ticks % 60_000_000_000,
+        Value::Temporal(value @ (TimestampNs(ticks) | TimestampTzNs(ticks))) => {
+            // This overload uses checked calendar conversion, unlike the
+            // microsecond overload's direct clock extraction. Its core
+            // registration is non-fallible, so development exposes a fatal
+            // INTERNAL category for a physically valid partial earliest day.
+            value.check_text_renderable().map_err(|error| match error {
+                Error::Conversion(message) => Error::Internal(format!(
+                    "Scalar function \"\"nanosecond\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: {message}"
+                )),
+                error => error,
+            })?;
+            ticks.rem_euclid(60_000_000_000)
+        }
+        Value::Temporal(Timestamp(ticks) | TimestampTz(ticks)) => {
+            ticks.rem_euclid(60_000_000) * 1000
+        }
+        Value::Temporal(Time(micros) | TimeTz { micros, .. } | Interval { micros, .. }) => {
+            (micros % 60_000_000) * 1000
+        }
+        _ => return Err(Error::Internal("expected bound nanosecond input".into())),
+    };
+    Ok(Value::Integer(i128::from(result)))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -1480,3 +1480,281 @@ fn nanosecond_text_checks_scale_before_remainder_without_narrowing_epoch_values(
     }
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn nanosecond_and_timetz_keys_keep_exact_overloads_nulls_and_fatal_boundaries() -> Result<()> {
+    use duckdb_rust::Error;
+    for batched in [false, true] {
+        let mut c = DatabaseBuilder::new()
+            .batch_size(1)
+            .expressions(if batched {
+                Arc::new(BatchedEvaluator)
+            } else {
+                Arc::new(ScalarEvaluator)
+            })
+            .build()?
+            .connect();
+        for (input, expected) in [
+            ("DATE '2000-01-01'", 0),
+            ("TIME '12:00:59.123456'", 59_123_456_000),
+            ("TIME_NS '24:00:00.000000999'", 999),
+            ("make_time(23,59,60.5)::TIME_NS", 500_000_000),
+            ("TIMETZ '23:59:59.999999+02'", 59_999_999_000),
+            ("INTERVAL '-1us'", -1000),
+            ("TIMESTAMP_S '1969-12-31 23:59:59'", 59_000_000_000),
+            ("TIMESTAMP_MS '1969-12-31 23:59:59.999'", 59_999_000_000),
+            (
+                "TIMESTAMP_NS '1969-12-31 23:59:59.999999999'",
+                59_999_999_999,
+            ),
+            (
+                "TIMESTAMPTZ_NS '1969-12-31 23:59:59.123456789+02'",
+                59_123_456_789,
+            ),
+            (
+                "TIMESTAMPTZ '1969-12-31 23:59:59.123456+02'",
+                59_123_456_000,
+            ),
+            ("make_timestamp(-9223372036854775806)", 5_224_194_000),
+        ] {
+            let result = c.query(&format!("SELECT nanosecond({input})"))?;
+            assert_eq!(result.columns[0].data_type, DataType::BigInt);
+            assert_eq!(result.rows, vec![vec![Value::Integer(expected)]], "{input}");
+        }
+        for kind in [
+            "DATE",
+            "TIME",
+            "TIME_NS",
+            "TIMETZ",
+            "TIMESTAMP",
+            "TIMESTAMP_S",
+            "TIMESTAMP_MS",
+            "TIMESTAMP_NS",
+            "TIMESTAMPTZ",
+            "TIMESTAMPTZ_NS",
+            "INTERVAL",
+        ] {
+            assert_eq!(
+                c.query(&format!("SELECT nanosecond(NULL::{kind})"))?.rows,
+                vec![vec![Value::Null]]
+            );
+        }
+        for kind in [
+            "DATE",
+            "TIMESTAMP",
+            "TIMESTAMP_NS",
+            "TIMESTAMPTZ",
+            "TIMESTAMPTZ_NS",
+        ] {
+            assert_eq!(
+                c.query(&format!(
+                    "SELECT nanosecond({kind} 'infinity'),nanosecond({kind} '-infinity')"
+                ))?
+                .rows,
+                vec![vec![Value::Null, Value::Null]]
+            );
+        }
+        for sql in [
+            "SELECT nanosecond(NULL)",
+            "SELECT nanosecond(42)",
+            "SELECT timetz_byte_comparable(TIME '12:00:00')",
+        ] {
+            assert!(matches!(c.query(sql), Err(Error::Bind(_))), "{sql}");
+        }
+        assert!(c.query("SELECT nanoseconds(TIME '12:00:00')").is_err());
+        assert!(matches!(
+            c.query("SELECT date_part('nanosecond',TIME_NS '12:34:56.123456789')"),
+            Err(Error::Conversion(_))
+        ));
+        let strict = c.prepare("SELECT nanosecond(CAST($1 AS TIMESTAMP_NS))")?;
+        let tolerant =
+            c.prepare("SELECT TRY_CAST(nanosecond(CAST($1 AS TIMESTAMP_NS)) AS VARCHAR)")?;
+        for prepared in [&strict, &tolerant] {
+            assert!(
+                matches!(c.execute_prepared(prepared, &[Value::Temporal(TemporalValue::TimestampNs(-i64::MAX+1))]), Err(Error::Internal(message)) if message.contains("\"\"nanosecond\"\"") && message.contains("Date out of range in timestamp_ns conversion"))
+            );
+        }
+        let key = c.query("SELECT timetz_byte_comparable(TIMETZ '12:00:00+00'),timetz_byte_comparable(NULL),timetz_byte_comparable(make_time(23,59,60.5)::TIMETZ)")?;
+        assert!(
+            key.columns
+                .iter()
+                .all(|column| column.data_type == DataType::UBigInt)
+        );
+        assert_eq!(
+            key.rows,
+            vec![vec![
+                Value::Unsigned(1_691_126_595_584_057_599),
+                Value::Null,
+                Value::Unsigned(2_415_910_715_392_057_599)
+            ]]
+        );
+        let key_statement = c.prepare("SELECT timetz_byte_comparable(CAST($1 AS TIMETZ))")?;
+        let mut keys = Vec::new();
+        for micros in [0, 1, 86_399_999_999, 86_400_000_000, 86_400_500_000] {
+            for offset in [-57599, -1, 0, 1, 57599] {
+                let clock = TemporalValue::TimeTz { micros, offset };
+                let result = c.execute_prepared(&key_statement, &[Value::Temporal(clock)])?;
+                let Value::Unsigned(key) = result.rows[0][0] else {
+                    panic!("TIMETZ key lost its selected unsigned result");
+                };
+                assert!(key <= u128::from(u64::MAX));
+                keys.push((clock, key));
+            }
+        }
+        for (left, left_key) in &keys {
+            for (right, right_key) in &keys {
+                assert_eq!(left.compare(*right)?, left_key.cmp(right_key));
+                assert_eq!(left == right, left_key == right_key);
+            }
+        }
+        for (spelling, expected_type) in [
+            ("DATETIME", DataType::Timestamp),
+            ("DATETIME(0)", DataType::TimestampS),
+            ("DATETIME(3)", DataType::TimestampMs),
+            ("DATETIME(6)", DataType::Timestamp),
+            ("DATETIME(9)", DataType::TimestampNs),
+            ("TIMESTAMP_US", DataType::Timestamp),
+        ] {
+            let result = c.query(&format!(
+                "SELECT {spelling} '2000-01-01 12:00:00.123456789',CAST(NULL AS {spelling})"
+            ))?;
+            assert!(
+                result
+                    .columns
+                    .iter()
+                    .all(|column| column.data_type == expected_type),
+                "{spelling}"
+            );
+            assert!(result.rows[0][1].is_null());
+        }
+        for precision in [10, 11] {
+            assert!(
+                matches!(c.query(&format!("SELECT NULL::DATETIME({precision})")), Err(Error::Bind(message)) if message.contains("TIMESTAMP only supports until nano-second precision (9)"))
+            );
+        }
+        assert!(
+            matches!(c.query("SELECT NULL::TIMESTAMP_US(3)"), Err(Error::Bind(message)) if message.contains("does not take any type parameters"))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn temporal_function_keys_cross_prepared_nested_execution_and_native_recovery() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    for batched in [false, true] {
+        for hashed in [false, true] {
+            let path = directory
+                .path()
+                .join(format!("temporal-function-keys-{batched}-{hashed}.duckdb"));
+            let open = || {
+                let checkpoint = FileCheckpoint::open(
+                    &path,
+                    OpenMode::ReadWrite,
+                    Arc::new(DuckDbFormat::default()),
+                )?
+                .with_recovery(Arc::new(DuckDbWalRecovery))?;
+                DatabaseBuilder::new()
+                    .batch_size(1)
+                    .expressions(if batched {
+                        Arc::new(BatchedEvaluator)
+                    } else {
+                        Arc::new(ScalarEvaluator)
+                    })
+                    .indexes(if hashed {
+                        Arc::new(HashIndexFactory)
+                    } else {
+                        Arc::new(BTreeIndexFactory)
+                    })
+                    .durability(Arc::new(FileWal::new(
+                        checkpoint,
+                        Arc::new(DuckDbTransactionLog),
+                    )?))
+                    .build()
+            };
+            let mut c = open()?.connect();
+            c.execute("CREATE TABLE events(id INTEGER PRIMARY KEY,ts DATETIME(9) UNIQUE,legacy TIMESTAMP_US,z TIMETZ,payload STRUCT(ts TIMESTAMP_NS,clock TIMETZ),extracted BIGINT,k UBIGINT UNIQUE)")?;
+            let insert = c.prepare("INSERT INTO events SELECT $1,$2::TIMESTAMP_NS,$2::TIMESTAMP_NS::TIMESTAMP_US,$3::TIMETZ,{'ts':$2::TIMESTAMP_NS,'clock':$3::TIMETZ},nanosecond($2::TIMESTAMP_NS),timetz_byte_comparable($3::TIMETZ)")?;
+            for (id, time, clock) in [
+                (1, "1969-12-31 23:59:59.999999999", "13:00:00+01"),
+                (2, "2000-01-01 12:00:59.123456789", "12:00:00+00"),
+                (
+                    3,
+                    "2000-01-02 12:00:59.123456789",
+                    "23:59:59.999999-15:59:59",
+                ),
+            ] {
+                c.execute_prepared(
+                    &insert,
+                    &[
+                        Value::Integer(id),
+                        Value::Temporal(TemporalValue::parse(time, &DataType::TimestampNs)?),
+                        Value::Temporal(TemporalValue::parse(clock, &DataType::TimeTz)?),
+                    ],
+                )?;
+            }
+            c.execute_prepared(&insert, &[Value::Integer(4), Value::Null, Value::Null])?;
+            let projection = "SELECT id,nanosecond(ts),nanosecond(struct_extract(payload,'ts')),extracted,k,timetz_byte_comparable(z) FROM events ORDER BY id";
+            let before = c.query(projection)?.rows;
+            for row in &before {
+                assert_eq!(row[1], row[2]);
+                assert_eq!(row[1], row[3]);
+                assert_eq!(row[4], row[5]);
+            }
+            assert_eq!(before[0][1], Value::Integer(59_999_999_999));
+            assert_eq!(c.query("SELECT count(*) FROM events a JOIN events b ON nanosecond(a.ts)=nanosecond(b.ts)")?.rows, vec![vec![Value::Integer(5)]]);
+            assert_eq!(c.query("SELECT nanosecond(ts),count(*) FROM events GROUP BY nanosecond(ts) ORDER BY nanosecond(ts)")?.rows, vec![vec![Value::Integer(59_123_456_789),Value::Integer(2)],vec![Value::Integer(59_999_999_999),Value::Integer(1)],vec![Value::Null,Value::Integer(1)]]);
+            assert_eq!(
+                c.query("SELECT id FROM events ORDER BY z")?.rows,
+                c.query("SELECT id FROM events ORDER BY k")?.rows
+            );
+            assert_eq!(
+                c.query(
+                    "SELECT count(*) FROM events a JOIN events b ON true WHERE (a.z<b.z)<>(a.k<b.k)"
+                )?
+                .rows,
+                vec![vec![Value::Integer(0)]]
+            );
+            assert_eq!(c.query("SELECT max(nanosecond(ts)) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM events ORDER BY k")?.rows, vec![vec![Value::Integer(59_999_999_999)];4]);
+            assert!(
+                c.execute_prepared(
+                    &insert,
+                    &[
+                        Value::Integer(5),
+                        Value::Temporal(TemporalValue::TimestampNs(500)),
+                        Value::Temporal(TemporalValue::parse("12:00:00+00", &DataType::TimeTz)?)
+                    ]
+                )
+                .is_err()
+            );
+            assert_eq!(c.query(projection)?.rows, before);
+            c.execute("BEGIN; UPDATE events SET extracted=nanosecond(make_timestamp_ns(500)) WHERE id=1; DELETE FROM events WHERE k=timetz_byte_comparable(TIMETZ '12:00:00+00'); ROLLBACK")?;
+            assert_eq!(c.query(projection)?.rows, before);
+            c.execute("UPDATE events SET ts=make_timestamp_ns(500),extracted=nanosecond(make_timestamp_ns(500)),payload={'ts':make_timestamp_ns(500),'clock':TIMETZ '13:00:00+01'} WHERE id=1")?;
+            let committed = c.query(projection)?.rows;
+            assert_eq!(committed[0][1], Value::Integer(500));
+            drop(c);
+            let mut c = open()?.connect();
+            assert_eq!(c.query(projection)?.rows, committed);
+            assert_eq!(
+                c.query(
+                    "SELECT id FROM events WHERE k=timetz_byte_comparable(TIMETZ '12:00:00+00')"
+                )?
+                .rows,
+                vec![vec![Value::Integer(2)]]
+            );
+            c.checkpoint()?;
+            drop(c);
+            assert_eq!(
+                Database::open_read_only(&path)?
+                    .connect()
+                    .query(projection)?
+                    .rows,
+                committed
+            );
+        }
+    }
+    Ok(())
+}

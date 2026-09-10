@@ -146,7 +146,10 @@ impl State<'_, '_> {
             T::Timestamp(Some(_), ast::TimezoneInfo::Tz) => Err(Error::Bind(
                 "TIMESTAMPTZ does not allow type modifiers".into(),
             )),
-            T::Timestamp(Some(precision), _) => match precision {
+            T::Datetime(Some(precision)) if *precision > 9 => Err(Error::Bind(
+                "TIMESTAMP only supports until nano-second precision (9)".into(),
+            )),
+            T::Timestamp(Some(precision), _) | T::Datetime(Some(precision)) => match precision {
                 0 => Ok(DataType::TimestampS),
                 1..=3 => Ok(DataType::TimestampMs),
                 4..=6 => Ok(DataType::Timestamp),
@@ -165,6 +168,7 @@ impl State<'_, '_> {
                     DataType::Timestamp
                 },
             ),
+            T::Datetime(None) => Ok(DataType::Timestamp),
             T::Interval { .. } => Ok(DataType::Interval),
             T::Blob(None) | T::Binary(None) | T::Varbinary(None) | T::Bytea => Ok(DataType::Blob),
             T::Blob(Some(_)) | T::Binary(Some(_)) | T::Varbinary(Some(_)) => {
@@ -313,6 +317,7 @@ impl State<'_, '_> {
                         "time_ns" => Some(DataType::TimeNs),
                         "timestamp_s" => Some(DataType::TimestampS),
                         "timestamp_ms" => Some(DataType::TimestampMs),
+                        "timestamp_us" => Some(DataType::Timestamp),
                         "timestamp_ns" => Some(DataType::TimestampNs),
                         "timestamptz_ns" => Some(DataType::TimestampTzNs),
                         _ => None,
@@ -321,6 +326,11 @@ impl State<'_, '_> {
                         self.context.query.types().bind(&data_type)?;
                         return Ok(data_type);
                     }
+                }
+                if name == "timestamp_us" {
+                    return Err(Error::Bind(
+                        "Type \"TIMESTAMP_US\" does not take any type parameters".into(),
+                    ));
                 }
                 if name == "guid" && modifiers.is_empty() {
                     self.context.query.types().bind(&DataType::Uuid)?;
