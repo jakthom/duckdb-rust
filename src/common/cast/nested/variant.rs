@@ -106,7 +106,8 @@ impl VariantCast {
                     if values.len() != fields.len() {
                         return Err(Error::Conversion(
                             "VARIANT ARRAY cardinality differs from TUPLE".into(),
-                        ).into());
+                        )
+                        .into());
                     }
                     NestedPayload::Struct(
                         values

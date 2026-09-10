@@ -9,6 +9,12 @@ using the existing recursive type productions. Empty ENUM syntax reaches the
 binder, where DuckDB rejects an empty declaration. The manifest disables its
 absent package readme. Other dialect behavior is unchanged.
 
+DuckDB parenthesized expressions retain empty and singleton tuple syntax (`()`
+and `(x,)`) instead of collapsing those forms into grouping. Bare STRUCT and
+`struct_pack()` carry empty STRUCT metadata. TUPLE expression display preserves
+the singleton trailing comma. Ordinary grouping, subquery and lambda dispatch
+remain in their existing grammar paths.
+
 The dependency has no type-parser dialect hook in this version. A small tracked
 grammar patch preserves nested STRUCT/ARRAY/MAP combinations without changing the
 whole engine to GenericDialect or rewriting SQL text. Remove these corrections
