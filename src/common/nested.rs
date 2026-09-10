@@ -6,6 +6,46 @@ use serde::{Deserialize, Serialize};
 
 use super::{DataType, Error, Result, Value};
 
+/// Resolve untyped NULL leaves at a table-storage boundary. Do not apply this
+/// during ordinary expression inference, where LIST(NULL) is observable.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub fn normalize_storage_type(data_type: &DataType) -> Result<DataType> {
+    super::type_registry::check_metadata(data_type)?;
+    normalize_storage_type_inner(data_type)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn normalize_storage_type_inner(data_type: &DataType) -> Result<DataType> {
+    let DataType::Nested(metadata) = data_type else {
+        return Ok(if *data_type == DataType::Null {
+            DataType::Integer
+        } else {
+            data_type.clone()
+        });
+    };
+    let fields = |fields: &[(String, DataType)]| {
+        fields
+            .iter()
+            .map(|(name, ty)| Ok((name.clone(), normalize_storage_type_inner(ty)?)))
+            .collect::<Result<Vec<_>>>()
+    };
+    Ok(match metadata.as_ref() {
+        NestedType::List(child) => NestedType::List(normalize_storage_type_inner(child)?),
+        NestedType::Array { element, length } => NestedType::Array {
+            element: normalize_storage_type_inner(element)?,
+            length: *length,
+        },
+        NestedType::Struct(children) => NestedType::Struct(fields(children)?),
+        NestedType::Map { key, value } => NestedType::Map {
+            key: normalize_storage_type_inner(key)?,
+            value: normalize_storage_type_inner(value)?,
+        },
+        NestedType::Union(children) => NestedType::Union(fields(children)?),
+        NestedType::Variant => NestedType::Variant,
+    }
+    .data_type())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum NestedType {
     List(DataType),

@@ -109,6 +109,19 @@ fn nested_values_flow_through_relational_operators() -> Result<()> {
 fn nested_shape_null_keys_and_vector_encodings() -> Result<()> {
     assert!(std::mem::size_of::<Value>() <= 32);
     assert!(std::mem::size_of::<DataType>() <= 16);
+    let unresolved = NestedType::Struct(vec![
+        ("xs".into(), NestedType::List(DataType::Null).data_type()),
+        ("number".into(), DataType::Decimal { width: 8, scale: 2 }),
+    ])
+    .data_type();
+    assert_eq!(
+        duckdb_rust::common::nested::normalize_storage_type(&unresolved)?,
+        NestedType::Struct(vec![
+            ("xs".into(), NestedType::List(DataType::Integer).data_type()),
+            ("number".into(), DataType::Decimal { width: 8, scale: 2 })
+        ])
+        .data_type()
+    );
     let variant = NestedType::Variant.data_type();
     let mut too_deep = Value::Integer(1);
     for _ in 0..66 {
