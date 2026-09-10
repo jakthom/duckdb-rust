@@ -91,8 +91,10 @@ pub trait ScalarFunction: Debug + Send + Sync {
     /// Conversion policy for one argument of the selected specialization.
     /// Language binding still inserts and retains a checked cast from its
     /// selected registry; this does not authorize conversion inside evaluate.
-    /// SQL literal privileges remain separate contextual information. Other
-    /// frontends must honor this policy or reject the unsupported binding.
+    /// SQL literal privileges remain separate contextual information.
+    /// Explicit or assignment policies retain their exact selected mode even
+    /// for literals; contextual privilege applies only to implicit requests.
+    /// Other frontends must honor this policy or reject unsupported binding.
     fn argument_cast_mode(&self, _index: usize) -> crate::common::cast::CastMode {
         crate::common::cast::CastMode::Implicit
     }

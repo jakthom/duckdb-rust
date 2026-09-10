@@ -10,12 +10,16 @@ use duckdb_rust::{
 };
 
 #[derive(Debug)]
-struct CoercionProbe;
+struct CoercionProbe(CastMode);
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for CoercionProbe {
     fn name(&self) -> &str {
-        "coercion_probe"
+        if self.0 == CastMode::Assignment {
+            "assignment_probe"
+        } else {
+            "coercion_probe"
+        }
     }
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
         if arguments.len() != 2 {
@@ -25,7 +29,7 @@ impl ScalarFunction for CoercionProbe {
     }
     fn argument_cast_mode(&self, index: usize) -> CastMode {
         if index == 0 {
-            CastMode::Explicit
+            self.0
         } else {
             CastMode::Implicit
         }
@@ -45,7 +49,7 @@ impl ScalarFunction for CoercionProbe {
 }
 
 #[derive(Debug)]
-struct SelectedArgumentCast(Arc<AtomicUsize>);
+struct SelectedArgumentCast(Arc<AtomicUsize>, CastMode);
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for SelectedArgumentCast {
@@ -53,13 +57,11 @@ impl CastFunction for SelectedArgumentCast {
         "selected-scalar-argument-cast"
     }
     fn supports(&self, spec: &CastSpec) -> bool {
-        spec.source == DataType::Varchar
-            && spec.target == DataType::Integer
-            && spec.mode == CastMode::Explicit
+        spec.source == DataType::Varchar && spec.target == DataType::Integer && spec.mode == self.1
     }
     fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
         self.0.fetch_add(1, Ordering::Relaxed);
-        assert_eq!(spec.mode, CastMode::Explicit);
+        assert_eq!(spec.mode, self.1);
         if value == &Value::Varchar("fatal".into()) {
             return Err(Error::Resource("argument cast witness".into()));
         }
@@ -84,6 +86,7 @@ fn selected_scalar_coercion_policy_keeps_cast_registry_null_errors_and_parameter
             Arc::new(PipelineOptimizer::default()),
         ] {
             let calls = Arc::new(AtomicUsize::new(0));
+            let assignments = Arc::new(AtomicUsize::new(0));
             let mut casts = CastRegistry::builtins();
             casts.replace(
                 CastSpec {
@@ -91,10 +94,22 @@ fn selected_scalar_coercion_policy_keeps_cast_registry_null_errors_and_parameter
                     target: DataType::Integer,
                     mode: CastMode::Explicit,
                 },
-                Arc::new(SelectedArgumentCast(calls.clone())),
+                Arc::new(SelectedArgumentCast(calls.clone(), CastMode::Explicit)),
+            )?;
+            casts.replace(
+                CastSpec {
+                    source: DataType::Varchar,
+                    target: DataType::Integer,
+                    mode: CastMode::Assignment,
+                },
+                Arc::new(SelectedArgumentCast(
+                    assignments.clone(),
+                    CastMode::Assignment,
+                )),
             )?;
             let mut functions = FunctionRegistry::builtins();
-            functions.register_scalar(Arc::new(CoercionProbe))?;
+            functions.register_scalar(Arc::new(CoercionProbe(CastMode::Explicit)))?;
+            functions.register_scalar(Arc::new(CoercionProbe(CastMode::Assignment)))?;
             let mut c = DatabaseBuilder::new()
                 .casts(casts)
                 .functions(functions)
@@ -114,6 +129,15 @@ fn selected_scalar_coercion_policy_keeps_cast_registry_null_errors_and_parameter
                 ]
             );
             assert_eq!(calls.load(Ordering::Relaxed), 2);
+            let before = assignments.load(Ordering::Relaxed);
+            assert_eq!(
+                c.query("SELECT assignment_probe('2',3)")?.rows,
+                vec![vec![Value::Integer(5)]]
+            );
+            assert!(
+                assignments.load(Ordering::Relaxed) > before,
+                "literal privilege must not replace an explicitly selected assignment cast"
+            );
             // A declared explicit conversion is local to that argument. It
             // neither grants implicit VARCHAR conversion nor changes typed
             // parameters into SQL literals for the remaining arguments.
