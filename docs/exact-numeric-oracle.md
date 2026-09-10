@@ -29,3 +29,13 @@ precision/range violations, missing/nonnumeric metadata, strict text/regex/hash
 checks and mixed-column ownership. A test's initial invalid Python regex escape
 was corrected to a raw string; no production behavior depended on that warning.
 Unchanged upstream-file reruns follow separately, retaining original reports.
+
+An independent development CLI edge audit found that unsigned casts reject
+`'-0.0'` even though the exact mathematical value is zero. The initial fallback
+would incorrectly accept this spelling difference. The repair conservatively
+declines every minus-prefixed unsigned fallback spelling; this also declines
+the valid integral `'-0'` spelling, an intentional false-negative limit rather
+than permission to accept invalid unsigned input. Tests cover both small and
+128-bit unsigned forms plus missing/unknown result-type metadata. Independent
+exponent, trailing-zero and full-width unsigned casts otherwise confirm the
+retained positive fixtures. The original upstream reports remain unchanged.

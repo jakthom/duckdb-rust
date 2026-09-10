@@ -84,6 +84,11 @@ def numeric_matches(actual, expected, kind):
     if not left.is_finite():
         return floating
     if kind in integer_bits:
+        # Mathematical zero alone is insufficient: development rejects e.g.
+        # '-0.0' when parsing an unsigned value. Conservatively decline all
+        # minus-prefixed unsigned fallback spellings, including integral '-0'.
+        if kind.startswith('U') and any(value.startswith('-') for value in (actual, expected)):
+            return False
         # Bound the exponent before integer construction, then check exact
         # integrality and the full declared signed/unsigned domain.
         if left.adjusted() > 38 or left != left.to_integral_value():

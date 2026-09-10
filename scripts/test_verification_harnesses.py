@@ -67,6 +67,8 @@ class LogicTests(unittest.TestCase):
                 ('BLOB', '42', '42.0'), ('DOUBLE', '42.1235', '42.12345'),
                 ('INTEGER', '42', '43.0'), ('UTINYINT', '256', '256.0'),
                 ('INTEGER', '1.2', '1.20'), ('DOUBLE', 'NULL', '0'),
+                ('UTINYINT', '0', '-0.0'), ('UHUGEINT', '0.00', '-0'),
+                ('', '42', '42.0'), ('UNKNOWN', '42', '42.0'),
                 ('DOUBLE', 'nan', 'inf'), ('DOUBLE', 'inf', '-infinity'),
                 ('DECIMAL(4,2)', '999', '999.0'),
                 ('DECIMAL(4,2)', '.123', '0.1230'),
