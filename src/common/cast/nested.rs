@@ -7,6 +7,7 @@ mod variant;
 pub struct NestedCast {
     children: Vec<BoundCast>,
     indices: Vec<Option<usize>>,
+    target: Option<super::super::type_registry::BoundType>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -105,9 +106,23 @@ impl CastFunction for NestedCast {
                 )
             })
             .collect::<Result<_>>()?;
-        Ok(Some(Arc::new(Self { children, indices })))
+        Ok(Some(Arc::new(Self {
+            children,
+            indices,
+            target: Some(types.bind(&spec.target)?),
+        })))
     }
     fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
+        self.cast_attempt(value, spec, CastBehavior::Strict, query)
+            .map_err(CastFailure::into_error)
+    }
+    fn cast_attempt(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        behavior: CastBehavior,
+        query: &QueryContext,
+    ) -> CastResult<Value> {
         query.check()?;
         if spec.source == spec.target {
             return Ok(value.clone());
@@ -116,20 +131,20 @@ impl CastFunction for NestedCast {
             return Ok(Value::Varchar(value.to_string()));
         }
         let Value::Nested(value) = value else {
-            return Err(Error::Conversion("expected nested cast input".into()));
+            return Err(Error::Conversion("expected nested cast input".into()).into());
         };
         let cast = |index: usize, value: &Value| {
             self.children
                 .get(index)
                 .ok_or_else(|| Error::Internal("nested cast was not bound".into()))?
-                .apply(value, query)
+                .attempt(value, behavior, query)
         };
         let payload = match &value.payload {
             NestedPayload::Sequence(values) => NestedPayload::Sequence(
                 values
                     .iter()
                     .map(|value| cast(0, value))
-                    .collect::<Result<_>>()?,
+                    .collect::<CastResult<_>>()?,
             ),
             NestedPayload::Struct(values) => NestedPayload::Struct(
                 self.indices
@@ -141,17 +156,25 @@ impl CastFunction for NestedCast {
                             source.map(|source| &values[source]).unwrap_or(&Value::Null),
                         )
                     })
-                    .collect::<Result<_>>()?,
+                    .collect::<CastResult<_>>()?,
             ),
             NestedPayload::Map(entries) => NestedPayload::Map(
                 entries
                     .iter()
                     .map(|(key, value)| Ok((cast(0, key)?, cast(1, value)?)))
-                    .collect::<Result<_>>()?,
+                    .collect::<CastResult<_>>()?,
             ),
-            _ => return Err(Error::Unsupported("nested cast payload".into())),
+            _ => return Err(Error::Unsupported("nested cast payload".into()).into()),
         };
-        NestedValue::value(spec.target.clone(), payload)
+        let output = NestedValue::value(spec.target.clone(), payload)?;
+        // Conversion can create duplicate or NULL MAP keys. These are rejected
+        // input conversions, not a malformed adapter result. Infrastructure
+        // categories from selected validators remain fatal by default.
+        self.target
+            .as_ref()
+            .ok_or_else(|| Error::Internal("unbound nested cast target".into()))?
+            .validate(&output, query)?;
+        Ok(output)
     }
 }
 

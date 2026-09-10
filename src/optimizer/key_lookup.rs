@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use crate::common::Error;
 use crate::planner::expression::BinaryOp;
 
 /// Selects exact equality keys while retaining the complete predicate. Only
@@ -81,11 +80,13 @@ fn constant(expression: &BoundExpr, context: &QueryContext) -> Option<Value> {
             .fits_type(&expression.data_type)
             .then(|| value.clone()),
         ExprKind::Cast(inner, cast, try_cast) => {
-            match cast.apply(&constant(inner, context)?, context) {
-                Ok(value) => Some(value),
-                Err(Error::Conversion(_)) if *try_cast => Some(Value::Null),
-                Err(_) => None,
+            let value = constant(inner, context)?;
+            if *try_cast {
+                cast.apply_try(&value, context)
+            } else {
+                cast.apply(&value, context)
             }
+            .ok()
         }
         _ => None,
     }

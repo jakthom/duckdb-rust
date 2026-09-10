@@ -619,7 +619,25 @@ does not establish compatibility for other temporal types or arbitrary files.
 
 The composition root accepts a `CastRegistry`. Each registered `CastSpec` identifies a source type, target type and conversion mode: implicit coercion, assignment, or explicit conversion. Selection is exact, with no fallback outside the registry. Built-in implicit coercions permit NULL, identity and numeric widening; assignment and explicit modes allow the implemented primitive conversions. Conversion syntax remains a subset of DuckDB: for example, the integer text parsers currently accept trimmed signed digits, but do not yet implement decimal, exponent, hexadecimal or separator syntax. Complete overload resolution and coercion policy remain unfinished.
 
-Binding retains a `BoundCast` in each cast expression. It retains the selected conversion function and bound source/target type adapters, and validates source/target agreement with the typed plan. Immutable bound casts and binary/IN type selections are shared through `Arc` handles. Replacing a registry entry affects subsequently bound expressions only. Adapters promise pure deterministic conversion, own retained configuration, and permit concurrent use. The bound input-NULL policy and output-nullability capability are independent: `Call` can inject a typed NULL into an active UNION member; `may_return_null` can extract an active NULL child into SQL NULL. Both default to ordinary validity-preserving casts. Scalar and batch boundaries still validate physical/logical output and cancellation; integer comparison fusion declines casts that change validity. Invalid values return `Conversion`; `TRY_CAST` catches only that category. Resource failures, interruption and malformed adapter output remain errors.
+Binding retains a `BoundCast` in each cast expression. It retains the selected conversion function and bound source/target type adapters, and validates source/target agreement with the typed plan. Immutable bound casts and binary/IN type selections are shared through `Arc` handles. Replacing a registry entry affects subsequently bound expressions only. Adapters promise pure deterministic conversion, own retained configuration, and permit concurrent use. The bound input-NULL policy and output-nullability capability are independent: `Call` can inject a typed NULL into an active UNION member; `may_return_null` can extract an active NULL child into SQL NULL. Both default to ordinary validity-preserving casts. Scalar and batch boundaries still validate physical/logical output and cancellation; integer comparison fusion declines casts that change validity.
+
+`CastFunction::cast_attempt` returns `CastResult`, retaining invalid-input versus
+fatal failure origin separately from the public `Error` category. The default
+leaf contract classifies only Conversion as invalid input; a family may classify
+its own local InvalidInput or OutOfRange explicitly. Source/output validation,
+inner-expression errors, cancellation and infrastructure failures remain fatal.
+`BoundCast::apply` exposes the original error; `apply_try` suppresses only a
+classified invalid-input failure. Composite adapters use child `attempt` calls
+without flattening failure provenance. A foreign composite that discards this
+origin does not satisfy the contract.
+
+The runtime Strict/Try behavior is independent of implicit/assignment/explicit
+coercion mode. LIST, ARRAY, STRUCT and UNION propagate Try to children, retaining
+partial child NULLs; failed MAP keys or duplicate converted keys reject the whole
+MAP. VARIANT extracts through strict children and rejects the enclosing value on
+failure. These differences follow the development probes rather than a generic
+container rule. Existing ordinary conversion diagnostics remain unchanged except
+that invalid converted MAP keys now report Conversion instead of malformed output.
 
 Cast batch defaults preserve scalar row/error order. The selected adapter may
 prove total conversion and exact integer preservation for its bound signature;

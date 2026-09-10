@@ -179,11 +179,14 @@ impl ExpressionEvaluator for ScalarEvaluator {
                 .get(*i)
                 .cloned()
                 .ok_or_else(|| Error::Internal(format!("column {i} outside row")))?,
-            ExprKind::Cast(inner, cast, try_cast) => match cast.apply(&eval(inner)?, query) {
-                Ok(v) => v,
-                Err(Error::Conversion(_)) if *try_cast => Value::Null,
-                Err(e) => return Err(e),
-            },
+            ExprKind::Cast(inner, cast, try_cast) => {
+                let value = eval(inner)?;
+                if *try_cast {
+                    cast.apply_try(&value, query)?
+                } else {
+                    cast.apply(&value, query)?
+                }
+            }
             ExprKind::Unary(op, inner) => {
                 let value = eval(inner)?;
                 match op {

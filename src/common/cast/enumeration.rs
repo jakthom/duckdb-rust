@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use super::{BoundCast, CastFunction, CastMode, CastRegistry, CastSpec};
+use super::{
+    BoundCast, CastBehavior, CastFailure, CastFunction, CastMode, CastRegistry, CastResult,
+    CastSpec,
+};
 use crate::{
     common::{DataType, Error, Result, Value},
     parallel::QueryContext,
@@ -65,6 +68,16 @@ impl CastFunction for EnumCast {
         Ok(None)
     }
     fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
+        self.cast_attempt(value, spec, CastBehavior::Strict, query)
+            .map_err(CastFailure::into_error)
+    }
+    fn cast_attempt(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        _: CastBehavior,
+        query: &QueryContext,
+    ) -> CastResult<Value> {
         query.check()?;
         if value.is_null() || spec.source == spec.target {
             return Ok(value.clone());
@@ -76,11 +89,18 @@ impl CastFunction for EnumCast {
                 return Err(Error::Conversion(format!(
                     "Unimplemented type for cast ({} -> {})",
                     spec.source, spec.target
-                )));
+                ))
+                .into());
             }
         };
         if let Some(tail) = &self.tail {
-            return tail.apply(&Value::Varchar(label.to_owned()), query);
+            // A scalar forwarding conversion rejects the enclosing value;
+            // preserve the tail's failure for the outer TRY boundary.
+            return tail.attempt(
+                &Value::Varchar(label.to_owned()),
+                CastBehavior::Strict,
+                query,
+            );
         }
         match &spec.target {
             DataType::Varchar => Ok(Value::Varchar(label.to_owned())),
@@ -91,9 +111,9 @@ impl CastFunction for EnumCast {
                         spec.target
                     ))
                 })?;
-                Value::enumeration(&spec.target, ordinal)
+                Ok(Value::enumeration(&spec.target, ordinal)?)
             }
-            _ => Err(Error::Internal("ENUM cast physical target".into())),
+            _ => Err(Error::Internal("ENUM cast physical target".into()).into()),
         }
     }
 }

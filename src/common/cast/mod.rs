@@ -4,6 +4,7 @@ pub mod bit;
 mod builtin;
 mod date;
 pub mod enumeration;
+mod failure;
 mod integer;
 mod nested;
 pub mod numeric;
@@ -11,6 +12,7 @@ pub mod scalar;
 pub mod temporal;
 
 pub use date::DateCast;
+pub use failure::{CastBehavior, CastFailure, CastResult};
 
 pub use integer::DigitIntegerCast;
 
@@ -54,9 +56,10 @@ pub struct CastSpec {
 /// The input fits `spec.source`; output fits `spec.target`, and a non-NULL input
 /// must remain non-NULL unless the selected `may_return_null` capability says
 /// otherwise (for example, extracting a NULL active UNION child into VARIANT).
-/// Invalid values return Conversion. Configuration/unsupported pairs are
-/// rejected at binding. Other errors (including cancellation and resource
-/// failures) must never be disguised as invalid input, even for TRY_CAST.
+/// Invalid values normally return Conversion. Configuration/unsupported pairs are
+/// rejected at binding. cast_attempt may explicitly distinguish other local
+/// data errors from fatal failures. Cancellation, resource failures and invalid
+/// adapter output must never be disguised as invalid input, even for TRY_CAST.
 /// Adapters own retained configuration, support concurrent callers, do no I/O,
 /// observe the query context during long work, and return owned values. A
 /// replacement promises the same semantics for each registered specification.
@@ -65,8 +68,8 @@ pub trait CastFunction: Debug + Send + Sync {
         CastNullHandling::Propagate
     }
     /// Whether valid non-NULL input may produce SQL NULL. This describes cast
-    /// semantics, not error suppression: invalid output and every non-Conversion
-    /// error remain errors, including under TRY_CAST. Independent of input NULL
+    /// semantics, not error suppression: invalid output and fatal failures
+    /// remain errors, including under TRY_CAST. Independent of input NULL
     /// handling; default casts must preserve non-NULL input validity.
     fn may_return_null(&self, _spec: &CastSpec) -> bool {
         false
@@ -151,6 +154,22 @@ pub trait CastFunction: Debug + Send + Sync {
         Ok(Some(self.coercion_cost(spec)))
     }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value>;
+    /// A selected conversion attempt, preserving failure origin. Leaf adapters
+    /// keep their ordinary Conversion contract by default. A family may mark
+    /// its own InvalidInput/OutOfRange conversion failures explicitly. It must
+    /// not reclassify errors from child validation or infrastructure. Composite
+    /// adapters call BoundCast::attempt and propagate CastFailure unchanged;
+    /// behavior determines whether failed children become NULL or reject the
+    /// entire enclosing value. Ordinary cast() still exposes the original Error.
+    fn cast_attempt(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        _behavior: CastBehavior,
+        context: &QueryContext,
+    ) -> CastResult<Value> {
+        self.cast(value, spec, context).map_err(CastFailure::from)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -297,29 +316,51 @@ impl BoundCast {
         self.function.name()
     }
     pub fn apply(&self, value: &Value, context: &QueryContext) -> Result<Value> {
+        self.attempt(value, CastBehavior::Strict, context)
+            .map_err(CastFailure::into_error)
+    }
+    pub fn apply_try(&self, value: &Value, context: &QueryContext) -> Result<Value> {
+        self.attempt(value, CastBehavior::Try, context)
+            .map_err(CastFailure::into_error)
+    }
+    pub fn attempt(
+        &self,
+        value: &Value,
+        behavior: CastBehavior,
+        context: &QueryContext,
+    ) -> CastResult<Value> {
         context.check()?;
         if !value.fits_type(&self.spec.source) {
-            return Err(Error::Internal(
+            return Err(CastFailure::fatal(Error::Internal(
                 "cast input differs from its bound source type".into(),
-            ));
+            )));
         }
         if self.source.requires_logical_validation() {
-            self.source.validate(value, context)?;
+            self.source
+                .validate(value, context)
+                .map_err(CastFailure::fatal)?;
         }
         if value.is_null() && self.null_handling == CastNullHandling::Propagate {
             return Ok(Value::Null);
         }
-        let output = self.function.cast(value, &self.spec, context);
+        let output = self
+            .function
+            .cast_attempt(value, &self.spec, behavior, context);
         context.check()?;
-        let output = output?;
+        let output = match output {
+            Err(error) if behavior == CastBehavior::Try && error.is_invalid_input() => {
+                return Ok(Value::Null);
+            }
+            other => other?,
+        };
         if (output.is_null() && !value.is_null() && !self.may_return_null)
             || !output.fits_type(&self.spec.target)
         {
-            return Err(Error::Internal(format!(
+            return Err(CastFailure::fatal(Error::Internal(format!(
                 "cast adapter {} returned an invalid physical value for {}",
                 self.adapter(),
                 self.spec.target
-            )));
+            ))));
         }
         if self.target.requires_logical_validation() {
             self.target
@@ -329,7 +370,8 @@ impl BoundCast {
                         Error::Internal("cast adapter returned an invalid logical value".into())
                     }
                     other => other,
-                })?;
+                })
+                .map_err(CastFailure::fatal)?;
         }
         Ok(output)
     }

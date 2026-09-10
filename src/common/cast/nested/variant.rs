@@ -17,23 +17,23 @@ impl VariantCast {
         target: &DataType,
         query: &QueryContext,
         depth: usize,
-    ) -> Result<Value> {
+    ) -> CastResult<Value> {
         query.check()?;
         if depth > 64 {
-            return Err(Error::Resource("VARIANT cast depth exceeds 64".into()));
+            return Err(Error::Resource("VARIANT cast depth exceeds 64".into()).into());
         }
         let node = node.resolved()?;
         if node.rank()? == 16 {
             return Ok(Value::Null);
         }
         if *target == NestedType::Variant.data_type() {
-            return node.owned();
+            return Ok(node.owned()?);
         }
         if let DataType::Nested(metadata) = target {
             let payload = match metadata.as_ref() {
                 NestedType::List(child) | NestedType::Array { element: child, .. } => {
                     if node.rank()? != 14 {
-                        return Err(invalid());
+                        return Err(invalid().into());
                     }
                     let values = node.array()?;
                     query.check_rows(values.len())?;
@@ -42,18 +42,19 @@ impl VariantCast {
                     {
                         return Err(Error::Conversion(
                             "VARIANT ARRAY cardinality differs from target".into(),
-                        ));
+                        )
+                        .into());
                     }
                     NestedPayload::Sequence(
                         values
                             .into_iter()
                             .map(|value| self.convert(value, child, query, depth + 1))
-                            .collect::<Result<_>>()?,
+                            .collect::<CastResult<_>>()?,
                     )
                 }
                 NestedType::Struct(fields) => {
                     if node.rank()? != 15 {
-                        return Err(invalid());
+                        return Err(invalid().into());
                     }
                     let values = node.object()?;
                     NestedPayload::Struct(
@@ -70,12 +71,12 @@ impl VariantCast {
                                     })?;
                                 self.convert(value.1, ty, query, depth + 1)
                             })
-                            .collect::<Result<_>>()?,
+                            .collect::<CastResult<_>>()?,
                     )
                 }
                 NestedType::Map { key, value } => {
                     if node.rank()? != 14 {
-                        return Err(invalid());
+                        return Err(invalid().into());
                     }
                     let entries = node.array()?;
                     query.check_rows(entries.len())?;
@@ -98,14 +99,14 @@ impl VariantCast {
                     NestedPayload::Map(result)
                 }
                 NestedType::Union(_) => {
-                    return Err(Error::Conversion("Can't convert VARIANT to UNION".into()));
+                    return Err(Error::Conversion("Can't convert VARIANT to UNION".into()).into());
                 }
                 NestedType::Variant => unreachable!("handled VARIANT target"),
             };
-            return NestedValue::value(target.clone(), payload);
+            return Ok(NestedValue::value(target.clone(), payload)?);
         }
         if matches!(target, DataType::Enum(_)) {
-            return Err(Error::Conversion("Can't convert VARIANT to ENUM".into()));
+            return Err(Error::Conversion("Can't convert VARIANT to ENUM".into()).into());
         }
         let (casts, types) = self
             .registries
@@ -115,17 +116,21 @@ impl VariantCast {
             let (source, value) = node.materialized(depth, &|| query.check())?;
             return casts
                 .bind(&source, target, CastMode::Explicit, types)?
-                .apply(&value, query);
+                .attempt(&value, CastBehavior::Strict, query);
         }
         let Node::Typed(source, value) = node else {
-            return Err(Error::Conversion(format!(
-                "Can't convert VARIANT OBJECT to {target}"
-            )));
+            return Err(
+                Error::Conversion(format!("Can't convert VARIANT OBJECT to {target}")).into(),
+            );
         };
         if let Value::Enum(value) = value {
             return casts
                 .bind(&DataType::Varchar, target, CastMode::Explicit, types)?
-                .apply(&Value::Varchar(value.label()?.to_owned()), query);
+                .attempt(
+                    &Value::Varchar(value.label()?.to_owned()),
+                    CastBehavior::Strict,
+                    query,
+                );
         }
         casts
             .bind(source, target, CastMode::Explicit, types)
@@ -135,7 +140,7 @@ impl VariantCast {
                 }
                 other => other,
             })?
-            .apply(value, query)
+            .attempt(value, CastBehavior::Strict, query)
     }
 }
 
@@ -163,6 +168,16 @@ impl CastFunction for VariantCast {
         })))
     }
     fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
+        self.cast_attempt(value, spec, CastBehavior::Strict, query)
+            .map_err(CastFailure::into_error)
+    }
+    fn cast_attempt(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        _: CastBehavior,
+        query: &QueryContext,
+    ) -> CastResult<Value> {
         query.check()?;
         if spec.source == spec.target {
             return Ok(value.clone());

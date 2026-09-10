@@ -123,6 +123,16 @@ impl CastFunction for UnionCast {
         })))
     }
     fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
+        self.cast_attempt(value, spec, CastBehavior::Strict, query)
+            .map_err(CastFailure::into_error)
+    }
+    fn cast_attempt(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        behavior: CastBehavior,
+        query: &QueryContext,
+    ) -> CastResult<Value> {
         let (index, value) = if let Value::Nested(nested) = value
             && let NestedPayload::Union { tag, value } = &nested.payload
         {
@@ -134,11 +144,14 @@ impl CastFunction for UnionCast {
             .children
             .get(index)
             .ok_or_else(|| Error::Internal("unbound UNION cast child".into()))?
-            .apply(value, query)?;
+            .attempt(value, behavior, query)?;
         let tag = *self
             .tags
             .get(index)
             .ok_or_else(|| Error::Internal("unbound UNION cast tag".into()))?;
-        NestedValue::value(spec.target.clone(), NestedPayload::Union { tag, value })
+        Ok(NestedValue::value(
+            spec.target.clone(),
+            NestedPayload::Union { tag, value },
+        )?)
     }
 }

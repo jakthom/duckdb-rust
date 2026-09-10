@@ -3,6 +3,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod casts_attempts;
+
 use duckdb_rust::{
     DataType, DatabaseBuilder, Error, Result, Value,
     catalog::{CatalogMut, ColumnDefinition, TableDefinition, TableName},
