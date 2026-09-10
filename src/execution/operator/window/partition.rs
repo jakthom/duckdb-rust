@@ -7,7 +7,8 @@ pub(super) fn integer_partitions(
     context: &ExecutionContext<'_>,
 ) -> Result<Option<Vec<Vec<usize>>>> {
     let [data_type] = types else { return Ok(None) };
-    if data_type.key_representation() != KeyRepresentation::Integer {
+    let representation = data_type.key_representation();
+    if !representation.has_integer_keys() {
         return Ok(None);
     }
     let mut minimum = i128::MAX;
@@ -16,7 +17,7 @@ pub(super) fn integer_partitions(
         if index % 1024 == 0 {
             context.query.check()?;
         }
-        if let Value::Integer(value) = row[0] {
+        if let Some(value) = representation.integer_key(&row[0])? {
             minimum = minimum.min(value);
             maximum = maximum.max(value);
         }
@@ -33,20 +34,22 @@ pub(super) fn integer_partitions(
         return Ok(None);
     };
     let mut partitions = vec![Vec::new(); width + 1];
+    // A bounded estimate avoids repeated growth for balanced partitions. Do
+    // not allocate for empty buckets, and retain ordinary growth for skew.
+    let capacity = keys.len().div_ceil(width);
     for (index, row) in keys.iter().enumerate() {
         if index % 1024 == 0 {
             context.query.check()?;
         }
-        let bucket = match row[0] {
-            Value::Integer(value) => (value - minimum) as usize,
-            Value::Null => width,
-            _ => {
-                return Err(Error::Internal(
-                    "integer partition key has another representation".into(),
-                ));
-            }
+        let bucket = match representation.integer_key(&row[0])? {
+            Some(value) => (value - minimum) as usize,
+            None => width,
         };
-        partitions[bucket].push(index);
+        let partition = &mut partitions[bucket];
+        if partition.is_empty() {
+            partition.reserve(capacity);
+        }
+        partition.push(index);
     }
     partitions.retain(|partition| !partition.is_empty());
     Ok(Some(partitions))
@@ -65,15 +68,12 @@ pub(super) fn equality_key(
 ) -> Result<Key> {
     // PreparedExpression validates logical values before integer identity is used.
     if let [data_type] = types
-        && data_type.key_representation() == KeyRepresentation::Integer
+        && data_type.key_representation().has_integer_keys()
     {
-        return match &row[0] {
-            Value::Integer(value) => Ok(Key::Integer(Some(*value))),
-            Value::Null => Ok(Key::Integer(None)),
-            _ => Err(Error::Internal(
-                "integer window key has another representation".into(),
-            )),
-        };
+        return data_type
+            .key_representation()
+            .integer_key(&row[0])
+            .map(Key::Integer);
     }
     let mut key = Vec::new();
     for (value, data_type) in row.iter().zip(types) {

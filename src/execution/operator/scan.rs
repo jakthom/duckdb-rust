@@ -34,6 +34,12 @@ pub(crate) fn filtered<'a>(
             batch.validate(&validators, context.query)?;
             let mut selected = Vec::new();
             if let Some(data) = batch.data() {
+                if let Some(accepted) = predicate.uniform_selection(data, context)? {
+                    if accepted {
+                        return batch.into_data().map(Some);
+                    }
+                    continue;
+                }
                 selected = predicate.select_batch(data, context)?;
             } else {
                 for index in 0..batch.len() {

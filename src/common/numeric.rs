@@ -3,6 +3,17 @@
 use super::{DataType, Error, Result, Value};
 use std::fmt;
 
+// Exact decimal bounds are immutable metadata, not per-value exponentiation.
+pub(crate) const DECIMAL_POWERS: [u128; 39] = {
+    let mut powers = [1; 39];
+    let mut index = 1;
+    while index < powers.len() {
+        powers[index] = powers[index - 1] * 10;
+        index += 1;
+    }
+    powers
+};
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DataType {
     pub fn unsigned_bits(&self) -> Option<u8> {
@@ -120,12 +131,15 @@ pub fn decimal(value: i128, width: u8, scale: u8) -> Result<Value> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub fn rescale(value: i128, from: u8, to: u8) -> Result<i128> {
+    let factor = *DECIMAL_POWERS
+        .get(usize::from(from.abs_diff(to)))
+        .ok_or_else(|| Error::Conversion("invalid decimal scale".into()))? as i128;
     if to >= from {
         value
-            .checked_mul(10_i128.pow(u32::from(to - from)))
+            .checked_mul(factor)
             .ok_or_else(|| Error::Conversion("decimal scale overflow".into()))
     } else {
-        let divisor = 10_i128.pow(u32::from(from - to));
+        let divisor = factor;
         let quotient = value / divisor;
         let remainder = value % divisor;
         // Half away from zero, without overflowing at either signed boundary.

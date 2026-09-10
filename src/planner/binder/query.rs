@@ -3,6 +3,19 @@ use super::*;
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn query(&mut self, query: &ast::Query) -> Result<LogicalPlan> {
+        self.query_with_value_types(query, None)
+    }
+
+    /// INSERT supplies destination types to a direct VALUES source (including
+    /// parentheses), not to WITH/SELECT inputs or set-operation branches.
+    /// Assigning each expression first preserves its text and avoids intermediate
+    /// rounding. A source-level WITH clause makes VALUES a regular query in C++.
+    pub(super) fn query_with_value_types(
+        &mut self,
+        query: &ast::Query,
+        value_types: Option<&[DataType]>,
+    ) -> Result<LogicalPlan> {
+        let value_types = value_types.filter(|_| query.with.is_none());
         if query.fetch.is_some()
             || !query.locks.is_empty()
             || query.for_clause.is_some()
@@ -34,7 +47,13 @@ impl State<'_, '_> {
             let mut plan = if let ast::SetExpr::Select(select) = query.body.as_ref() {
                 self.select(select, query.order_by.as_ref())?
             } else {
-                let mut plan = self.set(&query.body)?;
+                let mut plan = match query.body.as_ref() {
+                    ast::SetExpr::Values(values) => self.values(values, value_types)?,
+                    ast::SetExpr::Query(query) => {
+                        self.query_with_value_types(query, value_types)?
+                    }
+                    body => self.set(body)?,
+                };
                 let order = order_expressions(query.order_by.as_ref(), plan.schema.len())?;
                 if !order.is_empty() {
                     let order = order
@@ -86,45 +105,7 @@ impl State<'_, '_> {
         match set {
             ast::SetExpr::Select(select) => self.select(select, None),
             ast::SetExpr::Query(query) => self.query(query),
-            ast::SetExpr::Values(values) => {
-                let mut rows = values
-                    .rows
-                    .iter()
-                    .map(|row| {
-                        row.iter()
-                            .map(|e| self.expr(e, &Scope::default(), None))
-                            .collect::<Result<Vec<_>>>()
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                let width = rows.first().map_or(0, Vec::len);
-                if rows.iter().any(|r| r.len() != width) {
-                    return Err(Error::Bind("VALUES rows differ in width".into()));
-                }
-                let mut types = vec![DataType::Null; width];
-                for row in &rows {
-                    for (t, e) in types.iter_mut().zip(row) {
-                        *t = self.context.query.types().common_type(t, &e.data_type)?;
-                    }
-                }
-                for row in &mut rows {
-                    for (e, t) in row.iter_mut().zip(&types) {
-                        *e = e.clone().cast(
-                            t.clone(),
-                            CastMode::Implicit,
-                            self.context.casts,
-                            self.context.query.types(),
-                        )?;
-                    }
-                }
-                Ok(LogicalPlan {
-                    schema: types
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, t)| Field::new(format!("col{i}"), t))
-                        .collect(),
-                    node: PlanNode::Values(rows),
-                })
-            }
+            ast::SetExpr::Values(values) => self.values(values, None),
             ast::SetExpr::SetOperation {
                 op,
                 set_quantifier,
@@ -176,6 +157,64 @@ impl State<'_, '_> {
         }
     }
 
+    fn values(
+        &self,
+        values: &ast::Values,
+        destinations: Option<&[DataType]>,
+    ) -> Result<LogicalPlan> {
+        let mut rows = values
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|e| self.expr(e, &Scope::default(), None))
+                    .collect::<Result<Vec<_>>>()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let width = rows.first().map_or(0, Vec::len);
+        if rows.iter().any(|row| row.len() != width) {
+            return Err(Error::Bind("VALUES rows differ in width".into()));
+        }
+        let (types, mode) = if let Some(types) = destinations {
+            if types.len() != width {
+                return Err(Error::Bind(
+                    "INSERT column count does not match source".into(),
+                ));
+            }
+            (types.to_vec(), CastMode::Assignment)
+        } else {
+            let mut types = vec![DataType::Null; width];
+            for row in &rows {
+                for (data_type, expression) in types.iter_mut().zip(row) {
+                    *data_type = self
+                        .context
+                        .query
+                        .types()
+                        .common_type(data_type, &expression.data_type)?;
+                }
+            }
+            (types, CastMode::Implicit)
+        };
+        for row in &mut rows {
+            for (expression, data_type) in row.iter_mut().zip(&types) {
+                *expression = expression.clone().cast(
+                    data_type.clone(),
+                    mode,
+                    self.context.casts,
+                    self.context.query.types(),
+                )?;
+            }
+        }
+        Ok(LogicalPlan {
+            schema: types
+                .into_iter()
+                .enumerate()
+                .map(|(i, t)| Field::new(format!("col{i}"), t))
+                .collect(),
+            node: PlanNode::Values(rows),
+        })
+    }
+
     pub(super) fn select(
         &mut self,
         select: &ast::Select,
@@ -208,7 +247,7 @@ impl State<'_, '_> {
             scope = if index == 0 {
                 next.scope
             } else {
-                scope.combine(&next.scope)?
+                scope.combine(&next.scope)
             };
             input = if index == 0 {
                 next.plan
@@ -256,8 +295,14 @@ impl State<'_, '_> {
                     options,
                 ) => {
                     check_wildcard(options)?;
-                    let name = name.to_string();
-                    items.extend(scope.star(Some(&name))?);
+                    if name.0.len() != 1 {
+                        return Err(Error::Parse(
+                            "Did not expect more than one column in front of a star expression"
+                                .into(),
+                        ));
+                    }
+                    let name = name.0[0].as_ident().ok_or_else(|| unsupported(name))?;
+                    items.extend(scope.star(Some(&name.value))?);
                 }
                 _ => return Err(unsupported(item)),
             }

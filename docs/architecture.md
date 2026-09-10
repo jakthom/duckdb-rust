@@ -65,8 +65,9 @@ adapters cannot assert it unchecked. A flat vector retains its original allocati
 through shared ownership. Scalar operators and type comparisons have checked batch
 interfaces with scalar defaults. The default batched expression evaluator uses
 retained adapters only for trees proved total and without effects. Operators must
-explicitly supply the proof for their signature and known arguments. Lazy branches,
-casts, relational dependencies and expressions without a proof preserve scalar
+explicitly supply the proof for their signature and known arguments. Casts can
+also advertise totality; unproved casts, lazy branches, relational dependencies
+and expressions without a proof preserve scalar
 evaluation order. Batch boundaries check schema, cardinality, logical payloads,
 NULL propagation and cancellation, including values a filter would reject.
 
@@ -108,9 +109,14 @@ not imply ordering capabilities; an integer type may retain a custom comparator
 while advertising native integer equality. Bound types retain both selections.
 
 Pure, total projections use the selected expression evaluator's checked batch
-interface. Expressions without that proof retain row evaluation, preserving
-observable effects and data-error order. Scalar and batch result boundaries
-retain type, cardinality and cancellation checks.
+interface. A single-root projection can also use that interface, whose contract
+preserves logical row order and the first error. Multiple roots without a
+totality proof retain inter-column row evaluation. Restricted pure one-column
+trees over small dictionaries can reuse complete root results at their first
+logical occurrence; scalar callbacks and relational dependencies are excluded.
+Only unsigned/decimal whole-partition window outputs use dictionary compaction;
+signed outputs retain flat delivery and floats are excluded. Scalar and batch result boundaries retain type,
+cardinality and cancellation checks.
 
 Sorting currently blocks and materializes its result. Cancellation is checked
 during input, key construction, radix passes, comparisons and output gathering;
@@ -537,6 +543,17 @@ their canonical byte keys, normalization, validation, and errors. Build state
 is sealed before probing and owned by one cursor; no concrete adapter downcast
 or query-result cache is involved.
 
+The exact numeric adapter separately opts into `NumericCoefficient` equality:
+unsigned bits and same-type decimal coefficients are injective keys, not signed
+SQL order. Compact grouping/join/membership/set/window consumers accept that
+capability while alternative adapters retain byte keys. Hash equality joins
+also retain immutable right payload chunks, inline singleton matches and bounded
+dense indices, falling back to sparse indices for wide domains. Duplicate output
+resumes within a row; outer matches and NULL padding retain ordinary semantics.
+Whole-batch filter proofs belong to selected expression/type adapters and require
+validation before rejection. Physical numeric ordering metadata cannot override
+a selected comparator's semantics.
+
 Aggregation consumes batches into group states, and sorting collects its input.
 No spilling is implemented. The default pull executor drives chunks into an
 explicit result sink; the eager alternative collects before delivery. Ordinary
@@ -595,6 +612,13 @@ does not establish compatibility for other temporal types or arbitrary files.
 The composition root accepts a `CastRegistry`. Each registered `CastSpec` identifies a source type, target type and conversion mode: implicit coercion, assignment, or explicit conversion. Selection is exact, with no fallback outside the registry. Built-in implicit coercions permit NULL, identity and numeric widening; assignment and explicit modes allow the implemented primitive conversions. Conversion syntax remains a subset of DuckDB: for example, the integer text parsers currently accept trimmed signed digits, but do not yet implement decimal, exponent, hexadecimal or separator syntax. Complete overload resolution and coercion policy remain unfinished.
 
 Binding retains a `BoundCast` in each cast expression. It retains the selected conversion function and bound source/target type adapters, and validates source/target agreement with the typed plan. Immutable bound casts and binary/IN type selections are shared through `Arc` handles. Replacing a registry entry affects subsequently bound expressions only. Adapters promise pure deterministic conversion, own retained configuration, permit concurrent use, and return owned non-NULL values for non-NULL inputs. The boundary handles NULL propagation and checks physical input/output types and cancellation. Invalid values return `Conversion`; `TRY_CAST` catches only that category. Resource failures, interruption and malformed adapter output remain errors.
+
+Cast batch defaults preserve scalar row/error order. The selected adapter may
+prove total conversion and exact integer preservation for its bound signature;
+unknown casts decline those capabilities. Parameterized cast-family lookup uses
+borrowed source/target names without allocating lookup strings. Exact pair/mode
+registrations still override family selection. Operator candidate scoring uses
+fixed-size unary/binary mode storage and retains the same ambiguity rules.
 
 SQL assignments now have explicit conversion expressions before they reach storage. This includes INSERT, UPDATE, CREATE TABLE AS and literal defaults. Vectors and the storage contract reject incorrectly typed values. Snapshot validation checks rows directly without cloning them for conversion, and index replacement validates rows then builds the selected indexes once. Native metadata decoding still uses the documented context-free default conversion helper for the format's primitive constant representation; stored, already typed defaults do not replay configurable SQL casts on reopen.
 
@@ -679,7 +703,14 @@ Checkpoint decoding receives the selected registry explicitly. The private forma
 
 The `ascii_ci(max_bytes)` example preserves ASCII spelling while comparing and grouping without letter case. `MaterializedAscii` normalizes temporary buffers; `StreamingAscii` compares folded bytes incrementally. Both implement `TypeAdapter`, use the same casts, and pass the same SQL/storage callers, including indexed uniqueness and private-format restart with a different implementation. See [the embedding example](../examples/registered_type.rs). It is opt-in and does not change VARCHAR or DuckDB collation semantics. CLI output of extension values currently requires an explicit cast to a supported output type.
 
-This is not the complete DuckDB type system. Remaining work includes broader operator/function overload resolution, decimal, remaining temporal, unsigned and nested families, catalog-scoped type DDL and aliases, constructor-based cast resolution, native extension metadata and richer client interchange. The SQL type parser currently accepts integer and string literal parameters for registered families; programmatic child-type metadata does not establish nested value execution.
+This is not the complete DuckDB type system. The [numeric foundation](numeric-port.md)
+adds unsigned and decimal domains; the [numeric batch follow-up](numeric-batches.md)
+documents their scoped kernels and still-open acceptance checks. Remaining work
+includes broader numeric coercion and operator/function resolution, remaining
+temporal and nested families, catalog-scoped type DDL and aliases, native
+extension metadata and richer client interchange. The SQL type parser currently
+accepts integer and string literal parameters for registered families;
+programmatic child-type metadata does not establish nested value execution.
 
 ## DuckDB file compatibility
 
@@ -697,6 +728,6 @@ Both readers currently materialize the complete checkpoint and table contents. T
 
 ## Remaining rewrite requirements
 
-The full source system remains substantially larger than this implementation. Required work includes broader SQL and catalog semantics; decimal, remaining temporal, unsigned and nested types; index DDL, range and mutation planning; all DuckDB compression and version formats; remaining WAL records, background/concurrent checkpointing, group commit and broader crash testing; streaming join algorithms, asynchronous and parallel execution; memory and spill policies; richer optimizer algorithms; filesystem and interchange adapters including Parquet/Vortex; extension and embedding compatibility; graph/AI interfaces; observability; fuzzing; and workload measurements with agreed acceptance budgets.
+The full source system remains substantially larger than this implementation. Required work includes broader SQL and catalog semantics; complete numeric coercion and persistence, remaining temporal and nested types; index DDL, range and mutation planning; all DuckDB compression and version formats; remaining WAL records, background/concurrent checkpointing, group commit and broader crash testing; streaming join algorithms, asynchronous and parallel execution; memory and spill policies; richer optimizer algorithms; filesystem and interchange adapters including Parquet/Vortex; extension and embedding compatibility; graph/AI interfaces; observability; fuzzing; and workload measurements with agreed acceptance budgets.
 
 No OLAP preservation, OLTP throughput, graph, mixed-workload, extension compatibility, production durability or performance parity claim has been established. See the [workload conformance specification](../specs/testing/rewrite-workloads.md) for the acceptance requirements that remain open.

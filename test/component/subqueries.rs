@@ -32,6 +32,35 @@ fn adapters() -> [Arc<dyn SubqueryExecutor>; 2] {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn schema_names_ctes_and_aliases_resolve_at_the_reference_not_the_join() -> Result<()> {
+    let corpus =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/relation-names.test");
+    for subqueries in adapters() {
+        for executor in [
+            Arc::new(PullExecutor) as Arc<dyn Executor>,
+            Arc::new(MaterializingExecutor),
+        ] {
+            for optimizer in [
+                Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+                Arc::new(PipelineOptimizer::default()),
+            ] {
+                for batch_size in [1, 3, 2048] {
+                    let db = DatabaseBuilder::new()
+                        .subqueries(subqueries.clone())
+                        .executor(executor.clone())
+                        .optimizer(optimizer.clone())
+                        .batch_size(batch_size)
+                        .build()?;
+                    assert_eq!(runner::run_file(&db, &corpus)?, 32);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn subquery_adapters_share_sql_scope_null_cardinality_and_mutation_contracts() -> Result<()> {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/subqueries.test");
     for subqueries in adapters() {

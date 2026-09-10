@@ -5,19 +5,59 @@ use super::*;
 #[derive(Clone, Default)]
 pub(super) struct Scope {
     fields: Schema,
+    bindings: Vec<Binding>,
     pub visible: Vec<usize>,
     using: Vec<usize>,
+    merged_keys: BTreeMap<usize, (usize, usize)>,
     pub windows: Option<std::rc::Rc<window::WindowScope>>,
     pub aliases: BTreeMap<String, Vec<BoundExpr>>,
+}
+
+/// A SQL relation namespace, independent of the physical plan's field labels.
+/// Identifier components stay separate: a quoted dot is not a schema separator.
+#[derive(Clone)]
+struct Binding {
+    qualifier: Vec<String>,
+    columns: std::ops::Range<usize>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Binding {
+    fn matches(&self, qualifier: &[String]) -> bool {
+        qualifier.len() <= self.qualifier.len()
+            && self.qualifier[self.qualifier.len() - qualifier.len()..]
+                .iter()
+                .zip(qualifier)
+                .all(|(left, right)| left.eq_ignore_ascii_case(right))
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl From<Schema> for Scope {
     fn from(fields: Schema) -> Self {
+        let mut bindings: Vec<Binding> = Vec::new();
+        for (index, field) in fields.iter().enumerate() {
+            let Some(qualifier) = &field.qualifier else {
+                continue;
+            };
+            if let Some(last) = bindings.last_mut()
+                && last.columns.end == index
+                && last.matches(std::slice::from_ref(qualifier))
+            {
+                last.columns.end += 1;
+            } else {
+                bindings.push(Binding {
+                    qualifier: vec![qualifier.clone()],
+                    columns: index..index + 1,
+                });
+            }
+        }
         Self {
             visible: (0..fields.len()).collect(),
             fields,
+            bindings,
             using: Vec::new(),
+            merged_keys: BTreeMap::new(),
             windows: None,
             aliases: BTreeMap::new(),
         }
@@ -34,9 +74,36 @@ impl std::ops::Deref for Scope {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Scope {
+    pub fn qualify_table(&mut self, table: &TableName) {
+        self.bindings = vec![Binding {
+            qualifier: vec![table.schema.clone(), table.name.clone()],
+            columns: 0..self.fields.len(),
+        }];
+    }
+
     pub fn resolve_optional(&self, parts: &[String]) -> Result<Option<usize>> {
         if parts.len() != 1 {
-            return resolve_optional(&self.fields, parts);
+            if parts.is_empty() {
+                return Err(Error::Bind("empty column name".into()));
+            }
+            if parts.len() > 3 {
+                return Err(unsupported("cross-database column names"));
+            }
+            let mut matches = self
+                .bindings
+                .iter()
+                .filter(|binding| binding.matches(&parts[..parts.len() - 1]))
+                .flat_map(|binding| binding.columns.clone())
+                .filter(|&index| {
+                    self.fields[index]
+                        .name
+                        .eq_ignore_ascii_case(&parts[parts.len() - 1])
+                });
+            let first = matches.next();
+            if matches.next().is_some() {
+                return Err(Error::Bind(format!("ambiguous column {}", parts.join("."))));
+            }
+            return Ok(first);
         }
         let using = self
             .using
@@ -59,35 +126,33 @@ impl Scope {
             .ok_or_else(|| Error::Bind(format!("column {} not found", parts.join("."))))
     }
 
-    pub fn combine(&self, right: &Self) -> Result<Self> {
-        for qualifier in self
-            .fields
-            .iter()
-            .filter_map(|field| field.qualifier.as_ref())
-        {
-            if right
-                .fields
-                .iter()
-                .filter_map(|field| field.qualifier.as_ref())
-                .any(|other| other.eq_ignore_ascii_case(qualifier))
-            {
-                return Err(Error::Bind(format!(
-                    "ambiguous reference to table {qualifier}"
-                )));
-            }
-        }
+    pub fn combine(&self, right: &Self) -> Self {
         let mut result = self.clone();
+        result
+            .bindings
+            .extend(right.bindings.iter().map(|binding| Binding {
+                qualifier: binding.qualifier.clone(),
+                columns: binding.columns.start + self.len()..binding.columns.end + self.len(),
+            }));
         result
             .visible
             .extend(right.visible.iter().map(|index| index + self.len()));
         result
             .using
             .extend(right.using.iter().map(|index| index + self.len()));
+        result
+            .merged_keys
+            .extend(right.merged_keys.iter().map(|(&key, &(left, right))| {
+                (key + self.len(), (left + self.len(), right + self.len()))
+            }));
         result.fields.extend(right.fields.clone());
-        Ok(result)
+        result
     }
 
     pub fn merge_key(&mut self, left: usize, right: usize, key: usize) {
+        if key != left && key != right {
+            self.merged_keys.insert(key, (left, right));
+        }
         self.visible.retain(|&index| index != right);
         for index in &mut self.visible {
             if *index == left {
@@ -100,8 +165,14 @@ impl Scope {
 
     pub fn truncate(&mut self, width: usize) {
         self.fields.truncate(width);
+        self.bindings
+            .retain(|binding| binding.columns.start < width);
+        for binding in &mut self.bindings {
+            binding.columns.end = binding.columns.end.min(width);
+        }
         self.visible.retain(|&index| index < width);
         self.using.retain(|&index| index < width);
+        self.merged_keys.retain(|key, _| *key < width);
     }
 
     pub fn append(&mut self, field: Field) -> usize {
@@ -112,25 +183,30 @@ impl Scope {
 
     pub fn star(&self, qualifier: Option<&str>) -> Result<Vec<SelectItem>> {
         let columns: Vec<_> = match qualifier {
-            None => self.visible.clone(),
-            Some(name) => self
-                .fields
-                .iter()
-                .enumerate()
-                .filter_map(|(index, field)| {
-                    field
-                        .qualifier
-                        .as_ref()
-                        .is_some_and(|q| q.eq_ignore_ascii_case(name))
-                        .then_some(index)
-                })
-                .collect(),
+            None => {
+                // C++ expands an unqualified star to qualified references. Two
+                // identical namespaces may coexist, but a shared column cannot
+                // be resolved merely by keeping its physical row index.
+                for &index in &self.visible {
+                    self.validate_star_column(index)?;
+                }
+                self.visible.clone()
+            }
+            Some(name) => {
+                let qualifier = [name.to_owned()];
+                let mut matches = self
+                    .bindings
+                    .iter()
+                    .filter(|binding| binding.matches(&qualifier));
+                let first = matches
+                    .next()
+                    .ok_or_else(|| Error::Bind(format!("table {name} not found")))?;
+                if matches.next().is_some() {
+                    return Err(Error::Bind(format!("ambiguous reference to table {name}")));
+                }
+                first.columns.clone().collect()
+            }
         };
-        if let Some(qualifier) = qualifier
-            && columns.is_empty()
-        {
-            return Err(Error::Bind(format!("table {} not found", qualifier)));
-        }
         Ok(columns
             .into_iter()
             .map(|index| {
@@ -150,6 +226,38 @@ impl Scope {
                 }
             })
             .collect())
+    }
+
+    fn validate_star_column(&self, index: usize) -> Result<()> {
+        if let Some(&(left, right)) = self.merged_keys.get(&index) {
+            self.validate_star_column(left)?;
+            return self.validate_star_column(right);
+        }
+        if let Some(binding) = self
+            .bindings
+            .iter()
+            .find(|binding| binding.columns.contains(&index))
+        {
+            let count = self
+                .bindings
+                .iter()
+                .filter(|other| {
+                    other.matches(&binding.qualifier)
+                        && other.columns.clone().any(|column| {
+                            self.fields[column]
+                                .name
+                                .eq_ignore_ascii_case(&self.fields[index].name)
+                        })
+                })
+                .count();
+            if count > 1 {
+                return Err(Error::Bind(format!(
+                    "ambiguous reference to table {}",
+                    binding.qualifier.join(".")
+                )));
+            }
+        }
+        Ok(())
     }
 }
 

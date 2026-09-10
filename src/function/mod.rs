@@ -89,6 +89,19 @@ pub trait AggregateState: Send {
     fn update_batch(&mut self, arguments: &DataChunk, context: &QueryContext) -> Result<()> {
         update_aggregate_rows(self, arguments, context)
     }
+    /// Borrow one already validated argument column without constructing a
+    /// temporary chunk. The default retains the selected batch implementation;
+    /// overrides have exactly the same row, NULL, error and cancellation rules.
+    fn update_column(
+        &mut self,
+        column: &crate::common::vector::Vector,
+        context: &QueryContext,
+    ) -> Result<()> {
+        self.update_batch(
+            &DataChunk::new(vec![column.clone()], column.len())?,
+            context,
+        )
+    }
     fn finish(self: Box<Self>) -> Result<Value>;
 }
 

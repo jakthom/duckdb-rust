@@ -32,7 +32,11 @@ impl OperatorFunction for NumericArithmetic {
         signature.result.is_floating()
             || signature.operator == Plus
             || (matches!(signature.operator, IntegerDivide | Modulo)
-                && matches!(constants.get(1), Some(Some(Value::Integer(value))) if *value != -1))
+                && match constants.get(1) {
+                    Some(Some(Value::Integer(value))) => *value != -1,
+                    Some(Some(Value::Unsigned(value))) => *value != 0,
+                    _ => false,
+                })
     }
     fn evaluate_batch(
         &self,
@@ -42,6 +46,75 @@ impl OperatorFunction for NumericArithmetic {
     ) -> Result<crate::common::vector::Vector> {
         use crate::common::vector::Vector;
         use Operator::*;
+        if signature.result.is_unsigned_integer()
+            && matches!(signature.operator, IntegerDivide | Modulo)
+            && let Some(Value::Unsigned(divisor)) = arguments.columns()[1].constant_value()
+            && *divisor != 0
+        {
+            let mask =
+                (signature.operator == Modulo && divisor.is_power_of_two()).then_some(divisor - 1);
+            let column = &arguments.columns()[0];
+            if let Some(mask) = mask
+                && *divisor <= 256
+                && arguments.len() / 4 > *divisor as usize
+            {
+                // A small remainder domain admits a compact physical
+                // dictionary. NULL has its own entry; this does not merge
+                // distinct payloads according to configurable SQL equality.
+                let mut values = (0..*divisor).map(Value::Unsigned).collect::<Vec<_>>();
+                let null = values.len();
+                if !column.all_valid() {
+                    values.push(Value::Null);
+                }
+                let parent = Arc::new(Vector::flat(signature.result.clone(), values)?);
+                let mut selected = Vec::with_capacity(arguments.len());
+                let mut select = |(index, value): (usize, &Value)| -> Result<()> {
+                    if index % 1024 == 0 {
+                        query.check()?;
+                    }
+                    selected.push(match value {
+                        Value::Unsigned(value) => (value & mask) as usize,
+                        Value::Null => null,
+                        _ => unreachable!("validated unsigned column"),
+                    });
+                    Ok(())
+                };
+                if let Some(values) = column.flat_values() {
+                    values.iter().enumerate().try_for_each(&mut select)?;
+                } else {
+                    column.values().enumerate().try_for_each(&mut select)?;
+                }
+                query.check()?;
+                return parent.select(selected);
+            }
+            let apply = |(index, value): (usize, &Value)| {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                Ok(match value {
+                    Value::Null => None,
+                    Value::Unsigned(value) => Some(if let Some(mask) = mask {
+                        value & mask
+                    } else if signature.operator == Modulo {
+                        value % divisor
+                    } else {
+                        value / divisor
+                    }),
+                    _ => unreachable!("validated unsigned column"),
+                })
+            };
+            return if let Some(values) = column.flat_values() {
+                Vector::try_unsigned(
+                    signature.result.clone(),
+                    values.iter().enumerate().map(apply),
+                )
+            } else {
+                Vector::try_unsigned(
+                    signature.result.clone(),
+                    column.values().enumerate().map(apply),
+                )
+            };
+        }
         // Fixed-width division uses the declared physical range. The -1 case
         // keeps scalar overflow checks, including narrower integer minima.
         if signature

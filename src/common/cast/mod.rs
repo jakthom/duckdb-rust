@@ -46,6 +46,43 @@ pub struct CastSpec {
 pub trait CastFunction: Debug + Send + Sync {
     fn name(&self) -> &'static str;
     fn supports(&self, spec: &CastSpec) -> bool;
+    /// Proves absence of data-dependent errors for every valid source value.
+    /// Cancellation and resource failures remain possible. False means unknown.
+    fn is_total(&self, _spec: &CastSpec) -> bool {
+        false
+    }
+    /// Opt-in value identity for an integer conversion. Together with totality
+    /// and compatible physical widths this permits fusing a comparison without
+    /// materializing the converted column. False makes no such promise.
+    fn preserves_integer_value(&self, _spec: &CastSpec) -> bool {
+        false
+    }
+    /// Convert a validated column in logical row order, preserving NULLs.
+    /// Output owns exactly the source cardinality and has the declared target
+    /// type. The default retains this adapter's scalar conversion semantics.
+    fn cast_batch(
+        &self,
+        input: &super::vector::Vector,
+        spec: &CastSpec,
+        context: &QueryContext,
+    ) -> Result<super::vector::Vector> {
+        let values = input
+            .values()
+            .enumerate()
+            .map(|(index, value)| {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                if value.is_null() {
+                    Ok(Value::Null)
+                } else {
+                    self.cast(value, spec, context)
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
+        context.check()?;
+        super::vector::Vector::flat(spec.target.clone(), values)
+    }
     /// Overload ranking only: this never grants an unavailable conversion.
     /// Identity has cost zero at the registry boundary. Replacements may
     /// explicitly supply a different resolution policy while preserving casts.
@@ -73,6 +110,125 @@ pub struct BoundCast {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundCast {
+    /// Optional checked fusion for unsigned widening into a selected native
+    /// signed comparison. Logical target validators and custom ordering always
+    /// retain the full conversion/comparison path.
+    pub fn select_integer_comparison(
+        &self,
+        input: &super::vector::Vector,
+        right: &Value,
+        predicate: super::type_registry::ComparisonPredicate,
+        comparison: &super::type_registry::BoundType,
+        context: &QueryContext,
+    ) -> Result<Option<Vec<usize>>> {
+        if !self.function.preserves_integer_value(&self.spec)
+            || !self.is_total()
+            || !self.spec.source.unsigned_bits().is_some_and(|bits| {
+                self.spec
+                    .target
+                    .integer_bits()
+                    .is_some_and(|target| target > bits)
+            })
+            || comparison.data_type() != &self.spec.target
+            || comparison.requires_logical_validation()
+            || self.target.requires_logical_validation()
+            || comparison.ordering_representation()
+                != super::type_registry::OrderingRepresentation::SignedInteger
+        {
+            return Ok(None);
+        }
+        self.source.validate_vector(input, context)?;
+        comparison.validate(right, context)?;
+        let Value::Integer(right) = right else {
+            return Ok(Some(Vec::new()));
+        };
+        let mut selected = Vec::with_capacity(input.len());
+        if let Some((dictionary, indices)) = input.dictionary()
+            && dictionary.len() <= input.len() / 4
+        {
+            let accepted = dictionary
+                .values()
+                .enumerate()
+                .map(|(index, value)| {
+                    if index % 1024 == 0 {
+                        context.check()?;
+                    }
+                    Ok(match value {
+                        Value::Unsigned(value) => predicate.matches((*value as i128).cmp(right)),
+                        Value::Null => false,
+                        _ => unreachable!("validated unsigned dictionary"),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for (row, &index) in indices.iter().enumerate() {
+                if row % 1024 == 0 {
+                    context.check()?;
+                }
+                if accepted[index] {
+                    selected.push(row);
+                }
+            }
+            context.check()?;
+            return Ok(Some(selected));
+        }
+        let mut visit = |(index, value): (usize, &Value)| -> Result<()> {
+            if index % 1024 == 0 {
+                context.check()?;
+            }
+            match value {
+                Value::Unsigned(value) if predicate.matches((*value as i128).cmp(right)) => {
+                    selected.push(index)
+                }
+                Value::Unsigned(_) | Value::Null => (),
+                _ => unreachable!("validated unsigned comparison input"),
+            }
+            Ok(())
+        };
+        if let Some(values) = input.flat_values() {
+            values.iter().enumerate().try_for_each(&mut visit)?;
+        } else {
+            input.values().enumerate().try_for_each(&mut visit)?;
+        }
+        context.check()?;
+        Ok(Some(selected))
+    }
+    pub fn is_total(&self) -> bool {
+        self.function.is_total(&self.spec)
+    }
+    pub fn apply_batch(
+        &self,
+        input: &super::vector::Vector,
+        context: &QueryContext,
+    ) -> Result<super::vector::Vector> {
+        self.source.validate_vector(input, context)?;
+        let output = self.function.cast_batch(input, &self.spec, context);
+        context.check()?;
+        let output = output?;
+        if output.data_type() != &self.spec.target || output.len() != input.len() {
+            return Err(Error::Internal(
+                "cast batch differs from its target type or cardinality".into(),
+            ));
+        }
+        if !(input.all_valid() && output.all_valid()) {
+            for (index, (a, b)) in input.values().zip(output.values()).enumerate() {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                if a.is_null() != b.is_null() {
+                    return Err(Error::Internal("cast batch changed NULL semantics".into()));
+                }
+            }
+        }
+        self.target
+            .validate_vector(&output, context)
+            .map_err(|error| match error {
+                Error::Conversion(_) => {
+                    Error::Internal("cast adapter returned an invalid logical value".into())
+                }
+                other => other,
+            })?;
+        Ok(output)
+    }
     pub fn spec(&self) -> &CastSpec {
         &self.spec
     }
@@ -121,7 +277,7 @@ impl BoundCast {
 #[derive(Clone, Debug, Default)]
 pub struct CastRegistry {
     functions: BTreeMap<CastSpec, Arc<dyn CastFunction>>,
-    families: BTreeMap<(String, String), Arc<dyn CastFunction>>,
+    families: BTreeMap<String, BTreeMap<String, Arc<dyn CastFunction>>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -204,11 +360,11 @@ impl CastRegistry {
         target: &str,
         function: Arc<dyn CastFunction>,
     ) -> Result<()> {
-        let key = (source.to_owned(), target.to_owned());
-        if self.families.contains_key(&key) {
+        let targets = self.families.entry(source.to_owned()).or_default();
+        if targets.contains_key(target) {
             return Err(Error::Bind("cast family is already registered".into()));
         }
-        self.families.insert(key, function);
+        targets.insert(target.to_owned(), function);
         Ok(())
     }
     pub fn replace_family(
@@ -219,7 +375,8 @@ impl CastRegistry {
     ) -> Result<()> {
         let entry = self
             .families
-            .get_mut(&(source.to_owned(), target.to_owned()))
+            .get_mut(source)
+            .and_then(|targets| targets.get_mut(target))
             .ok_or_else(|| Error::Bind("cast family is not registered".into()))?;
         *entry = function;
         Ok(())
@@ -227,10 +384,8 @@ impl CastRegistry {
     fn selected(&self, spec: &CastSpec) -> Option<&Arc<dyn CastFunction>> {
         self.functions.get(spec).or_else(|| {
             self.families
-                .get(&(
-                    spec.source.family().to_owned(),
-                    spec.target.family().to_owned(),
-                ))
+                .get(spec.source.family())
+                .and_then(|targets| targets.get(spec.target.family()))
                 .filter(|function| function.supports(spec))
         })
     }
@@ -308,7 +463,7 @@ impl CastRegistry {
         let names: std::collections::BTreeSet<_> = self
             .functions
             .values()
-            .chain(self.families.values())
+            .chain(self.families.values().flat_map(|targets| targets.values()))
             .map(|f| f.name())
             .collect();
         names.into_iter().map(|name| ("casts", name)).collect()

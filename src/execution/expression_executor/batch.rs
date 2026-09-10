@@ -29,6 +29,33 @@ pub struct BatchedEvaluator;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for BatchedEvaluator {
+    fn uniform_selection(
+        &self,
+        expression: &BoundExpr,
+        input: &DataChunk,
+        context: &dyn EvaluationContext,
+    ) -> Result<Option<bool>> {
+        let ExprKind::Binary(op, left, right, data_type) = &expression.kind else {
+            return Ok(None);
+        };
+        let (ExprKind::Column(index), ExprKind::Literal(value)) = (&left.kind, &right.kind) else {
+            return Ok(None);
+        };
+        if matches!(op, BinaryOp::And | BinaryOp::Or) {
+            return Ok(None);
+        }
+        let Some(left) = input.columns().get(*index) else {
+            return Err(Error::Internal("comparison column outside input".into()));
+        };
+        let right = Vector::constant(right.data_type.clone(), value.clone(), input.len())?;
+        use std::cmp::Ordering;
+        let predicate = crate::common::type_registry::ComparisonPredicate {
+            less: comparison_matches(*op, Ordering::Less),
+            equal: comparison_matches(*op, Ordering::Equal),
+            greater: comparison_matches(*op, Ordering::Greater),
+        };
+        data_type.uniform_comparison(left, &right, predicate, context.query())
+    }
     fn name(&self) -> &'static str {
         "batched-expression"
     }
@@ -49,6 +76,11 @@ impl ExpressionEvaluator for BatchedEvaluator {
         if input.len() > 1 && expression.is_pure_and_total() {
             evaluate_columns(expression, input, context)
         } else {
+            if input.len() > 1
+                && let Some(output) = dictionary_expression(expression, input, context)?
+            {
+                return Ok(output);
+            }
             evaluate_expression_rows(self, expression, input, context)
         }
     }
@@ -62,25 +94,111 @@ impl ExpressionEvaluator for BatchedEvaluator {
             && expression.is_pure_and_total()
             && let ExprKind::Binary(op, left, right, data_type) = &expression.kind
         {
-            let left = evaluate_columns(left, input, context)?;
+            use std::cmp::Ordering;
+            let predicate = crate::common::type_registry::ComparisonPredicate {
+                less: comparison_matches(*op, Ordering::Less),
+                equal: comparison_matches(*op, Ordering::Equal),
+                greater: comparison_matches(*op, Ordering::Greater),
+            };
+            let left = if let (ExprKind::Cast(inner, cast, false), ExprKind::Literal(value)) =
+                (&left.kind, &right.kind)
+            {
+                let inner = evaluate_columns(inner, input, context)?;
+                if let Some(selected) = cast.select_integer_comparison(
+                    &inner,
+                    value,
+                    predicate,
+                    data_type,
+                    context.query(),
+                )? {
+                    return Ok(selected);
+                }
+                cast.apply_batch(&inner, context.query())?
+            } else {
+                evaluate_columns(left, input, context)?
+            };
             let right = evaluate_columns(right, input, context)?;
-            let comparisons = data_type.compare_batch(&left, &right, context.query())?;
-            let mut selected = Vec::new();
-            for (index, ordering) in comparisons.into_iter().enumerate() {
-                if index % 1024 == 0 {
-                    context.query().check()?;
-                }
-                if ordering.is_some_and(|ordering| comparison_matches(*op, ordering)) {
-                    selected.push(index);
-                }
-            }
-            return Ok(selected);
+            return data_type.select_comparison(&left, &right, predicate, context.query());
         }
         select_boolean(
             &self.evaluate_batch(expression, input, context)?,
             input.len(),
             context.query(),
         )
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn dictionary_expression(
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Option<Vector>> {
+    let mut column = None;
+    if !single_pure_input(expression, &mut column) {
+        return Ok(None);
+    }
+    let Some(column) = column else {
+        return Ok(None);
+    };
+    let Some((dictionary, selection)) = input.columns().get(column).and_then(Vector::dictionary)
+    else {
+        return Ok(None);
+    };
+    if dictionary.len() > input.len() / 4 {
+        return Ok(None);
+    }
+    // Cache only complete root results, at their first logical occurrence.
+    // Fallible descendants are never moved across another row's parent. This
+    // preserves the first error while reusing identical, effect-free inputs.
+    let mut initialized = vec![false; dictionary.len()];
+    let mut values = vec![Value::Null; dictionary.len()];
+    let mut row = vec![Value::Null; input.columns().len()];
+    for (offset, &index) in selection.iter().enumerate() {
+        if offset % 1024 == 0 {
+            context.query().check()?;
+        }
+        if !initialized[index] {
+            row[column] = dictionary
+                .get(index)
+                .expect("checked dictionary index")
+                .clone();
+            values[index] = ScalarEvaluator.evaluate(expression, &row, context)?;
+            initialized[index] = true;
+        }
+    }
+    context.query().check()?;
+    Ok(Some(
+        std::sync::Arc::new(Vector::flat(expression.data_type.clone(), values)?)
+            .select(selection.to_vec())?,
+    ))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn single_pure_input(expression: &BoundExpr, column: &mut Option<usize>) -> bool {
+    match &expression.kind {
+        ExprKind::Literal(_) => true,
+        ExprKind::Column(index) => {
+            if column.is_some_and(|column| column != *index) {
+                return false;
+            }
+            *column = Some(*index);
+            true
+        }
+        ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => single_pure_input(inner, column),
+        ExprKind::Operator(function, arguments)
+            if !function.effects().volatile && !function.effects().external_access =>
+        {
+            arguments
+                .iter()
+                .all(|argument| single_pure_input(argument, column))
+        }
+        ExprKind::Binary(_, left, right, _) => {
+            single_pure_input(left, column) && single_pure_input(right, column)
+        }
+        // Scalar callbacks, relational dependencies, and other forms retain
+        // the selected evaluator's ordinary execution and effect ordering.
+        _ => false,
     }
 }
 
@@ -147,6 +265,7 @@ fn evaluate_columns(
             let columns = arguments.iter().map(eval).collect::<Result<_>>()?;
             function.apply_batch(&DataChunk::new(columns, input.len())?, context.query())?
         }
+        ExprKind::Cast(inner, cast, false) => cast.apply_batch(&eval(inner)?, context.query())?,
         ExprKind::Unary(op, inner) => {
             let inner = eval(inner)?;
             if inner.all_valid() && matches!(op, UnaryOp::IsNull | UnaryOp::IsNotNull) {

@@ -1,4 +1,4 @@
-//! Contiguous integer aggregate states, selected by the function adapter.
+//! Contiguous exact aggregate states, selected by the function adapter.
 use super::*;
 use crate::{
     common::vector::DataChunk,
@@ -9,13 +9,16 @@ use crate::{
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn create(name: &str, arguments: &[DataType]) -> Option<Box<dyn GroupedAggregateState>> {
     let sum = name == "sum";
-    if usize::BITS > 64
-        || (name != "count" && !(sum && arguments[0].integer_bits().is_some_and(|bits| bits <= 64)))
-    {
+    let kernel = arguments
+        .first()
+        .and_then(SumKernel::bind)
+        .filter(|kernel| kernel.supports_count(usize::MAX));
+    if usize::BITS > 64 || (name != "count" && !(sum && kernel.is_some())) {
         return None;
     }
     Some(Box::new(IntegerGroups {
         sum,
+        kernel,
         arguments: arguments.to_vec(),
         values: Vec::new(),
         counts: Vec::new(),
@@ -24,6 +27,7 @@ pub(super) fn create(name: &str, arguments: &[DataType]) -> Option<Box<dyn Group
 
 struct IntegerGroups {
     sum: bool,
+    kernel: Option<SumKernel>,
     arguments: Vec<DataType>,
     values: Vec<i128>,
     counts: Vec<usize>,
@@ -66,21 +70,22 @@ impl GroupedAggregateState for IntegerGroups {
             let previous_count = self.counts[group];
             self.increment_by(group, count)?;
             if self.sum {
+                let kernel = self.kernel.expect("bound SUM kernel");
                 // Reuse the ordinary single-group column kernel, including
                 // its narrow partial sums and checked wide fallback.
                 let mut state = State {
                     name: "sum",
-                    data_type: DataType::HugeInt,
+                    data_type: kernel.result_type(),
                     count: 0,
                     value: if previous_count == 0 {
                         Value::Null
                     } else {
-                        Value::Integer(self.values[group])
+                        kernel.value(self.values[group])
                     },
                     seen: false,
                 };
                 state.update_batch(arguments, query)?;
-                if let Value::Integer(value) = state.value {
+                if let Value::Integer(value) | Value::Decimal { value, .. } = state.value {
                     self.values[group] = value;
                 }
             }
@@ -103,8 +108,13 @@ impl GroupedAggregateState for IntegerGroups {
             false
         };
         if self.sum {
+            let kernel = self.kernel.expect("bound SUM kernel");
             let column = column.expect("bound SUM argument");
-            if counted && let Some(Value::Integer(value)) = column.constant_value() {
+            if counted
+                && let Some(value) = column
+                    .constant_value()
+                    .and_then(|value| kernel.coefficient(value))
+            {
                 for (group, &count) in groups
                     .counts()
                     .expect("counted group destinations")
@@ -160,7 +170,7 @@ impl GroupedAggregateState for IntegerGroups {
                 } else if count == 0 {
                     Value::Null
                 } else {
-                    Value::Integer(value)
+                    self.kernel.expect("bound SUM kernel").value(value)
                 })
             })
             .collect()
@@ -175,6 +185,39 @@ impl IntegerGroups {
         counted: bool,
         query: &QueryContext,
     ) -> Result<()> {
+        match self.kernel.expect("bound SUM kernel") {
+            SumKernel::Signed(_) => self.update_signed(groups, values, counted, query),
+            SumKernel::Unsigned(_) => self.update_coefficients(
+                groups,
+                values.map(|value| match value {
+                    Value::Unsigned(value) => Some(*value as i128),
+                    Value::Null => None,
+                    _ => unreachable!("validated unsigned SUM input"),
+                }),
+                counted,
+                query,
+            ),
+            SumKernel::Decimal { .. } => self.update_coefficients(
+                groups,
+                values.map(|value| match value {
+                    Value::Decimal { value, .. } => Some(*value),
+                    Value::Null => None,
+                    _ => unreachable!("validated decimal SUM input"),
+                }),
+                counted,
+                query,
+            ),
+        }
+    }
+    fn update_signed<'a>(
+        &mut self,
+        groups: &GroupSelection<'_>,
+        values: impl Iterator<Item = &'a Value>,
+        counted: bool,
+        query: &QueryContext,
+    ) -> Result<()> {
+        // Preserve the direct signed path: lifetime counts already prove each
+        // i128 prefix safe, without constructing nullable coefficient tuples.
         for (index, (&group, value)) in groups.indices().iter().zip(values).enumerate() {
             if index % 1024 == 0 {
                 query.check()?;
@@ -183,8 +226,55 @@ impl IntegerGroups {
                 if !counted {
                     self.increment_by(group, 1)?;
                 }
-                // At most usize::MAX non-NULL values, each signed <=64 bits,
-                // fit in i128 for every input prefix on <=64-bit hosts.
+                self.values[group] += value;
+            }
+        }
+        Ok(())
+    }
+    fn update_coefficients(
+        &mut self,
+        groups: &GroupSelection<'_>,
+        values: impl Iterator<Item = Option<i128>>,
+        counted: bool,
+        query: &QueryContext,
+    ) -> Result<()> {
+        if counted
+            && self.values.len() <= groups.indices().len() / 4
+            && self
+                .kernel
+                .expect("bound SUM kernel")
+                .maximum_magnitude()
+                .checked_mul(groups.indices().len() as i128)
+                .is_some_and(|bound| bound <= i64::MAX as i128)
+        {
+            // The entire batch's absolute bound fits i64, so every group's
+            // partial prefix does too. Merge once per group into the wide
+            // state; the already checked lifetime counts prove that safe.
+            let mut partials = vec![0_i64; self.values.len()];
+            for (index, (&group, value)) in groups.indices().iter().zip(values).enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                partials[group] += value.expect("counted non-NULL SUM input") as i64;
+            }
+            for (index, (sum, partial)) in self.values.iter_mut().zip(partials).enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                *sum += i128::from(partial);
+            }
+            return Ok(());
+        }
+        for (index, (&group, value)) in groups.indices().iter().zip(values).enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            if let Some(value) = value {
+                if !counted {
+                    self.increment_by(group, 1)?;
+                }
+                // Kernel selection proves every prefix of at most usize::MAX
+                // inputs fits the result, including DECIMAL(38, scale).
                 self.values[group] += value;
             }
         }

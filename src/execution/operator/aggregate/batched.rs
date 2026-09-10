@@ -2,8 +2,8 @@
 mod index;
 use super::*;
 use crate::{
-    Value, common::type_registry::KeyRepresentation, execution::subquery::PreparedExpression,
-    function::grouped::GroupSelection, planner::aggregation::AggregateOutput,
+    Value, execution::subquery::PreparedExpression, function::grouped::GroupSelection,
+    planner::aggregation::AggregateOutput,
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -26,11 +26,19 @@ pub(super) fn try_run(
     {
         return Ok(None);
     }
-    for group in &aggregation.groups {
-        let data_type = context.query.types().bind(&group.data_type)?;
-        if data_type.key_representation() != KeyRepresentation::Integer {
-            return Ok(None);
-        }
+    let representations = aggregation
+        .groups
+        .iter()
+        .map(|group| {
+            context
+                .query
+                .types()
+                .bind(&group.data_type)
+                .map(|data_type| data_type.key_representation())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if representations.iter().any(|key| !key.has_integer_keys()) {
+        return Ok(None);
     }
     aggregation.validate_metadata(context.query)?;
     let functions = aggregation.functions().collect::<Vec<_>>();
@@ -103,8 +111,17 @@ pub(super) fn try_run(
                 .iter()
                 .map(|&index| &columns[index])
                 .collect::<Vec<_>>();
-            let destinations =
-                indices[set_index].locate(&keys, batch.len(), context.query, |row| {
+            let key_representations = set
+                .indices()
+                .iter()
+                .map(|&index| representations[index])
+                .collect::<Vec<_>>();
+            let destinations = indices[set_index].locate(
+                &keys,
+                &key_representations,
+                batch.len(),
+                context.query,
+                |row| {
                     context.query.check_rows(groups.len() + 1)?;
                     let index = groups.len();
                     let values = columns
@@ -120,7 +137,8 @@ pub(super) fn try_run(
                         .collect();
                     groups.push((values, set_index));
                     Ok(index)
-                })?;
+                },
+            )?;
             let destinations = GroupSelection::new(&destinations, groups.len(), context.query)?;
             for (state, arguments) in accumulators.iter_mut().zip(&inputs) {
                 state.resize(groups.len(), context.query)?;

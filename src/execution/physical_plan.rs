@@ -473,6 +473,12 @@ impl PhysicalOperator for Operator {
                 let mut input = stream::open(input.as_ref(), context)?;
                 stream::from_fn(move |max_rows| {
                     while let Some(batch) = input.next(max_rows)? {
+                        if let Some(accepted) = predicate.uniform_selection(&batch, context)? {
+                            if accepted {
+                                return Ok(Some(batch));
+                            }
+                            continue;
+                        }
                         let selected = predicate.select_batch(&batch, context)?;
                         if !selected.is_empty() {
                             return batch.select(&selected).map(Some);
@@ -496,7 +502,11 @@ impl PhysicalOperator for Operator {
                 }
             }
             Node::Projection(input, expressions) => {
-                let batch_safe = expressions.iter().all(BoundExpr::is_pure_and_total);
+                // One root has no inter-column evaluations to reorder. The
+                // selected batch evaluator already promises logical row order,
+                // first errors and effects for a potentially fallible root.
+                let batch_safe =
+                    expressions.len() == 1 || expressions.iter().all(BoundExpr::is_pure_and_total);
                 let expressions = expressions
                     .iter()
                     .map(PreparedExpression::new)

@@ -9,6 +9,80 @@ impl CastFunction for ExactNumericCast {
     fn name(&self) -> &'static str {
         "exact-numeric-cast"
     }
+    fn is_total(&self, spec: &CastSpec) -> bool {
+        spec.source.unsigned_bits().is_some_and(|bits| {
+            spec.target
+                .unsigned_bits()
+                .is_some_and(|target| target >= bits)
+                || spec
+                    .target
+                    .integer_bits()
+                    .is_some_and(|target| target > bits)
+        })
+    }
+    fn preserves_integer_value(&self, spec: &CastSpec) -> bool {
+        self.is_total(spec)
+    }
+    fn cast_batch(
+        &self,
+        input: &crate::common::vector::Vector,
+        spec: &CastSpec,
+        query: &QueryContext,
+    ) -> Result<crate::common::vector::Vector> {
+        if spec.target == DataType::HugeInt && self.is_total(spec) {
+            let convert = |(index, value): (usize, &Value)| {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                Ok(match value {
+                    Value::Null => None,
+                    Value::Unsigned(value) => Some(*value as i128),
+                    _ => unreachable!("validated unsigned widening cast"),
+                })
+            };
+            return if let Some(values) = input.flat_values() {
+                crate::common::vector::Vector::try_hugeints(values.iter().enumerate().map(convert))
+            } else {
+                crate::common::vector::Vector::try_hugeints(input.values().enumerate().map(convert))
+            };
+        }
+        let mut output = Vec::with_capacity(input.len());
+        let total = self.is_total(spec);
+        let signed = spec.target.is_signed_integer();
+        let convert = |value: &Value| -> Result<Value> {
+            Ok(if value.is_null() {
+                Value::Null
+            } else if total {
+                let Value::Unsigned(value) = value else {
+                    return Err(Error::Internal("unsigned cast column".into()));
+                };
+                if signed {
+                    Value::Integer(*value as i128)
+                } else {
+                    Value::Unsigned(*value)
+                }
+            } else {
+                self.cast(value, spec, query)?
+            })
+        };
+        if let Some(values) = input.flat_values() {
+            for block in values.chunks(1024) {
+                query.check()?;
+                for value in block {
+                    output.push(convert(value)?);
+                }
+            }
+        } else {
+            for (index, value) in input.values().enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                output.push(convert(value)?);
+            }
+        }
+        query.check()?;
+        crate::common::vector::Vector::flat(spec.target.clone(), output)
+    }
     fn supports(&self, spec: &CastSpec) -> bool {
         let (a, b) = (&spec.source, &spec.target);
         if !(a.is_numeric() || matches!(a, DataType::Null | DataType::Boolean | DataType::Varchar))

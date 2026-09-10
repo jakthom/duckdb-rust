@@ -1,17 +1,18 @@
 # Test and performance parity
 
-**Full test parity and zero performance regressions are not achieved.** The
+**Full test and performance parity are not established.** The
 [accepted requirement](../specs/testing/parity.md) uses development revision
 `99063af2bd7092aff02e14184a20e24699d34d71` as the correctness authority when
 release and development disagree. Performance uses the faster pinned C++
 reference for each comparable workload. All previous 1.25 allowances are
 superseded. Faster workloads cannot compensate for slower workloads.
 
-The [numeric progress report](numeric-port.md) records the current unsigned and
-decimal foundation, 38 selected SQL cases matching development, the refreshed
-full upstream run, Kani results, and open native-file and performance gaps.
-Seven of eight new numeric workloads fail the [faster-reference gate](numeric-performance-fastest.json).
-The feature slice is not complete under the acceptance requirements.
+The [numeric progress report](numeric-port.md) retains the unsigned/decimal
+foundation checkpoint. Its seven failing timings are historical source evidence.
+The [binding follow-up](binding-regressions.md) fixes the two upstream SQL
+regressions; [numeric batch work](numeric-batches.md) records subsequent
+performance changes and pre-push checks. No selected campaign establishes full
+correctness, performance or native-file parity.
 
 The [earlier performance comparisons](settings/README.md) pass all sixteen
 measured workloads against both **v1.5.5** (`d8cdaa33fd`) and the pinned
@@ -58,7 +59,7 @@ full gate requires exact case identities and every scope obligation; a selected
 passing subset cannot satisfy it. A JSON-lines journal preserves each completed
 file even if the larger campaign stops before the final report.
 
-The [current full campaign](upstream-parity-numeric.json) records **305 passed
+The [numeric foundation campaign](upstream-parity-numeric.json) records **305 passed
 files**, 1,887 failures, 3,435 unsupported files, eight timeouts and three
 incomplete files. All 5,638 identities have exactly one outcome. Its 16,968
 passed SQL instances include prefixes of files that later fail; they are not
@@ -69,9 +70,24 @@ scope obligations remain unverified or unported.
 Against the older report, 110 files moved into passing status and two formerly
 passing files now fail: `test/issues/rigger/test_536.test` exposes a VARCHAR
 value changed by numeric VALUES coercion, and `test/sql/cte/cte_schema.test`
-fails with an ambiguous table reference. Both remain explicit obligations;
-the net increase is not a claim that no regressions exist. Many formerly
+fails with an ambiguous table reference. Both are fixed in the
+[binding-only serial refresh](upstream-parity-binding-regressions-final.json):
+313 passed files, 1,877 failures, 3,437 unsupported files, eight timeouts and
+three incomplete files. All 5,638 identities are accounted for, with 17,018
+passed records including prefixes of failed files. Eight files newly pass and
+none of the prior 305 passes is lost. This is not evidence for later batch
+source changes; their fresh validation is tracked separately. Many formerly
 unsupported files now reach an assertion failure instead.
+
+The [final batch-code refresh](upstream-parity-batches-final.json) repeats all
+5,638 files after the performance changes: 313 passed, 1,877 failed, 3,437
+unsupported, eight timeouts and three incomplete. Its 17,018 passed records
+include failed-file prefixes. No file changes status relative to the valid
+binding-only checkpoint, and the worker identity remains unchanged throughout
+the serial campaign. The [final 34-workload timing matrix](numeric-batches.md)
+passes each workload against the faster C++ reference in both Rust campaigns.
+These are scoped regression checks, not full test, native-file or performance
+parity; earlier failed campaigns remain retained.
 
 The [preceding full campaign](upstream-parity-final.json), recorded before the
 subsequent performance changes, records 197 passed files,

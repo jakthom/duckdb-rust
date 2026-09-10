@@ -3,7 +3,7 @@ use super::order::{ComparisonSort, RadixSort, SortAlgorithm};
 use crate::{
     common::{
         DataType, Error, Result, RowCollection, Value,
-        type_registry::{BoundType, KeyRepresentation, OrderingRepresentation},
+        type_registry::{BoundType, OrderingRepresentation},
         vector::{DataChunk, Vector},
     },
     execution::{

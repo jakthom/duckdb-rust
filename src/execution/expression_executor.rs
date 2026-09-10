@@ -55,6 +55,17 @@ impl EvaluationContext for QueryContext {
 /// strategy, but must preserve NULLs, short-circuiting, errors and declared
 /// function effects, and observe query cancellation during work.
 pub trait ExpressionEvaluator: Send + Sync {
+    /// Optional whole-batch selection proof. Some(true) selects all rows;
+    /// Some(false) selects none. It must preserve required validation, errors,
+    /// and effects. The default declines and keeps ordinary predicate work.
+    fn uniform_selection(
+        &self,
+        _expression: &BoundExpr,
+        _input: &crate::common::vector::DataChunk,
+        _context: &dyn EvaluationContext,
+    ) -> Result<Option<bool>> {
+        Ok(None)
+    }
     fn name(&self) -> &'static str;
     fn evaluate(
         &self,

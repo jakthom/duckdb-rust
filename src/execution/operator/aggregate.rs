@@ -85,6 +85,17 @@ fn ungrouped(
         .function
         .create_state(&types, context.query.types())?;
     while let Some(batch) = input.next(context.query.batch_size())? {
+        if let [argument] = aggregate.arguments.as_slice()
+            && let ExprKind::Column(index) = argument.kind
+        {
+            let column = batch
+                .columns()
+                .get(index)
+                .ok_or_else(|| Error::Internal("aggregate column outside input".into()))?;
+            state.update_column(column, context.query)?;
+            context.query.check()?;
+            continue;
+        }
         let columns = aggregate
             .arguments
             .iter()

@@ -1,0 +1,39 @@
+{
+  "workloads": [
+    {
+      "name": "order_all",
+      "selected_reference": "release",
+      "baseline_median_ns": 6247958,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 6247958,
+          "rust_median_ns": 4592542,
+          "rust_over_cpp": 0.7350468745148415,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 14559708,
+          "rust_median_ns": 4530500,
+          "rust_over_cpp": 0.31116695472189415,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.7350468745148415,
+        "development": 0.7251169101968995
+      },
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "max_ratio": 1.0,
+  "complete_performance_parity": false,
+  "scope": "Same workload/source/binary/host/configuration identities across two separately paired campaigns. Each workload selects the smaller C++ median and gates both retained Rust medians against it. All original samples and failed runs remain in the input reports. This is scoped latency evidence; CPU, memory, I/O, concurrency and other unmeasured costs remain open.",
+  "recorded_at": "2026-09-10T16:28:47.243235+00:00",
+  "inputs": {
+    "docs/numeric-batches-r-ordering-release.json": "65bfd2832d27e23e2222fd65b835cbdb8f4d980b8eb9e324999b29a43c9287de",
+    "docs/numeric-batches-r-ordering-development.json": "e596959ecf449520301761601650f9824089ace878b0912ff6a22b58b5c2cbe0",
+    "benchmark/ordering_workloads.json": "93f02564c7d31fb2ceec0e2eb0b0de2edbf226f28db308455ddf843a9f65a138"
+  },
+  "script_sha256": "a6e33d210f67138553400b7bfd0643c9f87bf85dca38d4d8f85cdc78689b16c8"
+}

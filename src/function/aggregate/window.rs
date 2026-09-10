@@ -11,12 +11,11 @@ pub(super) fn evaluate(
     // Count and narrow integer sums admit exact prefix subtraction for arbitrary
     // frames. Restrict widths so no frame's intermediate sum can overflow i128.
     let count = function.0 == "count";
-    let narrow_sum = function.0 == "sum"
-        && input
-            .argument_types
-            .first()
-            .and_then(DataType::integer_bits)
-            .is_some_and(|bits| bits <= 64);
+    let kernel = (function.0 == "sum")
+        .then(|| input.argument_types.first().and_then(SumKernel::bind))
+        .flatten()
+        .filter(|kernel| kernel.supports_count(input.arguments.len()));
+    let narrow_sum = kernel.is_some();
     if !input.options.distinct && (count || narrow_sum) {
         if input
             .frames
@@ -37,7 +36,12 @@ pub(super) fn evaluate(
                     included += 1;
                     if narrow_sum {
                         sum = sum
-                            .checked_add(row[0].as_i128()?)
+                            .checked_add(
+                                kernel
+                                    .unwrap()
+                                    .coefficient(&row[0])
+                                    .expect("non-NULL SUM argument"),
+                            )
                             .ok_or_else(|| Error::Execution("window sum overflow".into()))?;
                     }
                 }
@@ -47,7 +51,7 @@ pub(super) fn evaluate(
             } else if included == 0 {
                 Value::Null
             } else {
-                Value::Integer(sum)
+                kernel.unwrap().value(sum)
             };
             query.check()?;
             return Ok(Some(vec![value; input.arguments.len()]));
@@ -60,7 +64,10 @@ pub(super) fn evaluate(
             }
             let included = input.filter[index] && row.first().is_none_or(|value| !value.is_null());
             let value = if narrow_sum && included {
-                row[0].as_i128()?
+                kernel
+                    .unwrap()
+                    .coefficient(&row[0])
+                    .expect("non-NULL SUM argument")
             } else {
                 0
             };
@@ -86,7 +93,7 @@ pub(super) fn evaluate(
                 } else if size == 0 {
                     Value::Null
                 } else {
-                    Value::Integer(sums[frame.end] - sums[frame.start])
+                    kernel.unwrap().value(sums[frame.end] - sums[frame.start])
                 })
             })
             .collect::<Result<Vec<_>>>()

@@ -1,7 +1,12 @@
 # Numeric port progress
 
 Status: **in progress, not accepted as complete**. This records the unsigned and
-decimal foundation after incorporating Kani commits through `35f2d9c`.
+decimal foundation committed in `760fd9a`, after incorporating Kani commits
+through `35f2d9c`. The subsequent [binding follow-up](binding-regressions.md)
+fixes the two regressions identified below and refreshes the full SQL report.
+The [numeric batch follow-up](numeric-batches.md) records subsequent performance
+fixes, all retained failed trials, a passing 34-workload timing matrix and fresh
+SQL/native evidence. The full upstream refresh loses no previously passing file.
 Development governs correctness disagreements; each comparable workload must
 match or beat the faster pinned C++ reference. See the
 [acceptance specification](../specs/testing/parity.md).
@@ -20,13 +25,15 @@ match or beat the faster pinned C++ reference. See the
   the binder inserts selected casts and validates arity and result metadata.
 - Native-width and independent decimal-digit type adapters share ordering,
   equality-key, ownership, validation and cancellation tests. Consumers use the
-  selected adapter; unsigned/decimal values do not advertise signed-key shortcuts.
+  selected adapter. The later batch work adds a separate numeric equality
+  coefficient capability, which does not advertise signed SQL ordering.
 - Numeric values, defaults, constraints and indexes round-trip through JSON and
   native checkpoint adapters. Native numeric WAL encoding and ART keys support
   these types. Foreign index options are parsed as serialized key/value pairs;
   physical indexes are reconstructed from validated logical rows.
 
-The six numeric component tests cover unsigned boundaries, every valid decimal
+At the foundation checkpoint, six numeric component tests cover unsigned
+boundaries, every valid decimal
 precision/scale pair with representative boundary coefficients, exact rounding,
 metadata, aggregates, joins, sets, windows, both type adapters, both index
 adapters, both snapshot formats, rollback and reopen. This is not exhaustive
@@ -34,7 +41,7 @@ numeric SQL, cast, arithmetic or persistence coverage.
 
 ## Independent C++ evidence
 
-The [current reference report](numeric-reference.json) retains SQL, typed rows,
+The [foundation reference report](numeric-reference.json) retains SQL, typed rows,
 complete errors, source/binary identities and outcomes for both references:
 
 | Scope | Development | Release v1.5.5 |
@@ -71,9 +78,12 @@ preceding report had 197 passing files; the new net increase is 108, with 110
 newly passing and two formerly passing files now failing. This spans the
 relational work as well as numeric changes, so it is not a numeric-only delta.
 
-Two regressions remain visible: numeric common-type inference for INSERT VALUES
+Two regressions were visible at this checkpoint: numeric common-type inference
+for INSERT VALUES
 changes a VARCHAR zero to a scaled decimal string in `rigger/test_536.test`, and
-`cte_schema.test` reports an ambiguous table reference. Additional numeric gaps
+`cte_schema.test` reports an ambiguous table reference. Both are corrected in the
+[binding follow-up](binding-regressions.md), without changing upstream assertions.
+Additional numeric gaps
 include large literals/coercion, scalar functions, full diagnostic wording,
 division-by-zero configuration and imported SQLLogicTest numeric output rules.
 Neither failures nor unsupported harness controls are counted as passes.

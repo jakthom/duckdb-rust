@@ -4,6 +4,13 @@ This increment implements three engine capabilities in Rust. Full DuckDB test,
 file, client, extension and performance parity remains open. No C++ library is
 used by these operators; C++ is the external compatibility and timing reference.
 
+This report retains the earlier relational checkpoint. The subsequent
+[binding regression follow-up](binding-regressions.md) adds schema/CTE namespace
+resolution, fixes a previously passing upstream case and records fresh assertion
+evidence. The timings below are historical; the
+[numeric batch follow-up](numeric-batches.md) records the latest all-34-workload
+refresh, including these ten relational cases, against both pinned references.
+
 | Capability | Implemented behavior | Principal code |
 | --- | --- | --- |
 | NATURAL and USING joins | Inner, outer, semi and anti joins; merged keys and original qualified keys; wildcard order; chained joins; derived aliases and correlated scopes; type coercion and NULL padding | [Binding scope](../src/planner/binder/scope.rs), [table binding](../src/planner/binder/table.rs), [hash join](../src/execution/operator/join/hash.rs) |

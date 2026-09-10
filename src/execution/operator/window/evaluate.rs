@@ -19,11 +19,12 @@ pub(super) fn evaluate(
     }
     let mut columns = Vec::new();
     for (index, field) in schema.iter().enumerate() {
-        let mut values = Vec::with_capacity(count);
-        for batch in &batches {
-            batch.columns()[index].append_to(&mut values);
-        }
-        columns.push(Vector::flat(field.data_type.clone(), values)?);
+        let pieces = batches
+            .iter()
+            .map(|batch| batch.columns()[index].clone())
+            .collect::<Vec<_>>();
+        context.query.check()?;
+        columns.push(Vector::concatenate(field.data_type.clone(), &pieces)?);
     }
     for window in windows {
         let data = PreparedWindow::new(&batches, window, context)?;
@@ -34,6 +35,13 @@ pub(super) fn evaluate(
             .collect::<Vec<_>>();
         let result_type = context.query.types().bind(&window.data_type)?;
         let mut values = vec![Value::Null; count];
+        // Retain flat signed output: complete result materialization is cheaper
+        // without dictionary gathering. Numeric conversions downstream justify
+        // compact unsigned/decimal output in this increment.
+        let mut dictionary = (window.data_type.is_unsigned_integer()
+            || window.data_type.is_decimal())
+        .then(Vec::new);
+        let mut selection = vec![0; if dictionary.is_some() { count } else { 0 }];
         for indices in partition(&data, window, context)? {
             let n = indices.len();
             if n == 0 {
@@ -115,6 +123,17 @@ pub(super) fn evaluate(
                     "window function returned wrong cardinality".into(),
                 ));
             }
+            if let Some(entries) = &mut dictionary {
+                if output.iter().all(|value| value == &output[0]) {
+                    for &index in &indices {
+                        selection[index] = entries.len();
+                    }
+                    entries.push(output[0].clone());
+                } else {
+                    dictionary = None;
+                    selection.clear();
+                }
+            }
             for (index, value) in indices.into_iter().zip(output) {
                 if result_type.requires_logical_validation() {
                     result_type
@@ -129,14 +148,25 @@ pub(super) fn evaluate(
                 values[index] = value;
             }
         }
-        columns.push(Vector::flat(window.data_type.clone(), values).map_err(
-            |error| match error {
+        let column =
+            Vector::flat(window.data_type.clone(), values).map_err(|error| match error {
                 Error::Conversion(_) => {
                     Error::Internal("window function returned invalid physical value".into())
                 }
                 other => other,
+            })?;
+        columns.push(
+            if let Some(entries) =
+                dictionary.filter(|entries| entries.len() <= count / 4 && count > 0)
+            {
+                // Validate all function outputs before compacting. Only exact
+                // physical equality permits reuse; floating-point SQL equality
+                // would incorrectly merge signed-zero payloads.
+                Arc::new(Vector::flat(window.data_type.clone(), entries)?).select(selection)?
+            } else {
+                column
             },
-        )?);
+        );
     }
     context.query.check()?;
     DataChunk::new(columns, count)

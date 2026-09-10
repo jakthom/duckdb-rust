@@ -3,8 +3,10 @@ use std::sync::Arc;
 use super::{AggregateFunction, AggregateState, FunctionRegistry};
 use crate::common::{DataType, Error, Result, Value};
 
+mod exact;
 mod groups;
 mod window;
+use exact::SumKernel;
 
 #[derive(Debug)]
 struct Builtin(&'static str);
@@ -114,15 +116,29 @@ impl AggregateState for State {
                 .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
             return Ok(());
         };
-        if self.name == "sum"
-            && (self.data_type != DataType::HugeInt || !column.data_type().is_signed_integer())
-        {
-            return super::update_aggregate_rows(self, arguments, context);
-        }
+        self.update_column(column, context)
+    }
+    fn update_column(
+        &mut self,
+        column: &crate::common::vector::Vector,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<()> {
+        context.check()?;
         if self.name == "sum" && self.sum_dense(column, context)? {
             return Ok(());
         }
-        self.update_column(column, context)
+        if self.name == "count"
+            || (self.name == "sum"
+                && self.data_type == DataType::HugeInt
+                && column.data_type().is_signed_integer())
+        {
+            return self.update_integer_column(column, context);
+        }
+        for value in column.values() {
+            context.check()?;
+            self.update(std::slice::from_ref(value), context)?;
+        }
+        context.check()
     }
     fn update(&mut self, args: &[Value], context: &crate::parallel::QueryContext) -> Result<()> {
         let value = args.first().cloned().unwrap_or(Value::Integer(1));
@@ -237,43 +253,44 @@ impl State {
         column: &crate::common::vector::Vector,
         context: &crate::parallel::QueryContext,
     ) -> Result<bool> {
-        let Some(bits) = column.data_type().integer_bits().filter(|bits| *bits <= 64) else {
+        let Some(kernel) = SumKernel::bind(column.data_type()) else {
             return Ok(false);
         };
+        if kernel.result_type() != self.data_type {
+            return Ok(false);
+        }
         let Some(values) = column.flat_values().filter(|_| column.all_valid()) else {
             return Ok(false);
         };
         let mut sum = match self.value {
             Value::Null => 0,
             Value::Integer(value) => value,
+            Value::Decimal { value, .. } => value,
             _ => return Ok(false),
         };
-        let Some(bound) = (1_i128 << (bits - 1)).checked_mul(values.len() as i128) else {
+        let Some(bound) = kernel.maximum_magnitude().checked_mul(values.len() as i128) else {
             return Ok(false);
         };
-        if sum.checked_add(bound).is_none() || sum.checked_sub(bound).is_none() {
+        if !sum.checked_add(bound).is_some_and(|v| kernel.valid_sum(v))
+            || !sum.checked_sub(bound).is_some_and(|v| kernel.valid_sum(v))
+        {
             return Ok(false);
         }
         for block in values.chunks(1024) {
             context.check()?;
-            let integer = |value: &Value| match value {
-                Value::Integer(value) => *value as i64,
-                _ => unreachable!("validated non-NULL narrow integer column"),
-            };
             // Keep the hot loop in a machine-width accumulator. A block that
             // exceeds that width is recomputed in i128; the prefix range proof
             // above makes both paths exact, including near HUGEINT bounds.
-            let part = sum_narrow(block, integer)
-                .unwrap_or_else(|| block.iter().map(|value| i128::from(integer(value))).sum());
+            let part = kernel.block_sum(block);
             sum += part;
         }
         if !values.is_empty() {
-            self.value = Value::Integer(sum);
+            self.value = kernel.value(sum);
         }
         context.check()?;
         Ok(true)
     }
-    fn update_column(
+    fn update_integer_column(
         &mut self,
         column: &crate::common::vector::Vector,
         context: &crate::parallel::QueryContext,
@@ -342,17 +359,44 @@ impl State {
 /// Independent machine-width lanes avoid a carry dependency across every row.
 /// Failure requests the wide kernel; it is not a SQL overflow. The caller must
 /// separately prove that every logical prefix fits the SQL accumulator.
-fn sum_narrow(values: &[Value], integer: impl Fn(&Value) -> i64) -> Option<i128> {
+fn sum_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> Option<i128> {
     let mut lanes = [0_i64; 4];
     let mut blocks = values.chunks_exact(4);
     for block in &mut blocks {
         for (lane, value) in lanes.iter_mut().zip(block) {
-            *lane = lane.checked_add(integer(value))?;
+            *lane = lane.checked_add(integer(value)?)?;
         }
     }
     let mut sum: i128 = lanes.into_iter().map(i128::from).sum();
     for value in blocks.remainder() {
-        sum += i128::from(integer(value));
+        sum += i128::from(integer(value)?);
     }
     Some(sum)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Caller proves the sum of all input magnitudes fits i64, so every lane does
+/// too. Physical dispatch is monomorphic for this block, outside the hot loop.
+fn sum_proven_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> i128 {
+    let mut lanes = [0_i64; 4];
+    let mut valid = true;
+    let mut blocks = values.chunks_exact(4);
+    for block in &mut blocks {
+        for (lane, value) in lanes.iter_mut().zip(block) {
+            let value = integer(value);
+            valid &= value.is_some();
+            *lane += value.unwrap_or_default();
+        }
+    }
+    let mut sum: i128 = lanes.into_iter().map(i128::from).sum();
+    for value in blocks.remainder() {
+        let value = integer(value);
+        valid &= value.is_some();
+        sum += i128::from(value.unwrap_or_default());
+    }
+    // Physical construction and the caller's non-NULL proof establish this.
+    // Accumulate the invariant check without a branch per lane; never publish
+    // a sum if an internal caller supplied a different physical kind.
+    assert!(valid, "validated narrow SUM input");
+    sum
 }

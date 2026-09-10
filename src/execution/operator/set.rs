@@ -1,10 +1,6 @@
 //! Typed SQL set and multiset operations over independently opened streams.
 use crate::{
-    common::{
-        Error, Result, Value,
-        type_registry::{BoundType, KeyRepresentation},
-        vector::DataChunk,
-    },
+    common::{Error, Result, type_registry::BoundType, vector::DataChunk},
     execution::{
         ExecutionContext,
         physical_plan::PhysicalOperator,
@@ -162,15 +158,12 @@ fn key(
 ) -> Result<Key> {
     // Checked input streams establish logical validity before this capability is used.
     if let [data_type] = types
-        && data_type.key_representation() == KeyRepresentation::Integer
+        && data_type.key_representation().has_integer_keys()
     {
-        return match batch.columns()[0].get(index) {
-            Some(Value::Integer(value)) => Ok(Key::Integer(Some(*value))),
-            Some(Value::Null) => Ok(Key::Integer(None)),
-            _ => Err(Error::Internal(
-                "integer key has another representation".into(),
-            )),
-        };
+        return data_type
+            .key_representation()
+            .integer_key(batch.columns()[0].get(index).expect("valid batch row"))
+            .map(Key::Integer);
     }
     let mut key = Vec::new();
     for (column, data_type) in batch.columns().iter().zip(types) {

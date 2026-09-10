@@ -88,6 +88,32 @@ pub struct PreparedExpression<'a> {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> PreparedExpression<'a> {
+    pub fn uniform_selection(
+        &self,
+        input: &crate::common::vector::DataChunk,
+        context: &ExecutionContext<'_>,
+    ) -> Result<Option<bool>> {
+        if self.expression.data_type != crate::DataType::Boolean {
+            return Err(crate::Error::Internal(
+                "filter predicate must be Boolean".into(),
+            ));
+        }
+        if input.len() < 2
+            || !self.dependencies.is_empty()
+            || context
+                .query
+                .types()
+                .bind(&crate::DataType::Boolean)?
+                .requires_logical_validation()
+        {
+            return Ok(None);
+        }
+        let result = context
+            .expressions
+            .uniform_selection(self.expression, input, context);
+        context.query.check()?;
+        result
+    }
     pub fn new(expression: &'a BoundExpr) -> Self {
         let mut dependencies = Vec::new();
         collect(expression, &mut dependencies);

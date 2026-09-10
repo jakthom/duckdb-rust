@@ -29,7 +29,7 @@ impl State<'_, '_> {
         constraint: &ast::JoinConstraint,
     ) -> Result<Relation> {
         let offset = left.plan.schema.len();
-        let mut scope = left.scope.combine(&right.scope)?;
+        let mut scope = left.scope.combine(&right.scope);
         let names = match constraint {
             ast::JoinConstraint::Using(names) => names
                 .iter()
@@ -159,6 +159,7 @@ impl State<'_, '_> {
                 Ok(relation)
             };
         }
+        let mut namespace = None;
         let (mut plan, table_alias) = match factor {
             ast::TableFactor::Table {
                 name,
@@ -233,6 +234,7 @@ impl State<'_, '_> {
                             alias,
                         )
                     } else {
+                        namespace = Some(table.clone());
                         (
                             LogicalPlan {
                                 schema: schema(&self.context.catalog.table(&table)?),
@@ -254,7 +256,13 @@ impl State<'_, '_> {
         if let Some(table_alias) = table_alias {
             alias(&mut plan, table_alias)?;
         }
-        Ok(plan.into())
+        let mut relation: Relation = plan.into();
+        if table_alias.is_none()
+            && let Some(table) = namespace
+        {
+            relation.scope.qualify_table(&table);
+        }
+        Ok(relation)
     }
 
     pub(super) fn order(

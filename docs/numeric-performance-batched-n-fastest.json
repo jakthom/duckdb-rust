@@ -1,0 +1,207 @@
+{
+  "workloads": [
+    {
+      "name": "unsigned_scan",
+      "selected_reference": "release",
+      "baseline_median_ns": 841291,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 841291,
+          "rust_median_ns": 234000,
+          "rust_over_cpp": 0.27814394781353896,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 1082375,
+          "rust_median_ns": 243375,
+          "rust_over_cpp": 0.22485275435962582,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.27814394781353896,
+        "development": 0.28928753546632496
+      },
+      "passed": true
+    },
+    {
+      "name": "unsigned_filter",
+      "selected_reference": "release",
+      "baseline_median_ns": 511375,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 511375,
+          "rust_median_ns": 380750,
+          "rust_over_cpp": 0.7445612319726228,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 648333,
+          "rust_median_ns": 396375,
+          "rust_over_cpp": 0.6113756356687073,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.7445612319726228,
+        "development": 0.7751161085309215
+      },
+      "passed": true
+    },
+    {
+      "name": "unsigned_sum",
+      "selected_reference": "release",
+      "baseline_median_ns": 345583,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 345583,
+          "rust_median_ns": 52458,
+          "rust_over_cpp": 0.15179566124491078,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 466667,
+          "rust_median_ns": 54750,
+          "rust_over_cpp": 0.11732134477046802,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.15179566124491078,
+        "development": 0.158427931929522
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_filter",
+      "selected_reference": "release",
+      "baseline_median_ns": 58458,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 58458,
+          "rust_median_ns": 28416,
+          "rust_over_cpp": 0.4860925792876937,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 188750,
+          "rust_median_ns": 30667,
+          "rust_over_cpp": 0.16247417218543048,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.4860925792876937,
+        "development": 0.5245988572992576
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_total_cents",
+      "selected_reference": "release",
+      "baseline_median_ns": 49250,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 49250,
+          "rust_median_ns": 46167,
+          "rust_over_cpp": 0.9374010152284264,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 171167,
+          "rust_median_ns": 47500,
+          "rust_over_cpp": 0.27750676240163114,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.9374010152284264,
+        "development": 0.9644670050761421
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_grouped_cents",
+      "selected_reference": "release",
+      "baseline_median_ns": 414125,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 414125,
+          "rust_median_ns": 370166,
+          "rust_over_cpp": 0.893850890431633,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 602208,
+          "rust_median_ns": 380875,
+          "rust_over_cpp": 0.6324641984164939,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.893850890431633,
+        "development": 0.9197102324177483
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_equality_join",
+      "selected_reference": "release",
+      "baseline_median_ns": 892917,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 892917,
+          "rust_median_ns": 800709,
+          "rust_over_cpp": 0.8967339629551235,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 1066083,
+          "rust_median_ns": 807416,
+          "rust_over_cpp": 0.7573669217124746,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.8967339629551235,
+        "development": 0.9042452993951285
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_window_cents",
+      "selected_reference": "release",
+      "baseline_median_ns": 5282875,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 5282875,
+          "rust_median_ns": 2370167,
+          "rust_over_cpp": 0.44865097129877196,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 5574416,
+          "rust_median_ns": 2402041,
+          "rust_over_cpp": 0.430904510894056,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.44865097129877196,
+        "development": 0.45468442845988216
+      },
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "max_ratio": 1.0,
+  "complete_performance_parity": false,
+  "scope": "Same workload/source/binary/host/configuration identities across two separately paired campaigns. Each workload selects the smaller C++ median and gates both retained Rust medians against it. All original samples and failed runs remain in the input reports. This is scoped latency evidence; CPU, memory, I/O, concurrency and other unmeasured costs remain open.",
+  "recorded_at": "2026-09-10T16:05:15.259207+00:00",
+  "inputs": {
+    "docs/numeric-performance-batched-n-release.json": "59d43565d145248981be9987bef0de95150b29db664fa170a9baf524d70bc9e7",
+    "docs/numeric-performance-batched-n-development.json": "efa752acd5064a27f465f71ff52f362981545b0381ef6b30953b79725c6bbf88",
+    "benchmark/numeric_workloads.json": "e7dae563dda33f243b1859acafa214d40436b4bb20289a47b9a58cc8d3213555"
+  },
+  "script_sha256": "a6e33d210f67138553400b7bfd0643c9f87bf85dca38d4d8f85cdc78689b16c8"
+}

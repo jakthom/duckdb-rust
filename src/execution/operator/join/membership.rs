@@ -26,7 +26,9 @@ impl MembershipBuilder {
     pub fn new(data_type: Arc<BoundType>) -> Self {
         let keys = match data_type.key_representation() {
             KeyRepresentation::CanonicalBytes => BuildKeys::Bytes(HashSet::new()),
-            KeyRepresentation::Integer => BuildKeys::Integers(HashSet::new()),
+            KeyRepresentation::Integer | KeyRepresentation::NumericCoefficient => {
+                BuildKeys::Integers(HashSet::new())
+            }
         };
         Self { data_type, keys }
     }
@@ -45,11 +47,16 @@ impl MembershipBuilder {
             BuildKeys::Integers(keys) => {
                 self.data_type.validate_vector(input, context)?;
                 keys.try_reserve(input.len()).map_err(allocation_error)?;
-                visit_integers(input, context, |_, key| {
-                    if let Some(key) = key {
-                        keys.insert(key);
-                    }
-                })
+                visit_integers(
+                    input,
+                    self.data_type.key_representation(),
+                    context,
+                    |_, key| {
+                        if let Some(key) = key {
+                            keys.insert(key);
+                        }
+                    },
+                )
             }
         }
     }
@@ -113,26 +120,36 @@ impl MembershipIndex {
             }
             ProbeKeys::Integers(keys) => {
                 self.data_type.validate_vector(input, context)?;
-                visit_integers(input, context, |row, key| {
-                    if key.is_some_and(|key| keys.contains(&key)) == matched {
-                        selected.push(row);
-                    }
-                })?;
+                visit_integers(
+                    input,
+                    self.data_type.key_representation(),
+                    context,
+                    |row, key| {
+                        if key.is_some_and(|key| keys.contains(&key)) == matched {
+                            selected.push(row);
+                        }
+                    },
+                )?;
             }
             ProbeKeys::Dense { minimum, bits } => {
                 self.data_type.validate_vector(input, context)?;
-                visit_integers(input, context, |row, key| {
-                    let offset = key
-                        .and_then(|key| key.checked_sub(*minimum))
-                        .and_then(|offset| usize::try_from(offset).ok());
-                    let found = offset.is_some_and(|offset| {
-                        bits.get(offset / 64)
-                            .is_some_and(|word| word & (1 << (offset % 64)) != 0)
-                    });
-                    if found == matched {
-                        selected.push(row);
-                    }
-                })?;
+                visit_integers(
+                    input,
+                    self.data_type.key_representation(),
+                    context,
+                    |row, key| {
+                        let offset = key
+                            .and_then(|key| key.checked_sub(*minimum))
+                            .and_then(|offset| usize::try_from(offset).ok());
+                        let found = offset.is_some_and(|offset| {
+                            bits.get(offset / 64)
+                                .is_some_and(|word| word & (1 << (offset % 64)) != 0)
+                        });
+                        if found == matched {
+                            selected.push(row);
+                        }
+                    },
+                )?;
             }
         }
         Ok(selected)
@@ -181,30 +198,44 @@ fn allocation_error(_: std::collections::TryReserveError) -> Error {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn visit_integers(
     input: &Vector,
+    representation: KeyRepresentation,
     context: &QueryContext,
     visit: impl FnMut(usize, Option<i128>),
 ) -> Result<()> {
     fn values<'a>(
         values: impl Iterator<Item = &'a Value>,
+        representation: KeyRepresentation,
         context: &QueryContext,
         mut visit: impl FnMut(usize, Option<i128>),
     ) -> Result<()> {
+        if representation == KeyRepresentation::Integer {
+            // The selected capability and caller's logical validation prove
+            // signed storage. Decode once per row without capability dispatch.
+            for (row, value) in values.enumerate() {
+                if row % 1024 == 0 {
+                    context.check()?;
+                }
+                let key = match value {
+                    Value::Integer(value) => Some(*value),
+                    Value::Null => None,
+                    _ => unreachable!("validated signed membership key"),
+                };
+                visit(row, key);
+            }
+            return context.check();
+        }
         for (row, value) in values.enumerate() {
             if row % 1024 == 0 {
                 context.check()?;
             }
-            let key = match value {
-                Value::Null => None,
-                Value::Integer(value) => Some(*value),
-                _ => return Err(Error::Internal("invalid integer equality key".into())),
-            };
+            let key = representation.integer_key(value)?;
             visit(row, key);
         }
         context.check()
     }
     if let Some(flat) = input.flat_values() {
-        values(flat.iter(), context, visit)
+        values(flat.iter(), representation, context, visit)
     } else {
-        values(input.values(), context, visit)
+        values(input.values(), representation, context, visit)
     }
 }

@@ -25,6 +25,24 @@ pub enum ValueValidation {
     Logical,
 }
 
+/// Which non-NULL comparison outcomes satisfy a predicate. NULL never matches.
+#[derive(Clone, Copy, Debug)]
+pub struct ComparisonPredicate {
+    pub less: bool,
+    pub equal: bool,
+    pub greater: bool,
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ComparisonPredicate {
+    pub fn matches(self, ordering: Ordering) -> bool {
+        match ordering {
+            Ordering::Less => self.less,
+            Ordering::Equal => self.equal,
+            Ordering::Greater => self.greater,
+        }
+    }
+}
+
 /// Equality-key capabilities selected by the type adapter, not inferred by a
 /// consumer from a physical type or the adapter's concrete implementation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +54,50 @@ pub enum KeyRepresentation {
     /// Only physical integer types can advertise this capability. Consumers
     /// still validate logical invariants and handle NULLs themselves.
     Integer,
+    /// Unsigned payload bits or a decimal coefficient form an injective i128
+    /// equality key within the bound logical type. u128 is reinterpreted, not
+    /// range-converted. This grants NO SQL ordering or signed arithmetic proof.
+    /// Only unsigned/decimal physical types may advertise this capability.
+    NumericCoefficient,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl KeyRepresentation {
+    pub fn has_integer_keys(self) -> bool {
+        matches!(self, Self::Integer | Self::NumericCoefficient)
+    }
+    /// Extract a compact equality key after physical/logical validation. NULL
+    /// remains distinct. The selected capability, not the consumer, defines
+    /// the mapping; a byte-key adapter cannot enter this path.
+    #[inline]
+    pub fn integer_key(self, value: &Value) -> Result<Option<i128>> {
+        match (self, value) {
+            (Self::Integer | Self::NumericCoefficient, Value::Null) => Ok(None),
+            (Self::Integer, Value::Integer(value)) => Ok(Some(*value)),
+            (Self::NumericCoefficient, Value::Unsigned(value)) => Ok(Some(*value as i128)),
+            (Self::NumericCoefficient, Value::Decimal { value, .. }) => Ok(Some(*value)),
+            _ => Err(Error::Internal(
+                "value differs from its compact equality-key capability".into(),
+            )),
+        }
+    }
+}
+
+#[cfg(kani)]
+mod verification {
+    use super::*;
+    #[kani::proof]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn kani_unsigned_coefficient_keys_preserve_full_width_identity_and_nulls() {
+        let a: u128 = kani::any();
+        let b: u128 = kani::any();
+        let representation = KeyRepresentation::NumericCoefficient;
+        let left = representation.integer_key(&Value::Unsigned(a)).unwrap();
+        let right = representation.integer_key(&Value::Unsigned(b)).unwrap();
+        assert_eq!(left == right, a == b);
+        assert_eq!(left.unwrap() as u128, a);
+        assert_ne!(left, representation.integer_key(&Value::Null).unwrap());
+    }
 }
 
 /// Ordering capabilities are independent of equality-key representation.
@@ -101,6 +163,35 @@ pub trait TypeAdapter: Debug + Send + Sync {
         batch::compare_values(left, right, context, |a, b| {
             self.compare(data_type, a, b, context)
         })
+    }
+    /// Return every matching logical row exactly once in ascending row order.
+    /// Inputs have identical bound metadata and cardinality and are validated.
+    /// The default retains the selected scalar comparison and error order.
+    fn select_comparison(
+        &self,
+        data_type: &DataType,
+        left: &super::vector::Vector,
+        right: &super::vector::Vector,
+        predicate: ComparisonPredicate,
+        context: &QueryContext,
+    ) -> Result<Vec<usize>> {
+        batch::select_values(left, right, predicate, context, |a, b| {
+            self.compare(data_type, a, b, context)
+        })
+    }
+    /// Optional proof that every row has the same predicate outcome. Some
+    /// replaces comparison work only after validation; it promises the same
+    /// values and no omitted data-dependent errors. None preserves normal
+    /// comparison. NULL never matches, including for an all-true proof.
+    fn uniform_comparison(
+        &self,
+        _data_type: &DataType,
+        _left: &super::vector::Vector,
+        _right: &super::vector::Vector,
+        _predicate: ComparisonPredicate,
+        _context: &QueryContext,
+    ) -> Result<Option<bool>> {
+        Ok(None)
     }
     /// Append the canonical bytes of one validated, non-NULL value. The writer
     /// permits appends only and bounds key size; it cannot alter earlier keys.
@@ -246,6 +337,14 @@ impl TypeRegistry {
         if key_representation == KeyRepresentation::Integer && !data_type.is_signed_integer() {
             return Err(Error::Bind(
                 "integer equality keys require a physical integer type".into(),
+            ));
+        }
+        if key_representation == KeyRepresentation::NumericCoefficient
+            && !data_type.is_unsigned_integer()
+            && !data_type.is_decimal()
+        {
+            return Err(Error::Bind(
+                "numeric coefficient keys require unsigned or decimal physical types".into(),
             ));
         }
         let ordering_representation = adapter.ordering_representation(data_type);
@@ -461,6 +560,23 @@ impl TypeAdapter for PrimitiveTypes {
             })
         } else {
             batch::compare_values(left, right, context, Value::compare)
+        }
+    }
+    fn select_comparison(
+        &self,
+        data_type: &DataType,
+        left: &super::vector::Vector,
+        right: &super::vector::Vector,
+        predicate: ComparisonPredicate,
+        context: &QueryContext,
+    ) -> Result<Vec<usize>> {
+        if data_type.is_signed_integer() {
+            batch::select_values(left, right, predicate, context, |a, b| match (a, b) {
+                (Value::Integer(a), Value::Integer(b)) => Ok(a.cmp(b)),
+                _ => Err(Error::Internal("invalid integer comparison input".into())),
+            })
+        } else {
+            batch::select_values(left, right, predicate, context, Value::compare)
         }
     }
     fn write_key(

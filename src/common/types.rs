@@ -257,7 +257,7 @@ impl Value {
                     }
                     && (1..=38).contains(width)
                     && scale <= width
-                    && value.unsigned_abs() < 10_u128.pow(u32::from(*width))
+                    && value.unsigned_abs() < super::numeric::DECIMAL_POWERS[usize::from(*width)]
             }
             Self::Extension(value) => {
                 matches!(value.data_type, DataType::Extension(_))

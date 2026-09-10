@@ -117,8 +117,12 @@ impl State<'_, '_> {
                 if columns.iter().collect::<HashSet<_>>().len() != columns.len() {
                     return Err(Error::Bind("duplicate INSERT column".into()));
                 }
+                let types = columns
+                    .iter()
+                    .map(|&i| fields[i].data_type.clone())
+                    .collect::<Vec<_>>();
                 let source = if let Some(source) = &insert.source {
-                    self.query(source)?
+                    self.query_with_value_types(source, Some(&types))?
                 } else {
                     LogicalPlan {
                         schema: columns.iter().map(|&i| fields[i].clone()).collect(),
@@ -142,10 +146,6 @@ impl State<'_, '_> {
                         "INSERT column count does not match source".into(),
                     ));
                 }
-                let types = columns
-                    .iter()
-                    .map(|&i| fields[i].data_type.clone())
-                    .collect::<Vec<_>>();
                 let source = self.coerce_plan(source, &types, CastMode::Assignment)?;
                 Ok(BoundStatement::Insert {
                     table,

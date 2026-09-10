@@ -406,7 +406,9 @@ impl OperatorRegistry {
                 coercions: vec![entry.coercion; arguments.len()],
             });
         }
-        let mut best: Option<(&Entry, u64, Vec<CastMode>)> = None;
+        // All declared operators have one or two arguments. Candidate scoring
+        // needs no heap allocation; retain owned modes only for the winner.
+        let mut best: Option<(&Entry, u64, [CastMode; 2])> = None;
         let mut ambiguous = false;
         let generated = self.specialize(operator, arguments)?;
         for entry in self
@@ -417,7 +419,8 @@ impl OperatorRegistry {
         {
             query.check()?;
             let mut cost = 0_u64;
-            let mut modes = Vec::with_capacity(arguments.len());
+            let mut modes = [CastMode::Implicit; 2];
+            let mut converted = 0;
             for (argument, target) in arguments.iter().zip(&entry.signature.arguments) {
                 let literal = target.is_integer()
                     && argument.integer_literal.is_some_and(|n| {
@@ -442,9 +445,10 @@ impl OperatorRegistry {
                     part = part.saturating_sub(90);
                 }
                 cost += u64::from(part);
-                modes.push(mode);
+                modes[converted] = mode;
+                converted += 1;
             }
-            if modes.len() != arguments.len() {
+            if converted != arguments.len() {
                 continue;
             }
             match &best {
@@ -463,7 +467,7 @@ impl OperatorRegistry {
             best.ok_or_else(|| Error::Bind(format!("no applicable {operator:?} overload")))?;
         Ok(ResolvedOperator {
             function: Arc::new(Self::bind_entry(entry, types)?),
-            coercions,
+            coercions: coercions[..arguments.len()].to_vec(),
         })
     }
     pub fn adapters(&self) -> Vec<(&'static str, &'static str)> {

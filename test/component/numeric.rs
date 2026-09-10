@@ -7,6 +7,109 @@ use duckdb_rust::parallel::QueryContext;
 use duckdb_rust::{DataType, Database, Error, Result, Value};
 use std::sync::Arc;
 
+#[path = "numeric_batches.rs"]
+mod batches;
+#[path = "numeric_contracts.rs"]
+mod contracts;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn insert_values_assign_each_expression_without_intermediate_common_coercion() -> Result<()> {
+    use duckdb_rust::{
+        DatabaseBuilder,
+        execution::expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
+        optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
+    };
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            for batch_size in [1, 3, 2048] {
+                let mut c = DatabaseBuilder::new()
+                    .expressions(expressions.clone())
+                    .optimizer(optimizer.clone())
+                    .batch_size(batch_size)
+                    .build()?
+                    .connect();
+                c.execute(
+                    "CREATE TABLE v(s VARCHAR); INSERT INTO v VALUES (1.25),(0),('hello'),(NULL)",
+                )?;
+                assert_eq!(
+                    c.query("SELECT s FROM v")?.rows,
+                    vec![
+                        vec![Value::Varchar("1.25".into())],
+                        vec![Value::Varchar("0".into())],
+                        vec![Value::Varchar("hello".into())],
+                        vec![Value::Null]
+                    ]
+                );
+                c.execute("DELETE FROM v; INSERT INTO v(s) (VALUES (1.25),(0))")?;
+                assert_eq!(
+                    c.query("SELECT s FROM v")?.rows,
+                    vec![
+                        vec![Value::Varchar("1.25".into())],
+                        vec![Value::Varchar("0".into())]
+                    ]
+                );
+                c.execute("DELETE FROM v; INSERT INTO v SELECT * FROM (VALUES (1.25),(0)) q")?;
+                assert_eq!(
+                    c.query("SELECT s FROM v")?.rows,
+                    vec![
+                        vec![Value::Varchar("1.25".into())],
+                        vec![Value::Varchar("0.00".into())]
+                    ]
+                );
+                c.execute(
+                    "DELETE FROM v; INSERT INTO v WITH unused AS (SELECT 1) VALUES (1.25),(0)",
+                )?;
+                assert_eq!(
+                    c.query("SELECT s FROM v")?.rows,
+                    vec![
+                        vec![Value::Varchar("1.25".into())],
+                        vec![Value::Varchar("0.00".into())]
+                    ]
+                );
+                c.execute("CREATE TABLE ordered(d DECIMAL(4,1), s VARCHAR, u UTINYINT); INSERT INTO ordered(s,u,d) VALUES (1.25,255,1.249),(0,0,2)")?;
+                assert_eq!(
+                    c.query("SELECT * FROM ordered")?.rows,
+                    vec![
+                        vec![
+                            decimal(12, 4, 1)?,
+                            Value::Varchar("1.25".into()),
+                            Value::Unsigned(255)
+                        ],
+                        vec![
+                            decimal(20, 4, 1)?,
+                            Value::Varchar("0".into()),
+                            Value::Unsigned(0)
+                        ]
+                    ]
+                );
+                assert!(
+                    c.execute("INSERT INTO ordered VALUES (1,'ok',1),(2,'bad',256)")
+                        .is_err()
+                );
+                assert_eq!(
+                    c.query("SELECT count(*) FROM ordered")?.rows,
+                    vec![vec![Value::Integer(2)]]
+                );
+                for sql in [
+                    "INSERT INTO ordered VALUES (1,2)",
+                    "INSERT INTO ordered VALUES (1,2,3),(1,2)",
+                    "INSERT INTO ordered(s,s) VALUES (1,2)",
+                ] {
+                    assert!(c.execute(sql).is_err(), "{sql}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn full_unsigned_domains_and_checked_casts() -> Result<()> {
