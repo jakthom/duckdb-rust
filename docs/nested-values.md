@@ -685,3 +685,41 @@ unsupported; no performance or full-family parity claim is made. Instrumentation
 compatibility completed in 33.82 seconds with zero errors, panics or open spans;
 temporary telemetry was deleted. The lead owns the maintained Kani run at the
 subsequent substantial integrated checkpoint.
+
+### Canonical VARIANT encoder prototype (publication still gated)
+
+An isolated family codec constructs the canonical unshredded `keys`, `children`,
+`values` and `data` rows. It accepts the actual retained VARIANT `BoundType` and
+query context; validation failures, cancellation and child adapter replacements
+are not bypassed by selecting ambient or builtin semantics. Counts/offsets are
+checked before UINT32 conversion, container child ranges are reserved before
+recursion, and temporary output ownership is local until the whole call succeeds.
+Local limits bound traversal at depth 64 and 16,777,216 visits, with 64 MiB for
+copied key and encoded payload bytes across the call. These are not global
+database accounting or a strict peak-memory guarantee.
+
+The encoder preserves non-NULL scalar tags and widths, decimal coefficients and
+scale, exact floating bits, BIGNUM negative zero, BIT lengths, raw temporal
+physical boundaries, empty/case-distinct/NUL member names and nested NULLs.
+VARIANT's native NULL tag has no scalar type metadata; tests compare canonical
+dynamic values rather than asserting that an original typed-NULL hint survives.
+Ordinary unshredded object order is retained. MAP/TUPLE/UNION children use their
+existing dynamic VARIANT categories rather than inventing new wire tags.
+
+Five focused units cover exact tags/bytes, multi-byte varints, containers,
+resource/depth failures, selected child validation and cancellation. They also
+re-encode and decode 117 selected VARIANT values and mixed children read from
+the three existing independent C++ files, preserving logical comparison and
+selected SQL text; file bytes remain untouched. This is a Rust codec round trip
+over independent input, not an independently consumed Rust-produced VARIANT
+checkpoint. The module is deliberately test-compiled only until checkpoint
+writers receive the selected type/context and the format owner enables safe
+publication. No checkpoint/header/WAL dispatch or publication gate is changed.
+
+After syncing the combined integration branch, ordinary check, library 51/51,
+nested 31/31, casts 12/12, types 15/15, contracts 27/27 and all-target clippy pass.
+Coverage reports 304 files, 2,771 functions and 211 interface methods with no
+missing attributes. Instrumentation compatibility completed in 53.77 seconds
+with zero errors, panics or open spans; temporary telemetry was deleted. This
+internal codec prerequisite does not claim a new independent Kani run; the lead
+owns the subsequent maintained run at the substantial integrated checkpoint.

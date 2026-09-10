@@ -77,6 +77,15 @@ emits OBJECT keys lexicographically, including leftover subtrees; an ordinary
 unshredded column retains its stored member ordering. Root NULL uses row validity,
 not the nested VARIANT_NULL tag.
 
+The canonical builder emits value descriptors in preorder and reserves each
+container's contiguous child-reference range before recursively emitting its
+children. Payload offsets are relative to the row's byte buffer. Counts, child
+starts and variable-length scalar lengths use bounded UINT32 varints. A nested
+VARIANT_NULL tag carries no declared scalar type: an INTEGER NULL child and a
+VARCHAR NULL child have the same dynamic wire category. Retaining non-NULL
+scalar widths and temporal units must not be confused with preserving those
+pre-cast typed-NULL hints.
+
 JSON-to-VARIANT conversion retains empty keys and case-distinct keys, and
 collapses only exact duplicate keys, keeping the last value. Engineering
 implication: a dynamic OBJECT representation must not silently inherit ordinary

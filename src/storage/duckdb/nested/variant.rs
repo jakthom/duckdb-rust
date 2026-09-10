@@ -3,6 +3,10 @@
 use super::*;
 mod payload;
 mod shredded;
+// Internal codec seam until checkpoint publication carries the actual selected
+// type/context into nested writers and the format owner enables compatibility.
+#[cfg(test)]
+mod encoding;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_column(
