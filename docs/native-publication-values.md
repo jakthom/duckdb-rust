@@ -43,7 +43,10 @@ typed SQL mutation, rollback and reopen. Native tests drop input bytes before
 reusing the bound encoder and check repeated owned generations. The recovery
 suite includes interrupted publication and the full tail-truncation sweep.
 
-The follow-up temporal/coverage/trace check is completing. Kani is scheduled at
+The follow-up temporal suite passes 25/25. Coverage reports 298 files, 2,707
+functions and 211 interface methods with no missing entries. The traced
+all-target check completed in 60.74 seconds with zero errors, panics or open
+spans; temporary telemetry was deleted. Kani is scheduled at
 the next substantial combined checkpoint with the queued DATE, numeric and
 dynamic OBJECT increments; the earlier six-harness result at `748dfba` does not
 cover this publication-state change. Full upstream and faster-reference timing
