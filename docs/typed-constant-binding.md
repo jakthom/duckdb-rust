@@ -30,3 +30,10 @@ instrumentation compatibility then passes in 43.07 seconds with no error
 returns, panics or open spans. Temporary telemetry is deleted. Integration-base
 refresh and the lead's maintained Kani checkpoint remain separate checks; no
 performance or proof result is claimed here.
+
+After merging combined base `c0d30af`, workspace/all-target check and clippy,
+contracts 29, casts 12, numeric 32, settings 8, nested and temporal suites all
+pass. Coverage is now 303 files, 2,767 functions and 212 interface methods,
+including the lead's two publication-state methods, with no omissions. The
+unchanged-source instrumentation compatibility pass completes in 56.03 seconds
+with no error returns, panics or open spans; temporary telemetry is deleted.
