@@ -144,7 +144,7 @@ impl TemporalValue {
             }
             Self::TimeTz { micros, offset } => {
                 ((i128::from(micros) - i128::from(offset) * 1_000_000) << 24)
-                    + i128::from(57599 - offset)
+                    + (57599_i128 - i128::from(offset))
             }
             _ => i128::from(self.ticks().expect("scalar temporal variant")),
         }
@@ -173,6 +173,11 @@ impl TemporalValue {
     }
     pub fn parse(text: &str, data_type: &DataType) -> Result<Self> {
         let text = text.trim();
+        // Narrow timestamp literals are parsed at microsecond precision first,
+        // then rounded half away from the epoch, including negative instants.
+        if matches!(data_type, DataType::TimestampS | DataType::TimestampMs) {
+            return Self::parse(text, &DataType::Timestamp)?.scale_timestamp(data_type);
+        }
         if *data_type == DataType::Interval {
             return parse_interval(text);
         }
@@ -196,10 +201,12 @@ impl TemporalValue {
             };
             let (ticks, offset) = parse_time(text, precision)?;
             return if *data_type == DataType::TimeTz {
-                Ok(Self::TimeTz {
+                let value = Self::TimeTz {
                     micros: ticks,
                     offset: offset.unwrap_or(0),
-                })
+                };
+                value.validate()?;
+                Ok(value)
             } else {
                 Self::from_ticks(data_type, ticks)
             };
@@ -270,8 +277,15 @@ impl TemporalValue {
         if !self.is_finite() {
             return Self::from_ticks(target, self.ticks()?);
         }
-        let ticks =
-            i128::from(self.ticks()?) * i128::from(target_precision) / i128::from(source_precision);
+        let ticks = i128::from(self.ticks()?);
+        let ticks = if target_precision < source_precision {
+            // Pinned development rounds ties away from the epoch; release
+            // truncation is intentionally not authoritative for semantics.
+            let factor = i128::from(source_precision / target_precision);
+            ticks.signum() * ((ticks.abs() + factor / 2) / factor)
+        } else {
+            ticks * i128::from(target_precision) / i128::from(source_precision)
+        };
         let ticks = i64::try_from(ticks).map_err(|_| invalid("timestamp precision overflow"))?;
         if ticks.abs_diff(0) >= i64::MAX as u64 {
             return Err(invalid("timestamp precision overflow"));
@@ -401,7 +415,7 @@ fn parse_offset(text: &str) -> Result<i32> {
             .parse::<i32>()
             .map_err(|_| invalid("invalid UTC offset"))?;
     }
-    if !(0..16).contains(&values[0])
+    if !(0..24).contains(&values[0])
         || !(0..60).contains(&values[1])
         || !(0..60).contains(&values[2])
     {
@@ -628,5 +642,74 @@ impl fmt::Display for TemporalValue {
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn development_timestamp_precision_rounds_half_away_from_epoch() -> Result<()> {
+        for (input, expected) in [
+            (-1500, -2),
+            (-1499, -1),
+            (-500, -1),
+            (-499, 0),
+            (0, 0),
+            (499, 0),
+            (500, 1),
+            (1499, 1),
+            (1500, 2),
+        ] {
+            assert_eq!(
+                TemporalValue::TimestampNs(input)
+                    .scale_timestamp(&DataType::Timestamp)?
+                    .ticks()?,
+                expected
+            );
+            assert_eq!(
+                TemporalValue::Timestamp(input)
+                    .scale_timestamp(&DataType::TimestampMs)?
+                    .ticks()?,
+                expected
+            );
+        }
+        for input in [i64::MIN + 2, i64::MAX - 1, -i64::MAX, i64::MAX] {
+            let output = TemporalValue::TimestampNs(input).scale_timestamp(&DataType::Timestamp)?;
+            if input.abs_diff(0) == i64::MAX as u64 {
+                assert_eq!(output.ticks()?, input);
+            } else {
+                assert_eq!(
+                    output.ticks()?,
+                    if input > 0 {
+                        9223372036854776
+                    } else {
+                        -9223372036854776
+                    }
+                );
+            }
+        }
+        assert_eq!(
+            TemporalValue::parse("1969-12-31 23:59:59.5", &DataType::TimestampS)?.ticks()?,
+            -1
+        );
+        assert_eq!(
+            TemporalValue::parse("1970-01-01 00:00:00.5", &DataType::TimestampS)?.ticks()?,
+            1
+        );
+        assert_eq!(
+            TemporalValue::parse("2000-01-01 00:00:00+23:59", &DataType::TimestampTz)?.to_string(),
+            "1999-12-31 00:01:00+00"
+        );
+        assert!(TemporalValue::parse("00:00:00+23:59", &DataType::TimeTz).is_err());
+        assert!(TemporalValue::parse("500000-01-01", &DataType::TimestampS).is_err());
+        assert!(
+            TemporalValue::Timestamp(i64::MAX - 1)
+                .scale_timestamp(&DataType::TimestampNs)
+                .is_err()
+        );
+        Ok(())
     }
 }
