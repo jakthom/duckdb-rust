@@ -10,6 +10,8 @@ use std::{cmp::Ordering, sync::Arc};
 
 #[path = "nested/accessors.rs"]
 mod accessors;
+#[path = "nested/concat.rs"]
+mod concat;
 #[path = "nested/native.rs"]
 mod native;
 #[path = "nested/tuple.rs"]

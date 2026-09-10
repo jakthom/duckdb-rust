@@ -9,8 +9,10 @@ use crate::{
     parallel::QueryContext,
 };
 use std::sync::Arc;
+mod concat;
 mod map;
 mod variant;
+pub(super) use concat::bind_concat;
 
 #[derive(Debug)]
 pub struct Constructor(pub DataType);

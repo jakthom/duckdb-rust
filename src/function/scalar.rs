@@ -40,6 +40,17 @@ impl ScalarFunction for Builtin {
     fn name(&self) -> &str {
         self.0
     }
+    fn bind(
+        &self,
+        arguments: &dyn super::ScalarBindArguments,
+        query: &QueryContext,
+    ) -> Result<Option<Arc<dyn ScalarFunction>>> {
+        if self.0 == "concat" {
+            super::nested::bind_concat(arguments, query)
+        } else {
+            Ok(None)
+        }
+    }
     fn argument_evaluation(&self) -> ArgumentEvaluation {
         if self.0 == "coalesce" {
             ArgumentEvaluation::FirstNonNull
