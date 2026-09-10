@@ -41,7 +41,9 @@ is inferred from these compatibility checks.
 ## Row identity and free-tail repair
 
 The reader now restores catalog property 105 as the append watermark and uses
-actual row-group starts for row identities, column streams and deletion masks.
+actual row-group starts for row identities and column streams. The later
+[deletion compatibility repair](native-deletion-identity.md) addresses masks by
+their independent group-relative vector indices.
 Physical cardinality is checked separately. Ordered nonoverlapping intervals,
 checked endpoints, the append bound, legacy-version continuity and exact total
 counts remain mandatory. The retained hybrid image contains live row ID 1 and

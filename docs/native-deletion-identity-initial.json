@@ -1,0 +1,262 @@
+{
+  "recorded_at": "2026-09-10T23:31:46.148736+00:00",
+  "source_sha256": "b759c2103e0b67528f7d2343256c9b424180fc35f07af150bbbce5547cabc740",
+  "rust_binary_sha256": "7feadc5ac1ce9d811fa0364feb3e8ab3b078fa132a50a3a655a756f53b45601d",
+  "script_sha256": "9c28db11bf830baa363bf49366f768b4a420627f8718a3649b31a9645db5c31f",
+  "references": {
+    "release": {
+      "target": "release",
+      "required_version": "1.5.5",
+      "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+      "reported_source_id": "d8cdaa33fd",
+      "version": "v1.5.5 (Variegata) d8cdaa33fd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+      "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+    },
+    "development": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    }
+  },
+  "cases": [
+    {
+      "name": "release-64",
+      "producer": "release",
+      "version": 64,
+      "setup": "SET threads=1; SET max_vacuum_tasks=0; ATTACH '/var/folders/hg/6mnqqg696p5g3rp4cc_svqv40000gn/T/native-deletion-identity-pn00t3s3/release-64.duckdb' AS d (STORAGE_VERSION 'v1.0.0', ROW_GROUP_SIZE 4096); USE d; CREATE TABLE t(id INTEGER PRIMARY KEY,amount DECIMAL(12,2),stamp TIMESTAMP_NS,xs INTEGER[]); INSERT INTO t SELECT i,i::DECIMAL(12,2)/100,TIMESTAMP_NS '2024-01-02 03:04:05.123456789',[i::INTEGER,NULL] FROM range(8192) r(i); CHECKPOINT; DELETE FROM t WHERE id=1 OR (id>=4096 AND id<6144) OR id=6161; CHECKPOINT",
+      "query": "SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t",
+      "rowids": {
+        "rows": [
+          {
+            "lo": 0,
+            "hi": 8191,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "groups": {
+        "rows": [
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          }
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "n": 6142,
+            "lo": 0,
+            "hi": 8191,
+            "total": "23059438",
+            "amount": "230594.38"
+          }
+        ]
+      },
+      "rust": {
+        "error": "duckdb-rust: SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t\nCorrupt database: deletion vector identity differs from row group\n"
+      },
+      "passed": false,
+      "fixture": {
+        "path": "test/data/native-deletion-identity/release-64.duckdb.gz",
+        "sha256": "2d1893ffa3af203d0450c551e49d4242665da59acc40e248c9db764a79e1081d"
+      }
+    },
+    {
+      "name": "release-68",
+      "producer": "release",
+      "version": 68,
+      "setup": "SET threads=1; SET max_vacuum_tasks=0; ATTACH '/var/folders/hg/6mnqqg696p5g3rp4cc_svqv40000gn/T/native-deletion-identity-pn00t3s3/release-68.duckdb' AS d (STORAGE_VERSION 'v1.5.0', ROW_GROUP_SIZE 4096); USE d; CREATE TABLE t(id INTEGER PRIMARY KEY,amount DECIMAL(12,2),stamp TIMESTAMP_NS,xs INTEGER[]); INSERT INTO t SELECT i,i::DECIMAL(12,2)/100,TIMESTAMP_NS '2024-01-02 03:04:05.123456789',[i::INTEGER,NULL] FROM range(8192) r(i); CHECKPOINT; DELETE FROM t WHERE id=1 OR (id>=4096 AND id<6144) OR id=6161; CHECKPOINT",
+      "query": "SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t",
+      "rowids": {
+        "rows": [
+          {
+            "lo": 0,
+            "hi": 8191,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "groups": {
+        "rows": [
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          }
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "n": 6142,
+            "lo": 0,
+            "hi": 8191,
+            "total": "23059438",
+            "amount": "230594.38"
+          }
+        ]
+      },
+      "rust": {
+        "error": "duckdb-rust: SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t\nCorrupt database: deletion vector identity differs from row group\n"
+      },
+      "passed": false,
+      "fixture": {
+        "path": "test/data/native-deletion-identity/release-68.duckdb.gz",
+        "sha256": "26dde26582c7b7d506fb7b002c0c8080723d031765b3049b3e9ea53e1344f87c"
+      }
+    },
+    {
+      "name": "development-64",
+      "producer": "development",
+      "version": 64,
+      "setup": "SET threads=1; SET max_vacuum_tasks=0; ATTACH '/var/folders/hg/6mnqqg696p5g3rp4cc_svqv40000gn/T/native-deletion-identity-pn00t3s3/development-64.duckdb' AS d (STORAGE_VERSION 'v1.0.0', ROW_GROUP_SIZE 4096); USE d; CREATE TABLE t(id INTEGER PRIMARY KEY,amount DECIMAL(12,2),stamp TIMESTAMP_NS,xs INTEGER[]); INSERT INTO t SELECT i,i::DECIMAL(12,2)/100,TIMESTAMP_NS '2024-01-02 03:04:05.123456789',[i::INTEGER,NULL] FROM range(8192) r(i); CHECKPOINT; DELETE FROM t WHERE id=1 OR (id>=4096 AND id<6144) OR id=6161; CHECKPOINT",
+      "query": "SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t",
+      "rowids": {
+        "rows": [
+          {
+            "lo": 0,
+            "hi": 8191,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "groups": {
+        "rows": [
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          }
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "n": 6142,
+            "lo": 0,
+            "hi": 8191,
+            "total": "23059438",
+            "amount": "230594.38"
+          }
+        ]
+      },
+      "rust": {
+        "error": "duckdb-rust: SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t\nCorrupt database: deletion vector identity differs from row group\n"
+      },
+      "passed": false,
+      "fixture": {
+        "path": "test/data/native-deletion-identity/development-64.duckdb.gz",
+        "sha256": "defd164a1a9fa0a4de9246e944b25fa53c8aba061e6f8d86d8ddcaaa8666be75"
+      }
+    },
+    {
+      "name": "development-69",
+      "producer": "development",
+      "version": 69,
+      "setup": "SET threads=1; SET max_vacuum_tasks=0; ATTACH '/var/folders/hg/6mnqqg696p5g3rp4cc_svqv40000gn/T/native-deletion-identity-pn00t3s3/development-69.duckdb' AS d (STORAGE_VERSION 'v2.0.0', ROW_GROUP_SIZE 4096); USE d; CREATE TABLE t(id INTEGER PRIMARY KEY,amount DECIMAL(12,2),stamp TIMESTAMP_NS,xs INTEGER[]); INSERT INTO t SELECT i,i::DECIMAL(12,2)/100,TIMESTAMP_NS '2024-01-02 03:04:05.123456789',[i::INTEGER,NULL] FROM range(8192) r(i); CHECKPOINT; DELETE FROM t WHERE id < 6144 OR id=6161; CHECKPOINT",
+      "query": "SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t",
+      "rowids": {
+        "rows": [
+          {
+            "lo": 6144,
+            "hi": 8191,
+            "n": 2047,
+            "total": "14672879"
+          }
+        ]
+      },
+      "groups": {
+        "rows": [
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          }
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "n": 2047,
+            "lo": 6144,
+            "hi": 8191,
+            "total": "14672879",
+            "amount": "146728.79"
+          }
+        ]
+      },
+      "rust": {
+        "error": "duckdb-rust: SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t\nCorrupt database: deletion vector identity differs from row group\n"
+      },
+      "passed": false,
+      "fixture": {
+        "path": "test/data/native-deletion-identity/development-69.duckdb.gz",
+        "sha256": "4753b381c53ea29021708dba13af7e9d7b9e3eb641effc077b29e36421bfa784"
+      }
+    }
+  ],
+  "full_parity": false,
+  "scope": "Retain independent row-group-relative deletion masks from both C++ pins.",
+  "source_unchanged": true,
+  "passed": false
+}

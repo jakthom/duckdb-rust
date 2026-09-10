@@ -47,8 +47,8 @@ impl RowIdentity {
     }
 
     pub(super) fn finish(self) -> Result<()> {
-        if self.remaining != 0 {
-            return Err(corrupt("table row count mismatch"));
+        if self.remaining != 0 || self.end != self.next {
+            return Err(corrupt("table row count or final append identity mismatch"));
         }
         Ok(())
     }
@@ -64,8 +64,10 @@ mod tests {
     fn row_identity_validates_cardinality_ranges_capability_and_append_watermark() -> Result<()> {
         for (version, total, next, groups, accepted) in [
             (69, 3, 11, vec![(3, 1), (9, 2)], true),
-            (69, 0, 11, vec![], true),
+            (69, 0, 0, vec![], true),
+            (69, 0, 11, vec![], false),
             (69, 0, 11, vec![(11, 0)], true),
+            (69, 1, 10, vec![(3, 1)], false),
             (69, 3, 11, vec![(3, 2), (4, 1)], false),
             (69, 2, 11, vec![(9, 1), (3, 1)], false),
             (69, 3, 11, vec![(9, 3)], false),

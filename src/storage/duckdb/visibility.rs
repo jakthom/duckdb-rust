@@ -11,16 +11,19 @@ use crate::common::Result;
 pub(super) fn deleted_rows(
     blocks: &Blocks,
     pointers: &[(u64, usize)],
-    start: usize,
     count: usize,
 ) -> Result<Vec<bool>> {
-    let mut deleted = vec![false; count];
     let Some(&first) = pointers.first() else {
-        return Ok(deleted);
+        return Ok(vec![false; count]);
     };
-    let mut reader = blocks.metadata(first)?;
+    read(&mut blocks.metadata(first)?, blocks.vector_size, count)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn read(reader: &mut Reader, vector_size: usize, count: usize) -> Result<Vec<bool>> {
+    let mut deleted = vec![false; count];
     let chunks = reader.fixed_u64()?;
-    if chunks > count.div_ceil(blocks.vector_size) as u64 {
+    if chunks > count.div_ceil(vector_size) as u64 {
         return Err(corrupt("too many deletion vectors"));
     }
     let mut visited = HashSet::new();
@@ -28,7 +31,7 @@ pub(super) fn deleted_rows(
         let index = reader.fixed_u64()?;
         let offset = usize::try_from(index)
             .ok()
-            .and_then(|i| i.checked_mul(blocks.vector_size))
+            .and_then(|i| i.checked_mul(vector_size))
             .filter(|&i| i < count)
             .ok_or_else(|| corrupt("deletion vector outside row group"))?;
         if !visited.insert(index) {
@@ -38,15 +41,26 @@ pub(super) fn deleted_rows(
         if kind == 2 {
             continue;
         }
-        if reader.fixed_u64()? != (start + offset) as u64 {
-            return Err(corrupt("deletion vector identity differs from row group"));
-        }
+        // Retained compatibility field, not the address of this mask. v1.3
+        // wrote absolute starts; both current pins create relative starts but
+        // read/rewrite historical values unchanged. RowVersionManager indexes
+        // masks by the separately validated vector index above. Checking this
+        // field against either current origin would reject valid reused masks.
+        reader.fixed_u64()?;
         let mask = match kind {
-            0 => vec![true; blocks.vector_size],
-            1 => mask(&mut reader, blocks.vector_size)?,
+            0 => vec![true; vector_size],
+            1 => {
+                let mask = mask(reader, vector_size)?;
+                if mask.iter().all(|deleted| *deleted) || mask.iter().all(|deleted| !deleted) {
+                    return Err(corrupt(
+                        "partial deletion mask is entirely deleted or alive",
+                    ));
+                }
+                mask
+            }
             _ => return Err(corrupt("unknown deletion vector encoding")),
         };
-        let length = blocks.vector_size.min(count - offset);
+        let length = vector_size.min(count - offset);
         deleted[offset..offset + length].copy_from_slice(&mask[..length]);
     }
     Ok(deleted)
@@ -98,4 +112,63 @@ fn mask(reader: &mut Reader, count: usize) -> Result<Vec<bool>> {
         mask[index] = kind == 1;
     }
     Ok(mask)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Error;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn stream(index: u64, start: u64, mask_kind: u8, entries: &[u16]) -> Vec<u8> {
+        let mut bytes = 1_u64.to_le_bytes().to_vec();
+        bytes.extend(index.to_le_bytes());
+        bytes.push(1); // VECTOR_INFO, independent of the mask's encoding.
+        bytes.extend(start.to_le_bytes());
+        bytes.push(mask_kind);
+        bytes.extend((entries.len() as u32).to_le_bytes());
+        bytes.extend(entries.iter().flat_map(|entry| entry.to_le_bytes()));
+        bytes
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn deletion_addresses_use_vector_indices_not_compatibility_starts() -> Result<()> {
+        for start in [2048, 124928, 17, u64::MAX] {
+            let decoded = read(&mut Reader::new(stream(1, start, 1, &[17])), 2048, 4096)?;
+            assert_eq!(decoded.iter().filter(|deleted| **deleted).count(), 1);
+            assert!(decoded[2065]);
+        }
+        for (index, kind, entries) in [
+            (2, 1, vec![17]),
+            (u64::MAX, 1, vec![17]),
+            (1, 1, vec![2048]),
+            (1, 1, vec![17, 17]),
+            (1, 1, vec![18, 17]),
+            (1, 1, vec![]),
+            (1, 2, vec![]),
+            (1, 3, vec![17]),
+        ] {
+            assert!(matches!(
+                read(
+                    &mut Reader::new(stream(index, 0, kind, &entries)),
+                    2048,
+                    4096
+                ),
+                Err(Error::Corrupt(_))
+            ));
+        }
+        let bytes = stream(1, 0, 1, &[17]);
+        for length in 0..bytes.len() {
+            assert!(read(&mut Reader::new(bytes[..length].to_vec()), 2048, 4096).is_err());
+        }
+        let mut duplicated = bytes.clone();
+        duplicated[..8].copy_from_slice(&2_u64.to_le_bytes());
+        duplicated.extend_from_slice(&bytes[8..]);
+        assert!(matches!(
+            read(&mut Reader::new(duplicated), 2048, 4096),
+            Err(Error::Corrupt(_))
+        ));
+        Ok(())
+    }
 }

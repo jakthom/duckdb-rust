@@ -5,6 +5,9 @@ use duckdb_rust::{Database, Error, Result, Value};
 #[path = "compatibility/row_identity.rs"]
 mod row_identity;
 
+#[path = "compatibility/deletion_identity.rs"]
+mod deletion_identity;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn fixture(name: &str, path: &Path) -> Result<()> {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))

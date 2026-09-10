@@ -82,7 +82,7 @@ pub(super) fn read_table(
         let delete_pointers = (0..reader.length()?)
             .map(|_| reader.pointer())
             .collect::<Result<Vec<_>>>()?;
-        let deleted = super::visibility::deleted_rows(blocks, &delete_pointers, row_start, count)?;
+        let deleted = super::visibility::deleted_rows(blocks, &delete_pointers, count)?;
         if reader.optional(104)? {
             reader.boolean()?;
         }

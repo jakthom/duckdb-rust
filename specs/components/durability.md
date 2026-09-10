@@ -120,9 +120,24 @@ Development storage 69 can persist noncontiguous row groups. Catalog property
 not redundant row-count metadata. Restore each stored row-group start and the
 append high-water mark independently of live/physical cardinality. Check ordered,
 nonoverlapping ranges, arithmetic bounds and version capability before restoring
-rows or applying a WAL. Source: [table data writer](../../../duckdb/src/storage/checkpoint/table_data_writer.cpp),
+rows or applying a WAL. The append watermark must equal the final physical group
+end; a table with no groups has watermark zero. Interior gaps are supported,
+unexplained trailing gaps are not. Source: [table data writer](../../../duckdb/src/storage/checkpoint/table_data_writer.cpp),
 [checkpoint reader](../../../duckdb/src/storage/checkpoint_manager.cpp), and
 [row-group collection](../../../duckdb/src/storage/table/row_group_collection.cpp).
+
+Deletion masks are addressed by their serialized vector index relative to the
+row group, not by the retained `ChunkInfo.start` compatibility field. Historical
+v1.3 files stored absolute starts; both pinned current readers preserve those
+values while new vectors use relative starts. C++ commit `f386370785` removed
+RowVersionManager's base start and move normalization without removing the wire
+field. Consume that fixed-width field but do not use it as a second mask address
+or infer its origin from the storage version. Validate vector counts, unique
+in-range indices, checked offsets, mask encodings/indices and truncation. A
+VECTOR_INFO mask must contain both deleted and alive bits across the serialized
+vector, matching development's corruption checks; wholly deleted vectors have
+their own encoding. See [row-version manager](../../../duckdb/src/storage/table/row_version_manager.cpp)
+and [chunk info](../../../duckdb/src/storage/table/chunk_info.cpp).
 
 Three complementary test classes are required: ordinary close/reopen and checkpoint tests; process-interruption/WAL replay tests; and injected file-write or synchronization failures. The native storage fuzzer performs operation sequences with one-shot filesystem faults and verifies the next reopen against the last expected state. It is not a general malformed-database-byte generator.
 
