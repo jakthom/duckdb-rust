@@ -30,6 +30,15 @@ pub enum CastMode {
     Explicit,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CastNullHandling {
+    /// Ordinary casts preserve NULL without calling the adapter.
+    Propagate,
+    /// Typed NULL is significant input, e.g. an active NULL UNION member.
+    /// Non-NULL input still cannot become NULL outside TRY_CAST.
+    Call,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CastSpec {
     pub source: DataType,
@@ -38,8 +47,10 @@ pub struct CastSpec {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-/// Pure, deterministic, synchronous conversion of a non-NULL physical value.
-/// The input fits `spec.source`; output must be non-NULL and fit `spec.target`.
+/// Pure, deterministic, synchronous conversion of a physical value. Ordinary
+/// casts receive non-NULL input. A selected Call capability also receives NULL.
+/// The input fits `spec.source`; output fits `spec.target`, and a non-NULL input
+/// must remain non-NULL.
 /// Invalid values return Conversion. Configuration/unsupported pairs are
 /// rejected at binding. Other errors (including cancellation and resource
 /// failures) must never be disguised as invalid input, even for TRY_CAST.
@@ -47,6 +58,9 @@ pub struct CastSpec {
 /// observe the query context during long work, and return owned values. A
 /// replacement promises the same semantics for each registered specification.
 pub trait CastFunction: Debug + Send + Sync {
+    fn null_handling(&self, _spec: &CastSpec) -> CastNullHandling {
+        CastNullHandling::Propagate
+    }
     fn name(&self) -> &'static str;
     fn supports(&self, spec: &CastSpec) -> bool;
     /// Bind composite conversions through the selected registries, retaining
@@ -71,7 +85,8 @@ pub trait CastFunction: Debug + Send + Sync {
     fn preserves_integer_value(&self, _spec: &CastSpec) -> bool {
         false
     }
-    /// Convert a validated column in logical row order, preserving NULLs.
+    /// Convert a validated column in logical row order, retaining the selected
+    /// NULL handling. Call adapters receive typed NULLs as scalar inputs too.
     /// Output owns exactly the source cardinality and has the declared target
     /// type. The default retains this adapter's scalar conversion semantics.
     fn cast_batch(
@@ -80,6 +95,7 @@ pub trait CastFunction: Debug + Send + Sync {
         spec: &CastSpec,
         context: &QueryContext,
     ) -> Result<super::vector::Vector> {
+        let propagate_nulls = self.null_handling(spec) == CastNullHandling::Propagate;
         let values = input
             .values()
             .enumerate()
@@ -87,7 +103,7 @@ pub trait CastFunction: Debug + Send + Sync {
                 if index % 1024 == 0 {
                     context.check()?;
                 }
-                if value.is_null() {
+                if value.is_null() && propagate_nulls {
                     Ok(Value::Null)
                 } else {
                     self.cast(value, spec, context)
@@ -241,7 +257,10 @@ impl BoundCast {
                 if index % 1024 == 0 {
                     context.check()?;
                 }
-                if a.is_null() != b.is_null() {
+                if (!a.is_null() && b.is_null())
+                    || (self.function.null_handling(&self.spec) == CastNullHandling::Propagate
+                        && a.is_null() != b.is_null())
+                {
                     return Err(Error::Internal("cast batch changed NULL semantics".into()));
                 }
             }
@@ -272,13 +291,14 @@ impl BoundCast {
         if self.source.requires_logical_validation() {
             self.source.validate(value, context)?;
         }
-        if value.is_null() {
+        if value.is_null() && self.function.null_handling(&self.spec) == CastNullHandling::Propagate
+        {
             return Ok(Value::Null);
         }
         let output = self.function.cast(value, &self.spec, context);
         context.check()?;
         let output = output?;
-        if output.is_null() || !output.fits_type(&self.spec.target) {
+        if (output.is_null() && !value.is_null()) || !output.fits_type(&self.spec.target) {
             return Err(Error::Internal(format!(
                 "cast adapter {} returned an invalid physical value for {}",
                 self.adapter(),

@@ -23,6 +23,8 @@ use std::{cmp::Ordering, sync::Arc};
 
 #[path = "types/binding.rs"]
 mod binding;
+#[path = "types/cast_nulls.rs"]
+mod cast_nulls;
 #[path = "types/keys.rs"]
 mod keys;
 
