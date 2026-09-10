@@ -688,6 +688,14 @@ impl CastFunction for PrimitiveCast {
     }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {
         context.check()?;
-        builtin::primitive(value, &spec.target)
+        builtin::primitive(value, &spec.target).map_err(|error| match error {
+            Error::Conversion(_) if spec.source.is_floating() && spec.target.is_signed_integer() => {
+                Error::Conversion(format!(
+                    "Type {} with value {value} can't be cast because the value is out of range for the destination type {}",
+                    spec.source, spec.target
+                ))
+            }
+            other => other,
+        })
     }
 }

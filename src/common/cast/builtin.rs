@@ -9,9 +9,12 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
         let value = match value {
             Value::Integer(v) => *v,
             Value::Double(v)
-                if v.is_finite() && *v >= i128::MIN as f64 && *v < -(i128::MIN as f64) =>
+                if v.is_finite() && *v > i128::MIN as f64 && *v < -(i128::MIN as f64) =>
             {
-                v.round() as i128
+                // FLOAT/DOUBLE integral casts use statistical rounding, unlike
+                // DECIMAL casts. The reference's HUGEINT floating conversion
+                // also excludes its exact lower bound; integer inputs do not.
+                v.round_ties_even() as i128
             }
             Value::Float(v) => return primitive(&Value::Double(f64::from(*v)), target),
             Value::Boolean(v) => i128::from(*v),

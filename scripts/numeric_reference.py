@@ -38,6 +38,11 @@ SQL = [
     "SELECT '1_2.3_4'::DECIMAL(5,2),'0xf_f'::UHUGEINT,'0b1_0'::UBIGINT,'1e1_0'::DECIMAL(38,0)",
     "SELECT TRY_CAST('+0xff' AS UBIGINT),TRY_CAST('0x_ff' AS UBIGINT),TRY_CAST('1__2' AS UBIGINT),TRY_CAST('1_.0' AS DECIMAL(5,2))",
 ]
+for source in ('FLOAT', 'DOUBLE'):
+    for target in ('TINYINT','SMALLINT','INTEGER','BIGINT','HUGEINT','UTINYINT','USMALLINT','UINTEGER','UBIGINT','UHUGEINT'):
+        SQL.append(f"SELECT ('0.5'::{source})::{target},('1.5'::{source})::{target},('2.5'::{source})::{target},('3.5'::{source})::{target},TRY_CAST('-0.5'::{source} AS {target}),TRY_CAST('-3.5'::{source} AS {target})")
+    SQL.append(f"SELECT TRY_CAST('127.4'::{source} AS TINYINT),TRY_CAST('127.5'::{source} AS TINYINT),TRY_CAST('127.6'::{source} AS TINYINT),TRY_CAST('-128.4'::{source} AS TINYINT),TRY_CAST('-128.5'::{source} AS TINYINT),TRY_CAST('-128.6'::{source} AS TINYINT),TRY_CAST('255.4'::{source} AS UTINYINT),TRY_CAST('255.5'::{source} AS UTINYINT),TRY_CAST('255.6'::{source} AS UTINYINT)")
+    SQL.append(f"SELECT TRY_CAST('-170141183460469231731687303715884105728'::{source} AS HUGEINT),TRY_CAST('170141183460469231731687303715884105728'::{source} AS HUGEINT),TRY_CAST('340282366920938463463374607431768211456'::{source} AS UHUGEINT),('2.5'::{source})::DECIMAL(2,0),round('2.5'::{source})")
 ERROR_CASES = [(f'SELECT -1::{kind}', 'Out of Range Error')
                for kind in ('UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT', 'UHUGEINT')]
 ERROR_CASES += [(f'SELECT 1::{kind}{op}0::{kind}', 'Invalid Input Error')

@@ -167,8 +167,11 @@ impl ExactNumericCast {
                 Value::Varchar(text) => parse_integer(text, query)?,
                 Value::Boolean(n) => (false, u128::from(*n)),
                 Value::Float(_) | Value::Double(_) => {
-                    let n = value.as_f64()?.round();
-                    if !n.is_finite() || n.abs() >= 2_f64.powi(128) {
+                    let n = value.as_f64()?.round_ties_even();
+                    if !n.is_finite()
+                        || n.abs() >= 2_f64.powi(128)
+                        || (*target == DataType::HugeInt && n <= i128::MIN as f64)
+                    {
                         return Err(conversion());
                     }
                     (n < 0.0, n.abs() as u128)
