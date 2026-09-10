@@ -147,4 +147,17 @@ internal increment, not completion of the function catalog or nested milestone.
 
 All six requested families remain in scope. Broader UNION member-coercion coverage; VARIANT dynamic semantics; TUPLE/unnamed rows; ordered list aggregation and remaining nested functions; slicing, lambdas and shape/coercion edge cases; value formatting and mixed-family semantics need expansion. ARRAY/common-type, STRUCT field-union and composite overload ranking rules need broader reference coverage.
 
+The next VARIANT representation prerequisite retains each dynamic child's
+declared type alongside its value; inferring a minimal integer width would lose
+observable `variant_typeof` metadata. Physical payload validation now shares a
+16,777,216-visit budget across recursive Arc subtrees as well as the existing
+depth bound, including DAGs with many logical visits. This is not a VARIANT SQL
+implementation yet. Ordinary check, nested tests (11 after integration removed
+the resolved codec-15 negative), the new metadata/budget unit test and all-target
+clippy pass. Coverage reports 254 files, 2,186 functions, 203 interface methods
+and no missing attributes; instrumentation check completed in 30.83 seconds
+with no errors, panics or open spans and deleted temporary telemetry. Runtime
+VARIANT normalization is planned for built-in categories with retained selected
+child semantics; no extension-category normalization support is claimed.
+
 Native DuckDB nested WAL and non-NULL default codecs are not implemented yet. The private JSON round trip is not native compatibility evidence. Native default and ART encoding reject nested values explicitly, and native nested indexes must follow reference-supported behavior rather than a blanket assumption that every type is indexable. Further tests must include nested registry replacement, adversarial payload/resource cases, alternate execution/index compositions, mixed temporal/scalar families, independent C++ files, native rollback/recovery/reopen, upstream regressions and isolated faster-reference performance campaigns.

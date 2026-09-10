@@ -82,7 +82,7 @@ pub enum NestedPayload {
     Struct(Vec<Value>),
     Map(Vec<(Value, Value)>),
     Union { tag: usize, value: Value },
-    Variant(Value),
+    Variant { data_type: DataType, value: Value },
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -125,19 +125,33 @@ impl NestedValue {
     }
 
     pub fn fits_type(&self) -> bool {
-        self.fits_at_depth(0)
+        // Shared Arc subtrees can describe exponentially many logical visits
+        // while using little physical memory. Bound both depth and traversal.
+        self.fits_at_depth(0, &mut 16_777_216)
     }
 
-    fn fits_at_depth(&self, depth: usize) -> bool {
-        if depth > 64 || super::type_registry::check_metadata(&self.data_type).is_err() {
+    fn fits_at_depth(&self, depth: usize, remaining: &mut usize) -> bool {
+        if depth > 64
+            || *remaining == 0
+            || super::type_registry::check_metadata(&self.data_type).is_err()
+        {
             return false;
         }
+        *remaining -= 1;
         let DataType::Nested(metadata) = &self.data_type else {
             return false;
         };
-        let fits = |value: &Value, target: &DataType| match value {
-            Value::Nested(value) => value.fits_at_depth(depth + 1) && value.data_type == *target,
-            value => value.fits_type(target),
+        let mut fits = |value: &Value, target: &DataType| match value {
+            Value::Nested(value) => {
+                value.fits_at_depth(depth + 1, remaining) && value.data_type == *target
+            }
+            value => {
+                if *remaining == 0 {
+                    return false;
+                }
+                *remaining -= 1;
+                value.fits_type(target)
+            }
         };
         match (metadata.as_ref(), &self.payload) {
             (NestedType::List(element), NestedPayload::Sequence(values)) => {
@@ -159,7 +173,9 @@ impl NestedValue {
             (NestedType::Union(fields), NestedPayload::Union { tag, value }) => {
                 fields.get(*tag).is_some_and(|(_, ty)| fits(value, ty))
             }
-            (NestedType::Variant, NestedPayload::Variant(value)) => fits(value, &value.data_type()),
+            (NestedType::Variant, NestedPayload::Variant { data_type, value }) => {
+                super::type_registry::check_metadata(data_type).is_ok() && fits(value, data_type)
+            }
             _ => false,
         }
     }
@@ -240,9 +256,52 @@ impl fmt::Display for NestedValue {
                 }
                 write!(f, "}}")
             }
-            NestedPayload::Union { value, .. } | NestedPayload::Variant(value) => {
+            NestedPayload::Union { value, .. } | NestedPayload::Variant { value, .. } => {
                 write!(f, "{value}")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn variant_payload_retains_declared_width_and_recursive_visit_budget() -> Result<()> {
+        let ty = NestedType::Variant.data_type();
+        let value = NestedValue {
+            data_type: ty.clone(),
+            payload: NestedPayload::Variant {
+                data_type: DataType::BigInt,
+                value: Value::Integer(1),
+            },
+        };
+        assert!(value.fits_type());
+        assert!(matches!(
+            value.payload,
+            NestedPayload::Variant {
+                data_type: DataType::BigInt,
+                ..
+            }
+        ));
+        let mut shared = Value::Nested(Arc::new(value));
+        let mut child = ty;
+        for _ in 0..10 {
+            child = NestedType::List(child).data_type();
+            shared = Value::Nested(Arc::new(NestedValue {
+                data_type: child.clone(),
+                payload: NestedPayload::Sequence(vec![shared.clone(), shared]),
+            }));
+        }
+        let Value::Nested(value) = shared else {
+            unreachable!()
+        };
+        let mut budget = 100;
+        assert!(!value.fits_at_depth(0, &mut budget));
+        assert_eq!(budget, 0);
+        assert!(value.fits_type());
+        Ok(())
     }
 }

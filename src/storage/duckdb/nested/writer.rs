@@ -101,7 +101,7 @@ fn child_values(metadata: &NestedType, values: &[Value]) -> Result<Vec<(DataType
                     });
                 }
             }
-            NestedPayload::Variant(_) => {
+            NestedPayload::Variant { .. } => {
                 return Err(Error::Unsupported("native VARIANT child streams".into()));
             }
         }

@@ -132,7 +132,10 @@ fn nested_shape_null_keys_and_vector_encodings() -> Result<()> {
     for _ in 0..66 {
         too_deep = Value::Nested(Arc::new(NestedValue {
             data_type: variant.clone(),
-            payload: NestedPayload::Variant(too_deep),
+            payload: NestedPayload::Variant {
+                data_type: too_deep.data_type(),
+                value: too_deep,
+            },
         }));
     }
     assert!(!too_deep.fits_type(&variant));

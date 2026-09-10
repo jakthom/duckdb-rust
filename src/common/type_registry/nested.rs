@@ -131,7 +131,7 @@ impl TypeAdapter for NestedTypes {
                 }
             }
             NestedPayload::Union { tag, value } => self.child(*tag)?.validate(value, query)?,
-            NestedPayload::Variant(_) => {
+            NestedPayload::Variant { .. } => {
                 return Err(Error::Unsupported(
                     "VARIANT runtime semantics are not integrated yet".into(),
                 ));
@@ -265,7 +265,7 @@ impl TypeAdapter for NestedTypes {
                 output.extend_from_slice(&(*tag as u64).to_le_bytes())?;
                 self.key_child(*tag, value, output, query)?;
             }
-            NestedPayload::Variant(_) => {
+            NestedPayload::Variant { .. } => {
                 return Err(Error::Unsupported(
                     "VARIANT keys are not integrated yet".into(),
                 ));
