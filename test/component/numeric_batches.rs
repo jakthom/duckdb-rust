@@ -432,6 +432,40 @@ fn exact_sum_batches_match_scalar_prefixes_nulls_and_wide_fallbacks() -> Result<
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn exact_sum_column_proofs_cover_block_width_transitions_and_signed_tails() -> Result<()> {
+    let sum = FunctionRegistry::builtins().aggregate("sum").unwrap();
+    let query = QueryContext::background();
+    // Width 15 admits an i64 magnitude proof for a 1024-value block; width
+    // 16 does not. Full-column totals can exceed i64 in either implementation.
+    for width in [12, 15, 16, 18] {
+        let data_type = DataType::Decimal { width, scale: 2 };
+        let maximum = 10_i128.pow(u32::from(width)) - 1;
+        for count in [0, 1, 7, 8, 9, 1023, 1024, 1025, 4099, 10001] {
+            for sign in [-1, 1] {
+                let values = (0..count)
+                    .map(|index| {
+                        let direction = if index % 19 == 0 { -sign } else { sign };
+                        decimal(direction * (maximum - index as i128), width, 2)
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let mut scalar =
+                    sum.create_state(std::slice::from_ref(&data_type), query.types())?;
+                for value in &values {
+                    scalar.update(std::slice::from_ref(value), &query)?;
+                }
+                let column = Vector::flat(data_type.clone(), values)?;
+                let mut vector =
+                    sum.create_state(std::slice::from_ref(&data_type), query.types())?;
+                vector.update_column(&column, &query)?;
+                assert_eq!(vector.finish()?, scalar.finish()?, "{width}/{count}/{sign}");
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn numeric_cast_batches_retain_scalar_domains_nulls_and_totality() -> Result<()> {
     let query = QueryContext::background();
     let casts = CastRegistry::builtins();

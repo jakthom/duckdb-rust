@@ -77,6 +77,42 @@ impl SumKernel {
             .and_then(|rows| self.maximum_magnitude().checked_mul(rows))
             .is_some_and(|bound| self.valid_sum(bound))
     }
+    /// The caller proves all column prefixes fit the SQL accumulator. Select
+    /// the physical loader and machine-width proof once per column, while
+    /// retaining bounded cancellation checks and the checked wide fallback.
+    pub(super) fn column_sum(
+        self,
+        values: &[Value],
+        query: &crate::parallel::QueryContext,
+    ) -> Result<i128> {
+        let narrow = self
+            .maximum_magnitude()
+            .checked_mul(values.len().min(1024) as i128)
+            .is_some_and(|bound| bound <= i64::MAX as i128);
+        if narrow {
+            return match self {
+                Self::Signed(_) => proven_column(values, query, |value| match value {
+                    Value::Integer(value) => Some(*value as i64),
+                    _ => None,
+                }),
+                Self::Unsigned(_) => proven_column(values, query, |value| match value {
+                    Value::Unsigned(value) => Some(*value as i64),
+                    _ => None,
+                }),
+                Self::Decimal { .. } => proven_column(values, query, |value| match value {
+                    Value::Decimal { value, .. } => Some(*value as i64),
+                    _ => None,
+                }),
+            };
+        }
+        let mut sum = 0_i128;
+        for block in values.chunks(1024) {
+            query.check()?;
+            sum += self.block_sum(block);
+        }
+        query.check()?;
+        Ok(sum)
+    }
     /// Caller proves every prefix fits the result domain. Decode the physical
     /// kind once per block, retaining checked machine-width partial sums.
     pub(super) fn block_sum(self, values: &[Value]) -> i128 {
@@ -124,4 +160,19 @@ impl SumKernel {
                 .sum()
         })
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn proven_column(
+    values: &[Value],
+    query: &crate::parallel::QueryContext,
+    integer: impl Fn(&Value) -> Option<i64>,
+) -> Result<i128> {
+    let mut sum = 0_i128;
+    for block in values.chunks(1024) {
+        query.check()?;
+        sum += super::sum_proven_narrow(block, &integer);
+    }
+    query.check()?;
+    Ok(sum)
 }

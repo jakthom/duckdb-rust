@@ -295,14 +295,7 @@ impl State {
         {
             return Ok(false);
         }
-        for block in values.chunks(1024) {
-            context.check()?;
-            // Keep the hot loop in a machine-width accumulator. A block that
-            // exceeds that width is recomputed in i128; the prefix range proof
-            // above makes both paths exact, including near HUGEINT bounds.
-            let part = kernel.block_sum(block);
-            sum += part;
-        }
+        sum += kernel.column_sum(values, context)?;
         if !values.is_empty() {
             self.value = kernel.value(sum);
         }
@@ -408,11 +401,13 @@ fn sum_proven_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) 
             *lane += integer(value).expect("validated narrow SUM input");
         }
     }
-    let mut sum: i128 = lanes.into_iter().map(i128::from).sum();
+    // The magnitude proof covers the lane reduction and tail as well as the
+    // independent lanes. Widen only the completed block, not each lane.
+    let mut sum: i64 = lanes.into_iter().sum();
     for value in blocks.remainder() {
-        sum += i128::from(integer(value).expect("validated narrow SUM input"));
+        sum += integer(value).expect("validated narrow SUM input");
     }
-    sum
+    i128::from(sum)
 }
 
 #[cfg(test)]
