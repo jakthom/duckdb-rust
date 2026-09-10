@@ -2,6 +2,47 @@ use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
+    /// Bind an already parsed scalar call through the selected catalog and
+    /// retained argument/cast contracts. Syntax sugar shares ordinary calls.
+    pub(super) fn scalar_call(&self, name: &str, arguments: Vec<BoundExpr>) -> Result<BoundExpr> {
+        let function_impl = self.context.functions.scalar(name)?;
+        let function_impl = function_impl
+            .bind(
+                &FunctionArguments {
+                    arguments: &arguments,
+                    context: self.context,
+                },
+                self.context.query,
+            )?
+            .unwrap_or(function_impl);
+        let argument_types = function_impl.argument_types(
+            &arguments
+                .iter()
+                .map(|e| e.data_type.clone())
+                .collect::<Vec<_>>(),
+            self.context.query.types(),
+        )?;
+        if argument_types.len() != arguments.len() {
+            return Err(Error::Internal("scalar argument type count".into()));
+        }
+        let arguments = arguments
+            .into_iter()
+            .zip(argument_types.iter())
+            .map(|(e, target)| {
+                e.cast(
+                    target.clone(),
+                    CastMode::Implicit,
+                    self.context.casts,
+                    self.context.query.types(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let data_type = function_impl.return_type(&argument_types, self.context.query.types())?;
+        Ok(BoundExpr {
+            data_type,
+            kind: ExprKind::Scalar(function_impl, arguments),
+        })
+    }
     /// Bind/type-check every branch first, then remove statically unreachable
     /// CASE dependencies before nested relational plans are prepared.
     fn prune_case(&self, mut expression: BoundExpr) -> BoundExpr {
@@ -408,48 +449,11 @@ impl State<'_, '_> {
                     if function.filter.is_some() {
                         return Err(Error::Bind("FILTER requires an aggregate".into()));
                     }
-                    let function_impl = self.context.functions.scalar(&name)?;
-                    let mut arguments = function_arguments(function)?
+                    let arguments = function_arguments(function)?
                         .iter()
                         .map(&recurse)
                         .collect::<Result<Vec<_>>>()?;
-                    let function_impl = function_impl
-                        .bind(
-                            &FunctionArguments {
-                                arguments: &arguments,
-                                context: self.context,
-                            },
-                            self.context.query,
-                        )?
-                        .unwrap_or(function_impl);
-                    let argument_types = function_impl.argument_types(
-                        &arguments
-                            .iter()
-                            .map(|e| e.data_type.clone())
-                            .collect::<Vec<_>>(),
-                        self.context.query.types(),
-                    )?;
-                    if argument_types.len() != arguments.len() {
-                        return Err(Error::Internal("scalar argument type count".into()));
-                    }
-                    arguments = arguments
-                        .into_iter()
-                        .zip(argument_types.iter())
-                        .map(|(e, target)| {
-                            e.cast(
-                                target.clone(),
-                                CastMode::Implicit,
-                                self.context.casts,
-                                self.context.query.types(),
-                            )
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                    let data_type =
-                        function_impl.return_type(&argument_types, self.context.query.types())?;
-                    Ok(BoundExpr {
-                        data_type,
-                        kind: ExprKind::Scalar(function_impl, arguments),
-                    })
+                    self.scalar_call(&name, arguments)
                 }
             }
             ast::Expr::Case {
