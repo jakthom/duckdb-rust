@@ -7,6 +7,34 @@ a declaration of scalar or database parity. Correctness follows development
 performance reference. The pre-milestone 34-workload performance gate passed at
 `f5f0fae`; it has not yet been rerun for the combined family implementation.
 
+## Latest integrated reference refresh
+
+The `binary-scalar-reference-integrated.json` and
+`enum-reference-integrated.json` campaigns use worker merge `6ca6e8c`, combining
+the lead's `161e475` base with scalar DICT_FSST/EMPTY_VALIDITY. Both preserve
+unchanged source fingerprints and the pinned reference identities. The shared
+development catalog, ownership and StringStats repairs now clear every native
+producer path in these selected campaigns:
+
+| Selected campaign | Development SQL | Release SQL | Native paths, each pin |
+| --- | --- | --- | --- |
+| BLOB / UUID | 24/25 | 23/25 | 3/3 |
+| ENUM | 28/29 | 28/29 | 6/6 |
+
+The development BLOB/UUID discrepancy is constant-NULL concatenation metadata:
+Rust reports BLOB while development reports `"NULL"`. Release reports INTEGER
+there and additionally lacks development's UUID/UHUGEINT casts. The remaining
+ENUM discrepancy is the reference's row-zero broadcast behavior for
+`enum_range_boundary`, described below. Cross-scalar ENUM numeric/date equality
+and the empty anonymous ENUM diagnostic now agree with both references. These
+are selected correctness/interchange results, not full-family parity.
+
+The production CLI/worker build uses `--release --no-default-features` and passes
+(1m36s rebuild; the second campaign reuses it). Combined normal check and clippy
+pass, as do compression (15), nested (8, with no missing-codec skips), ENUM (3),
+BLOB/UUID (4) and temporal (10) component tests. Earlier reports remain intact.
+Kani and controlled performance still require the lead's integrated checkpoint.
+
 ## First BLOB and UUID path
 
 BLOB owns binary bytes, including zeros and invalid UTF-8. UUID owns its complete
@@ -52,9 +80,9 @@ SQL cases and 23/25 release cases passing. The remaining development mismatch is
 constant-NULL concatenation's result type (`"NULL"` in development, `INTEGER` in
 release, currently `BLOB` in Rust). Release additionally lacks development's
 UUID/UHUGEINT casts. All three release native producer paths pass after the
-default-codec repair. Development's three native paths still fail at the shared
-version-999 / catalog-index reconstruction gaps that the integration lead is
-addressing. Both campaigns verify unchanged source identities and retain all
+default-codec repair. On that earlier base, development's three native paths fail
+at the shared version-999 / catalog-index reconstruction gaps; the latest
+integrated refresh above clears them. Both campaigns verify unchanged source identities and retain all
 failures; neither report claims full compatibility.
 
 Final worker instrumentation checks report 218 Rust files, 1,890 functions and
@@ -72,12 +100,12 @@ direct SQL probes, not from declarations that happen to compile in Rust.
 | --- | --- |
 | Numeric | Expand unsigned/decimal operators, casts, common-type/overload semantics, scalar/aggregate catalog, native configuration/compression coverage, and performance workloads beyond the existing foundation. |
 | BLOB / UUID | Base64 and remaining binary/UUID functions, full upstream mapping, literal-sensitive coercion, broader compression/invalid-file cases, and isolated performance comparisons. |
-| ENUM | Anonymous SQL, selected values/casts/functions/keys, nested child values and native checkpoint/WAL are implemented in the worker increment below. Named catalog identity/dependencies and aliases remain lead-owned; cross-scalar combination coercion, empty-dictionary grammar diagnostics, batch-dependent range behavior, expanded upstream mapping and performance remain open. |
+| ENUM | Anonymous SQL, selected values/casts/functions/keys, nested child values and native checkpoint/WAL are implemented in the worker increment below. Named catalog identity/dependencies and aliases remain lead-owned; batch-dependent range behavior, expanded upstream mapping and performance remain open. |
 | BIT / bitstring | Public storable type: shape/padding, operators/functions, casts, ordering/keys, vectors, relational execution, indexes and persistence. |
 | BIGNUM / varint | Public storable arbitrary-width integer: representation, arithmetic/conversions, comparisons/keys, aggregates and persistent values. |
 | GEOMETRY | Public storable core type in this development build, not dismissible as an unavailable extension. WKB/CRS metadata, valid geometry semantics, applicable operations/casts and native encoding remain. Larger spatial-extension obligations are separately inventoried. |
 | TYPE / TUPLE | Development accepts `typeof(NULL::TYPE)` but rejects CREATE TABLE with a TYPE column; expression/type-constructor semantics remain open. TUPLE is a real nested family in `test_all_types()` and `src/common/types.cpp`, including unnamed-STRUCT compatibility on old storage. The nested worker owns TUPLE and its row/tuple constructor investigation; it is not silently omitted because bare TUPLE syntax is rejected. |
-| Shared engine integration | Literal-sensitive and combination coercion, constant-NULL return metadata, unnumbered prepared parameters, standalone index DDL, named types, mixed temporal/nested values, and development-native catalog/version compatibility are owned with the integration lead. |
+| Shared engine integration | Literal-sensitive coercion beyond the current comparison paths, constant-NULL return metadata, standalone index DDL, named types, broader mixed temporal/nested values and development-native compatibility are owned with the integration lead. Anonymous parameters and selected development-native catalog/version paths are integrated; they are no longer initial missing features. |
 
 Unsupported operations, reference disagreements, unported upstream files and
 unmeasured workloads remain open. The successful first BLOB/UUID path is an
@@ -146,9 +174,9 @@ reads only row zero for `enum_range_boundary` and broadcasts that result. An
 independent two-row query returns `[z, a]` twice while ordinary per-row Rust
 execution returns `[z, a]`, `[a]`. This observable discrepancy is retained as
 open: matching it requires a deliberate batch-semantics decision, not an
-unreported result normalization. Empty `ENUM()` reaches a sqlparser parse error
-before the Rust binder, while C++ reports a binder error; that diagnostic gap
-also remains explicit.
+unreported result normalization. Empty `ENUM()` reached a sqlparser parse error
+on the earlier worker base; the combined parser/binder now reports the reference
+binder-error category, confirmed by the latest retained report.
 
 Unary numeric `trunc` was delivered as a separate shared dependency for temporal
 interval lowering. It preserves complete signed/unsigned domains and widths,

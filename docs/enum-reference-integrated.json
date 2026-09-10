@@ -1,0 +1,3492 @@
+{
+  "recorded_at": "2026-09-10T18:44:04.514509+00:00",
+  "source_sha256": "ba0ca70b163d10bf9fcf39cea7910117d11497a233a57390d98f30d125143f34",
+  "build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--release",
+    "--no-default-features",
+    "--bin",
+    "duckdb-rust",
+    "--bin",
+    "duckdb-rust-test-worker"
+  ],
+  "rust_worker_sha256": "44facb8832f718d2c3d644bbf09eb0fcecf07165fb002e0e3497fad8c89322b4",
+  "rust_cli_sha256": "5aa381d6218b04c9baaaf81a5cd17b15a44fb5ff4cc3c86ddc3e55a70ef84d3c",
+  "script_sha256": "b221cfad6a4c6ba101c6b9006896fb00fd82e318c3cf358b5b98419ba9a725a3",
+  "targets": [
+    {
+      "target": "release",
+      "sql": [
+        {
+          "sql": "SELECT TRY_CAST(1 AS ENUM('1')),TRY_CAST(true AS ENUM('true')),TRY_CAST('1'::BLOB AS ENUM('1'))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('1')",
+              "ENUM('true')",
+              "ENUM('1')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('1')",
+              "ENUM('true')",
+              "ENUM('1')"
+            ],
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::ENUM('z','a',''),''::ENUM('z','a',''),NULL::ENUM('z','a',''),typeof('a'::ENUM('z','a',''))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a', '')",
+              "ENUM('z', 'a', '')",
+              "ENUM('z', 'a', '')",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "a",
+                "",
+                "NULL",
+                "ENUM('z', 'a', '')"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a', '')",
+              "ENUM('z', 'a', '')",
+              "ENUM('z', 'a', '')",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "a",
+                "",
+                "NULL",
+                "ENUM('z', 'a', '')"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::ENUM('z','a')<'z'::ENUM('z','a'),'a'::ENUM('z','a')<'z'::ENUM('a','z'),'a'::ENUM('z','a')='a'::ENUM('a','z')",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "0",
+                "1",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "rows": [
+              [
+                "0",
+                "1",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::ENUM('z','a')::ENUM('a','z'),TRY_CAST('z'::ENUM('z','a') AS ENUM('a')),TRY_CAST('bad' AS ENUM('z','a'))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('a', 'z')",
+              "ENUM('a')",
+              "ENUM('z', 'a')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "a",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('a', 'z')",
+              "ENUM('a')",
+              "ENUM('z', 'a')"
+            ],
+            "rows": [
+              [
+                "a",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '12'::ENUM('12','-1')::INTEGER,'12.50'::ENUM('12.50')::DECIMAL(8,2),'2000-02-29'::ENUM('2000-02-29')::DATE,'01:02:03'::ENUM('01:02:03')::TIME",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "INTEGER",
+              "DECIMAL(8,2)",
+              "DATE",
+              "TIME"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "12",
+                "12.50",
+                "2000-02-29",
+                "01:02:03"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "INTEGER",
+              "DECIMAL(8,2)",
+              "DATE",
+              "TIME"
+            ],
+            "rows": [
+              [
+                "12",
+                "12.50",
+                "2000-02-29",
+                "01:02:03"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '\\x00\\xFF'::ENUM('\\x00\\xFF')::BLOB,'00112233445566778899aabbccddeeff'::ENUM('00112233445566778899aabbccddeeff')::UUID",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "UUID"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "\\x00\\xFF",
+                "00112233-4455-6677-8899-aabbccddeeff"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "UUID"
+            ],
+            "rows": [
+              [
+                "\\x00\\xFF",
+                "00112233-4455-6677-8899-aabbccddeeff"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT lower('UP'::ENUM('UP')),upper('up'::ENUM('up')),length('\u00e9'::ENUM('\u00e9')),hex('A'::ENUM('A')),encode('A'::ENUM('A'))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "BIGINT",
+              "VARCHAR",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "up",
+                "UP",
+                "1",
+                "41",
+                "A"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "BIGINT",
+              "VARCHAR",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "up",
+                "UP",
+                "1",
+                "41",
+                "A"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_first(NULL::ENUM('z','a','')),enum_last(NULL::ENUM('z','a','')),enum_code('a'::ENUM('z','a','')),enum_code(NULL::ENUM('z','a',''))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "UTINYINT",
+              "UTINYINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z",
+                "(empty)",
+                "1",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "UTINYINT",
+              "UTINYINT"
+            ],
+            "rows": [
+              [
+                "z",
+                "(empty)",
+                "1",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_range(NULL::ENUM('z','a')),enum_range_boundary(NULL,'a'::ENUM('z','a')),enum_range_boundary('a'::ENUM('z','a'),NULL),enum_range_boundary('a'::ENUM('z','a'),'z'::ENUM('z','a'))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR[]",
+              "VARCHAR[]",
+              "VARCHAR[]",
+              "VARCHAR[]"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "[z, a]",
+                "[z, a]",
+                "[a]",
+                "[]"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR[]",
+              "VARCHAR[]",
+              "VARCHAR[]",
+              "VARCHAR[]"
+            ],
+            "rows": [
+              [
+                "[z, a]",
+                "[z, a]",
+                "[a]",
+                "[]"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_range_boundary(k,NULL) FROM (VALUES ('z'::ENUM('z','a')),('a'::ENUM('z','a'))) t(k)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR[]"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "[z, a]"
+              ],
+              [
+                "[a]"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR[]"
+            ],
+            "rows": [
+              [
+                "[z, a]"
+              ],
+              [
+                "[z, a]"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT k FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a')),(NULL)) t(k) ORDER BY k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z"
+              ],
+              [
+                "a"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a')"
+            ],
+            "rows": [
+              [
+                "z"
+              ],
+              [
+                "a"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT k,count(*) FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a')),('a'::ENUM('z','a')),(NULL)) t(k) GROUP BY k ORDER BY k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a')",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z",
+                "1"
+              ],
+              [
+                "a",
+                "2"
+              ],
+              [
+                "NULL",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a')",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "z",
+                "1"
+              ],
+              [
+                "a",
+                "2"
+              ],
+              [
+                "NULL",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT min(k),max(k),count(DISTINCT k) FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a')),(NULL)) t(k)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a')",
+              "ENUM('z', 'a')",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z",
+                "a",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a')",
+              "ENUM('z', 'a')",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "z",
+                "a",
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT count(*) FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a'))) a(k) JOIN (VALUES ('a'::ENUM('a','z')),('z'::ENUM('a','z'))) b(k) ON a.k=b.k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT first_value(k) OVER(ORDER BY k),lag(k) OVER(ORDER BY k) FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a'))) t(k) ORDER BY k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a')",
+              "ENUM('z', 'a')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z",
+                "NULL"
+              ],
+              [
+                "z",
+                "z"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a')",
+              "ENUM('z', 'a')"
+            ],
+            "rows": [
+              [
+                "z",
+                "NULL"
+              ],
+              [
+                "z",
+                "z"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT k FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a'))) t(k) UNION SELECT 'a'::ENUM('a','z') ORDER BY k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "a"
+              ],
+              [
+                "z"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "a"
+              ],
+              [
+                "z"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT coalesce('a'::ENUM('z','a'),'z'),typeof(coalesce('a'::ENUM('z','a'),'z'::ENUM('a','z')))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "a",
+                "VARCHAR"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "a",
+                "VARCHAR"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT ['a'::ENUM('z','a'),NULL]::VARCHAR[],struct_extract({'e':'a'::ENUM('z','a'),'d':1.25::DECIMAL(4,2)},'e')",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR[]",
+              "ENUM('z', 'a')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "[a, NULL]",
+                "a"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR[]",
+              "ENUM('z', 'a')"
+            ],
+            "rows": [
+              [
+                "[a, NULL]",
+                "a"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '12'::ENUM('12')=12,'2000-02-29'::ENUM('2000-02-29')=DATE '2000-02-29'",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "rows": [
+              [
+                "1",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT trunc(1.5),trunc(-1.5),typeof(trunc(1::UHUGEINT)),trunc('340282366920938463463374607431768211455'::UHUGEINT),typeof(trunc(NULL))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(2,0)",
+              "DECIMAL(2,0)",
+              "VARCHAR",
+              "UHUGEINT",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1",
+                "-1",
+                "UHUGEINT",
+                "340282366920938463463374607431768211455",
+                "BIGINT"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(2,0)",
+              "DECIMAL(2,0)",
+              "VARCHAR",
+              "UHUGEINT",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "1",
+                "-1",
+                "UHUGEINT",
+                "340282366920938463463374607431768211455",
+                "BIGINT"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'bad'::ENUM('a','b')",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Could not convert string 'bad' to ENUM('a', 'b')",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'bad' to UINT8\n\nLINE 1: SELECT 'bad'::ENUM('a','b')\n                    ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT NULL::ENUM('a','a')",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Attempted to create ENUM type with duplicate value a",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Attempted to create ENUM type with duplicate value a"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT NULL::ENUM()",
+          "expected_development_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: ENUM type requires at least one argument",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: ENUM type requires at least one argument"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_first('bad'::ENUM('z','a'))",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Could not convert string 'bad' to ENUM('z', 'a')",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'bad' to UINT8\n\nLINE 1: SELECT enum_first('bad'::ENUM('z','a'))\n                               ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_code('a')",
+          "expected_development_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: this function needs an ENUM argument",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: This function needs an ENUM as an argument"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_range_boundary(NULL,NULL)",
+          "expected_development_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: this function needs an ENUM argument",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: This function needs an ENUM as an argument"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_range_boundary('a'::ENUM('a','b'),'a'::ENUM('b','a'))",
+          "expected_development_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: ENUM range requires one dictionary",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: The parameters need to link to ONLY one enum OR be NULL "
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'bad'::ENUM('bad')::INTEGER",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: cannot cast \"bad\" to INTEGER",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'bad' to INT32\n\nLINE 1: SELECT 'bad'::ENUM('bad')::INTEGER\n                                 ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::INTEGER::ENUM('1','2')",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Unimplemented type for cast (INTEGER -> ENUM('1', '2'))",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Unimplemented type for cast (INTEGER -> ENUM('1', '2'))\n\nLINE 1: SELECT 1::INTEGER::ENUM('1','2')\n                         ^"
+          },
+          "passed": true
+        }
+      ],
+      "persistence": [
+        {
+          "producer": "cpp",
+          "dictionary_size": 3,
+          "passed": true,
+          "checkpoint_sha256": "fef4237a0a537a34a8273d1e36dcd65666f7e6454ab7352492426267ad8a12c9",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": null,
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "rust-checkpoint",
+          "dictionary_size": 3,
+          "passed": true,
+          "checkpoint_sha256": "f6bd6ea2eb618b6566543b60f759820ce22a663aa1c68a702c2b7e3a837ebf60",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": null,
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "rust-wal",
+          "dictionary_size": 3,
+          "passed": true,
+          "checkpoint_sha256": "f9480165a4db443cc4760a5de5b03187281f10c63eb92d5a57c112684cd2742a",
+          "wal_sha256": "691f8cf184dbdb3eca77c1f8d18ae3f83e93934d035ede7319d28fafe41052a3",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": null,
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "cpp",
+          "dictionary_size": 256,
+          "passed": true,
+          "checkpoint_sha256": "0eb8ea9981fdf7f8834ec0f3265110b083a49d7d75dc3eb14ac1a88daf8392b9",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": null,
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "rust-checkpoint",
+          "dictionary_size": 256,
+          "passed": true,
+          "checkpoint_sha256": "9a4e8e77469791dc43a8a3da3cb9c0aae29207ac46afb6701284fb280a556b47",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": null,
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "rust-wal",
+          "dictionary_size": 256,
+          "passed": true,
+          "checkpoint_sha256": "f9480165a4db443cc4760a5de5b03187281f10c63eb92d5a57c112684cd2742a",
+          "wal_sha256": "9224563797c524801f9aceef47b7b18f4791b923ae334a815087ba422e8eb78b",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": null,
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "passed": false,
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb-v1.5.5/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust-values-scalars/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust-values-scalars/target/enum-reference-release"
+      ],
+      "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+      "cpp_worker_sha256": "efd9a1ff09192849ec9c79ec8cce311d3a3068bc2d7363e6a47cdf441962e4d4",
+      "rust_adapters": {
+        "adapters": [
+          [
+            "transactions",
+            "optimistic-snapshot"
+          ],
+          [
+            "catalog",
+            "snapshot-catalog"
+          ],
+          [
+            "storage",
+            "snapshot-table"
+          ],
+          [
+            "indexes",
+            "hash-equality"
+          ],
+          [
+            "types",
+            "binary-scalar-types"
+          ],
+          [
+            "types",
+            "calendar-temporal"
+          ],
+          [
+            "types",
+            "exact-numeric-types"
+          ],
+          [
+            "types",
+            "gregorian-date"
+          ],
+          [
+            "types",
+            "ordered-enum-types"
+          ],
+          [
+            "types",
+            "primitive-types"
+          ],
+          [
+            "types",
+            "recursive-nested-types"
+          ],
+          [
+            "durability",
+            "memory"
+          ],
+          [
+            "casts",
+            "binary-scalar-cast"
+          ],
+          [
+            "casts",
+            "calendar-temporal-cast"
+          ],
+          [
+            "casts",
+            "exact-numeric-cast"
+          ],
+          [
+            "casts",
+            "gregorian-date-cast"
+          ],
+          [
+            "casts",
+            "nested-union-cast"
+          ],
+          [
+            "casts",
+            "ordered-enum-cast"
+          ],
+          [
+            "casts",
+            "primitive-cast"
+          ],
+          [
+            "casts",
+            "recursive-nested-cast"
+          ],
+          [
+            "casts",
+            "structural-cast"
+          ],
+          [
+            "operators",
+            "blob-concatenate"
+          ],
+          [
+            "operators",
+            "calendar-temporal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-decimal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-numeric-arithmetic"
+          ],
+          [
+            "operators",
+            "gregorian-date-arithmetic"
+          ],
+          [
+            "operators",
+            "like-greedy"
+          ],
+          [
+            "operators",
+            "string-concatenate"
+          ],
+          [
+            "physical_planner",
+            "native-physical"
+          ],
+          [
+            "scan_filter",
+            "fused-scan-filter"
+          ],
+          [
+            "recursion",
+            "streaming-recursion"
+          ],
+          [
+            "aggregation",
+            "hash-aggregation"
+          ],
+          [
+            "sorting",
+            "integer-radix-sort"
+          ],
+          [
+            "set_operations",
+            "hash-set-operations"
+          ],
+          [
+            "windows",
+            "hash-partitioned-windows"
+          ],
+          [
+            "join_algorithm",
+            "hash"
+          ],
+          [
+            "join_algorithm",
+            "nested-loop"
+          ],
+          [
+            "optimizer",
+            "pipeline"
+          ],
+          [
+            "optimizer_pass",
+            "simplify-expressions"
+          ],
+          [
+            "optimizer_pass",
+            "key-lookup"
+          ],
+          [
+            "optimizer_pass",
+            "decorrelate-exists"
+          ],
+          [
+            "parser",
+            "sqlparser-duckdb"
+          ],
+          [
+            "binder",
+            "sql-binder"
+          ],
+          [
+            "executor",
+            "pull"
+          ],
+          [
+            "expressions",
+            "batched-expression"
+          ],
+          [
+            "subqueries",
+            "streaming-subqueries"
+          ],
+          [
+            "scheduler",
+            "inline"
+          ],
+          [
+            "configuration",
+            "snapshot-configuration"
+          ]
+        ],
+        "ok": true
+      }
+    },
+    {
+      "target": "development",
+      "sql": [
+        {
+          "sql": "SELECT TRY_CAST(1 AS ENUM('1')),TRY_CAST(true AS ENUM('true')),TRY_CAST('1'::BLOB AS ENUM('1'))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('1')",
+              "ENUM('true')",
+              "ENUM('1')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('1')",
+              "ENUM('true')",
+              "ENUM('1')"
+            ],
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::ENUM('z','a',''),''::ENUM('z','a',''),NULL::ENUM('z','a',''),typeof('a'::ENUM('z','a',''))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a', '')",
+              "ENUM('z', 'a', '')",
+              "ENUM('z', 'a', '')",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "a",
+                "",
+                "NULL",
+                "ENUM('z', 'a', '')"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a', '')",
+              "ENUM('z', 'a', '')",
+              "ENUM('z', 'a', '')",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "a",
+                "",
+                "NULL",
+                "ENUM('z', 'a', '')"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::ENUM('z','a')<'z'::ENUM('z','a'),'a'::ENUM('z','a')<'z'::ENUM('a','z'),'a'::ENUM('z','a')='a'::ENUM('a','z')",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "0",
+                "1",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "rows": [
+              [
+                "0",
+                "1",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::ENUM('z','a')::ENUM('a','z'),TRY_CAST('z'::ENUM('z','a') AS ENUM('a')),TRY_CAST('bad' AS ENUM('z','a'))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('a', 'z')",
+              "ENUM('a')",
+              "ENUM('z', 'a')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "a",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('a', 'z')",
+              "ENUM('a')",
+              "ENUM('z', 'a')"
+            ],
+            "rows": [
+              [
+                "a",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '12'::ENUM('12','-1')::INTEGER,'12.50'::ENUM('12.50')::DECIMAL(8,2),'2000-02-29'::ENUM('2000-02-29')::DATE,'01:02:03'::ENUM('01:02:03')::TIME",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "INTEGER",
+              "DECIMAL(8,2)",
+              "DATE",
+              "TIME"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "12",
+                "12.50",
+                "2000-02-29",
+                "01:02:03"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "INTEGER",
+              "DECIMAL(8,2)",
+              "DATE",
+              "TIME"
+            ],
+            "rows": [
+              [
+                "12",
+                "12.50",
+                "2000-02-29",
+                "01:02:03"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '\\x00\\xFF'::ENUM('\\x00\\xFF')::BLOB,'00112233445566778899aabbccddeeff'::ENUM('00112233445566778899aabbccddeeff')::UUID",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "BLOB",
+              "UUID"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "\\x00\\xFF",
+                "00112233-4455-6677-8899-aabbccddeeff"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BLOB",
+              "UUID"
+            ],
+            "rows": [
+              [
+                "\\x00\\xFF",
+                "00112233-4455-6677-8899-aabbccddeeff"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT lower('UP'::ENUM('UP')),upper('up'::ENUM('up')),length('\u00e9'::ENUM('\u00e9')),hex('A'::ENUM('A')),encode('A'::ENUM('A'))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "BIGINT",
+              "VARCHAR",
+              "BLOB"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "up",
+                "UP",
+                "1",
+                "41",
+                "A"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "BIGINT",
+              "VARCHAR",
+              "BLOB"
+            ],
+            "rows": [
+              [
+                "up",
+                "UP",
+                "1",
+                "41",
+                "A"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_first(NULL::ENUM('z','a','')),enum_last(NULL::ENUM('z','a','')),enum_code('a'::ENUM('z','a','')),enum_code(NULL::ENUM('z','a',''))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "UTINYINT",
+              "UTINYINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z",
+                "(empty)",
+                "1",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "UTINYINT",
+              "UTINYINT"
+            ],
+            "rows": [
+              [
+                "z",
+                "(empty)",
+                "1",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_range(NULL::ENUM('z','a')),enum_range_boundary(NULL,'a'::ENUM('z','a')),enum_range_boundary('a'::ENUM('z','a'),NULL),enum_range_boundary('a'::ENUM('z','a'),'z'::ENUM('z','a'))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR[]",
+              "VARCHAR[]",
+              "VARCHAR[]",
+              "VARCHAR[]"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "[z, a]",
+                "[z, a]",
+                "[a]",
+                "[]"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR[]",
+              "VARCHAR[]",
+              "VARCHAR[]",
+              "VARCHAR[]"
+            ],
+            "rows": [
+              [
+                "[z, a]",
+                "[z, a]",
+                "[a]",
+                "[]"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_range_boundary(k,NULL) FROM (VALUES ('z'::ENUM('z','a')),('a'::ENUM('z','a'))) t(k)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR[]"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "[z, a]"
+              ],
+              [
+                "[a]"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR[]"
+            ],
+            "rows": [
+              [
+                "[z, a]"
+              ],
+              [
+                "[z, a]"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT k FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a')),(NULL)) t(k) ORDER BY k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z"
+              ],
+              [
+                "a"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a')"
+            ],
+            "rows": [
+              [
+                "z"
+              ],
+              [
+                "a"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT k,count(*) FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a')),('a'::ENUM('z','a')),(NULL)) t(k) GROUP BY k ORDER BY k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a')",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z",
+                "1"
+              ],
+              [
+                "a",
+                "2"
+              ],
+              [
+                "NULL",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a')",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "z",
+                "1"
+              ],
+              [
+                "a",
+                "2"
+              ],
+              [
+                "NULL",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT min(k),max(k),count(DISTINCT k) FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a')),(NULL)) t(k)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a')",
+              "ENUM('z', 'a')",
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z",
+                "a",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a')",
+              "ENUM('z', 'a')",
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "z",
+                "a",
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT count(*) FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a'))) a(k) JOIN (VALUES ('a'::ENUM('a','z')),('z'::ENUM('a','z'))) b(k) ON a.k=b.k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT first_value(k) OVER(ORDER BY k),lag(k) OVER(ORDER BY k) FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a'))) t(k) ORDER BY k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "ENUM('z', 'a')",
+              "ENUM('z', 'a')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "z",
+                "NULL"
+              ],
+              [
+                "z",
+                "z"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "ENUM('z', 'a')",
+              "ENUM('z', 'a')"
+            ],
+            "rows": [
+              [
+                "z",
+                "NULL"
+              ],
+              [
+                "z",
+                "z"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT k FROM (VALUES ('a'::ENUM('z','a')),('z'::ENUM('z','a'))) t(k) UNION SELECT 'a'::ENUM('a','z') ORDER BY k",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "a"
+              ],
+              [
+                "z"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "a"
+              ],
+              [
+                "z"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT coalesce('a'::ENUM('z','a'),'z'),typeof(coalesce('a'::ENUM('z','a'),'z'::ENUM('a','z')))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "a",
+                "VARCHAR"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "a",
+                "VARCHAR"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT ['a'::ENUM('z','a'),NULL]::VARCHAR[],struct_extract({'e':'a'::ENUM('z','a'),'d':1.25::DECIMAL(4,2)},'e')",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR[]",
+              "ENUM('z', 'a')"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "[a, NULL]",
+                "a"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR[]",
+              "ENUM('z', 'a')"
+            ],
+            "rows": [
+              [
+                "[a, NULL]",
+                "a"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '12'::ENUM('12')=12,'2000-02-29'::ENUM('2000-02-29')=DATE '2000-02-29'",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "rows": [
+              [
+                "1",
+                "1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT trunc(1.5),trunc(-1.5),typeof(trunc(1::UHUGEINT)),trunc('340282366920938463463374607431768211455'::UHUGEINT),typeof(trunc(NULL))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(2,0)",
+              "DECIMAL(2,0)",
+              "VARCHAR",
+              "UHUGEINT",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1",
+                "-1",
+                "UHUGEINT",
+                "340282366920938463463374607431768211455",
+                "BIGINT"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(2,0)",
+              "DECIMAL(2,0)",
+              "VARCHAR",
+              "UHUGEINT",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "1",
+                "-1",
+                "UHUGEINT",
+                "340282366920938463463374607431768211455",
+                "BIGINT"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'bad'::ENUM('a','b')",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Could not convert string 'bad' to ENUM('a', 'b')",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'bad' to UINT8\n\nLINE 1: SELECT 'bad'::ENUM('a','b')\n                    ^^^^^^^^^^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT NULL::ENUM('a','a')",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Attempted to create ENUM type with duplicate value a",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Attempted to create ENUM type with duplicate value a"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT NULL::ENUM()",
+          "expected_development_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: ENUM type requires at least one argument",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: ENUM type requires at least one argument\n\nLINE 1: SELECT NULL::ENUM()\n                     ^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_first('bad'::ENUM('z','a'))",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Could not convert string 'bad' to ENUM('z', 'a')",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'bad' to UINT8\n\nLINE 1: SELECT enum_first('bad'::ENUM('z','a'))\n                               ^^^^^^^^^^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_code('a')",
+          "expected_development_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: this function needs an ENUM argument",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: This function needs an ENUM as an argument"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_range_boundary(NULL,NULL)",
+          "expected_development_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: this function needs an ENUM argument",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: This function needs an ENUM as an argument"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT enum_range_boundary('a'::ENUM('a','b'),'a'::ENUM('b','a'))",
+          "expected_development_error": "Binder Error",
+          "rust": {
+            "message": "Binder Error: ENUM range requires one dictionary",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Binder Error: The parameters need to link to ONLY one enum OR be NULL "
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'bad'::ENUM('bad')::INTEGER",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: cannot cast \"bad\" to INTEGER",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string 'bad' to INT32\n\nLINE 1: SELECT 'bad'::ENUM('bad')::INTEGER\n                                 ^^^^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::INTEGER::ENUM('1','2')",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Unimplemented type for cast (INTEGER -> ENUM('1', '2'))",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Unimplemented type for cast (INTEGER -> ENUM('1', '2'))\n\nLINE 1: SELECT 1::INTEGER::ENUM('1','2')\n                         ^^^^^^^^^^^^^^^"
+          },
+          "passed": true
+        }
+      ],
+      "persistence": [
+        {
+          "producer": "cpp",
+          "dictionary_size": 3,
+          "passed": true,
+          "checkpoint_sha256": "c0ddc5570e84499f1e46978b9b7d3f0bfbc18ecdcc135e66fb3881c2b82d5a7f",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": null,
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "rust-checkpoint",
+          "dictionary_size": 3,
+          "passed": true,
+          "checkpoint_sha256": "f6bd6ea2eb618b6566543b60f759820ce22a663aa1c68a702c2b7e3a837ebf60",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": null,
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "rust-wal",
+          "dictionary_size": 3,
+          "passed": true,
+          "checkpoint_sha256": "f9480165a4db443cc4760a5de5b03187281f10c63eb92d5a57c112684cd2742a",
+          "wal_sha256": "691f8cf184dbdb3eca77c1f8d18ae3f83e93934d035ede7319d28fafe41052a3",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": null,
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label2"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label2",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 2,
+                  "d": "1.25",
+                  "k": "label2",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label2",
+                  "v": "label0",
+                  "code": 2,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "cpp",
+          "dictionary_size": 256,
+          "passed": true,
+          "checkpoint_sha256": "884f3779865841ab3a0610537a2a6923050e574860e39c79bee971710304b2f4",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": null,
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "rust-checkpoint",
+          "dictionary_size": 256,
+          "passed": true,
+          "checkpoint_sha256": "9a4e8e77469791dc43a8a3da3cb9c0aae29207ac46afb6701284fb280a556b47",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": null,
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "producer": "rust-wal",
+          "dictionary_size": 256,
+          "passed": true,
+          "checkpoint_sha256": "f9480165a4db443cc4760a5de5b03187281f10c63eb92d5a57c112684cd2742a",
+          "wal_sha256": "9224563797c524801f9aceef47b7b18f4791b923ae334a815087ba422e8eb78b",
+          "stages": [
+            {
+              "stage": "initial",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": null
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": null,
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "rust-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 0,
+                  "d": "1.25",
+                  "k": "label0",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label255"
+                },
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label0",
+                  "v": "label255",
+                  "code": 0,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                },
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            },
+            {
+              "stage": "cpp-mutation",
+              "rust": [
+                {
+                  "b": "\\x00\\xFF",
+                  "code": 255,
+                  "d": "1.25",
+                  "k": "label255",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "v": "label0"
+                }
+              ],
+              "cpp": [
+                {
+                  "k": "label255",
+                  "v": "label0",
+                  "code": 255,
+                  "b": "\\x00\\xFF",
+                  "u": "00112233-4455-6677-8899-aabbccddeeff",
+                  "d": "1.25"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "passed": false,
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust-values-scalars/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust-values-scalars/target/enum-reference-development"
+      ],
+      "cpp_library_sha256": "74b604b07e2c7d0f3d1e60afcbcfc388390f51d016d079f75aced1e6c1637240",
+      "cpp_worker_sha256": "becd77a4b90f3ef5a0603cc1eb98c11fd530ad57ceb0cfa8cb5ebeaa07c8a301",
+      "rust_adapters": {
+        "adapters": [
+          [
+            "transactions",
+            "optimistic-snapshot"
+          ],
+          [
+            "catalog",
+            "snapshot-catalog"
+          ],
+          [
+            "storage",
+            "snapshot-table"
+          ],
+          [
+            "indexes",
+            "hash-equality"
+          ],
+          [
+            "types",
+            "binary-scalar-types"
+          ],
+          [
+            "types",
+            "calendar-temporal"
+          ],
+          [
+            "types",
+            "exact-numeric-types"
+          ],
+          [
+            "types",
+            "gregorian-date"
+          ],
+          [
+            "types",
+            "ordered-enum-types"
+          ],
+          [
+            "types",
+            "primitive-types"
+          ],
+          [
+            "types",
+            "recursive-nested-types"
+          ],
+          [
+            "durability",
+            "memory"
+          ],
+          [
+            "casts",
+            "binary-scalar-cast"
+          ],
+          [
+            "casts",
+            "calendar-temporal-cast"
+          ],
+          [
+            "casts",
+            "exact-numeric-cast"
+          ],
+          [
+            "casts",
+            "gregorian-date-cast"
+          ],
+          [
+            "casts",
+            "nested-union-cast"
+          ],
+          [
+            "casts",
+            "ordered-enum-cast"
+          ],
+          [
+            "casts",
+            "primitive-cast"
+          ],
+          [
+            "casts",
+            "recursive-nested-cast"
+          ],
+          [
+            "casts",
+            "structural-cast"
+          ],
+          [
+            "operators",
+            "blob-concatenate"
+          ],
+          [
+            "operators",
+            "calendar-temporal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-decimal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-numeric-arithmetic"
+          ],
+          [
+            "operators",
+            "gregorian-date-arithmetic"
+          ],
+          [
+            "operators",
+            "like-greedy"
+          ],
+          [
+            "operators",
+            "string-concatenate"
+          ],
+          [
+            "physical_planner",
+            "native-physical"
+          ],
+          [
+            "scan_filter",
+            "fused-scan-filter"
+          ],
+          [
+            "recursion",
+            "streaming-recursion"
+          ],
+          [
+            "aggregation",
+            "hash-aggregation"
+          ],
+          [
+            "sorting",
+            "integer-radix-sort"
+          ],
+          [
+            "set_operations",
+            "hash-set-operations"
+          ],
+          [
+            "windows",
+            "hash-partitioned-windows"
+          ],
+          [
+            "join_algorithm",
+            "hash"
+          ],
+          [
+            "join_algorithm",
+            "nested-loop"
+          ],
+          [
+            "optimizer",
+            "pipeline"
+          ],
+          [
+            "optimizer_pass",
+            "simplify-expressions"
+          ],
+          [
+            "optimizer_pass",
+            "key-lookup"
+          ],
+          [
+            "optimizer_pass",
+            "decorrelate-exists"
+          ],
+          [
+            "parser",
+            "sqlparser-duckdb"
+          ],
+          [
+            "binder",
+            "sql-binder"
+          ],
+          [
+            "executor",
+            "pull"
+          ],
+          [
+            "expressions",
+            "batched-expression"
+          ],
+          [
+            "subqueries",
+            "streaming-subqueries"
+          ],
+          [
+            "scheduler",
+            "inline"
+          ],
+          [
+            "configuration",
+            "snapshot-configuration"
+          ]
+        ],
+        "ok": true
+      }
+    }
+  ],
+  "full_parity": false,
+  "scope": "Selected ENUM typed SQL, error categories, and native checkpoint/WAL/default/index/mutation paths. Development governs disagreements. No full scalar, diagnostic, performance or engine parity claim.",
+  "source_unchanged": true,
+  "passed": false
+}
