@@ -6,6 +6,8 @@ use std::{
     time::Duration,
 };
 
+#[path = "component/closed_argument.rs"]
+mod closed_argument;
 #[path = "component/typed_constant.rs"]
 mod typed_constant;
 #[path = "component/value_binding.rs"]

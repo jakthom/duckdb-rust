@@ -98,3 +98,14 @@ Interrupted and Internal failures propagate. Logical output validation occurs
 outside this speculative error boundary and remains fatal. The default validates
 the argument index then reports Unsupported. This capability does not weaken
 required constant evaluation or permit a scalar adapter to swallow failures.
+
+`is_closed(index)` is metadata only. SQL uses the same selected bound-expression
+dependency/effect classification as the constant requests, with cancellation and
+index validation, but does not invoke an evaluator, cast, or function. A closed
+expression can still fail when later evaluated; this request cannot establish a
+NULL value or discard that failure. Typed parameters are closed in the current
+binding, whereas columns, subqueries and expressions with declared volatile or
+external effects are not. The returned Boolean is owned statement-local metadata,
+not a claim about a later plan's constant-vector encoding. Frontends without this
+capability validate the index and return Unsupported. This keeps lazy branches
+lazy when a selected function needs provenance rather than a computed constant.

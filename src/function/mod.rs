@@ -56,6 +56,15 @@ pub trait ScalarBindArguments {
         self.data_type(index).map(|_| None)
     }
     fn constant(&self, index: usize) -> Result<Value>;
+    /// Classify a closed, effect-free argument without evaluating it, invoking
+    /// a cast, or inferring its value. This metadata is not a promise about a
+    /// later physical vector's encoding. Unsupported frontends reject it.
+    fn is_closed(&self, index: usize) -> Result<bool> {
+        self.data_type(index)?;
+        Err(Error::Unsupported(
+            "frontend does not support closed argument metadata".into(),
+        ))
+    }
     /// Optional closed/effect-free evaluation through the selected frontend.
     /// None means the expression is not eligible, never an evaluation failure.
     /// Unsupported frontends reject rather than guessing about dependencies.

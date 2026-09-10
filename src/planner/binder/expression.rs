@@ -707,6 +707,9 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
     fn constant(&self, index: usize) -> Result<Value> {
         self.evaluate_constant(self.required_constant_argument(index)?)
     }
+    fn is_closed(&self, index: usize) -> Result<bool> {
+        Ok(self.closed_argument(index)?.is_some())
+    }
     fn constant_if_closed(&self, index: usize) -> Result<Option<Value>> {
         self.closed_argument(index)?
             .map(|expression| self.evaluate_constant(expression))
