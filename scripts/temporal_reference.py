@@ -249,14 +249,68 @@ SQL += [
     "SELECT '-291000-01-01'::DATE:VARCHAR",
     "SELECT '291000-01-01 (BC)'::DATE:VARCHAR",
     "SELECT {'d':DATE('2000-01-01')}::VARCHAR,struct_pack(d := DATE('2000-01-01'))::VARCHAR",
-    # Parsed MAP literals remain a separate nested-family execution obligation.
+    # Retain the cross-family MAP literal witness when nested support expands.
     "SELECT MAP {'d':DATE('2000-01-01')}::VARCHAR",
 ]
+DIFFERENCE_UNITS = ('microsecond','millisecond','second','minute','hour','day','week','month','quarter','year','decade','century','millennium','isoyear','yearweek','julian','epoch','timezone','bad')
+DIFFERENCE_PAIRS = (
+    ("DATE '0002-12-31 (BC)'", "DATE '0001-01-01 (BC)'"),
+    ("DATE '2018-12-30'", "DATE '2018-12-31'"),
+    ("TIMESTAMP '1969-12-31 23:59:59.999999'", "TIMESTAMP '1970-01-01 00:00:00.000001'"),
+    ("TIMESTAMP '2024-01-31 12:00:00'", "TIMESTAMP '2024-02-29 11:59:59.999999'"),
+    ("TIME '23:59:59.999999'", "make_time(23,59,60.49999999999999)"),
+)
+SQL += [f"SELECT {function}('{unit}',{start},{end}),{function}('{unit}',{end},{start})"
+        for function in ('date_diff','date_sub') for unit in DIFFERENCE_UNITS for start,end in DIFFERENCE_PAIRS]
+SQL += [f"SELECT {function}('{alias}',DATE '2000-01-01',DATE '2001-02-03')"
+        for function in ('datediff','datesub')
+        for alias in ('Y','yrs','mons','dayofmonth','dow','isodow','doy','weekday','dayofyear','jd','dec','decs','cent','c','mil','millenniums','millennia','mils','millenium','us','usec','usecs','usecond','useconds','ms','msec','msecs','msecond','mseconds','sec','secs','s','min','mins','m','hr','hrs','h','w','weekofyear','quarters','era','timezone_hour','timezone_minute',' day','day ','nanosecond')]
+SQL += [f"SELECT {function}({arguments})" for function in ('date_diff','date_sub') for arguments in (
+    "'day',NULL,NULL", "NULL,NULL,NULL", "'day','2000-01-01','2000-01-02'", "'day',DATE '2000-01-01','2000-01-02'",
+    "'hour',TIME_NS '12:00:00',TIME_NS '13:00:00'", "'hour',TIMETZ '12:00:00+02',TIMETZ '13:00:00+00'",
+    "'day',TIMESTAMPTZ 'epoch',TIMESTAMPTZ '2000-01-01'", "'day',DATE 'infinity',DATE 'epoch'",
+    "'bad',DATE 'infinity',DATE 'epoch'", "'bad',NULL::DATE,DATE 'epoch'", "NULL,DATE 'epoch',DATE 'epoch'",
+    "'timezone',DATE 'infinity',DATE 'epoch'", "'day',TIME '12:00:00',DATE 'epoch'", "1,DATE 'epoch',DATE 'epoch'",
+    "'month',DATE '2023-01-31',DATE '2023-02-28'", "'month',DATE '2023-01-31',DATE '2023-02-27'",
+    "'day',DATE '5877642-06-25 (BC)',DATE '5881580-07-10'", "'microsecond',DATE '5881580-07-10',DATE '5877642-06-25 (BC)'",
+    "'millisecond',DATE '5881580-07-10',DATE '5877642-06-25 (BC)'", "'day',DATE '0001-01-01',DATE '294247-01-10'",
+    "'microsecond',TIMESTAMP_NS '1969-12-31 23:59:59.999999999',TIMESTAMP 'epoch'",
+    "'day',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-02 00:00:00.001'",
+    "'month'::ENUM('month'),DATE '2000-01-01',DATE '2001-02-03'",
+)]
+SQL += [f"SELECT {function}('{unit}',make_timestamp(-9223372036854775806),TIMESTAMP 'epoch')"
+        for function in ('date_diff','date_sub') for unit in ('year','month','day','hour','microsecond')]
+SQL += [f"SELECT {function}(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('timezone',NULL)) t(p,d)"
+        for function in ('date_diff','date_sub')]
+SQL += [f"SELECT CASE WHEN false THEN {function}('bad',DATE 'epoch',DATE 'epoch') ELSE 7 END"
+        for function in ('date_diff','date_sub')]
+SQL += [f"SELECT CASE WHEN false THEN {function}(CAST(CAST('bad' AS INTEGER) AS VARCHAR),DATE 'epoch',DATE 'epoch') ELSE 7 END"
+        for function in ('date_diff','date_sub')]
+SQL += [f"SELECT {function}(CAST('bad' AS INTEGER),NULL,NULL)" for function in ('date_diff','date_sub')]
+SQL += [f"SELECT {function}({arguments})" for function in ('date_diff','date_sub') for arguments in (
+    "'bad',NULL::DATE,CAST('bad' AS DATE)", "'bad',TRY_CAST('bad' AS DATE),DATE 'epoch'",
+    "'day',NULL::DATE,'bad'", "'day',NULL::DATE,'bad'::VARCHAR", "'day',NULL::DATE,true",
+    "'day',NULL::DATE,'1970-01-01'::ENUM('1970-01-01')", "1,NULL::DATE,DATE 'epoch'",
+)]
+SQL += [f"CREATE TABLE {function}_null_input(d DATE); INSERT INTO {function}_null_input VALUES(NULL); SELECT {function}('bad',d,DATE 'epoch') FROM {function}_null_input"
+        for function in ('date_diff','date_sub')]
+# Plan-produced constant vectors are not equivalent to expression closedness.
+# Keep these exact failures until the shared execution contract can retain them.
+SQL += [f"SELECT {function}(p,DATE 'infinity',DATE 'epoch') FROM {relation}"
+        for function in ('date_diff','date_sub')
+        for relation in ("(SELECT 'bad' p)","(VALUES ('bad')) t(p)")]
+SQL += [f"SELECT {function}((SELECT 'bad'),DATE 'infinity',DATE 'epoch')"
+        for function in ('date_diff','date_sub')]
+# A final SELECT compares database state, not differing CLI DML row-count
+# transport. Development rejects the default before reaching this statement.
+SQL += ["CREATE TABLE temporal_default_raw(raw TIMESTAMP DEFAULT make_timestamp(-9223372036854775806)); INSERT INTO temporal_default_raw DEFAULT VALUES; SELECT count(*) FROM temporal_default_raw"]
 SQL += RENDER_SQL
 BOUNDARY_DEFINITION = "CREATE TABLE clock_boundaries(id INTEGER PRIMARY KEY,n TIME_NS UNIQUE,u TIME,z TIMETZ,child STRUCT(n TIME_NS,z TIMETZ),items TIME_NS[]); INSERT INTO clock_boundaries SELECT id,v,v::TIME,(v::TIME)::TIMETZ,{'n':v,'z':(v::TIME)::TIMETZ},[v,NULL] FROM (VALUES(1,TIME_NS '24:00:00'),(2,TIME_NS '24:00:00.000000001'),(3,TIME_NS '24:00:00.000000999'),(4,make_time(23,59,60.49999999999999)::TIME_NS)) t(id,v)"
 BOUNDARY_QUERY = "SELECT id,n::VARCHAR AS n,u::VARCHAR AS u,z::VARCHAR AS z,child::VARCHAR AS child,items::VARCHAR AS items,(DATE '2000-01-01'+u)::VARCHAR AS shifted FROM clock_boundaries ORDER BY id"
 DATE_DEFINITION = "CREATE TABLE calendar_dates(k DATE UNIQUE,d DATE DEFAULT DATE('2000-01-01 12:34:56'),p STRUCT(d DATE)); INSERT INTO calendar_dates(k,p) VALUES (DATE '5881580-07-10 24:00:00',CAST({'d':'5881580-07-10'}::VARIANT AS STRUCT(d DATE))),(DATE('5877642-06-25 (BC) 24:00:00'),CAST({'d':'5877642-06-25 (BC)'}::VARIANT AS STRUCT(d DATE))),(nonexistent.date('2000-01-01 12:34:56'),CAST({'d':'2000-01-01'}::VARIANT AS STRUCT(d DATE)))"
-DATE_QUERY = "SELECT k::VARCHAR AS k,d::VARCHAR AS d,p::VARCHAR AS p FROM calendar_dates ORDER BY k"
+DATE_QUERY = "SELECT k::VARCHAR AS k,d::VARCHAR AS d,p::VARCHAR AS p,date_diff('day',d,k) AS days FROM calendar_dates ORDER BY k"
+PERIOD_DEFINITION = "CREATE TABLE calendar_periods(id INTEGER PRIMARY KEY,a TIMESTAMP,b TIMESTAMP,child STRUCT(d DATE,t TIME),whole BIGINT DEFAULT datesub('month',DATE '2000-01-31',DATE '2000-02-29'),raw TIMESTAMP DEFAULT TIMESTAMP 'epoch'); INSERT INTO calendar_periods(id,a,b,child,raw) VALUES (1,TIMESTAMP '2024-01-31 12:00:00',TIMESTAMP '2024-02-29 12:00:00',{'d':DATE '2024-02-29','t':make_time(23,59,60.49999999999999)},make_timestamp(-9223372036854775806)),(2,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP '1970-01-01 00:00:00.000001',{'d':NULL,'t':TIME '00:00:00.000001'},make_timestamp(-9223372036854775806))"
+PERIOD_QUERY = "SELECT id,date_diff('month',a,b) AS crossings,date_sub('month',a,b) AS complete,child::VARCHAR AS child,whole,date_diff('year',raw,TIMESTAMP 'epoch') AS years,date_sub('hour',raw,TIMESTAMP 'epoch') AS hours FROM calendar_periods ORDER BY id"
 DEFINITION = "CREATE TABLE t(id INTEGER PRIMARY KEY,tm TIME DEFAULT TIME '12:00:00',ts TIMESTAMP_US DEFAULT TIMESTAMP_US 'epoch',s TIMESTAMP_S DEFAULT TIMESTAMP_S 'epoch',ms TIMESTAMP_MS DEFAULT TIMESTAMP_MS 'epoch',ns DATETIME(9) DEFAULT DATETIME(9) 'epoch',z TIMESTAMPTZ DEFAULT TIMESTAMPTZ 'epoch',tz TIMETZ DEFAULT TIMETZ '12:00:00+02',iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t(id) VALUES(1); INSERT INTO t VALUES (2,NULL,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-01 12:00:00.123',TIMESTAMP_NS '2000-01-01 12:00:00.123456789',TIMESTAMPTZ '2000-01-01 12:00:00+02',TIMETZ '00:00:00-05:30',INTERVAL '-1 month 30 days -00:00:00.000001')"
 DEFINITION += "; INSERT INTO t(id,ts) VALUES (3,TIMESTAMP '290309-12-22 (BC) 00:00:00'),(4,TIMESTAMP '294247-01-10 04:00:54.775806')"
 QUERY = "SELECT id,tm::VARCHAR AS tm,ts::VARCHAR AS ts,s::VARCHAR AS s,ms::VARCHAR AS ms,ns::VARCHAR AS ns,z::VARCHAR AS z,tz::VARCHAR AS tz,iv::VARCHAR AS iv,(ts+INTERVAL '0us')::VARCHAR AS calendar_roundtrip,nanosecond(ns) AS ns_part,timetz_byte_comparable(tz)::VARCHAR AS tz_key FROM t ORDER BY id"
@@ -338,7 +392,7 @@ def main():
                 trial['persistence'].append(case)
                 try:
                     path = Path(scratch) / (label+'.duckdb')
-                    command(producer, path, DEFINITION + ';' + BOUNDARY_DEFINITION + ';' + DATE_DEFINITION)
+                    command(producer, path, DEFINITION + ';' + BOUNDARY_DEFINITION + ';' + DATE_DEFINITION + ';' + PERIOD_DEFINITION)
                     case['checkpoint_sha256'] = digest(path)
                     wal = Path(str(path)+'.wal')
                     if wal.exists():
@@ -357,9 +411,15 @@ def main():
                     case['initial_calendar_dates'] = {'cpp': expected_dates, 'rust': actual_dates}
                     if expected_dates != actual_dates:
                         raise AssertionError(case['initial_calendar_dates'])
+                    expected_periods = command(cpp_cli, path, PERIOD_QUERY, json_output=True, readonly=True)
+                    actual_periods = command(rust, path, PERIOD_QUERY, json_output=True, readonly=True)
+                    case['initial_calendar_periods'] = {'cpp': expected_periods, 'rust': actual_periods}
+                    if expected_periods != actual_periods:
+                        raise AssertionError(case['initial_calendar_periods'])
                     command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET ts=TIMESTAMP '1970-01-02',iv=iv+INTERVAL '1 day' WHERE id=1")
                     command(rust, path, "BEGIN; DELETE FROM clock_boundaries; ROLLBACK; UPDATE clock_boundaries SET n=(n::TIME)::TIME_NS WHERE id=3")
                     command(rust, path, "BEGIN; DELETE FROM calendar_dates; ROLLBACK; UPDATE calendar_dates SET k=DATE('2000-01-02 24:00:00'),p=CAST({'d':'2000-01-02'}::VARIANT AS STRUCT(d DATE)) WHERE k=DATE('2000-01-01')")
+                    command(rust, path, "BEGIN; DELETE FROM calendar_periods; ROLLBACK; UPDATE calendar_periods SET whole=date_sub('month',a,b)")
                     expected = command(cpp_cli, path, QUERY, json_output=True, readonly=True)
                     actual_rows = command(rust, path, QUERY, json_output=True, readonly=True)
                     if expected != actual_rows:
@@ -374,6 +434,11 @@ def main():
                     case['final_calendar_dates'] = {'cpp': expected_dates, 'rust': actual_dates}
                     if expected_dates != actual_dates:
                         raise AssertionError(case['final_calendar_dates'])
+                    expected_periods = command(cpp_cli, path, PERIOD_QUERY, json_output=True, readonly=True)
+                    actual_periods = command(rust, path, PERIOD_QUERY, json_output=True, readonly=True)
+                    case['final_calendar_periods'] = {'cpp': expected_periods, 'rust': actual_periods}
+                    if expected_periods != actual_periods:
+                        raise AssertionError(case['final_calendar_periods'])
                     case.update(passed=True, final_rows=actual_rows)
                 except Exception as error:
                     case['error'] = str(error)

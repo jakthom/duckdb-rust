@@ -630,6 +630,20 @@ caller-location constructs must remain unreachable in a successful harness.
 No proof here establishes SQL completeness, concurrency, durability, native
 file interoperability, or performance parity.
 
+The [calendar-difference checkpoint](temporal-differences.md) passes 29 temporal,
+31 contract and 11 DATE tests, full workspace tests and all-target clippy. Only
+the two preexisting external-CLI analytics tests are ignored. Coverage reports
+318 files, 2,971 functions and 215 interface methods with no missing entries;
+traced all-target compilation passes in 72.26 seconds and deletes telemetry.
+Full maintained Kani passes six of six harnesses (52.298, 0.860, 0.526, 2.344,
+2.995 and 84.542 seconds), without a new calendar or expression-classification
+proof. The expanded paired SQL report passes 1,284 of 1,289 development cases,
+preserving every earlier development pass; four plan-produced constant-vector
+cases and one unrenderable DEFAULT case remain explicit. Both Rust native
+producers pass both readers; development's stored function-default expression
+remains unsupported on the C++ producer path. Failed fixture and oracle trials
+are retained separately. No temporal performance acceptance is claimed.
+
 ## Remaining work in the same assignment
 
 This is not a stopping boundary. The remaining function catalog includes
