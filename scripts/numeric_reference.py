@@ -138,6 +138,42 @@ ERROR_CASES += [(f"SELECT {name}({value}, {precision})", 'Out of Range Error')
                                         ("'170141183460469231731687303715884105727'::HUGEINT",-38),
                                         ("'99999999999999999999999999999999999999'::DECIMAL(38,0)",-38)]]
 
+# ABS keeps every declared signed/unsigned domain and the complete DECIMAL
+# metadata. String casts make floating zero and NaN rendering comparisons exact.
+for kind, bits in (('TINYINT',8),('SMALLINT',16),('INTEGER',32),('BIGINT',64),
+                   ('HUGEINT',128),('UTINYINT',8),('USMALLINT',16),
+                   ('UINTEGER',32),('UBIGINT',64),('UHUGEINT',128)):
+    if kind.startswith('U'):
+        values = (0,1,2**bits-1)
+    else:
+        minimum = -(2**(bits-1))
+        values = (minimum+1,-1,0,1,-minimum-1)
+        ERROR_CASES += [(f"SELECT abs('{minimum}'::{kind})", 'Out of Range Error'),
+                        (f"SELECT abs(x) FROM (VALUES (1::{kind}),('{minimum}'::{kind})) t(x)", 'Out of Range Error')]
+        SQL.append(f"SELECT CASE WHEN false THEN abs('{minimum}'::{kind}) ELSE 1 END")
+    rows = ','.join(f"('{value}'::{kind})" for value in values) + f',(NULL::{kind})'
+    SQL.append(f"SELECT x::VARCHAR,abs(x)::VARCHAR,typeof(abs(x)) FROM (VALUES {rows}) t(x) ORDER BY x")
+for width in (1,4,5,9,10,18,19,38):
+    for scale in sorted({0,min(2,width),width}):
+        digits = '9'*width
+        magnitude = ((digits[:-scale] or '0')+'.'+digits[-scale:]) if scale else digits
+        kind = f'DECIMAL({width},{scale})'
+        SQL.append(f"SELECT x::VARCHAR,abs(x)::VARCHAR,typeof(abs(x)) FROM (VALUES ('-{magnitude}'::{kind}),('0'::{kind}),('{magnitude}'::{kind}),(NULL::{kind})) t(x) ORDER BY x")
+for kind in ('FLOAT','DOUBLE'):
+    rows = ','.join(f"('{value}'::{kind})" for value in ('-inf','-1.25','-0.0','0.0','1.25','inf','nan','-nan'))
+    SQL.append(f"SELECT x::VARCHAR,abs(x)::VARCHAR,typeof(abs(x)) FROM (VALUES {rows}) t(x)")
+SQL += [
+    "SELECT typeof(abs(NULL)),typeof(abs(NULL::DECIMAL(4,2))),typeof(abs(NULL::TINYINT)),typeof(abs(NULL::BIGNUM)),abs(NULL)",
+    "SELECT abs('-1'::BIGNUM)::VARCHAR,abs('-0'::BIGNUM)::VARCHAR,typeof(abs('1'::BIGNUM))",
+    "SELECT CASE WHEN false THEN abs(CAST('bad' AS DECIMAL(4,2))) ELSE 1 END",
+    "SELECT [abs(-1.25::DOUBLE),NULL]::VARCHAR,{'d':abs(-1.25::DECIMAL(4,2))}::VARCHAR,concat(abs('-0.0'::FLOAT))",
+    "SELECT abs(x)::VARCHAR,count(*),sum(abs(x))::VARCHAR FROM (VALUES (-1.25::DECIMAL(8,2)),(1.25),(NULL)) t(x) GROUP BY abs(x) ORDER BY abs(x)",
+    "SELECT a.x::VARCHAR,b.x::VARCHAR FROM (VALUES (-1.25::DECIMAL(8,2)),(1.25),(NULL)) a(x) JOIN (VALUES (1.25::DECIMAL(8,2)),(NULL)) b(x) ON abs(a.x)=b.x ORDER BY a.x",
+    "SELECT abs(x)::VARCHAR,lag(abs(x)) OVER(ORDER BY x)::VARCHAR,sum(abs(x)) OVER(ORDER BY x ROWS UNBOUNDED PRECEDING)::VARCHAR FROM (VALUES (-1.25::DECIMAL(8,2)),(0),(1.25),(NULL)) t(x) ORDER BY x",
+]
+ERROR_CASES += [(f'SELECT abs({argument})', 'Binder Error') for argument in
+                ("'1'", "'1'::VARCHAR", 'TRUE', "'1'::ENUM('1')", '[1]', "DATE '2024-01-01'", '', '1,2')]
+
 
 def equivalent(a, b, expected_error=None):
     if expected_error:
@@ -166,7 +202,7 @@ def equivalent(a, b, expected_error=None):
 def persistence(rust, cpp, directory):
     outcomes = []
     definition = "CREATE TABLE t(k DECIMAL(38,3) PRIMARY KEY, a UTINYINT DEFAULT 255, b USMALLINT DEFAULT 65535, c UINTEGER DEFAULT 4294967295, d UBIGINT DEFAULT 18446744073709551615, e UHUGEINT DEFAULT '340282366920938463463374607431768211455'); INSERT INTO t(k) VALUES (1.125),(-99999999999999999999999999999999999.999)"
-    query = "SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e,ceil(k)::VARCHAR AS ceiling_value,floor(k)::VARCHAR AS floor_value,sign(k) AS sign_value,round(k,2)::VARCHAR AS rounded_value,trunc(k,1)::VARCHAR AS truncated_value,trunc(e,-38)::VARCHAR AS unsigned_truncated FROM t ORDER BY k"
+    query = "SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e,ceil(k)::VARCHAR AS ceiling_value,floor(k)::VARCHAR AS floor_value,sign(k) AS sign_value,round(k,2)::VARCHAR AS rounded_value,trunc(k,1)::VARCHAR AS truncated_value,trunc(e,-38)::VARCHAR AS unsigned_truncated,abs(k)::VARCHAR AS absolute_value,abs(e)::VARCHAR AS unsigned_absolute FROM t ORDER BY k"
     for label, producer in [('cpp', cpp), ('rust-checkpoint', rust), ('rust-wal', Engine(rust.binary, True, ('--durability', 'wal')))]:
         result = {'producer': label, 'passed': False}
         outcomes.append(result)

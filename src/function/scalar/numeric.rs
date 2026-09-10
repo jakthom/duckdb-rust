@@ -1,6 +1,7 @@
 //! Numeric scalar overloads. Input coercion belongs to the selected cast
 //! registry, not to implicit numeric conversions inside these evaluators.
 use std::sync::Arc;
+mod absolute;
 mod rounding;
 
 use crate::{
@@ -16,6 +17,7 @@ struct IntegralDirection(&'static str);
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
+    absolute::register(registry);
     rounding::register(registry);
     for name in ["ceil", "ceiling", "floor", "sign"] {
         registry

@@ -7,6 +7,8 @@ use duckdb_rust::parallel::QueryContext;
 use duckdb_rust::{DataType, Database, Error, Result, Value};
 use std::sync::Arc;
 
+#[path = "numeric_absolute.rs"]
+mod absolute;
 #[path = "numeric_batches.rs"]
 mod batches;
 #[path = "numeric_contracts.rs"]

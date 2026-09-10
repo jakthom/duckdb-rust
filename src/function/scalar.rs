@@ -17,7 +17,6 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         .register_scalar(Arc::new(TypeOf(None)))
         .expect("unique typeof");
     for name in [
-        "abs",
         "lower",
         "upper",
         "length",
@@ -72,7 +71,7 @@ impl ScalarFunction for Builtin {
         if matches!(self.0, "coalesce" | "nullif") {
             return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
         }
-        if matches!(self.0, "abs" | "sqrt") && arguments == [DataType::Bignum] {
+        if self.0 == "sqrt" && arguments == [DataType::Bignum] {
             return Ok(vec![DataType::Double]);
         }
         if matches!(
@@ -117,11 +116,6 @@ impl ScalarFunction for Builtin {
                     ) =>
             {
                 Ok(DataType::BigInt)
-            }
-            "abs"
-                if count == 1 && (arguments[0].is_numeric() || arguments[0] == DataType::Null) =>
-            {
-                Ok(arguments[0].clone())
             }
             "sqrt"
                 if count == 1 && (arguments[0].is_numeric() || arguments[0] == DataType::Null) =>
@@ -184,20 +178,6 @@ impl ScalarFunction for Builtin {
             return Ok(Value::Null);
         }
         Ok(match self.0 {
-            "abs" => match &args[0] {
-                Value::Integer(v) => Value::Integer(
-                    v.checked_abs()
-                        .ok_or_else(|| Error::Execution("integer overflow".into()))?,
-                ),
-                Value::Float(v) => Value::Float(v.abs()),
-                Value::Unsigned(_) => args[0].clone(),
-                Value::Decimal {
-                    value,
-                    width,
-                    scale,
-                } => crate::common::numeric::decimal(value.abs(), *width, *scale)?,
-                _ => Value::Double(args[0].as_f64()?.abs()),
-            },
             "lower" => Value::Varchar(args[0].to_string().to_lowercase()),
             "upper" => Value::Varchar(args[0].to_string().to_uppercase()),
             "length" | "char_length" | "character_length" | "len" => {
