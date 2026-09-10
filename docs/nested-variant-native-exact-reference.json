@@ -1,0 +1,3372 @@
+{
+  "recorded_at": "2026-09-10T21:27:32.875702+00:00",
+  "source_sha256": "8523d9990dc8ca75ba33b00777e1b99d4c5d86e61b076042117ff9efa94c2e82",
+  "rust_binary_sha256": "9c784c9c5a6cae06ac6e6aa8855bf4bd1a52ecd45d32c01f1b4456904025e9ee",
+  "script_sha256": "ed00579e6a6b098acbc89dc0c0590b2fe5a2c12274e3e9c685685cc9cf06371d",
+  "reference_identities": {
+    "development": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "release": {
+      "target": "release",
+      "required_version": "1.5.5",
+      "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+      "reported_source_id": "d8cdaa33fd",
+      "version": "v1.5.5 (Variegata) d8cdaa33fd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+      "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+    }
+  },
+  "scope": "Read-only native VARIANT unshredded/shredded checkpoints through typed SQL. Development semantics take precedence; release producer coverage is separate. No Rust VARIANT writer/WAL or full compatibility claim.",
+  "exact_development_followup": true,
+  "unsupported": [
+    "Native VARIANT publication and WAL are still rejected.",
+    "Native GEOMETRY payload tag 33 is explicitly unsupported.",
+    "The development unshredded fixture includes empty STRUCT; release struct_pack() rejects that expression, so no identical release unshredded producer is claimed.",
+    "The known direct qualified-subscript join witness is retained separately from its projected-key equivalent."
+  ],
+  "fixtures": [
+    {
+      "target": "development",
+      "name": "nested_variant_unshredded",
+      "fixture_sha256": "336bbedd0a923491decd3330e7383d8444cd0a28137f633a177c894085cacecc",
+      "producer_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "oracle": "development",
+      "queries": [
+        {
+          "name": "dynamic_children",
+          "sql": "SELECT id,variant_typeof(v) AS dtype,v::VARCHAR AS result_value FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "dtype": "VARIANT_NULL",
+                "id": 0,
+                "result_value": null
+              },
+              {
+                "dtype": "BIGNUM",
+                "id": 1,
+                "result_value": "-0"
+              },
+              {
+                "dtype": "BIGNUM",
+                "id": 2,
+                "result_value": "340282366920938463463374607431768211456"
+              },
+              {
+                "dtype": "UINT64",
+                "id": 3,
+                "result_value": "18446744073709551615"
+              },
+              {
+                "dtype": "OBJECT(a, d)",
+                "id": 4,
+                "result_value": "{'a': 1, 'd': 12.50}"
+              },
+              {
+                "dtype": "OBJECT(a, c)",
+                "id": 5,
+                "result_value": "{'a': NULL, 'c': [101, NULL]}"
+              },
+              {
+                "dtype": "ARRAY(3)",
+                "id": 6,
+                "result_value": "[1, str, NULL]"
+              },
+              {
+                "dtype": "ARRAY(0)",
+                "id": 7,
+                "result_value": "[]"
+              },
+              {
+                "dtype": "OBJECT()",
+                "id": 8,
+                "result_value": "{}"
+              },
+              {
+                "dtype": "BOOL_TRUE",
+                "id": 9,
+                "result_value": "true"
+              },
+              {
+                "dtype": "UUID",
+                "id": 10,
+                "result_value": "80000000-0000-0000-0000-000000000001"
+              },
+              {
+                "dtype": "BLOB",
+                "id": 11,
+                "result_value": "a\\x00b"
+              },
+              {
+                "dtype": "BITSTRING",
+                "id": 12,
+                "result_value": "101010101"
+              },
+              {
+                "dtype": "TIMESTAMP_NANOS",
+                "id": 13,
+                "result_value": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "dtype": "TIME_MICROS",
+                "id": 14,
+                "result_value": "24:00:00"
+              },
+              {
+                "dtype": "INTERVAL",
+                "id": 15,
+                "result_value": "1 month 2 days 00:00:00.000003"
+              },
+              {
+                "dtype": "INT8",
+                "id": 16,
+                "result_value": "-128"
+              },
+              {
+                "dtype": "UINT16",
+                "id": 17,
+                "result_value": "65535"
+              },
+              {
+                "dtype": "FLOAT",
+                "id": 18,
+                "result_value": "1.5"
+              },
+              {
+                "dtype": "DOUBLE",
+                "id": 19,
+                "result_value": "2.5"
+              },
+              {
+                "dtype": "VARCHAR",
+                "id": 20,
+                "result_value": "🦆"
+              },
+              {
+                "dtype": "BOOL_FALSE",
+                "id": 21,
+                "result_value": "false"
+              },
+              {
+                "dtype": "DATE",
+                "id": 22,
+                "result_value": "-infinity"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "dtype": "VARIANT_NULL",
+                "result_value": null
+              },
+              {
+                "id": 1,
+                "dtype": "BIGNUM",
+                "result_value": "-0"
+              },
+              {
+                "id": 2,
+                "dtype": "BIGNUM",
+                "result_value": "340282366920938463463374607431768211456"
+              },
+              {
+                "id": 3,
+                "dtype": "UINT64",
+                "result_value": "18446744073709551615"
+              },
+              {
+                "id": 4,
+                "dtype": "OBJECT(a, d)",
+                "result_value": "{'a': 1, 'd': 12.50}"
+              },
+              {
+                "id": 5,
+                "dtype": "OBJECT(a, c)",
+                "result_value": "{'a': NULL, 'c': [101, NULL]}"
+              },
+              {
+                "id": 6,
+                "dtype": "ARRAY(3)",
+                "result_value": "[1, str, NULL]"
+              },
+              {
+                "id": 7,
+                "dtype": "ARRAY(0)",
+                "result_value": "[]"
+              },
+              {
+                "id": 8,
+                "dtype": "OBJECT()",
+                "result_value": "{}"
+              },
+              {
+                "id": 9,
+                "dtype": "BOOL_TRUE",
+                "result_value": "true"
+              },
+              {
+                "id": 10,
+                "dtype": "UUID",
+                "result_value": "80000000-0000-0000-0000-000000000001"
+              },
+              {
+                "id": 11,
+                "dtype": "BLOB",
+                "result_value": "a\\x00b"
+              },
+              {
+                "id": 12,
+                "dtype": "BITSTRING",
+                "result_value": "101010101"
+              },
+              {
+                "id": 13,
+                "dtype": "TIMESTAMP_NANOS",
+                "result_value": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "id": 14,
+                "dtype": "TIME_MICROS",
+                "result_value": "24:00:00"
+              },
+              {
+                "id": 15,
+                "dtype": "INTERVAL",
+                "result_value": "1 month 2 days 00:00:00.000003"
+              },
+              {
+                "id": 16,
+                "dtype": "INT8",
+                "result_value": "-128"
+              },
+              {
+                "id": 17,
+                "dtype": "UINT16",
+                "result_value": "65535"
+              },
+              {
+                "id": 18,
+                "dtype": "FLOAT",
+                "result_value": "1.5"
+              },
+              {
+                "id": 19,
+                "dtype": "DOUBLE",
+                "result_value": "2.5"
+              },
+              {
+                "id": 20,
+                "dtype": "VARCHAR",
+                "result_value": "🦆"
+              },
+              {
+                "id": 21,
+                "dtype": "BOOL_FALSE",
+                "result_value": "false"
+              },
+              {
+                "id": 22,
+                "dtype": "DATE",
+                "result_value": "-infinity"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "mixed_schema",
+          "sql": "SELECT id,s.d::VARCHAR AS decimal_value,s.ts::VARCHAR AS timestamp_text,xs::VARCHAR AS children FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "children": "[NULL, NULL]",
+                "decimal_value": "0.00",
+                "id": 0,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[-0, NULL]",
+                "decimal_value": "1.00",
+                "id": 1,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[340282366920938463463374607431768211456, NULL]",
+                "decimal_value": "2.00",
+                "id": 2,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[18446744073709551615, NULL]",
+                "decimal_value": "3.00",
+                "id": 3,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'a': 1, 'd': 12.50}, NULL]",
+                "decimal_value": "4.00",
+                "id": 4,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'a': NULL, 'c': [101, NULL]}, NULL]",
+                "decimal_value": "5.00",
+                "id": 5,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[[1, str, NULL], NULL]",
+                "decimal_value": "6.00",
+                "id": 6,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[[], NULL]",
+                "decimal_value": "7.00",
+                "id": 7,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{}, NULL]",
+                "decimal_value": "8.00",
+                "id": 8,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[true, NULL]",
+                "decimal_value": "9.00",
+                "id": 9,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[80000000-0000-0000-0000-000000000001, NULL]",
+                "decimal_value": "10.00",
+                "id": 10,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[a\\x00b, NULL]",
+                "decimal_value": "11.00",
+                "id": 11,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[101010101, NULL]",
+                "decimal_value": "12.00",
+                "id": 12,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[2000-01-01 00:00:00.123456789, NULL]",
+                "decimal_value": "13.00",
+                "id": 13,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[24:00:00, NULL]",
+                "decimal_value": "14.00",
+                "id": 14,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[1 month 2 days 00:00:00.000003, NULL]",
+                "decimal_value": "15.00",
+                "id": 15,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[-128, NULL]",
+                "decimal_value": "16.00",
+                "id": 16,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[65535, NULL]",
+                "decimal_value": "17.00",
+                "id": 17,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[1.5, NULL]",
+                "decimal_value": "18.00",
+                "id": 18,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[2.5, NULL]",
+                "decimal_value": "19.00",
+                "id": 19,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[🦆, NULL]",
+                "decimal_value": "20.00",
+                "id": 20,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[false, NULL]",
+                "decimal_value": "21.00",
+                "id": 21,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[-infinity, NULL]",
+                "decimal_value": "22.00",
+                "id": 22,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "decimal_value": "0.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[NULL, NULL]"
+              },
+              {
+                "id": 1,
+                "decimal_value": "1.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[-0, NULL]"
+              },
+              {
+                "id": 2,
+                "decimal_value": "2.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[340282366920938463463374607431768211456, NULL]"
+              },
+              {
+                "id": 3,
+                "decimal_value": "3.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[18446744073709551615, NULL]"
+              },
+              {
+                "id": 4,
+                "decimal_value": "4.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': 1, 'd': 12.50}, NULL]"
+              },
+              {
+                "id": 5,
+                "decimal_value": "5.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': NULL, 'c': [101, NULL]}, NULL]"
+              },
+              {
+                "id": 6,
+                "decimal_value": "6.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[[1, str, NULL], NULL]"
+              },
+              {
+                "id": 7,
+                "decimal_value": "7.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[[], NULL]"
+              },
+              {
+                "id": 8,
+                "decimal_value": "8.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{}, NULL]"
+              },
+              {
+                "id": 9,
+                "decimal_value": "9.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[true, NULL]"
+              },
+              {
+                "id": 10,
+                "decimal_value": "10.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[80000000-0000-0000-0000-000000000001, NULL]"
+              },
+              {
+                "id": 11,
+                "decimal_value": "11.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[a\\x00b, NULL]"
+              },
+              {
+                "id": 12,
+                "decimal_value": "12.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[101010101, NULL]"
+              },
+              {
+                "id": 13,
+                "decimal_value": "13.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[2000-01-01 00:00:00.123456789, NULL]"
+              },
+              {
+                "id": 14,
+                "decimal_value": "14.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[24:00:00, NULL]"
+              },
+              {
+                "id": 15,
+                "decimal_value": "15.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[1 month 2 days 00:00:00.000003, NULL]"
+              },
+              {
+                "id": 16,
+                "decimal_value": "16.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[-128, NULL]"
+              },
+              {
+                "id": 17,
+                "decimal_value": "17.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[65535, NULL]"
+              },
+              {
+                "id": 18,
+                "decimal_value": "18.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[1.5, NULL]"
+              },
+              {
+                "id": 19,
+                "decimal_value": "19.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[2.5, NULL]"
+              },
+              {
+                "id": 20,
+                "decimal_value": "20.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[🦆, NULL]"
+              },
+              {
+                "id": 21,
+                "decimal_value": "21.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[false, NULL]"
+              },
+              {
+                "id": 22,
+                "decimal_value": "22.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[-infinity, NULL]"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "root_validity",
+          "sql": "SELECT id,v IS NULL AS missing,variant_typeof(v) AS dtype FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "dtype": "VARIANT_NULL",
+                "id": 0,
+                "missing": true
+              },
+              {
+                "dtype": "BIGNUM",
+                "id": 1,
+                "missing": false
+              },
+              {
+                "dtype": "BIGNUM",
+                "id": 2,
+                "missing": false
+              },
+              {
+                "dtype": "UINT64",
+                "id": 3,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(a, d)",
+                "id": 4,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(a, c)",
+                "id": 5,
+                "missing": false
+              },
+              {
+                "dtype": "ARRAY(3)",
+                "id": 6,
+                "missing": false
+              },
+              {
+                "dtype": "ARRAY(0)",
+                "id": 7,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT()",
+                "id": 8,
+                "missing": false
+              },
+              {
+                "dtype": "BOOL_TRUE",
+                "id": 9,
+                "missing": false
+              },
+              {
+                "dtype": "UUID",
+                "id": 10,
+                "missing": false
+              },
+              {
+                "dtype": "BLOB",
+                "id": 11,
+                "missing": false
+              },
+              {
+                "dtype": "BITSTRING",
+                "id": 12,
+                "missing": false
+              },
+              {
+                "dtype": "TIMESTAMP_NANOS",
+                "id": 13,
+                "missing": false
+              },
+              {
+                "dtype": "TIME_MICROS",
+                "id": 14,
+                "missing": false
+              },
+              {
+                "dtype": "INTERVAL",
+                "id": 15,
+                "missing": false
+              },
+              {
+                "dtype": "INT8",
+                "id": 16,
+                "missing": false
+              },
+              {
+                "dtype": "UINT16",
+                "id": 17,
+                "missing": false
+              },
+              {
+                "dtype": "FLOAT",
+                "id": 18,
+                "missing": false
+              },
+              {
+                "dtype": "DOUBLE",
+                "id": 19,
+                "missing": false
+              },
+              {
+                "dtype": "VARCHAR",
+                "id": 20,
+                "missing": false
+              },
+              {
+                "dtype": "BOOL_FALSE",
+                "id": 21,
+                "missing": false
+              },
+              {
+                "dtype": "DATE",
+                "id": 22,
+                "missing": false
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "missing": true,
+                "dtype": "VARIANT_NULL"
+              },
+              {
+                "id": 1,
+                "missing": false,
+                "dtype": "BIGNUM"
+              },
+              {
+                "id": 2,
+                "missing": false,
+                "dtype": "BIGNUM"
+              },
+              {
+                "id": 3,
+                "missing": false,
+                "dtype": "UINT64"
+              },
+              {
+                "id": 4,
+                "missing": false,
+                "dtype": "OBJECT(a, d)"
+              },
+              {
+                "id": 5,
+                "missing": false,
+                "dtype": "OBJECT(a, c)"
+              },
+              {
+                "id": 6,
+                "missing": false,
+                "dtype": "ARRAY(3)"
+              },
+              {
+                "id": 7,
+                "missing": false,
+                "dtype": "ARRAY(0)"
+              },
+              {
+                "id": 8,
+                "missing": false,
+                "dtype": "OBJECT()"
+              },
+              {
+                "id": 9,
+                "missing": false,
+                "dtype": "BOOL_TRUE"
+              },
+              {
+                "id": 10,
+                "missing": false,
+                "dtype": "UUID"
+              },
+              {
+                "id": 11,
+                "missing": false,
+                "dtype": "BLOB"
+              },
+              {
+                "id": 12,
+                "missing": false,
+                "dtype": "BITSTRING"
+              },
+              {
+                "id": 13,
+                "missing": false,
+                "dtype": "TIMESTAMP_NANOS"
+              },
+              {
+                "id": 14,
+                "missing": false,
+                "dtype": "TIME_MICROS"
+              },
+              {
+                "id": 15,
+                "missing": false,
+                "dtype": "INTERVAL"
+              },
+              {
+                "id": 16,
+                "missing": false,
+                "dtype": "INT8"
+              },
+              {
+                "id": 17,
+                "missing": false,
+                "dtype": "UINT16"
+              },
+              {
+                "id": 18,
+                "missing": false,
+                "dtype": "FLOAT"
+              },
+              {
+                "id": 19,
+                "missing": false,
+                "dtype": "DOUBLE"
+              },
+              {
+                "id": 20,
+                "missing": false,
+                "dtype": "VARCHAR"
+              },
+              {
+                "id": 21,
+                "missing": false,
+                "dtype": "BOOL_FALSE"
+              },
+              {
+                "id": 22,
+                "missing": false,
+                "dtype": "DATE"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "counts",
+          "sql": "SELECT count(*) total,count(v) present,count(DISTINCT v) unique_values FROM t",
+          "rust": {
+            "rows": [
+              {
+                "present": 22,
+                "total": 23,
+                "unique_values": 22
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 23,
+                "present": 22,
+                "unique_values": 22
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "nested_nulls",
+          "sql": "SELECT count(*) total FROM t WHERE xs[2] IS NULL",
+          "rust": {
+            "rows": [
+              {
+                "total": 23
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 23
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "child_comparison",
+          "sql": "SELECT id FROM t WHERE v=xs[1] ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 1
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 8
+              },
+              {
+                "id": 9
+              },
+              {
+                "id": 10
+              },
+              {
+                "id": 11
+              },
+              {
+                "id": 12
+              },
+              {
+                "id": 13
+              },
+              {
+                "id": 14
+              },
+              {
+                "id": 15
+              },
+              {
+                "id": 16
+              },
+              {
+                "id": 17
+              },
+              {
+                "id": 18
+              },
+              {
+                "id": 19
+              },
+              {
+                "id": 20
+              },
+              {
+                "id": 21
+              },
+              {
+                "id": 22
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 1
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 8
+              },
+              {
+                "id": 9
+              },
+              {
+                "id": 10
+              },
+              {
+                "id": 11
+              },
+              {
+                "id": 12
+              },
+              {
+                "id": 13
+              },
+              {
+                "id": 14
+              },
+              {
+                "id": 15
+              },
+              {
+                "id": 16
+              },
+              {
+                "id": 17
+              },
+              {
+                "id": 18
+              },
+              {
+                "id": 19
+              },
+              {
+                "id": 20
+              },
+              {
+                "id": 21
+              },
+              {
+                "id": 22
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "distinct",
+          "sql": "SELECT count(*) total FROM (SELECT DISTINCT v FROM t) q",
+          "rust": {
+            "rows": [
+              {
+                "total": 23
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 23
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "groups",
+          "sql": "SELECT count(*) total FROM (SELECT v,count(*) FROM t GROUP BY v) q",
+          "rust": {
+            "rows": [
+              {
+                "total": 23
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 23
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "projected_join",
+          "sql": "SELECT count(*) total FROM t a JOIN (SELECT xs[1] k FROM t) b ON a.v=b.k",
+          "rust": {
+            "rows": [
+              {
+                "total": 22
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 22
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "qualified_subscript_join",
+          "sql": "SELECT count(*) total FROM t a JOIN t b ON a.v=b.xs[1]",
+          "rust": {
+            "error": "duckdb-rust: SELECT count(*) total FROM t a JOIN t b ON a.v=b.xs[1]\nBinder Error: column b not found\n"
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 22
+              }
+            ]
+          },
+          "passed": false
+        },
+        {
+          "name": "sort",
+          "sql": "SELECT id FROM t ORDER BY v,id",
+          "rust": {
+            "rows": [
+              {
+                "id": 21
+              },
+              {
+                "id": 9
+              },
+              {
+                "id": 16
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 17
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 18
+              },
+              {
+                "id": 19
+              },
+              {
+                "id": 20
+              },
+              {
+                "id": 11
+              },
+              {
+                "id": 10
+              },
+              {
+                "id": 22
+              },
+              {
+                "id": 13
+              },
+              {
+                "id": 14
+              },
+              {
+                "id": 15
+              },
+              {
+                "id": 12
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 8
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              },
+              {
+                "id": 0
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 21
+              },
+              {
+                "id": 9
+              },
+              {
+                "id": 16
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 17
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 18
+              },
+              {
+                "id": 19
+              },
+              {
+                "id": 20
+              },
+              {
+                "id": 11
+              },
+              {
+                "id": 10
+              },
+              {
+                "id": 22
+              },
+              {
+                "id": 13
+              },
+              {
+                "id": 14
+              },
+              {
+                "id": 15
+              },
+              {
+                "id": 12
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 8
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              },
+              {
+                "id": 0
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "windows",
+          "sql": "SELECT id,count(*) OVER (PARTITION BY v) peers FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 0,
+                "peers": 1
+              },
+              {
+                "id": 1,
+                "peers": 1
+              },
+              {
+                "id": 2,
+                "peers": 1
+              },
+              {
+                "id": 3,
+                "peers": 1
+              },
+              {
+                "id": 4,
+                "peers": 1
+              },
+              {
+                "id": 5,
+                "peers": 1
+              },
+              {
+                "id": 6,
+                "peers": 1
+              },
+              {
+                "id": 7,
+                "peers": 1
+              },
+              {
+                "id": 8,
+                "peers": 1
+              },
+              {
+                "id": 9,
+                "peers": 1
+              },
+              {
+                "id": 10,
+                "peers": 1
+              },
+              {
+                "id": 11,
+                "peers": 1
+              },
+              {
+                "id": 12,
+                "peers": 1
+              },
+              {
+                "id": 13,
+                "peers": 1
+              },
+              {
+                "id": 14,
+                "peers": 1
+              },
+              {
+                "id": 15,
+                "peers": 1
+              },
+              {
+                "id": 16,
+                "peers": 1
+              },
+              {
+                "id": 17,
+                "peers": 1
+              },
+              {
+                "id": 18,
+                "peers": 1
+              },
+              {
+                "id": 19,
+                "peers": 1
+              },
+              {
+                "id": 20,
+                "peers": 1
+              },
+              {
+                "id": 21,
+                "peers": 1
+              },
+              {
+                "id": 22,
+                "peers": 1
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "peers": 1
+              },
+              {
+                "id": 1,
+                "peers": 1
+              },
+              {
+                "id": 2,
+                "peers": 1
+              },
+              {
+                "id": 3,
+                "peers": 1
+              },
+              {
+                "id": 4,
+                "peers": 1
+              },
+              {
+                "id": 5,
+                "peers": 1
+              },
+              {
+                "id": 6,
+                "peers": 1
+              },
+              {
+                "id": 7,
+                "peers": 1
+              },
+              {
+                "id": 8,
+                "peers": 1
+              },
+              {
+                "id": 9,
+                "peers": 1
+              },
+              {
+                "id": 10,
+                "peers": 1
+              },
+              {
+                "id": 11,
+                "peers": 1
+              },
+              {
+                "id": 12,
+                "peers": 1
+              },
+              {
+                "id": 13,
+                "peers": 1
+              },
+              {
+                "id": 14,
+                "peers": 1
+              },
+              {
+                "id": 15,
+                "peers": 1
+              },
+              {
+                "id": 16,
+                "peers": 1
+              },
+              {
+                "id": 17,
+                "peers": 1
+              },
+              {
+                "id": 18,
+                "peers": 1
+              },
+              {
+                "id": 19,
+                "peers": 1
+              },
+              {
+                "id": 20,
+                "peers": 1
+              },
+              {
+                "id": 21,
+                "peers": 1
+              },
+              {
+                "id": 22,
+                "peers": 1
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "bignum_payload",
+          "sql": "SELECT id,v::BIGNUM::VARCHAR AS result_value FROM t WHERE id IN (1,2) ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 1,
+                "result_value": "-0"
+              },
+              {
+                "id": 2,
+                "result_value": "340282366920938463463374607431768211456"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 1,
+                "result_value": "-0"
+              },
+              {
+                "id": 2,
+                "result_value": "340282366920938463463374607431768211456"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "exact_scalar_tags",
+          "sql": "SELECT id,variant_typeof(v) AS dtype FROM t WHERE id IN (3,13,16,17,18,19) ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "dtype": "UINT64",
+                "id": 3
+              },
+              {
+                "dtype": "TIMESTAMP_NANOS",
+                "id": 13
+              },
+              {
+                "dtype": "INT8",
+                "id": 16
+              },
+              {
+                "dtype": "UINT16",
+                "id": 17
+              },
+              {
+                "dtype": "FLOAT",
+                "id": 18
+              },
+              {
+                "dtype": "DOUBLE",
+                "id": 19
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 3,
+                "dtype": "UINT64"
+              },
+              {
+                "id": 13,
+                "dtype": "TIMESTAMP_NANOS"
+              },
+              {
+                "id": 16,
+                "dtype": "INT8"
+              },
+              {
+                "id": 17,
+                "dtype": "UINT16"
+              },
+              {
+                "id": 18,
+                "dtype": "FLOAT"
+              },
+              {
+                "id": 19,
+                "dtype": "DOUBLE"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "blob_payload",
+          "sql": "SELECT v::BLOB=from_hex('610062') exact_bytes FROM t WHERE id=11",
+          "rust": {
+            "rows": [
+              {
+                "exact_bytes": true
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "exact_bytes": true
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "bit_payload",
+          "sql": "SELECT v::BIT::VARCHAR AS result_value FROM t WHERE id=12",
+          "rust": {
+            "rows": [
+              {
+                "result_value": "101010101"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "result_value": "101010101"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "temporal_payload",
+          "sql": "SELECT v::TIMESTAMP_NS::VARCHAR AS result_value FROM t WHERE id=13",
+          "rust": {
+            "rows": [
+              {
+                "result_value": "2000-01-01 00:00:00.123456789"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "result_value": "2000-01-01 00:00:00.123456789"
+              }
+            ]
+          },
+          "passed": true
+        }
+      ],
+      "checkpoint_unchanged": true,
+      "passed": false
+    },
+    {
+      "target": "development",
+      "name": "nested_variant_shredded",
+      "fixture_sha256": "11afcae63a1530a09de0d821f013d242440d84fbddc31f319cc89e93a2397184",
+      "producer_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "oracle": "development",
+      "queries": [
+        {
+          "name": "dynamic_children",
+          "sql": "SELECT id,variant_typeof(v) AS dtype,v::VARCHAR AS result_value FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 0,
+                "result_value": "{'a': 1, 'd': 12.50, 'items': [1, 2]}"
+              },
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 1,
+                "result_value": "{'a': 2, 'd': 1.25, 'items': [3, NULL]}"
+              },
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 2,
+                "result_value": "{'a': NULL, 'd': NULL, 'items': []}"
+              },
+              {
+                "dtype": "OBJECT(a, extra, items)",
+                "id": 3,
+                "result_value": "{'a': str, 'extra': leftover, 'items': [4, 5]}"
+              },
+              {
+                "dtype": "OBJECT(d, items)",
+                "id": 4,
+                "result_value": "{'d': 2.50, 'items': [6]}"
+              },
+              {
+                "dtype": "VARIANT_NULL",
+                "id": 5,
+                "result_value": null
+              },
+              {
+                "dtype": "VARCHAR",
+                "id": 6,
+                "result_value": "scalar leftover"
+              },
+              {
+                "dtype": "ARRAY(3)",
+                "id": 7,
+                "result_value": "[1, str, NULL]"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': 1, 'd': 12.50, 'items': [1, 2]}"
+              },
+              {
+                "id": 1,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': 2, 'd': 1.25, 'items': [3, NULL]}"
+              },
+              {
+                "id": 2,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': NULL, 'd': NULL, 'items': []}"
+              },
+              {
+                "id": 3,
+                "dtype": "OBJECT(a, extra, items)",
+                "result_value": "{'a': str, 'extra': leftover, 'items': [4, 5]}"
+              },
+              {
+                "id": 4,
+                "dtype": "OBJECT(d, items)",
+                "result_value": "{'d': 2.50, 'items': [6]}"
+              },
+              {
+                "id": 5,
+                "dtype": "VARIANT_NULL",
+                "result_value": null
+              },
+              {
+                "id": 6,
+                "dtype": "VARCHAR",
+                "result_value": "scalar leftover"
+              },
+              {
+                "id": 7,
+                "dtype": "ARRAY(3)",
+                "result_value": "[1, str, NULL]"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "mixed_schema",
+          "sql": "SELECT id,s.d::VARCHAR AS decimal_value,s.ts::VARCHAR AS timestamp_text,xs::VARCHAR AS children FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "children": "[{'a': 1, 'd': 12.50, 'items': [1, 2]}, NULL]",
+                "decimal_value": "0.00",
+                "id": 0,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'a': 2, 'd': 1.25, 'items': [3, NULL]}, NULL]",
+                "decimal_value": "1.00",
+                "id": 1,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'a': NULL, 'd': NULL, 'items': []}, NULL]",
+                "decimal_value": "2.00",
+                "id": 2,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'a': str, 'extra': leftover, 'items': [4, 5]}, NULL]",
+                "decimal_value": "3.00",
+                "id": 3,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'d': 2.50, 'items': [6]}, NULL]",
+                "decimal_value": "4.00",
+                "id": 4,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[NULL, NULL]",
+                "decimal_value": "5.00",
+                "id": 5,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[scalar leftover, NULL]",
+                "decimal_value": "6.00",
+                "id": 6,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[[1, str, NULL], NULL]",
+                "decimal_value": "7.00",
+                "id": 7,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "decimal_value": "0.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': 1, 'd': 12.50, 'items': [1, 2]}, NULL]"
+              },
+              {
+                "id": 1,
+                "decimal_value": "1.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': 2, 'd': 1.25, 'items': [3, NULL]}, NULL]"
+              },
+              {
+                "id": 2,
+                "decimal_value": "2.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': NULL, 'd': NULL, 'items': []}, NULL]"
+              },
+              {
+                "id": 3,
+                "decimal_value": "3.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': str, 'extra': leftover, 'items': [4, 5]}, NULL]"
+              },
+              {
+                "id": 4,
+                "decimal_value": "4.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'d': 2.50, 'items': [6]}, NULL]"
+              },
+              {
+                "id": 5,
+                "decimal_value": "5.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[NULL, NULL]"
+              },
+              {
+                "id": 6,
+                "decimal_value": "6.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[scalar leftover, NULL]"
+              },
+              {
+                "id": 7,
+                "decimal_value": "7.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[[1, str, NULL], NULL]"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "root_validity",
+          "sql": "SELECT id,v IS NULL AS missing,variant_typeof(v) AS dtype FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 0,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 1,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 2,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(a, extra, items)",
+                "id": 3,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(d, items)",
+                "id": 4,
+                "missing": false
+              },
+              {
+                "dtype": "VARIANT_NULL",
+                "id": 5,
+                "missing": true
+              },
+              {
+                "dtype": "VARCHAR",
+                "id": 6,
+                "missing": false
+              },
+              {
+                "dtype": "ARRAY(3)",
+                "id": 7,
+                "missing": false
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 1,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 2,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 3,
+                "missing": false,
+                "dtype": "OBJECT(a, extra, items)"
+              },
+              {
+                "id": 4,
+                "missing": false,
+                "dtype": "OBJECT(d, items)"
+              },
+              {
+                "id": 5,
+                "missing": true,
+                "dtype": "VARIANT_NULL"
+              },
+              {
+                "id": 6,
+                "missing": false,
+                "dtype": "VARCHAR"
+              },
+              {
+                "id": 7,
+                "missing": false,
+                "dtype": "ARRAY(3)"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "counts",
+          "sql": "SELECT count(*) total,count(v) present,count(DISTINCT v) unique_values FROM t",
+          "rust": {
+            "rows": [
+              {
+                "present": 7,
+                "total": 8,
+                "unique_values": 7
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 8,
+                "present": 7,
+                "unique_values": 7
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "nested_nulls",
+          "sql": "SELECT count(*) total FROM t WHERE xs[2] IS NULL",
+          "rust": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "child_comparison",
+          "sql": "SELECT id FROM t WHERE v=xs[1] ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "distinct",
+          "sql": "SELECT count(*) total FROM (SELECT DISTINCT v FROM t) q",
+          "rust": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "groups",
+          "sql": "SELECT count(*) total FROM (SELECT v,count(*) FROM t GROUP BY v) q",
+          "rust": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "projected_join",
+          "sql": "SELECT count(*) total FROM t a JOIN (SELECT xs[1] k FROM t) b ON a.v=b.k",
+          "rust": {
+            "rows": [
+              {
+                "total": 7
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 7
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "qualified_subscript_join",
+          "sql": "SELECT count(*) total FROM t a JOIN t b ON a.v=b.xs[1]",
+          "rust": {
+            "error": "duckdb-rust: SELECT count(*) total FROM t a JOIN t b ON a.v=b.xs[1]\nBinder Error: column b not found\n"
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 7
+              }
+            ]
+          },
+          "passed": false
+        },
+        {
+          "name": "sort",
+          "sql": "SELECT id FROM t ORDER BY v,id",
+          "rust": {
+            "rows": [
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "windows",
+          "sql": "SELECT id,count(*) OVER (PARTITION BY v) peers FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 0,
+                "peers": 1
+              },
+              {
+                "id": 1,
+                "peers": 1
+              },
+              {
+                "id": 2,
+                "peers": 1
+              },
+              {
+                "id": 3,
+                "peers": 1
+              },
+              {
+                "id": 4,
+                "peers": 1
+              },
+              {
+                "id": 5,
+                "peers": 1
+              },
+              {
+                "id": 6,
+                "peers": 1
+              },
+              {
+                "id": 7,
+                "peers": 1
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "peers": 1
+              },
+              {
+                "id": 1,
+                "peers": 1
+              },
+              {
+                "id": 2,
+                "peers": 1
+              },
+              {
+                "id": 3,
+                "peers": 1
+              },
+              {
+                "id": 4,
+                "peers": 1
+              },
+              {
+                "id": 5,
+                "peers": 1
+              },
+              {
+                "id": 6,
+                "peers": 1
+              },
+              {
+                "id": 7,
+                "peers": 1
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "missing_vs_null",
+          "sql": "SELECT id,variant_exists(v,'a') AS present,v.a::VARCHAR AS result_value FROM t WHERE id IN (2,4) ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 2,
+                "present": true,
+                "result_value": null
+              },
+              {
+                "id": 4,
+                "present": false,
+                "result_value": null
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 2,
+                "present": true,
+                "result_value": null
+              },
+              {
+                "id": 4,
+                "present": false,
+                "result_value": null
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "object_overlay",
+          "sql": "SELECT v.a::VARCHAR AS result_value,v.extra::VARCHAR AS leftover FROM t WHERE id=3",
+          "rust": {
+            "rows": [
+              {
+                "leftover": "leftover",
+                "result_value": "str"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "result_value": "str",
+                "leftover": "leftover"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "typed_decimal",
+          "sql": "SELECT v.d::DECIMAL(12,2)::VARCHAR AS decimal_value FROM t WHERE id=0",
+          "rust": {
+            "rows": [
+              {
+                "decimal_value": "12.50"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "decimal_value": "12.50"
+              }
+            ]
+          },
+          "passed": true
+        },
+        {
+          "name": "typed_array",
+          "sql": "SELECT v.items::INTEGER[]::VARCHAR AS result_value FROM t WHERE id IN (0,1,2,4) ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "result_value": "[1, 2]"
+              },
+              {
+                "result_value": "[3, NULL]"
+              },
+              {
+                "result_value": "[]"
+              },
+              {
+                "result_value": "[6]"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "result_value": "[1, 2]"
+              },
+              {
+                "result_value": "[3, NULL]"
+              },
+              {
+                "result_value": "[]"
+              },
+              {
+                "result_value": "[6]"
+              }
+            ]
+          },
+          "passed": true
+        }
+      ],
+      "checkpoint_unchanged": true,
+      "passed": false
+    },
+    {
+      "target": "release",
+      "name": "nested_variant_shredded",
+      "fixture_sha256": "47c2518bb1d29141c856d9605d7e7ed3f0778f2d428c1dcc22608c3b49d03ff2",
+      "producer_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "oracle": "development",
+      "queries": [
+        {
+          "name": "dynamic_children",
+          "sql": "SELECT id,variant_typeof(v) AS dtype,v::VARCHAR AS result_value FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 0,
+                "result_value": "{'a': 1, 'd': 12.50, 'items': [1, 2]}"
+              },
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 1,
+                "result_value": "{'a': 2, 'd': 1.25, 'items': [3, NULL]}"
+              },
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 2,
+                "result_value": "{'a': NULL, 'd': NULL, 'items': []}"
+              },
+              {
+                "dtype": "OBJECT(a, extra, items)",
+                "id": 3,
+                "result_value": "{'a': str, 'extra': leftover, 'items': [4, 5]}"
+              },
+              {
+                "dtype": "OBJECT(d, items)",
+                "id": 4,
+                "result_value": "{'d': 2.50, 'items': [6]}"
+              },
+              {
+                "dtype": "VARIANT_NULL",
+                "id": 5,
+                "result_value": null
+              },
+              {
+                "dtype": "VARCHAR",
+                "id": 6,
+                "result_value": "scalar leftover"
+              },
+              {
+                "dtype": "ARRAY(3)",
+                "id": 7,
+                "result_value": "[1, str, NULL]"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': 1, 'd': 12.50, 'items': [1, 2]}"
+              },
+              {
+                "id": 1,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': 2, 'd': 1.25, 'items': [3, NULL]}"
+              },
+              {
+                "id": 2,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': NULL, 'd': NULL, 'items': []}"
+              },
+              {
+                "id": 3,
+                "dtype": "OBJECT(a, extra, items)",
+                "result_value": "{'a': str, 'extra': leftover, 'items': [4, 5]}"
+              },
+              {
+                "id": 4,
+                "dtype": "OBJECT(d, items)",
+                "result_value": "{'d': 2.50, 'items': [6]}"
+              },
+              {
+                "id": 5,
+                "dtype": "VARIANT_NULL",
+                "result_value": null
+              },
+              {
+                "id": 6,
+                "dtype": "VARCHAR",
+                "result_value": "scalar leftover"
+              },
+              {
+                "id": 7,
+                "dtype": "ARRAY(3)",
+                "result_value": "[1, str, NULL]"
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "id": 0,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': 1, 'd': 12.50, 'items': [1, 2]}"
+              },
+              {
+                "id": 1,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': 2, 'd': 1.25, 'items': [3, NULL]}"
+              },
+              {
+                "id": 2,
+                "dtype": "OBJECT(a, d, items)",
+                "result_value": "{'a': NULL, 'd': NULL, 'items': []}"
+              },
+              {
+                "id": 3,
+                "dtype": "OBJECT(a, extra, items)",
+                "result_value": "{'a': str, 'extra': leftover, 'items': [4, 5]}"
+              },
+              {
+                "id": 4,
+                "dtype": "OBJECT(d, items)",
+                "result_value": "{'d': 2.50, 'items': [6]}"
+              },
+              {
+                "id": 5,
+                "dtype": "VARIANT_NULL",
+                "result_value": null
+              },
+              {
+                "id": 6,
+                "dtype": "VARCHAR",
+                "result_value": "scalar leftover"
+              },
+              {
+                "id": 7,
+                "dtype": "ARRAY(3)",
+                "result_value": "[1, str, NULL]"
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "mixed_schema",
+          "sql": "SELECT id,s.d::VARCHAR AS decimal_value,s.ts::VARCHAR AS timestamp_text,xs::VARCHAR AS children FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "children": "[{'a': 1, 'd': 12.50, 'items': [1, 2]}, NULL]",
+                "decimal_value": "0.00",
+                "id": 0,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'a': 2, 'd': 1.25, 'items': [3, NULL]}, NULL]",
+                "decimal_value": "1.00",
+                "id": 1,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'a': NULL, 'd': NULL, 'items': []}, NULL]",
+                "decimal_value": "2.00",
+                "id": 2,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'a': str, 'extra': leftover, 'items': [4, 5]}, NULL]",
+                "decimal_value": "3.00",
+                "id": 3,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[{'d': 2.50, 'items': [6]}, NULL]",
+                "decimal_value": "4.00",
+                "id": 4,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[NULL, NULL]",
+                "decimal_value": "5.00",
+                "id": 5,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[scalar leftover, NULL]",
+                "decimal_value": "6.00",
+                "id": 6,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              },
+              {
+                "children": "[[1, str, NULL], NULL]",
+                "decimal_value": "7.00",
+                "id": 7,
+                "timestamp_text": "2000-01-01 00:00:00.123456789"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "decimal_value": "0.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': 1, 'd': 12.50, 'items': [1, 2]}, NULL]"
+              },
+              {
+                "id": 1,
+                "decimal_value": "1.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': 2, 'd': 1.25, 'items': [3, NULL]}, NULL]"
+              },
+              {
+                "id": 2,
+                "decimal_value": "2.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': NULL, 'd': NULL, 'items': []}, NULL]"
+              },
+              {
+                "id": 3,
+                "decimal_value": "3.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': str, 'extra': leftover, 'items': [4, 5]}, NULL]"
+              },
+              {
+                "id": 4,
+                "decimal_value": "4.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'d': 2.50, 'items': [6]}, NULL]"
+              },
+              {
+                "id": 5,
+                "decimal_value": "5.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[NULL, NULL]"
+              },
+              {
+                "id": 6,
+                "decimal_value": "6.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[scalar leftover, NULL]"
+              },
+              {
+                "id": 7,
+                "decimal_value": "7.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[[1, str, NULL], NULL]"
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "id": 0,
+                "decimal_value": "0.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': 1, 'd': 12.50, 'items': [1, 2]}, NULL]"
+              },
+              {
+                "id": 1,
+                "decimal_value": "1.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': 2, 'd': 1.25, 'items': [3, NULL]}, NULL]"
+              },
+              {
+                "id": 2,
+                "decimal_value": "2.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': NULL, 'd': NULL, 'items': []}, NULL]"
+              },
+              {
+                "id": 3,
+                "decimal_value": "3.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'a': str, 'extra': leftover, 'items': [4, 5]}, NULL]"
+              },
+              {
+                "id": 4,
+                "decimal_value": "4.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[{'d': 2.50, 'items': [6]}, NULL]"
+              },
+              {
+                "id": 5,
+                "decimal_value": "5.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[NULL, NULL]"
+              },
+              {
+                "id": 6,
+                "decimal_value": "6.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[scalar leftover, NULL]"
+              },
+              {
+                "id": 7,
+                "decimal_value": "7.00",
+                "timestamp_text": "2000-01-01 00:00:00.123456789",
+                "children": "[[1, str, NULL], NULL]"
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "root_validity",
+          "sql": "SELECT id,v IS NULL AS missing,variant_typeof(v) AS dtype FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 0,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 1,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(a, d, items)",
+                "id": 2,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(a, extra, items)",
+                "id": 3,
+                "missing": false
+              },
+              {
+                "dtype": "OBJECT(d, items)",
+                "id": 4,
+                "missing": false
+              },
+              {
+                "dtype": "VARIANT_NULL",
+                "id": 5,
+                "missing": true
+              },
+              {
+                "dtype": "VARCHAR",
+                "id": 6,
+                "missing": false
+              },
+              {
+                "dtype": "ARRAY(3)",
+                "id": 7,
+                "missing": false
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 1,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 2,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 3,
+                "missing": false,
+                "dtype": "OBJECT(a, extra, items)"
+              },
+              {
+                "id": 4,
+                "missing": false,
+                "dtype": "OBJECT(d, items)"
+              },
+              {
+                "id": 5,
+                "missing": true,
+                "dtype": "VARIANT_NULL"
+              },
+              {
+                "id": 6,
+                "missing": false,
+                "dtype": "VARCHAR"
+              },
+              {
+                "id": 7,
+                "missing": false,
+                "dtype": "ARRAY(3)"
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "id": 0,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 1,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 2,
+                "missing": false,
+                "dtype": "OBJECT(a, d, items)"
+              },
+              {
+                "id": 3,
+                "missing": false,
+                "dtype": "OBJECT(a, extra, items)"
+              },
+              {
+                "id": 4,
+                "missing": false,
+                "dtype": "OBJECT(d, items)"
+              },
+              {
+                "id": 5,
+                "missing": true,
+                "dtype": "VARIANT_NULL"
+              },
+              {
+                "id": 6,
+                "missing": false,
+                "dtype": "VARCHAR"
+              },
+              {
+                "id": 7,
+                "missing": false,
+                "dtype": "ARRAY(3)"
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "counts",
+          "sql": "SELECT count(*) total,count(v) present,count(DISTINCT v) unique_values FROM t",
+          "rust": {
+            "rows": [
+              {
+                "present": 7,
+                "total": 8,
+                "unique_values": 7
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 8,
+                "present": 7,
+                "unique_values": 7
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "total": 8,
+                "present": 7,
+                "unique_values": 7
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "nested_nulls",
+          "sql": "SELECT count(*) total FROM t WHERE xs[2] IS NULL",
+          "rust": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "child_comparison",
+          "sql": "SELECT id FROM t WHERE v=xs[1] ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "distinct",
+          "sql": "SELECT count(*) total FROM (SELECT DISTINCT v FROM t) q",
+          "rust": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "groups",
+          "sql": "SELECT count(*) total FROM (SELECT v,count(*) FROM t GROUP BY v) q",
+          "rust": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "total": 8
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "projected_join",
+          "sql": "SELECT count(*) total FROM t a JOIN (SELECT xs[1] k FROM t) b ON a.v=b.k",
+          "rust": {
+            "rows": [
+              {
+                "total": 7
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 7
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "total": 7
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "qualified_subscript_join",
+          "sql": "SELECT count(*) total FROM t a JOIN t b ON a.v=b.xs[1]",
+          "rust": {
+            "error": "duckdb-rust: SELECT count(*) total FROM t a JOIN t b ON a.v=b.xs[1]\nBinder Error: column b not found\n"
+          },
+          "development": {
+            "rows": [
+              {
+                "total": 7
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "total": 7
+              }
+            ]
+          },
+          "passed": false,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "sort",
+          "sql": "SELECT id FROM t ORDER BY v,id",
+          "rust": {
+            "rows": [
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 0
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "id": 6
+              },
+              {
+                "id": 7
+              },
+              {
+                "id": 2
+              },
+              {
+                "id": 1
+              },
+              {
+                "id": 0
+              },
+              {
+                "id": 3
+              },
+              {
+                "id": 4
+              },
+              {
+                "id": 5
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": false
+        },
+        {
+          "name": "windows",
+          "sql": "SELECT id,count(*) OVER (PARTITION BY v) peers FROM t ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 0,
+                "peers": 1
+              },
+              {
+                "id": 1,
+                "peers": 1
+              },
+              {
+                "id": 2,
+                "peers": 1
+              },
+              {
+                "id": 3,
+                "peers": 1
+              },
+              {
+                "id": 4,
+                "peers": 1
+              },
+              {
+                "id": 5,
+                "peers": 1
+              },
+              {
+                "id": 6,
+                "peers": 1
+              },
+              {
+                "id": 7,
+                "peers": 1
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 0,
+                "peers": 1
+              },
+              {
+                "id": 1,
+                "peers": 1
+              },
+              {
+                "id": 2,
+                "peers": 1
+              },
+              {
+                "id": 3,
+                "peers": 1
+              },
+              {
+                "id": 4,
+                "peers": 1
+              },
+              {
+                "id": 5,
+                "peers": 1
+              },
+              {
+                "id": 6,
+                "peers": 1
+              },
+              {
+                "id": 7,
+                "peers": 1
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "id": 0,
+                "peers": 1
+              },
+              {
+                "id": 1,
+                "peers": 1
+              },
+              {
+                "id": 2,
+                "peers": 1
+              },
+              {
+                "id": 3,
+                "peers": 1
+              },
+              {
+                "id": 4,
+                "peers": 1
+              },
+              {
+                "id": 5,
+                "peers": 1
+              },
+              {
+                "id": 6,
+                "peers": 1
+              },
+              {
+                "id": 7,
+                "peers": 1
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "missing_vs_null",
+          "sql": "SELECT id,variant_exists(v,'a') AS present,v.a::VARCHAR AS result_value FROM t WHERE id IN (2,4) ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "id": 2,
+                "present": true,
+                "result_value": null
+              },
+              {
+                "id": 4,
+                "present": false,
+                "result_value": null
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "id": 2,
+                "present": true,
+                "result_value": null
+              },
+              {
+                "id": 4,
+                "present": false,
+                "result_value": null
+              }
+            ]
+          },
+          "release": {
+            "error": "duckdb: SELECT id,variant_exists(v,'a') AS present,v.a::VARCHAR AS result_value FROM t WHERE id IN (2,4) ORDER BY id\nCatalog Error: Scalar Function with name variant_exists does not exist!\nDid you mean \"variant_extract\"?\n\nLINE 1: SELECT id,variant_exists(v,'a') AS present,v.a::VARCHAR AS result_value...\n                  ^\n"
+          },
+          "passed": true,
+          "release_agrees_with_development": false
+        },
+        {
+          "name": "object_overlay",
+          "sql": "SELECT v.a::VARCHAR AS result_value,v.extra::VARCHAR AS leftover FROM t WHERE id=3",
+          "rust": {
+            "rows": [
+              {
+                "leftover": "leftover",
+                "result_value": "str"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "result_value": "str",
+                "leftover": "leftover"
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "result_value": "str",
+                "leftover": "leftover"
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "typed_decimal",
+          "sql": "SELECT v.d::DECIMAL(12,2)::VARCHAR AS decimal_value FROM t WHERE id=0",
+          "rust": {
+            "rows": [
+              {
+                "decimal_value": "12.50"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "decimal_value": "12.50"
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "decimal_value": "12.50"
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        },
+        {
+          "name": "typed_array",
+          "sql": "SELECT v.items::INTEGER[]::VARCHAR AS result_value FROM t WHERE id IN (0,1,2,4) ORDER BY id",
+          "rust": {
+            "rows": [
+              {
+                "result_value": "[1, 2]"
+              },
+              {
+                "result_value": "[3, NULL]"
+              },
+              {
+                "result_value": "[]"
+              },
+              {
+                "result_value": "[6]"
+              }
+            ]
+          },
+          "development": {
+            "rows": [
+              {
+                "result_value": "[1, 2]"
+              },
+              {
+                "result_value": "[3, NULL]"
+              },
+              {
+                "result_value": "[]"
+              },
+              {
+                "result_value": "[6]"
+              }
+            ]
+          },
+          "release": {
+            "rows": [
+              {
+                "result_value": "[1, 2]"
+              },
+              {
+                "result_value": "[3, NULL]"
+              },
+              {
+                "result_value": "[]"
+              },
+              {
+                "result_value": "[6]"
+              }
+            ]
+          },
+          "passed": true,
+          "release_agrees_with_development": true
+        }
+      ],
+      "checkpoint_unchanged": true,
+      "passed": false
+    }
+  ],
+  "full_parity": false,
+  "source_unchanged": true,
+  "passed": false
+}

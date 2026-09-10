@@ -49,11 +49,30 @@ SHREDDED = [
     ("typed_array", "SELECT v.items::INTEGER[]::VARCHAR value FROM t WHERE id IN (0,1,2,4) ORDER BY id"),
 ]
 
+# An explicit follow-up uses SQL VARCHAR casts for exact decimal coefficients
+# and avoids aliases reserved by the release parser. The initial report keeps
+# its original SQL and shell-serialization/parser discrepancies unchanged.
+EXACT_QUERIES = {
+    "dynamic_children": "SELECT id,variant_typeof(v) AS dtype,v::VARCHAR AS result_value FROM t ORDER BY id",
+    "mixed_schema": "SELECT id,s.d::VARCHAR AS decimal_value,s.ts::VARCHAR AS timestamp_text,xs::VARCHAR AS children FROM t ORDER BY id",
+    "root_validity": "SELECT id,v IS NULL AS missing,variant_typeof(v) AS dtype FROM t ORDER BY id",
+    "bignum_payload": "SELECT id,v::BIGNUM::VARCHAR AS result_value FROM t WHERE id IN (1,2) ORDER BY id",
+    "exact_scalar_tags": "SELECT id,variant_typeof(v) AS dtype FROM t WHERE id IN (3,13,16,17,18,19) ORDER BY id",
+    "bit_payload": "SELECT v::BIT::VARCHAR AS result_value FROM t WHERE id=12",
+    "temporal_payload": "SELECT v::TIMESTAMP_NS::VARCHAR AS result_value FROM t WHERE id=13",
+    "missing_vs_null": "SELECT id,variant_exists(v,'a') AS present,v.a::VARCHAR AS result_value FROM t WHERE id IN (2,4) ORDER BY id",
+    "object_overlay": "SELECT v.a::VARCHAR AS result_value,v.extra::VARCHAR AS leftover FROM t WHERE id=3",
+    "typed_decimal": "SELECT v.d::DECIMAL(12,2)::VARCHAR AS decimal_value FROM t WHERE id=0",
+    "typed_array": "SELECT v.items::INTEGER[]::VARCHAR AS result_value FROM t WHERE id IN (0,1,2,4) ORDER BY id",
+}
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rust", type=Path, default=ROOT / "target/debug/duckdb-rust")
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--exact-development", action="store_true",
+                        help="Exact decimal text and development semantic oracle for both producers; retain release results separately")
     args = parser.parse_args()
     if args.report.exists():
         raise FileExistsError("Preserve earlier evidence; choose a new report path")
@@ -69,6 +88,7 @@ def main():
         "script_sha256": digest(Path(__file__)),
         "reference_identities": {key: value[1] for key, value in references.items()},
         "scope": "Read-only native VARIANT unshredded/shredded checkpoints through typed SQL. Development semantics take precedence; release producer coverage is separate. No Rust VARIANT writer/WAL or full compatibility claim.",
+        "exact_development_followup": args.exact_development,
         "unsupported": [
             "Native VARIANT publication and WAL are still rejected.",
             "Native GEOMETRY payload tag 33 is explicitly unsupported.",
@@ -87,19 +107,26 @@ def main():
             path.write_bytes(gzip.decompress((source / f"{name}.duckdb.gz").read_bytes()))
             if digest(path) != manifest["sha256"]:
                 raise ValueError("Fixture checksum does not match retained producer manifest")
-            cpp = Engine(references[target][0], False, serialize_json_rows=False)
+            oracle = "development" if args.exact_development else target
+            engines = [("rust", rust), (oracle, Engine(references[oracle][0], False, serialize_json_rows=False))]
+            if target != oracle:
+                engines.append((target, Engine(references[target][0], False, serialize_json_rows=False)))
             case = {"target": target, "name": name, "fixture_sha256": digest(path),
-                    "producer_identity": manifest["reference_identity"], "queries": []}
+                    "producer_identity": manifest["reference_identity"], "oracle": oracle, "queries": []}
             report["fixtures"].append(case)
             for label, sql in QUERIES + (UNSHREDDED if name.endswith("unshredded") else SHREDDED):
+                if args.exact_development:
+                    sql = EXACT_QUERIES.get(label, sql)
                 query = {"name": label, "sql": sql}
                 case["queries"].append(query)
-                for engine_name, engine in [("rust", rust), (target, cpp)]:
+                for engine_name, engine in engines:
                     try:
                         query[engine_name] = {"rows": command(engine, path, sql, json_output=True, readonly=True)}
                     except Exception as error:
                         query[engine_name] = {"error": str(error)}
-                query["passed"] = "rows" in query["rust"] and query["rust"] == query[target]
+                query["passed"] = "rows" in query["rust"] and query["rust"] == query[oracle]
+                if target != oracle:
+                    query["release_agrees_with_development"] = query[target] == query[oracle]
             case["checkpoint_unchanged"] = digest(path) == case["fixture_sha256"]
             case["passed"] = case["checkpoint_unchanged"] and all(q["passed"] for q in case["queries"])
     report["source_unchanged"] = before == source_fingerprint()

@@ -559,3 +559,73 @@ all-target clippy pass. Coverage reports 285 files, 2,574 functions and 208
 interface methods without missing attributes. Instrumentation compatibility
 completed in 33.24 seconds with zero errors, panics or open spans; temporary
 telemetry was deleted. Kani remains at the integrated substantial checkpoint.
+
+### Native VARIANT column reader
+
+The subsequent read-side implementation reconstructs ordinary unshredded and
+typed shredded VARIANT columns through the selected child segment decoders.
+It retains dynamic scalar metadata, exact BIGNUM negative zero and magnitudes
+beyond 128 bits, unsigned values, DECIMAL precision/scale, temporal units, BIT
+lengths, embedded BLOB zeros, arrays, OBJECT fields and nested NULLs. Typed
+shredded children merge with their one-based unshredded leftovers; missing fields
+remain distinct from present NULL fields. Development's canonical reconstruction
+orders all OBJECT fields lexicographically in shredded columns, including
+leftover subtrees. Ordinary unshredded columns retain stored field order.
+
+Decoding validates canonical metadata, shredded wrapper schemas, dictionary
+references, tags, offsets, varints, child ranges, cycles and scalar physical
+domains before publishing a table. The local materialization budget bounds
+depth at 64 and visits at 16,777,216, with a separate 64 MiB bound on copied
+string/key/BLOB/BIT/BIGNUM payload bytes per native VARIANT column read. These
+are defensive local bounds, not global database memory accounting or a strict
+peak-allocation guarantee.
+
+Three immutable C++-produced fixtures retain exact executable identities,
+checksums, source SQL and observed child compression: development unshredded,
+development shredded, and release shredded with explicit storage version
+v1.5.0. Component checks exercise typed SQL, prepared lookup, comparison,
+projected-key joins, windows and reopen. Selected-decoder corruption is rejected
+before publication. Unsupported native writes preserve the original snapshot
+and exact checkpoint bytes; this is not a successful mutation round trip.
+
+The initial `nested-variant-native-reference.json` retains 33/49 matches and all
+original failures. It caught incorrect shredded OBJECT ordering, fixed in the
+reader, and retained unrelated decimal shell-JSON and release reserved-alias
+differences. The explicit follow-up
+`nested-variant-native-exact-reference.json` uses SQL VARCHAR casts for exact
+decimal checks and aliases accepted by both parsers. It records 46/49 matches:
+16/17 for development unshredded and 15/16 for each shredded producer. The three
+remaining failures are the same direct qualified-subscript join,
+`SELECT count(*) total FROM t a JOIN t b ON a.v=b.xs[1]`, which reports
+`column b not found`. The projected-key equivalent passes separately. The lead
+owns that shared binding repair; this report does not count it as passed.
+
+Development is the semantic oracle on both producer files. The release's
+different VARIANT sort result and missing `variant_exists` function are recorded
+separately. Checkpoint NULL/count behavior matches development in these fixtures;
+this does not erase the earlier in-memory/default-optimizer discrepancies.
+
+Native VARIANT publication, WAL, defaults and GEOMETRY payload tag 33 remain
+unsupported. Empty or case-distinct OBJECT names accepted by JSON-to-VARIANT
+conversion remain a dynamic representation obligation: current retained child
+metadata still uses ordinary STRUCT validation. The pinned CLI lacks its JSON
+extension, so that source-backed case has not received an independent native
+fixture; no extension was installed or rebuilt. The release also rejects the
+empty `struct_pack()` used by the development unshredded fixture, so an identical
+release unshredded producer is not claimed. This is a usable reader increment,
+not full native, VARIANT or value-and-expression parity.
+
+A built-in source-path probe does not substitute for that missing JSON witness:
+`map(['','a','A'],[1,2,3])::VARIANT` produces `ARRAY(3)` of OBJECTs with the fixed
+member names `key` and `value`. The unusual strings remain ordinary child values,
+not OBJECT member names. A separate internal OBJECT metadata design is
+provisional; SQL STRUCT validation must remain unchanged.
+
+Ordinary check and all-target clippy pass. The full workspace test run passes,
+including native VARIANT units 6/6, nested 26/26, casts 11/11, contracts 27/27,
+numeric 27/27, temporal 21/21 and types 15/15. The two pre-existing external
+analytics tests remain ignored. Coverage reports 289 files, 2,608 functions and
+208 interface methods without missing attributes. Instrumentation compatibility
+completed in 38.33 seconds with zero error returns, panics or open spans;
+temporary telemetry was deleted. The subsequent substantial integrated
+checkpoint, not this worker-only reader report, owns the maintained Kani run.
