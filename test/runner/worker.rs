@@ -26,6 +26,22 @@ struct Session {
     read_only: bool,
     connections: BTreeMap<String, Connection>,
 }
+
+/// SQLLogicTest's `(empty)` and NUL escaping apply to rendered values, not
+/// only VARCHAR payloads (upstream test/sqlite/result_helper.cpp).
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn logic_value(value: &Value) -> String {
+    let text = match value {
+        Value::Boolean(value) => u8::from(*value).to_string(),
+        _ => value.to_string(),
+    };
+    if text.is_empty() {
+        "(empty)".into()
+    } else {
+        text.replace('\0', "\\0")
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Session {
     fn open(&mut self, path: Option<PathBuf>, read_only: bool, fresh: bool) -> Result<()> {
@@ -128,16 +144,7 @@ impl Session {
         let rows: Vec<Vec<String>> = result
             .rows
             .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|value| match value {
-                        Value::Boolean(value) => u8::from(*value).to_string(),
-                        Value::Varchar(value) if value.is_empty() => "(empty)".into(),
-                        Value::Varchar(value) => value.replace('\0', "\\0"),
-                        _ => value.to_string(),
-                    })
-                    .collect()
-            })
+            .map(|row| row.iter().map(logic_value).collect())
             .collect();
         Ok(
             json!({"ok":true,"columns":result.columns.iter().map(|f|f.data_type.to_string()).collect::<Vec<_>>(),"rows":rows}),
@@ -167,4 +174,43 @@ fn main() -> Result<()> {
         io::stdout().flush()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn logic_empty_and_nul_rules_apply_after_rendering() -> Result<()> {
+        for (value, expected) in [
+            (Value::Null, "NULL"),
+            (Value::Boolean(false), "0"),
+            (Value::Boolean(true), "1"),
+            (Value::Varchar(String::new()), "(empty)"),
+            (Value::Blob(vec![]), "(empty)"),
+            (Value::Blob(vec![0]), "\\x00"),
+            (Value::Varchar("a\0b".into()), "a\\0b"),
+            (Value::Varchar("NULL".into()), "NULL"),
+            (Value::Varchar("(empty)".into()), "(empty)"),
+        ] {
+            assert_eq!(logic_value(&value), expected);
+        }
+        let mut session = Session {
+            database: Some(Database::memory()?),
+            path: None,
+            read_only: false,
+            connections: BTreeMap::new(),
+        };
+        let request = serde_json::from_value(json!({
+            "operation":"query",
+            "sql":"SELECT from_base64(''),base64(''::BLOB),from_base64(NULL),from_base64('AA=='),[NULL::VARCHAR]"
+        }))
+        .unwrap();
+        assert_eq!(
+            session.run(request)?["rows"],
+            json!([["(empty)", "(empty)", "NULL", "\\x00", "[NULL]"]])
+        );
+        Ok(())
+    }
 }

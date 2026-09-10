@@ -72,7 +72,25 @@ hidden builtins during decoding, and the failing report is not overwritten.
 
 The full workspace/all-target test suite passes, with the two pre-existing
 external-CLI analytics tests ignored. Exhaustive tracing compilation passes in
-43 seconds and deletes its temporary telemetry. A focused Base64 execution
-trace, selected upstream file run, and the maintained integrated Kani
-run/investigation remain pending for this increment. No performance acceptance
+43 seconds. The unchanged-source focused Base64 trace subsequently passes after
+a 2m47s instrumented build: 56,419 completed operations, zero error returns,
+panics or open spans, and exact output `AP8=`, `00`, `[A, NULL]`. Temporary
+telemetry was deleted after both runs; trace timings are not performance data.
+
+The initial [unchanged upstream file run](upstream-base64.json) reaches 8/17
+records, then fails at line 47: an empty BLOB renders as an empty transport
+string instead of SQLLogicTest's `(empty)` sentinel. The engine value agrees
+with both references. The reference's `test/sqlite/result_helper.cpp:403–431`
+applies empty-text and embedded-NUL rules after conversion for every type, not
+only VARCHAR. The test transport now applies those two rules after its existing
+value renderer, with focused empty BLOB/VARCHAR, NULL, byte-zero, nested NULL and
+public-query regression coverage. This does not alter upstream assertions,
+database values or the general SQL/client renderer; complete retained selected
+text casting in the test transport remains separate work. The failed report is
+retained. The [unchanged-file rerun](upstream-base64-rendering.json) passes all
+17/17 records after a 27-second uninstrumented worker build; the focused worker
+regression and tracing-enabled clippy also pass. The wrapper still exits 1
+because this one selected file is not complete upstream-suite parity. The
+maintained integrated Kani
+run/investigation remains pending for this increment. No performance acceptance
 measurement is claimed.
