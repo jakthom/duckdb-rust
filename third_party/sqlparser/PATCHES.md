@@ -17,10 +17,12 @@ remain in their existing grammar paths.
 
 DuckDB BIT and BIT VARYING parse and discard their optional expression modifiers,
 matching pinned development `BitType` and `TransformBitType`; those expressions
-never reach binding or execution. Custom type modifiers retain an optional
-numeric sign for DuckDB, including the full negative i64 boundary used by
-BITSTRING. BITSTRING still reaches ordinary modifier validation, unlike BIT's
-ignored expression list. Precision parsing in other dialects is unchanged.
+never reach binding or execution. DuckDB custom type modifiers retain constant
+identity, including quoted strings, grouping and directly negated numeric
+constants at the full negative i64 boundary. Nonconstant modifiers (including
+unary plus) fail parsing, matching `TransformTypeModifiers`; BITSTRING then
+reaches ordinary modifier validation, unlike BIT's ignored expression list.
+Precision and modifier parsing in other dialects is unchanged.
 
 The dependency has no type-parser dialect hook in this version. A small tracked
 grammar patch preserves nested STRUCT/ARRAY/MAP combinations without changing the

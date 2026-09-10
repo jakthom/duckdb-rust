@@ -13840,6 +13840,47 @@ impl<'a> Parser<'a> {
     /// Parse optional type modifiers appearing in parentheses e.g. `(UNSIGNED, ZEROFILL)`.
     pub fn parse_optional_type_modifiers(&mut self) -> Result<Option<Vec<String>>, ParserError> {
         if self.consume_token(&Token::LParen) {
+            if dialect_of!(self is DuckDbDialect) {
+                let modifiers = self.parse_comma_separated0(
+                    |parser| {
+                        let expression = parser.parse_expr()?;
+                        let location = expression.span().start;
+                        let mut expression = &expression;
+                        let mut negative = false;
+                        let mut has_sign = false;
+                        loop {
+                            match expression {
+                                Expr::Nested(inner) => expression = inner,
+                                Expr::UnaryOp { op: UnaryOperator::Minus, expr } => {
+                                    negative = !negative;
+                                    has_sign = true;
+                                    expression = expr;
+                                }
+                                Expr::Value(value) => {
+                                    if let Value::Number(number, _) = &value.value {
+                                        return Ok(if negative {
+                                            format!("-{number}")
+                                        } else {
+                                            number.to_string()
+                                        });
+                                    }
+                                    if !has_sign && !matches!(value.value, Value::Placeholder(_)) {
+                                        // Preserve quotes: '1' is a VARCHAR
+                                        // modifier, not an integer modifier.
+                                        return Ok(value.to_string());
+                                    }
+                                    break;
+                                }
+                                _ => break,
+                            }
+                        }
+                        parser_err!("Expected a constant as type modifier", location)
+                    },
+                    Token::RParen,
+                )?;
+                self.expect_token(&Token::RParen)?;
+                return Ok(Some(modifiers));
+            }
             let mut modifiers = Vec::new();
             loop {
                 let next_token = self.next_token();
@@ -13847,14 +13888,6 @@ impl<'a> Parser<'a> {
                     Token::Word(w) => modifiers.push(w.to_string()),
                     Token::Number(n, _) => modifiers.push(n),
                     Token::SingleQuotedString(s) => modifiers.push(s),
-                    sign @ (Token::Minus | Token::Plus) if dialect_of!(self is DuckDbDialect) => {
-                        let number = self.next_token();
-                        match number.token {
-                            Token::Number(n, _) => modifiers.push(format!("{sign}{n}")),
-                            _ => self.expected("numeric type modifier after sign", number)?,
-                        }
-                    }
-
                     Token::Comma => {
                         continue;
                     }

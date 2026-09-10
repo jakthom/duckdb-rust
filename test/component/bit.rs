@@ -76,19 +76,56 @@ fn bit_type_modifiers_keep_development_grammar_and_persist_only_logical_metadata
                     assert_eq!(result.rows, vec![vec![bit("001")]]);
                 }
             }
-            for modifier in ["-1", "+1", "-9223372036854775808", "9223372036854775807"] {
+            for modifier in [
+                "",
+                "1,",
+                "(1)",
+                "-(-1)",
+                "-1",
+                "-9223372036854775808",
+                "9223372036854775807",
+            ] {
                 assert_eq!(
                     c.query(&format!("SELECT '001'::BITSTRING({modifier})"))?
                         .rows,
                     vec![vec![bit("001")]]
                 );
             }
-            for modifier in ["9223372036854775808", "-9223372036854775809", "1.0", "1,2"] {
+            for modifier in [
+                "9223372036854775808",
+                "-9223372036854775809",
+                "1.0",
+                "-1.0",
+                "1,2",
+                "'1'",
+                "NULL",
+                "true",
+            ] {
                 let error = c
                     .query(&format!("SELECT '1'::BITSTRING({modifier})"))
                     .unwrap_err();
                 assert!(matches!(error, Error::Bind(_)), "{modifier}: {error}");
             }
+            for modifier in [
+                "+1",
+                "missing_name",
+                "missing_function()",
+                "1+2",
+                "-true",
+                "?",
+                "1 2",
+            ] {
+                let error = c
+                    .query(&format!("SELECT '1'::BITSTRING({modifier})"))
+                    .unwrap_err();
+                assert!(matches!(error, Error::Parse(_)), "{modifier}: {error}");
+            }
+            let prepared = c.prepare("SELECT '001'::BIT(?), ?")?;
+            assert_eq!(
+                c.execute_prepared(&prepared, &[Value::Integer(7), Value::Integer(8)])?
+                    .rows,
+                vec![vec![bit("001"), Value::Integer(8)]]
+            );
             assert!(matches!(c.query("SELECT '1'::BIT()"), Err(Error::Parse(_))));
             c.execute("CREATE TABLE b(k BIT(missing_name) PRIMARY KEY, v BIT VARYING(1/0), s BITSTRING(-1)); INSERT INTO b VALUES ('00','001','101')")?;
             c.execute_params("UPDATE b SET v=$1 WHERE k='00'::BIT", &[bit("111")])?;

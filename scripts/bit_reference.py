@@ -21,7 +21,8 @@ SQL = [
     "SELECT typeof('1'::BITSTRING(-1))",
     "SELECT typeof('1'::BIT(-1)),typeof('1'::BIT(+1)),typeof('1'::BIT(-9223372036854775808)),typeof('1'::BIT(9223372036854775808)),typeof('1'::BIT(1.0))",
     "SELECT typeof('1'::BIT(1+2)),typeof('1'::BIT(missing_name)),typeof('1'::BIT(missing_function())),typeof('1'::BIT(1/0)),typeof('1'::BIT(1,2)),typeof('1'::BIT VARYING(-1))",
-    "SELECT typeof('1'::BITSTRING(+1)),typeof('1'::BITSTRING(-9223372036854775808)),typeof('1'::BITSTRING(9223372036854775807))",
+    "SELECT typeof('1'::BITSTRING(-9223372036854775808)),typeof('1'::BITSTRING(9223372036854775807))",
+    "SELECT typeof('1'::BITSTRING()),typeof('1'::BITSTRING(1,)),typeof('1'::BITSTRING((1))),typeof('1'::BITSTRING(-(-1)))",
     "SELECT (-1::TINYINT)::BIT,(-1::HUGEINT)::BIT,'340282366920938463463374607431768211455'::UHUGEINT::BIT,true::BIT",
     "SELECT '1'::BIT::TINYINT,'11111111'::BIT::TINYINT,'1111111'::BIT::TINYINT,'100000000'::BIT::SMALLINT,'1'::BIT::BOOLEAN",
     "SELECT (-1.5::FLOAT)::BIT,(-1.5::DOUBLE)::BIT,((-1.5::FLOAT)::BIT)::FLOAT,((-1.5::DOUBLE)::BIT)::DOUBLE",
@@ -54,6 +55,12 @@ for kind, width in [("TINYINT",8),("SMALLINT",16),("INTEGER",32),("BIGINT",64),(
     SQL.append(f"SELECT ~0::{kind},xor('{maximum}'::{kind},1::{kind}),'{maximum}'::{kind} & 1::{kind},'{maximum}'::{kind} | 1::{kind},1::{kind} << {width-1-int(signed)}::{kind},'{maximum}'::{kind} >> 1::{kind}")
 
 ERRORS = [
+    ("SELECT '1'::BITSTRING(+1)", "Parser Error"),
+    ("SELECT '1'::BITSTRING(missing_name)", "Parser Error"),
+    ("SELECT '1'::BITSTRING(1+2)", "Parser Error"),
+    ("SELECT '1'::BITSTRING('1')", "Binder Error"),
+    ("SELECT '1'::BITSTRING(NULL)", "Binder Error"),
+    ("SELECT '1'::BITSTRING(true)", "Binder Error"),
     ("SELECT '1'::BIT()", "Parser Error"),
     ("SELECT '1'::BITSTRING(9223372036854775808)", "Binder Error"),
     ("SELECT '1'::BITSTRING(-9223372036854775809)", "Binder Error"),

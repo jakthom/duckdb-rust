@@ -141,3 +141,22 @@ Full upstream mappings, boundary/error diagnostics, broader native compression,
 mixed-family coverage and controlled faster-reference performance measurements
 remain open. BIGNUM and core GEOMETRY remain scalar obligations; neither is
 replaced by this BIT increment or classified away as an unavailable extension.
+
+## Shared modifier integration and retained regression trial
+
+The [expanded modifier trial](bit-reference-modifier-integration.json) retains
+development 69/70 and release 55/70 selected SQL cases, with all three native
+producer paths passing against both pins and unchanged source. It exposed a
+new parser bug: accepting `BITSTRING(+1)` as an integer constant. Development
+rejects that expression as nonconstant, while BIT's separate grammar accepts
+and discards it. The failed report is not replaced by the repair.
+
+The repair parses DuckDB custom modifiers as constant expressions, preserves
+quoted strings, and handles grouping and directly negated numeric constants.
+Unary plus, names, functions and arithmetic expressions remain parser errors;
+wrong constant types and integer widths reach the binder. BIT and BIT VARYING
+continue to discard their modifier expressions without looking up names or
+executing functions. Parameter numbering outside discarded modifiers remains
+lexical. Other dialects keep their original precision/modifier grammar.
+Normal checks pass BIT (8), types (14), contracts (25) and all-target clippy.
+The expanded repaired differential campaign is still pending at this commit.
