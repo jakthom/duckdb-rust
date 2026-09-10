@@ -52,6 +52,19 @@ impl ScalarFunction for Builtin {
         arguments: &[DataType],
         types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Vec<DataType>> {
+        if self.0 == "concat" {
+            if arguments.is_empty() {
+                return Err(Error::Bind("concat requires at least one argument".into()));
+            }
+            if arguments.iter().any(|argument| {
+                matches!(argument, DataType::Nested(metadata) if matches!(metadata.as_ref(), crate::common::NestedType::List(_) | crate::common::NestedType::Array { .. }))
+            }) {
+                return Err(Error::Unsupported(
+                    "LIST/ARRAY concat overload is not implemented".into(),
+                ));
+            }
+            return Ok(vec![DataType::Varchar; arguments.len()]);
+        }
         if matches!(self.0, "coalesce" | "nullif") {
             return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
         }
@@ -77,6 +90,13 @@ impl ScalarFunction for Builtin {
             }]);
         }
         Ok(arguments.to_vec())
+    }
+    fn argument_cast_mode(&self, _index: usize) -> crate::common::cast::CastMode {
+        if self.0 == "concat" {
+            crate::common::cast::CastMode::Explicit
+        } else {
+            crate::common::cast::CastMode::Implicit
+        }
     }
     fn return_type(
         &self,
@@ -139,12 +159,20 @@ impl ScalarFunction for Builtin {
                     .unwrap_or(Value::Null));
             }
             "concat" => {
-                return Ok(Value::Varchar(
-                    args.iter()
-                        .filter(|v| !v.is_null())
-                        .map(ToString::to_string)
-                        .collect(),
-                ));
+                let mut output = String::new();
+                for argument in args {
+                    context.check()?;
+                    let text = match argument {
+                        Value::Null => continue,
+                        Value::Varchar(text) => text,
+                        _ => return Err(Error::Internal("concat argument is not VARCHAR".into())),
+                    };
+                    output
+                        .try_reserve(text.len())
+                        .map_err(|_| Error::Resource("concat result allocation failed".into()))?;
+                    output.push_str(text);
+                }
+                return Ok(Value::Varchar(output));
             }
             "nullif" => {
                 return if args[0].is_null()

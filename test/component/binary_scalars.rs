@@ -23,6 +23,132 @@ use duckdb_rust::{
     },
 };
 
+#[derive(Debug)]
+struct ConcatIntegerCast;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl duckdb_rust::common::cast::CastFunction for ConcatIntegerCast {
+    fn name(&self) -> &'static str {
+        "concat-selected-integer-text"
+    }
+    fn supports(&self, spec: &duckdb_rust::common::cast::CastSpec) -> bool {
+        spec.source == DataType::Integer
+            && spec.target == DataType::Varchar
+            && spec.mode == CastMode::Explicit
+    }
+    fn cast(
+        &self,
+        value: &Value,
+        _: &duckdb_rust::common::cast::CastSpec,
+        query: &QueryContext,
+    ) -> Result<Value> {
+        query.check()?;
+        match value {
+            Value::Integer(9) => Err(Error::Internal("selected concat failure".into())),
+            Value::Integer(value) => Ok(Value::Varchar(format!("selected:{value}"))),
+            _ => Err(Error::Internal("selected concat cast input".into())),
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn concat_keeps_selected_text_casts_nulls_failures_and_atomic_mutations() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(duckdb_rust::optimizer::IdentityOptimizer)
+                as Arc<dyn duckdb_rust::optimizer::Optimizer>,
+            Arc::new(duckdb_rust::optimizer::PipelineOptimizer::default()),
+        ] {
+            let mut normal = DatabaseBuilder::new()
+                .expressions(expressions.clone())
+                .optimizer(optimizer.clone())
+                .batch_size(2)
+                .build()?
+                .connect();
+            assert_eq!(normal.query("SELECT concat(NULL),concat(1,NULL,DATE '2001-01-01'),concat('a'::BLOB,'b'::BLOB),concat({'a':1},2)")?.rows,
+                vec![vec![Value::Varchar("".into()),Value::Varchar("12001-01-01".into()),Value::Varchar("ab".into()),Value::Varchar("{'a': 1}2".into())]]);
+            assert!(matches!(
+                normal.query("SELECT concat()"),
+                Err(Error::Bind(_))
+            ));
+            assert!(matches!(
+                normal.query("SELECT concat([1])"),
+                Err(Error::Unsupported(_))
+            ));
+            for sql in [
+                "SELECT concat(make_timestamp(-9223372036854775806))",
+                "SELECT TRY_CAST(concat(make_timestamp(-9223372036854775806)) AS VARCHAR)",
+                "SELECT concat({'a':make_timestamp(-9223372036854775806)})",
+            ] {
+                assert!(
+                    matches!(normal.query(sql), Err(Error::Internal(_))),
+                    "{sql}"
+                );
+            }
+            assert!(matches!(
+                normal.execute_params(
+                    "SELECT concat($1)",
+                    &[Value::Temporal(
+                        duckdb_rust::common::TemporalValue::Timestamp(-i64::MAX + 1)
+                    )]
+                ),
+                Err(Error::Internal(_))
+            ));
+            let mut casts = CastRegistry::builtins();
+            casts.replace(
+                duckdb_rust::common::cast::CastSpec {
+                    source: DataType::Integer,
+                    target: DataType::Varchar,
+                    mode: CastMode::Explicit,
+                },
+                Arc::new(ConcatIntegerCast),
+            )?;
+            let mut c = DatabaseBuilder::new()
+                .casts(casts)
+                .expressions(expressions.clone())
+                .optimizer(optimizer)
+                .batch_size(2)
+                .build()?
+                .connect();
+            assert_eq!(
+                c.query("SELECT concat(1::INTEGER,NULL::INTEGER,'!')")?.rows,
+                vec![vec![Value::Varchar("selected:1!".into())]]
+            );
+            assert_eq!(
+                c.execute_params("SELECT concat($1,'!')", &[Value::Integer(2)])?[0].rows,
+                vec![vec![Value::Varchar("selected:2!".into())]]
+            );
+            c.execute("CREATE TABLE strings(k INTEGER PRIMARY KEY,s VARCHAR); INSERT INTO strings VALUES (1,'old'),(2,NULL),(9,'last')")?;
+            assert!(matches!(
+                c.execute("UPDATE strings SET s=concat(k,'!')"),
+                Err(Error::Internal(_))
+            ));
+            assert_eq!(
+                c.query("SELECT s FROM strings ORDER BY k")?.rows,
+                vec![
+                    vec![Value::Varchar("old".into())],
+                    vec![Value::Null],
+                    vec![Value::Varchar("last".into())]
+                ]
+            );
+            c.execute("BEGIN; UPDATE strings SET s=concat(k,'!') WHERE k<9; ROLLBACK")?;
+            assert_eq!(
+                c.query("SELECT s FROM strings WHERE k=1")?.rows,
+                vec![vec![Value::Varchar("old".into())]]
+            );
+            assert!(matches!(
+                c.query("SELECT TRY_CAST(concat(9::INTEGER) AS VARCHAR)"),
+                Err(Error::Internal(_))
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn binary_scalar_conversion_vectors_preserve_bytes_and_uuid_bits() -> Result<()> {
