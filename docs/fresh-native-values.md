@@ -74,3 +74,16 @@ The fresh-file script now also checks Rust reading every development twin and a
 Rust mutation after the C++ checkpoint. The expanded campaign and combined
 workspace/tracing/Kani checkpoint are pending; the initial failure reports remain
 unchanged. Native VARIANT/TUPLE WAL publication remains separately unsupported.
+
+## Repaired combined checkpoint
+
+On integrated `27d190b`, the [production rerun](fresh-native-values-checkpoint9-repaired.json)
+passes all six versions and all five stages each, including Rust reading every
+development twin and mutation after C++ publication. Release agrees for storage
+64–68 and rejects 69 as expected. The [preceding debug run](fresh-native-values-checkpoint9-debug.json)
+also passes and is retained. Production source and binary hashes remain unchanged
+through the campaign. The [combined checkpoint](value-expression-progress.md)
+passes workspace tests/check/clippy, trace compatibility and all six maintained
+Kani harnesses; those proofs do not establish this native wire/state protocol.
+The original failures above are historical observations, now repaired in these
+selected workflows, not discarded or reclassified as passing runs.

@@ -46,5 +46,11 @@ checkpoint/rebase, another mutation and read-only reopen. The repaired focused
 run passes ordinary check, library 61, all 19 compatibility tests and all-target
 clippy with warnings denied. Coverage reports 328 files, 3,053 functions and
 216 interface methods, no missing attributes. Python script compilation passes.
-The substantial combined/tracing/Kani checkpoint and production file campaigns
-follow; no performance acceptance is inferred from these file tests.
+The [production fixture reread](native-deletion-identity-checkpoint9.json) passes
+all four cases on integrated `27d190b`; the preceding
+[debug reread](native-deletion-identity-repaired-debug.json) also passes. Both
+preserve the exact initial independent fixtures. Full workspace/tracing checks
+and all six maintained Kani harnesses pass at the
+[combined checkpoint](value-expression-progress.md), without claiming proofs of
+these deletion, row-identity or file invariants. No performance acceptance is
+inferred from these file tests.

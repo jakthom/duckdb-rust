@@ -4,17 +4,102 @@ The [accepted milestone](../specs/value-expression-milestone.md) remains active.
 The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
-Latest integrated checkpoint: `4b2a027`. This includes versioned native
-VARIANT/TUPLE publication, DATE call syntax, repaired numeric precision functions,
-MAP literals and ordered sequence coercion, selected typed-constant binding,
-and a test-only exact canonical VARIANT content checker. Full workspace and
-exploratory Kani validation pass on this combined source. A subsequently
-reproduced nested-NaN checkpoint-validation gap is being repaired; the passing
-suite did not cover that witness. New upstream/performance acceptance remains open.
-The last pushed checkpoint is `135eece`, whose engine source
-`88e9094` passed the 34-workload timing gate and controlled upstream refresh.
-Those timings do not measure the new combined source. Earlier sections retain
-historical results and limits.
+Latest integrated source: `27d190b`. This includes recursive bit-exact nested
+checkpoint validation, ordered CASE/collection coercion, full-width integer
+literals, ABS, calendar difference functions, native row-ID gaps/free tails and
+historical/current deletion-mask compatibility. Full workspace check/tests and
+all-target clippy, tracing and exploratory Kani pass for this ninth checkpoint.
+The earlier nested-NaN failure is repaired. Production file campaigns and the
+strict 34-workload faster-reference gate pass. The full upstream refresh has
+487 passing files and 20,811 passing records, with no lost full-file pass or
+decreased passed-record prefix against the last pushed checkpoint, `135eece`
+(engine `88e9094`). This ninth checkpoint is validated for the follow-up push;
+the broader milestone remains active. Earlier sections retain historical
+results and limits.
+
+## Ninth integrated implementation checkpoint
+
+At `27d190b`, the full workspace suite passes with the same two external-CLI
+analytics tests ignored. Library 61, compatibility 19, numeric 40, nested 41,
+contracts 32, DATE 11, temporal 29, casts 12, types 18, checkpointing 13 and
+recovery 14 pass. The full recovery-tail sweep took 62.31 seconds. Coverage
+reports 328 files, 3,053 functions and 216 interface methods, no missing
+instrumentation. Trace compatibility passes in 44.096 seconds with no errors,
+panics or open spans; temporary telemetry was deleted.
+
+Full `python3 scripts/verify_kani.py` with Kani 0.67.0 passes all six maintained
+harnesses, zero failures: TIMETZ packing 44.857 s, unsigned keys 0.781 s, dense
+offsets 0.473 s, ROWS clipping 2.080 s, uniform bounds 2.499 s and packed byte
+counts 60.287 s. Caller-location (1) and foreign-function (4) warnings remained
+unreachable; atomic fences (4) and subtracts (5) were modeled sequentially.
+These proofs do not establish native row-group/deletion/free-list correctness,
+recursive checkpoint identity, general SQL binding, calendar semantics, VARIANT
+canonicalization or concurrent durability. Those remain distinct evidence scopes.
+
+The lead repaired [recursive nested IEEE layout comparison](nested-checkpoint-exactness.md),
+[native row identity and free tails](fresh-native-values.md), and
+[deletion-mask compatibility](native-deletion-identity.md). A read-only worker
+review found two additional issues before push: nonzero-group deletion origins
+and an overly permissive trailing append watermark. A relative-only deletion
+edit then regressed the retained v1.3 fixture; the final source follows C++'s
+actual vector-index addressing and preserves the obsolete wire field. The
+historical regression and all new independent fixtures now pass without removing
+assertions or mask bounds. Initial failures remain recorded.
+
+The [expanded production file campaign](fresh-native-values-checkpoint9-repaired.json)
+passes all six storage versions and all five stages per version: creation,
+rollback, Rust commit, C++ commit, and a Rust mutation after C++ checkpointing.
+Rust also reads every independently produced development twin. Release agrees
+for storage 64–68; its storage-69 rejection remains an expected version limit.
+The [repaired production deletion campaign](native-deletion-identity-checkpoint9.json)
+passes all four retained release/development files. Both production reports
+record unchanged source `4ce64917ee194eff0d2628cbfffce8caa10663ab499ce8de146064f64feea328`
+and shell binary `dca261a4e93f537387e061fce10bb1b6d82f2f0ea6f0523cbc6d2aed5af99869`.
+The earlier passing debug reports are retained separately.
+
+All 34 measured workloads pass the strict faster-reference gate with three
+warmups and 21 paired, alternating-order samples against each pin. Both Rust
+campaign medians are gated against the smaller C++ median; no tolerance or
+median selection was added. Maximum ratios by suite are numeric 0.958160 (8),
+native 0.959253 (12), grouping 0.932525 (3), ordering 0.715233 (1), and relational
+0.969849 (10). Reports are `value-expression-performance-checkpoint9-<suite>-{release,development,fastest}.json`.
+Every campaign uses the same measurement source
+`3a9d208a7579ec91da3a55e63c5959970209e73126751dcaa4879d7c09638e1a`
+and Rust measurement binary
+`fc063459719ab08ef70d987f33e88f8c8afe874813ddd83db8b6ba091f670cfe`.
+Workers and root proof/build jobs were finished before measurement. This is
+serial in-memory embedded-API latency evidence, not coverage of new types,
+CPU/memory, cold I/O, durability, concurrency or the entire performance target.
+
+The [controlled full upstream refresh](value-expression-upstream-checkpoint9.json)
+accounts for the same 5,638 unique file identities, archive, manifest and upstream
+revision as checkpoint5-d, with the same three-second deadline and two workers.
+Outcomes are 487 passed, 2,027 failed, 3,110 unsupported, 11 timeout and three
+incomplete; full-suite parity is false. Passed records increase from 19,241 to
+20,811. Comparing every file identity finds 64 newly passing files, no lost full
+pass and no decreased passed-record prefix. These combined engine/harness
+results include the documented exact numeric-oracle repair; they are not 64
+independent engine-only feature claims. No new worker-exit error appeared.
+The additional timeout, `test/sql/setops/test_joins_under_setops.test_slow`,
+advances from three passed records and a numeric-rendering assertion failure to
+four passed records before its deadline. Its later statement remains unverified,
+not waived. Source identity is
+`4ce64917ee194eff0d2628cbfffce8caa10663ab499ce8de146064f64feea328`;
+the production worker is
+`5e14dfc83931cc23642260d49a9e34cbb01102537fad34f48272d0a184242673`.
+The report and complete journal retain all failures and unsupported obligations.
+
+The scalar [binding follow-up](numeric-binding-gaps.md) repairs all three prior
+numeric SQL gaps: all 672 prior development cases pass, expanded coverage is
+702/705, and the three broader unsigned CASE/list combinations remain explicit.
+Calendar [difference work](temporal-differences.md) retains its independent
+constant-provenance and stored-default obligations. Worker campaigns are
+source-specific, separate from the combined upstream refresh above.
+Native VARIANT recovery equivalence, WAL capability handoff, general stored
+default expressions and the wider milestone remain active work. The combined
+workspace, exploratory Kani, native-file, strict performance and full upstream
+identity/prefix checks complete this checkpoint's pre-push regression review.
+README matches `origin/main`; the user's pre-sync stash is unchanged.
 
 ## Eighth integrated implementation checkpoint
 
