@@ -85,6 +85,13 @@ pub trait OperatorFunction: Debug + Send + Sync {
     fn effects(&self) -> FunctionEffects {
         FunctionEffects::default()
     }
+    /// Optional result metadata when binding proves an input is a constant
+    /// NULL before argument coercion. Some template overloads have no complete
+    /// result until binding and use SQL NULL in that case. None preserves the
+    /// ordinary signature. Replacements must preserve this binding contract.
+    fn null_constant_type(&self, _signature: &OperatorSignature) -> Option<DataType> {
+        None
+    }
     /// Optional proof that all valid inputs consistent with these constants
     /// produce a value (possibly NULL), without a data-dependent error. None
     /// means an unknown argument. This does not waive cancellation or resource
@@ -122,6 +129,7 @@ pub struct BoundOperator {
     result: BoundType,
     function: Arc<dyn OperatorFunction>,
     effects: FunctionEffects,
+    null_constant_type: Option<DataType>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -134,6 +142,9 @@ impl BoundOperator {
     }
     pub fn effects(&self) -> FunctionEffects {
         self.effects
+    }
+    pub fn null_constant_type(&self) -> Option<&DataType> {
+        self.null_constant_type.as_ref()
     }
     pub fn is_total(&self, constants: &[Option<&Value>]) -> bool {
         constants.len() == self.arguments.len()
@@ -311,6 +322,13 @@ impl OperatorRegistry {
                 "replacement must preserve the operator signature".into(),
             ));
         }
+        if existing.function.null_constant_type(&signature)
+            != function.null_constant_type(&signature)
+        {
+            return Err(Error::Bind(
+                "replacement must preserve constant-NULL result metadata".into(),
+            ));
+        }
         self.install(signature, function)
     }
     fn install(
@@ -368,6 +386,10 @@ impl OperatorRegistry {
         }
     }
     fn bind_entry(entry: &Entry, types: &TypeRegistry) -> Result<BoundOperator> {
+        let null_constant_type = entry.function.null_constant_type(&entry.signature);
+        if let Some(data_type) = &null_constant_type {
+            types.bind(data_type)?;
+        }
         Ok(BoundOperator {
             signature: entry.signature.clone(),
             arguments: entry
@@ -379,6 +401,7 @@ impl OperatorRegistry {
             result: types.bind(&entry.signature.result)?,
             function: entry.function.clone(),
             effects: entry.function.effects(),
+            null_constant_type,
         })
     }
     pub fn resolve(

@@ -28,6 +28,23 @@ CASE and Boolean selection must preserve SQL NULL behavior and only evaluate the
 
 `EvaluateScalar` folds an eligible expression into a `Value`; `TryEvaluateScalar` reports failure without propagating the evaluation exception. The `allow_unfoldable` parameter is explicit. A caller cannot infer that an arbitrary expression is safe to execute during planning simply because it has scalar output. Prepared parameters and context-dependent functions also complicate reuse of previously evaluated values.
 
+Development's scalar-function binder selects an overload before examining
+constant NULL arguments and before argument coercion. For default NULL handling,
+it replaces such a call with a constant: the complete declared return type when
+available, otherwise SQL NULL. BLOB and VARCHAR concatenation use the latter
+template behavior. Release resolves these selected cases to INTEGER instead;
+development governs correctness. SQL NULL's type spelling is `"NULL"` (distinct
+from the value spelling `NULL`). Source:
+[function binder](../../../duckdb/src/function/function_binder.cpp).
+
+The provisional Rust operator contract exposes selected constant-NULL result
+metadata independently of the runtime signature and preserves it on replacement.
+Only closed, effect-free input evaluation can establish NULL; unsuccessful data
+conversions do not establish it, and infrastructure/adapter errors remain errors.
+The binder does not discard expressions declaring volatility or external access.
+This is not a general nullability inference or permission to change ordinary
+fixed-type arithmetic results. CTAS still normalizes SQL NULL at storage boundaries.
+
 ## Ownership, errors, and performance
 
 Result vectors may reference input data when an expression is a simple reference. Callers must retain underlying buffers if results escape input reuse. Expression executors typically belong to local operator/task state; sharing mutable evaluation state between workers is not implied by sharing an immutable physical expression tree. Scratch vectors and selections should be reused across chunks while their sizes and validity are reset correctly.

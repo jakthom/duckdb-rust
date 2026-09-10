@@ -33,6 +33,9 @@ impl OperatorFunction for Concatenate {
     fn coercion(&self) -> CastMode {
         CastMode::Assignment
     }
+    fn null_constant_type(&self, _: &OperatorSignature) -> Option<DataType> {
+        Some(DataType::Null)
+    }
     fn evaluate(
         &self,
         _: &OperatorSignature,

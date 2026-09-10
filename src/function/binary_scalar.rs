@@ -179,6 +179,9 @@ impl OperatorFunction for BlobConcatenate {
             && signature.result == DataType::Blob
             && !signature.nullable
     }
+    fn null_constant_type(&self, _: &OperatorSignature) -> Option<DataType> {
+        Some(DataType::Null)
+    }
     fn evaluate(
         &self,
         _: &OperatorSignature,

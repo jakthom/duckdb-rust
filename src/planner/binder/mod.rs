@@ -494,6 +494,27 @@ impl State<'_, '_> {
             self.context.query,
         )?;
         let signature = resolved.function.signature();
+        if let Some(data_type) = resolved.function.null_constant_type() {
+            let effects = resolved.function.effects();
+            if !effects.volatile
+                && !effects.external_access
+                && !arguments.iter().any(window::has_effects)
+            {
+                for argument in &arguments {
+                    if self.provably_null(argument)? {
+                        self.context
+                            .query
+                            .types()
+                            .bind(data_type)?
+                            .validate(&Value::Null, self.context.query)?;
+                        return Ok(BoundExpr {
+                            data_type: data_type.clone(),
+                            kind: ExprKind::Literal(Value::Null),
+                        });
+                    }
+                }
+            }
+        }
         let arguments = arguments
             .into_iter()
             .zip(&signature.arguments)
@@ -511,6 +532,42 @@ impl State<'_, '_> {
             data_type: signature.result.clone(),
             kind: ExprKind::Operator(resolved.function, arguments),
         })
+    }
+
+    /// Match development's pre-coercion template NULL binding. An unsuccessful
+    /// data-dependent fold is not evidence of NULL. Infrastructure and invalid
+    /// selected-adapter failures must not disappear under a later NULL input.
+    fn provably_null(&self, expression: &BoundExpr) -> Result<bool> {
+        if !constant_expression(expression) {
+            return Ok(false);
+        }
+        let value =
+            match self
+                .context
+                .expressions
+                .evaluate(expression, &Vec::new(), self.context.query)
+            {
+                Ok(value) => value,
+                Err(
+                    Error::Conversion(_)
+                    | Error::Execution(_)
+                    | Error::OutOfRange(_)
+                    | Error::InvalidInput(_),
+                ) => return Ok(false),
+                Err(error) => return Err(error),
+            };
+        self.context
+            .query
+            .types()
+            .bind(&expression.data_type)?
+            .validate(&value, self.context.query)
+            .map_err(|error| match error {
+                Error::Conversion(_) => {
+                    Error::Internal("constant evaluator returned an invalid value".into())
+                }
+                other => other,
+            })?;
+        Ok(value.is_null())
     }
 
     fn sql_literal(&self, expr: &ast::Expr) -> Result<BoundExpr> {

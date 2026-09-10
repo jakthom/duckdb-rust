@@ -34,6 +34,176 @@ use std::{
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn constant_null_templates_keep_development_metadata_across_execution_and_storage() -> Result<()> {
+    use duckdb_rust::execution::expression_executor::{
+        BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator,
+    };
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            for batch_size in [1, 7] {
+                let mut c = DatabaseBuilder::new()
+                    .expressions(evaluator.clone())
+                    .optimizer(optimizer.clone())
+                    .batch_size(batch_size)
+                    .build()?
+                    .connect();
+                c.execute("CREATE TABLE t(id INTEGER PRIMARY KEY,b BLOB,s VARCHAR); INSERT INTO t VALUES(1,'x','x'),(2,NULL,NULL)")?;
+                let result = c.query("SELECT NULL::BLOB||b, TRY_CAST('bad' AS UUID)::VARCHAR||s, NULL::VARCHAR||CAST('bad' AS INTEGER), (NULL::INTEGER+1)::VARCHAR||s, b||b, s||s, NULL::INTEGER+1 FROM t ORDER BY id")?;
+                assert_eq!(
+                    result
+                        .columns
+                        .iter()
+                        .map(|c| c.data_type.clone())
+                        .collect::<Vec<_>>(),
+                    vec![
+                        DataType::Null,
+                        DataType::Null,
+                        DataType::Null,
+                        DataType::Null,
+                        DataType::Blob,
+                        DataType::Varchar,
+                        DataType::Integer
+                    ]
+                );
+                assert_eq!(
+                    result.rows,
+                    vec![
+                        vec![
+                            Value::Null,
+                            Value::Null,
+                            Value::Null,
+                            Value::Null,
+                            Value::Blob(b"xx".to_vec()),
+                            Value::Varchar("xx".into()),
+                            Value::Null
+                        ],
+                        vec![Value::Null; 7]
+                    ]
+                );
+                assert_eq!(c.query("SELECT typeof(NULL::BLOB||'x'::BLOB),typeof(NULL),union_value(i:=NULL)::VARCHAR||'x'")?.rows,vec![vec![Value::Varchar("\"NULL\"".into()),Value::Varchar("\"NULL\"".into()),Value::Varchar("NULLx".into())]]);
+                assert!(matches!(
+                    c.query("SELECT CAST('bad' AS INTEGER)||'x'"),
+                    Err(Error::Conversion(_))
+                ));
+                let prepared = c.prepare("SELECT CAST(? AS BLOB)||b FROM t ORDER BY id")?;
+                let nulls = c.execute_prepared(&prepared, &[Value::Null])?;
+                assert_eq!(nulls.columns[0].data_type, DataType::Null);
+                let values = c.execute_prepared(&prepared, &[Value::Blob(b"a".to_vec())])?;
+                assert_eq!(values.columns[0].data_type, DataType::Blob);
+                assert_eq!(
+                    values.rows,
+                    vec![vec![Value::Blob(b"ax".to_vec())], vec![Value::Null]]
+                );
+                c.execute("BEGIN; UPDATE t SET b=NULL::BLOB||b WHERE id=1; ROLLBACK")?;
+                assert_eq!(
+                    c.query("SELECT b FROM t WHERE id=1")?.rows,
+                    vec![vec![Value::Blob(b"x".to_vec())]]
+                );
+            }
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    for format in [
+        Arc::new(JsonSnapshotFormat) as Arc<dyn SnapshotFormat>,
+        Arc::new(DuckDbFormat::default()),
+    ] {
+        let path = directory.path().join(format.name());
+        let open = || {
+            DatabaseBuilder::new()
+                .durability(Arc::new(FileCheckpoint::open(
+                    &path,
+                    OpenMode::ReadWrite,
+                    format.clone(),
+                )?))
+                .build()
+        };
+        {
+            let mut c = open()?.connect();
+            c.execute(
+                "CREATE TABLE t AS SELECT NULL::BLOB||'x'::BLOB b; INSERT INTO t VALUES(NULL)",
+            )?;
+        }
+        let result = open()?.connect().query("SELECT * FROM t")?;
+        assert_eq!(result.columns[0].data_type, DataType::Integer);
+        assert_eq!(result.rows, vec![vec![Value::Null]; 2]);
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct PlainConcatenate;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl OperatorFunction for PlainConcatenate {
+    fn name(&self) -> &'static str {
+        "test-plain-concat"
+    }
+    fn supports(&self, s: &OperatorSignature) -> bool {
+        duckdb_rust::function::operator::Concatenate.supports(s)
+    }
+    fn evaluate(&self, s: &OperatorSignature, a: &[Value], q: &QueryContext) -> Result<Value> {
+        duckdb_rust::function::operator::Concatenate.evaluate(s, a, q)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn constant_null_binding_retains_selected_contracts_effects_and_adapter_failures() -> Result<()> {
+    let concat = signature(
+        Operator::Concat,
+        vec![DataType::Varchar; 2],
+        DataType::Varchar,
+        false,
+    );
+    let mut registry = OperatorRegistry::builtins();
+    assert!(matches!(
+        registry.replace(concat.clone(), Arc::new(PlainConcatenate)),
+        Err(Error::Bind(_))
+    ));
+    let mut fresh = OperatorRegistry::default();
+    fresh.register(concat, Arc::new(PlainConcatenate))?;
+    let result = DatabaseBuilder::new()
+        .operators(fresh)
+        .build()?
+        .connect()
+        .query("SELECT NULL::VARCHAR||'x'")?;
+    assert_eq!(result.columns[0].data_type, DataType::Varchar);
+    assert_eq!(result.rows, vec![vec![Value::Null]]);
+    let add = signature(
+        Operator::Add,
+        vec![DataType::Integer; 2],
+        DataType::Integer,
+        false,
+    );
+    let calls = Arc::new(AtomicUsize::new(0));
+    registry.replace(add.clone(), Arc::new(ObservedArithmetic(calls.clone())))?;
+    let result = DatabaseBuilder::new()
+        .operators(registry.clone())
+        .build()?
+        .connect()
+        .query("SELECT NULL::VARCHAR||(1+2)")?;
+    assert_eq!(result.columns[0].data_type, DataType::Varchar);
+    assert_eq!(result.rows, vec![vec![Value::Null]]);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    registry.replace(add, Arc::new(InvalidResult(Value::Boolean(true))))?;
+    assert!(matches!(
+        DatabaseBuilder::new()
+            .operators(registry)
+            .build()?
+            .connect()
+            .query("SELECT (1+2)::VARCHAR||NULL::VARCHAR"),
+        Err(Error::Internal(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn signature(
     operator: Operator,
     arguments: Vec<DataType>,

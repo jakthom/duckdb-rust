@@ -190,7 +190,7 @@ impl fmt::Display for DataType {
             f,
             "{}",
             match self {
-                Self::Null => "NULL",
+                Self::Null => "\"NULL\"",
                 Self::Boolean => "BOOLEAN",
                 Self::TinyInt => "TINYINT",
                 Self::SmallInt => "SMALLINT",
