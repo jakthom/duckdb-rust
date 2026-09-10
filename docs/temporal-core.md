@@ -89,6 +89,27 @@ naive values but only UTC is interpreted for zoned values without ICU. No named
 zone lookup or host-timezone fallback occurs. Development's date-only timestamp
 text with trailing whitespace is rejected, even though ordinary DATE accepts it.
 
+VARIANT-extracted clock strings now carry explicit source context through their
+retained selected child casts. The built-in TIME/TIME_NS adapter requires a
+complete strict clock string, accepts a final HH:MM only with a two-digit minute,
+and disables timestamp fallback. TIMETZ retains its independently permissive
+clock fields but consumes the complete numeric offset and trailing whitespace.
+Ordinary explicit casts are unchanged, and typed clocks extracted from VARIANT
+retain the physical domain, including constructor-produced values past midnight.
+The context hook defaults to the previously selected adapter behavior; it does
+not bypass custom replacements or weaken source/output validation and TRY
+failure provenance. Whole-VARIANT failure remains different from ordinary
+nested TRY conversion with partial child NULLs.
+
+Source and independent development probes confirm that timestamp cast entry
+points ignore their strict argument. VARIANT timestamps therefore retain normal
+numeric-offset/Z/UTC handling and ignored named suffixes for naive timestamps;
+strict TIME policy must not leak into those casts. DATE is a separate open
+conversion path: development ordinary DATE accepts a validated timestamp suffix,
+whereas VARIANT DATE rejects that suffix and one-digit years. The current Rust
+DATE cast still lacks the ordinary suffix fallback and VARIANT short-year rule.
+The checked calendar-prefix/full-consumption APIs are not widened implicitly.
+
 ## Evidence and regressions
 
 `scripts/temporal_reference.py` verifies both pinned source/binary identities and
@@ -118,6 +139,7 @@ do not establish diagnostic-category parity.
 | [Nanosecond lower-bound repair](temporal-nanosecond-lower-bound-repaired.json) | 709/709 | 642/709 | 3/3 expanded | 2/3 expanded |
 | [Functions/keys/aliases initial](temporal-function-keys-reference-initial.json) | 749/750 | 679/750 | 0/3 expanded | 2/3 expanded |
 | [Functions/keys/aliases repair](temporal-function-keys-reference-repaired.json) | 750/750 | 680/750 | 3/3 expanded | 2/3 expanded |
+| [VARIANT clock context](temporal-variant-clock-reference.json) | 840/840 | 766/840 | 3/3 expanded | 2/3 expanded |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -311,6 +333,27 @@ collation similarly retains boolean spelling normalization. VARIANT strict TIME,
 timestamp avg, NULL-precision diagnostics, epoch DOUBLE normalization and later
 catalog functions remain explicit obligations. No upstream assertion is changed.
 
+The VARIANT-clock campaign retains every earlier case and adds ninety source-
+context witnesses, including actual tab characters, incomplete/final clock
+fields, clock suffixes and offsets, nested children, typed values past midnight,
+and ordinary timestamp behavior. All 840 development SQL cases and the three
+native producers pass. The three explicit strict-clock rejection messages also
+match development exactly; this does not change the full matrix's deliberately
+coarse error-presence comparator into a universal diagnostic-parity claim.
+Release's four newly exercised differences are already development-authoritative
+semantic changes: ordinary naive named-zone fallback, TIME-to-TIME_NS casting,
+and ignored named-zone suffixes on naive timestamps. Previous reports and their
+failures remain unchanged. The DATE source-context gaps described above remain
+outside this passing clock subset.
+
+The [unchanged VARIANT-clock upstream refresh](upstream-temporal-variant-clock.json)
+passes twelve of 26 files, fails nine and retains five ICU-dependent unsupported
+files. `time_parsing.test` advances from twelve to all seventeen records and now
+passes. No earlier passing file or reached record prefix is lost. TIME_NS numeric
+format normalization, TIMETZ boolean normalization, timestamp AVG, unrelated SQL
+syntax/precision diagnostics and the other previously retained failures are not
+reclassified as passes by this repair.
+
 ## Checkpoint validation
 
 Routine checks pass: `cargo check`; ten temporal component tests plus DATE,
@@ -444,6 +487,29 @@ lead-coordinated combined measurement.
 The final `cargo test --workspace` run also passes, including all native recovery
 tail boundaries, with only the two preexisting external-CLI analytics tests
 ignored. No test is newly ignored or weakened for this increment.
+
+The VARIANT-clock increment's focused checks pass twelve cast tests, twenty-five
+temporal tests, six adjacent temporal tests, ordinary check and workspace/all-
+target clippy. Prepared conversion, typed nested children, both evaluators and
+index choices, grouping/joins/windows, rejected mutations, rollback, native WAL
+and checkpoint/reopen are exercised together. Its initial new persistence
+fixture used unsupported standalone CREATE UNIQUE INDEX syntax; the fixture now
+uses the supported UNIQUE column constraint and retains both actual index
+implementations and uniqueness checks. This does not claim standalone index DDL.
+The first full workspace attempt stopped in two preexisting trace-artifact
+lease tests when reopening immediately after Session::finish; both reported
+"trace workspace is in use". The unmodified artifacts-only retry passes all
+four tests. The failed full attempt remains a failed trial, not a passing stage
+checkpoint. After the controlled run, the unchanged full workspace retry passes,
+including the native framed-tail recovery test and final temporal index checks;
+only the two preexisting external-CLI analytics tests are ignored. Final clippy
+also passes. Coverage reports 286 files, 2581 functions and 209 interfaces with
+zero missing entries. Traced all-target compilation passes in 50.16 seconds and
+removes its temporary telemetry. Full `python3 scripts/verify_kani.py` with
+pinned Kani 0.67.0 passes all six maintained harnesses, with no failures
+(48.097, 0.868, 0.504, 2.177, 2.836 and 109.023 seconds). These retain their
+packing/key/index/window/byte-count scope; the new parser/context contract is
+not itself formally proven. No worker-local performance acceptance is claimed.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.

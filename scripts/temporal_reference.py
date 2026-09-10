@@ -144,6 +144,20 @@ TIMESTAMP_TEXT = [
     '-infinity', '2000-01-01 ', '2000-01-01\t', '2000-01-01 24:00:00.000000999',
 ]
 SQL += [f"SELECT {target} '{value}'" for value in CLOCK_TEXT for target in ('TIME','TIME_NS','TIMETZ')]
+VARIANT_CLOCK_TEXT = CLOCK_TEXT + [
+    '1:02', '1:02 ', '1:2:', '1:2:3.', '000000001:02',
+    '\t12:34:56\t', '\t12:34:56+02\t', '12:34:56+02 ',
+    '24:00:00.000001',
+]
+SQL += [f"SELECT TRY_CAST('{value}' AS {target}),TRY_CAST('{value}'::VARIANT AS {target})"
+        for value in VARIANT_CLOCK_TEXT for target in ('TIME','TIME_NS','TIMETZ')]
+SQL += [f"SELECT CAST('12:34:56junk'::VARIANT AS {target})"
+        for target in ('TIME','TIME_NS','TIMETZ')]
+SQL += [
+    "SELECT TRY_CAST(['1:','2:03']::VARIANT AS TIME[]),TRY_CAST(['1:','2:03'] AS TIME[])::VARCHAR,CAST({'t':'1:02'}::VARIANT AS STRUCT(t TIME))::VARCHAR,TRY_CAST({'t':'1:2'}::VARIANT AS STRUCT(t TIME))",
+    "SELECT (make_time(23,59,60.5)::VARIANT)::TIME,(make_time(23,59,60.5)::VARIANT)::TIME_NS",
+    "SELECT ('2000-01-01 12:34:56+02'::VARIANT)::TIMESTAMP,('2000-01-01 12:34:56+02'::VARIANT)::TIMESTAMPTZ,('2000-01-01 12:34:56 Europe/Amsterdam'::VARIANT)::TIMESTAMP",
+]
 SQL += [f"SELECT {target} '{value}'" for value in TIMESTAMP_TEXT for target in ('TIMESTAMP','TIMESTAMP_S','TIMESTAMP_MS','TIMESTAMP_NS','TIMESTAMPTZ','TIMESTAMPTZ_NS')]
 SQL += [
     "SELECT v,v::TIME,(v::TIME)::TIME_NS,(v::TIME)::TIMETZ,epoch_us(v) FROM (VALUES (TIME_NS '24:00:00'),(TIME_NS '24:00:00.000000001'),(TIME_NS '24:00:00.000000499'),(TIME_NS '24:00:00.000000500'),(TIME_NS '24:00:00.000000999')) t(v) ORDER BY v",
