@@ -13,6 +13,15 @@ import time
 from reference_version import TARGETS, require_reference
 
 CASES = {
+    'nested_paths': (
+        """CREATE TABLE t(i INTEGER,s STRUCT(a INTEGER,b STRUCT(x VARCHAR,d DECIMAL(12,2))));
+        INSERT INTO t VALUES(0,{'a':1,'b':{'x':'old','d':1.25}}),(1,NULL),(2,{'a':NULL,'b':NULL}); CHECKPOINT;""",
+        ["UPDATE t SET s={'a':7,'b':{'x':'changed','d':2.50}} WHERE i=0;",
+         "BEGIN; UPDATE t SET s={'a':8,'b':{'x':'materialized','d':3.75}} WHERE i=1; UPDATE t SET s=NULL WHERE i=0; COMMIT;",
+         "UPDATE t SET s={'a':NULL,'b':{'x':'nested','d':NULL}} WHERE i=2;",
+         "UPDATE t SET s={'a':7,'b':{'x':'changed','d':2.50}} WHERE i=0;",
+         "BEGIN; UPDATE t SET s=NULL WHERE i=1; UPDATE t SET s={'a':8,'b':{'x':'materialized','d':3.75}} WHERE i=1; COMMIT;"],
+        'SELECT i,s::VARCHAR s FROM t ORDER BY i'),
     'nested': (
         """CREATE TABLE t(i INTEGER PRIMARY KEY,s STRUCT(n DECIMAL(12,2),z TIMESTAMP_NS,b BIT),l STRUCT(x INTEGER)[],a INTEGER[2],m MAP(VARCHAR,INTEGER[]),u UNION(n INTEGER,s VARCHAR)); CHECKPOINT;""",
         ["""INSERT INTO t VALUES(0,{'n':1.25,'z':TIMESTAMP_NS '2000-01-01 00:00:00.123456789','b':'101'::BIT},[{'x':1},NULL],[1,NULL],map(['x','y'],[[1,NULL],[]]),union_value(n:=NULL)),(1,{'n':NULL,'z':NULL,'b':NULL},[],[NULL,2],map([],[]),union_value(s:='a')),(2,NULL,NULL,NULL,NULL,NULL);""",

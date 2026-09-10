@@ -102,6 +102,21 @@ pub enum RecoveredChange {
         column: usize,
         values: Vec<(RowId, Value)>,
     },
+    /// Independently logged physical child slots. STRUCT/TUPLE slots are
+    /// zero-based fields; UNION slot zero is its tag, followed by members.
+    /// These preserve validity until a separate validity record changes it.
+    NestedUpdate {
+        table: TableName,
+        column: usize,
+        path: Vec<usize>,
+        values: Vec<(RowId, Value)>,
+    },
+    NestedValidity {
+        table: TableName,
+        column: usize,
+        path: Vec<usize>,
+        values: Vec<(RowId, bool)>,
+    },
     /// Native logs can serialize values and validity separately. Validity is
     /// applied after value updates; making a NULL valid requires a value.
     Validity {

@@ -62,10 +62,21 @@ fn nested_wal_replay_preserves_typed_children_mutations_and_rollback() -> Result
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn independent_nested_wal_vectors_preserve_child_validity_and_development_strings() -> Result<()> {
+    independent_fixture("wal-nested", &["i", "s", "l", "a", "m", "u"])
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn independent_nested_child_update_paths_preserve_parent_and_child_validity() -> Result<()> {
+    independent_fixture("wal-nested-paths", &["i", "s"])
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn independent_fixture(suite: &str, fields: &[&str]) -> Result<()> {
     use std::{fs, io::Read};
     for target in ["release", "development"] {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("test/data/wal-nested-{target}"));
+            .join(format!("test/data/{suite}-{target}"));
         let manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(root.join("manifest.json"))?).unwrap();
         for (name, case) in manifest["cases"].as_object().unwrap() {
@@ -106,13 +117,14 @@ fn independent_nested_wal_vectors_preserve_child_validity_and_development_string
                     .unwrap()
                     .iter()
                     .map(|row| {
-                        ["i", "s", "l", "a", "m", "u"]
-                            .map(|key| match &row[key] {
+                        fields
+                            .iter()
+                            .map(|key| match &row[*key] {
                                 serde_json::Value::Null => Value::Null,
                                 serde_json::Value::String(value) => Value::Varchar(value.clone()),
                                 value => Value::Integer(value.as_i64().unwrap() as i128),
                             })
-                            .to_vec()
+                            .collect::<Vec<_>>()
                     })
                     .collect::<Vec<_>>();
                 assert_eq!(
@@ -125,5 +137,150 @@ fn independent_nested_wal_vectors_preserve_child_validity_and_development_string
             }
         }
     }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn physical_child_recovery_is_atomic_and_defers_union_and_null_parent_validation() -> Result<()> {
+    use duckdb_rust::{
+        catalog::{Catalog, CatalogMut, ColumnDefinition, TableDefinition, TableName, UniqueKey},
+        storage::{
+            TableStorage, TableStorageMut,
+            recovery::{RecoveredChange as Change, RecoveryTarget},
+            table::Snapshot,
+        },
+    };
+    let name = TableName::main("t");
+    let structure = NestedType::Struct(vec![
+        ("a".into(), DataType::Integer),
+        (
+            "b".into(),
+            NestedType::Struct(vec![("s".into(), DataType::Varchar)]).data_type(),
+        ),
+    ])
+    .data_type();
+    let union = NestedType::Union(vec![
+        ("i".into(), DataType::Integer),
+        ("s".into(), DataType::Varchar),
+    ])
+    .data_type();
+    let query = QueryContext::background();
+    let mut original = Snapshot::default();
+    let mut id_column = ColumnDefinition::new("id", DataType::Integer);
+    id_column.nullable = false;
+    original.create_table(
+        TableDefinition {
+            name: name.clone(),
+            columns: vec![
+                id_column,
+                ColumnDefinition::new("v", structure.clone()),
+                ColumnDefinition::new("u", union.clone()),
+            ],
+            unique_keys: vec![UniqueKey {
+                columns: vec![0],
+                primary: true,
+            }],
+        },
+        false,
+    )?;
+    original.insert(
+        &name,
+        vec![vec![
+            Value::Integer(1),
+            Value::Null,
+            NestedValue::value(
+                union.clone(),
+                NestedPayload::Union {
+                    tag: 0,
+                    value: Value::Integer(9),
+                },
+            )?,
+        ]],
+        &query,
+    )?;
+    let update = |column, path, value| Change::NestedUpdate {
+        table: name.clone(),
+        column,
+        path,
+        values: vec![(0, value)],
+    };
+    let valid = |column, path, value| Change::NestedValidity {
+        table: name.clone(),
+        column,
+        path,
+        values: vec![(0, value)],
+    };
+    let changes = vec![
+        update(1, vec![0], Value::Integer(7)),
+        valid(1, vec![0], true),
+        update(1, vec![1, 0], Value::Varchar("x".into())),
+        valid(1, vec![1, 0], true),
+        valid(1, vec![1], true),
+        valid(1, vec![], true),
+        update(2, vec![0], Value::Unsigned(1)),
+        valid(2, vec![1], false),
+        update(2, vec![2], Value::Varchar("new".into())),
+        valid(2, vec![2], true),
+    ];
+    let mut expected = None;
+    for reverse in [false, true] {
+        let mut snapshot = original.clone();
+        let mut changes = changes.clone();
+        if reverse {
+            changes.reverse();
+        }
+        snapshot.apply_committed(&changes, &query)?;
+        let rows = snapshot.scan(&name, &query)?;
+        assert_eq!(rows[0].1[1].to_string(), "{'a': 7, 'b': {'s': x}}");
+        assert_eq!(
+            rows[0].1[2],
+            NestedValue::value(
+                union.clone(),
+                NestedPayload::Union {
+                    tag: 1,
+                    value: Value::Varchar("new".into())
+                }
+            )?
+        );
+        if let Some(expected) = &expected {
+            assert_eq!(&rows, expected);
+        } else {
+            expected = Some(rows);
+        }
+    }
+    let before = original.scan(&name, &query)?;
+    for changes in [
+        vec![valid(1, vec![0], true), valid(1, vec![], true)],
+        vec![update(2, vec![0], Value::Unsigned(1))],
+        vec![update(1, vec![7], Value::Integer(1))],
+        vec![update(1, vec![0, 0], Value::Integer(1))],
+        vec![update(1, vec![0], Value::Varchar("bad".into()))],
+    ] {
+        let mut snapshot = original.clone();
+        let mut all = vec![Change::CreateSchema("not_published".into())];
+        all.extend(changes);
+        assert!(snapshot.apply_committed(&all, &query).is_err());
+        assert_eq!(snapshot.scan(&name, &query)?, before);
+        assert_eq!(snapshot.schemas()?, vec!["main"]);
+    }
+    let mut snapshot = original.clone();
+    snapshot.apply_committed(
+        &[
+            update(1, vec![0], Value::Integer(99)),
+            valid(1, vec![0], true),
+        ],
+        &query,
+    )?;
+    assert_eq!(
+        snapshot.scan(&name, &query)?,
+        before,
+        "hidden children must not make a NULL parent valid"
+    );
+    assert_eq!(
+        original.scan(&name, &query)?,
+        before,
+        "retained snapshot must remain unchanged"
+    );
     Ok(())
 }

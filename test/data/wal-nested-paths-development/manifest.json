@@ -1,0 +1,215 @@
+{
+  "writer": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+  "reference_identity": {
+    "target": "development",
+    "required_version": "2.0.0-dev84019",
+    "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "reported_source_id": "99063af2bd",
+    "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+    "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+  },
+  "cases": {
+    "nested_paths": {
+      "setup": "CREATE TABLE t(i INTEGER,s STRUCT(a INTEGER,b STRUCT(x VARCHAR,d DECIMAL(12,2))));\n        INSERT INTO t VALUES(0,{'a':1,'b':{'x':'old','d':1.25}}),(1,NULL),(2,{'a':NULL,'b':NULL}); CHECKPOINT;",
+      "transactions": [
+        "UPDATE t SET s={'a':7,'b':{'x':'changed','d':2.50}} WHERE i=0;",
+        "BEGIN; UPDATE t SET s={'a':8,'b':{'x':'materialized','d':3.75}} WHERE i=1; UPDATE t SET s=NULL WHERE i=0; COMMIT;",
+        "UPDATE t SET s={'a':NULL,'b':{'x':'nested','d':NULL}} WHERE i=2;",
+        "UPDATE t SET s={'a':7,'b':{'x':'changed','d':2.50}} WHERE i=0;",
+        "BEGIN; UPDATE t SET s=NULL WHERE i=1; UPDATE t SET s={'a':8,'b':{'x':'materialized','d':3.75}} WHERE i=1; COMMIT;"
+      ],
+      "query": "SELECT i,s::VARCHAR s FROM t ORDER BY i",
+      "checkpoint_sha256": "00a1c33362fcb19ee115b713352712143c0b5069394aeb308bea91effeeff1b0",
+      "wal_sha256": "28630c560a4044ec8e0314d7320b232b7134a8ede27dee7f9ff693b86207f6fc",
+      "states": [
+        {
+          "end": 0,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'a': 1, 'b': {'x': old, 'd': 1.25}}"
+            },
+            {
+              "i": 1,
+              "s": null
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': NULL}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 358,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'a': 7, 'b': {'x': changed, 'd': 2.50}}"
+            },
+            {
+              "i": 1,
+              "s": null
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': NULL}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 1159,
+          "rows": [
+            {
+              "i": 0,
+              "s": null
+            },
+            {
+              "i": 1,
+              "s": "{'a': 8, 'b': {'x': materialized, 'd': 3.75}}"
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': NULL}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 1736,
+          "rows": [
+            {
+              "i": 0,
+              "s": null
+            },
+            {
+              "i": 1,
+              "s": "{'a': 8, 'b': {'x': materialized, 'd': 3.75}}"
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': {'x': nested, 'd': NULL}}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 2454,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'a': 7, 'b': {'x': changed, 'd': 2.50}}"
+            },
+            {
+              "i": 1,
+              "s": "{'a': 8, 'b': {'x': materialized, 'd': 3.75}}"
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': {'x': nested, 'd': NULL}}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 3177,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'a': 7, 'b': {'x': changed, 'd': 2.50}}"
+            },
+            {
+              "i": 1,
+              "s": "{'a': 8, 'b': {'x': materialized, 'd': 3.75}}"
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': {'x': nested, 'd': NULL}}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

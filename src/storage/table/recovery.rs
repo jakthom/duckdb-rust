@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::recovery::{RecoveredChange, RecoveryTarget};
+mod nested;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
@@ -50,6 +51,7 @@ impl RecoveryTarget for Snapshot {
         let context = &context.clone().with_types(self.types.clone());
         let mut next = self.clone();
         let mut validity = BTreeMap::new();
+        let mut physical = nested::Pending::new();
         for change in changes {
             context.check()?;
             match change {
@@ -61,8 +63,10 @@ impl RecoveryTarget for Snapshot {
                 RecoveredChange::DropTable(name) => {
                     next.drop_table(name, false)?;
                     validity.retain(|(table, _, _), _| table != name);
+                    physical.discard_table(name);
                 }
                 RecoveredChange::AlterTable { table, alteration } => {
+                    physical.finish(&mut next, context)?;
                     apply_validity(&mut next, std::mem::take(&mut validity), context)?;
                     next.alter_table(table, alteration, context)?;
                 }
@@ -93,6 +97,7 @@ impl RecoveryTarget for Snapshot {
                     column,
                     values,
                 } => {
+                    physical.finish(&mut next, context)?;
                     let table = next.recovery_table(table)?;
                     for (id, value) in values {
                         context.check()?;
@@ -111,6 +116,7 @@ impl RecoveryTarget for Snapshot {
                     column,
                     values,
                 } => {
+                    physical.finish(&mut next, context)?;
                     let target = next.get(table)?;
                     for (id, valid) in values {
                         context.check()?;
@@ -126,8 +132,25 @@ impl RecoveryTarget for Snapshot {
                         validity.insert((table.clone(), *column, *id), *valid);
                     }
                 }
+                RecoveredChange::NestedUpdate {
+                    table,
+                    column,
+                    path,
+                    values,
+                } => {
+                    physical.update(&next, table, *column, path, values, context)?;
+                }
+                RecoveredChange::NestedValidity {
+                    table,
+                    column,
+                    path,
+                    values,
+                } => {
+                    physical.validity(&next, table, *column, path, values, context)?;
+                }
             }
         }
+        physical.finish(&mut next, context)?;
         apply_validity(&mut next, validity, context)?;
         // Rebuild derived state only after the entire durable transaction.
         next = next.with_indexes(self.indexes.clone(), context)?;

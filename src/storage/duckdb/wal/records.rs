@@ -115,8 +115,8 @@ impl RecordState {
                 let path = if kind == 28 {
                     reader.field(101)?;
                     let length = reader.length()?;
-                    if length == 0 || length > 2 {
-                        return Err(Error::Unsupported("WAL nested column update".into()));
+                    if length == 0 || length > 66 {
+                        return Err(Error::Unsupported("WAL column update path depth".into()));
                     }
                     (0..length)
                         .map(|_| reader.length())
@@ -160,25 +160,23 @@ impl RecordState {
                             .get(column)
                             .ok_or_else(|| corrupt("WAL column index out of bounds"))?
                             .data_type;
-                        let validity = path.len() == 2;
-                        if validity && path[1] != 0 {
-                            return Err(Error::Unsupported("WAL nested column update".into()));
-                        }
+                        let (child_path, expected, validity) = update_path(expected, &path[1..])?;
                         if chunk.types.len() != 2
                             || chunk.types[1] != DataType::BigInt
                             || chunk.types[0]
                                 != if validity {
                                     DataType::Boolean
                                 } else {
-                                    expected.clone()
+                                    expected
                                 }
                         {
                             return Err(corrupt("WAL update types differ from table"));
                         }
                         if validity {
-                            Change::Validity {
+                            Change::NestedValidity {
                                 table,
                                 column,
+                                path: child_path,
                                 values: chunk
                                     .rows
                                     .iter()
@@ -186,9 +184,10 @@ impl RecordState {
                                     .collect::<Result<_>>()?,
                             }
                         } else {
-                            Change::Update {
+                            Change::NestedUpdate {
                                 table,
                                 column,
+                                path: child_path,
                                 values: chunk
                                     .rows
                                     .into_iter()
@@ -257,10 +256,97 @@ fn row_id(value: &Value) -> Result<RowId> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn update_path(data_type: &DataType, path: &[usize]) -> Result<(Vec<usize>, DataType, bool)> {
+    use crate::common::NestedType;
+    if path.len() > 65 {
+        return Err(corrupt("WAL child-update path depth"));
+    }
+    let mut current = data_type.clone();
+    let mut children = Vec::new();
+    for (depth, index) in path.iter().enumerate() {
+        if *index == 0 {
+            if depth + 1 != path.len() {
+                return Err(corrupt("WAL validity path has descendants"));
+            }
+            return Ok((children, current, true));
+        }
+        let DataType::Nested(metadata) = &current else {
+            return Err(corrupt("WAL scalar child index is not validity"));
+        };
+        let fields = match metadata.as_ref() {
+            NestedType::Struct(fields) => {
+                fields.iter().map(|(_, ty)| ty.clone()).collect::<Vec<_>>()
+            }
+            NestedType::Tuple(fields) => fields.clone(),
+            NestedType::Union(fields) => std::iter::once(DataType::UTinyInt)
+                .chain(fields.iter().map(|(_, ty)| ty.clone()))
+                .collect(),
+            _ => {
+                return Err(Error::Unsupported(
+                    "WAL child updates require STRUCT, TUPLE or UNION".into(),
+                ));
+            }
+        };
+        let index = index - 1;
+        current = fields
+            .get(index)
+            .ok_or_else(|| corrupt("WAL child update index out of bounds"))?
+            .clone();
+        children.push(index);
+    }
+    if matches!(current, DataType::Nested(_)) {
+        return Err(Error::Unsupported(
+            "WAL direct nested physical update".into(),
+        ));
+    }
+    Ok((children, current, false))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::super::binary::Encoder;
     use super::*;
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn physical_child_paths_separate_container_fields_and_validity() -> Result<()> {
+        use crate::common::NestedType;
+        let ty = NestedType::Struct(vec![
+            ("a".into(), DataType::Integer),
+            (
+                "b".into(),
+                NestedType::Struct(vec![("x".into(), DataType::Varchar)]).data_type(),
+            ),
+        ])
+        .data_type();
+        assert_eq!(
+            update_path(&ty, &[2, 1, 0])?,
+            (vec![1, 0], DataType::Varchar, true)
+        );
+        assert_eq!(
+            update_path(&ty, &[2, 1])?,
+            (vec![1, 0], DataType::Varchar, false)
+        );
+        assert_eq!(
+            update_path(&DataType::Integer, &[])?,
+            (vec![], DataType::Integer, false)
+        );
+        assert_eq!(
+            update_path(&DataType::Integer, &[0])?,
+            (vec![], DataType::Integer, true)
+        );
+        for path in [&[0, 1][..], &[3], &[1, 1], &[2]] {
+            assert!(update_path(&ty, path).is_err());
+        }
+        let union = NestedType::Union(vec![("i".into(), DataType::Integer)]).data_type();
+        assert_eq!(
+            update_path(&union, &[1])?,
+            (vec![0], DataType::UTinyInt, false)
+        );
+        assert!(update_path(&NestedType::List(DataType::Integer).data_type(), &[1]).is_err());
+        Ok(())
+    }
 
     #[test]
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
