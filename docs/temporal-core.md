@@ -96,6 +96,7 @@ do not establish diagnostic-category parity.
 | [Clock text repair](temporal-clock-reference-repaired.json) | 661/662 | 598/662 | 3/3 | 3/3 |
 | [Clock domain investigation](temporal-clock-domain-reference.json) | 666/667 | 601/667 | 0/3 expanded | 0/3 expanded |
 | [Clock domain integrated](temporal-clock-domain-integrated.json) | 667/667 | 602/667 | 2/3 expanded | 1/3 expanded |
+| [Calendar boundary/nested WAL integration](temporal-calendar-boundary-integrated.json) | 688/688 | 623/688 | 3/3 expanded | 2/3 expanded |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -173,10 +174,17 @@ producer schema with the selected cast. Both pins read the Rust-produced boundar
 checkpoint correctly. Failed trials and their exact messages remain preserved.
 
 The same cross-family assertion matrix is executable with
-`cargo run --example temporal_nested_wal_obligation`. It currently exits with
-the native STRUCT WAL fixed-width dispatch error. The ordinary temporal suite
-executes its JSON/native checkpoint modes; the WAL obligation is neither ignored
-nor counted as a passing test. Its assertions remain intact for the nested worker.
+`cargo run --example temporal_nested_wal_obligation`. At the clock-domain
+checkpoint it exited with the native STRUCT WAL fixed-width dispatch error;
+that failure was neither ignored nor counted as a pass. After the nested WAL
+integration, the unchanged executable now succeeds and its full assertion matrix
+also runs as an ordinary temporal test, alongside the retained checkpoint modes.
+The latest independent campaign passes all three development-native producers
+and both Rust producers against release readers, including subsequent rollback,
+update and reopen. Release still cannot produce the expanded TIME-to-TIME_NS
+schema. Native min/max calendar timestamp rows and no-op calendar arithmetic
+are included. This closes the recorded mixed-WAL witness, not every native-file
+or arbitrary raw-value obligation.
 
 The [unchanged TIME/TIMESTAMP upstream run](upstream-temporal-clock-text.json)
 passes nine of 26 files, fails eleven and reports six unsupported (five depend on
@@ -311,6 +319,13 @@ passes in 30.16 seconds and deletes telemetry. Full Kani again passes six of six
 maintained harnesses (56.627, 0.817, 0.508, 2.270, 2.390 and 104.033 seconds),
 with no failures. The new calendar overflow contract has executable SQL/native
 regression coverage, not a new formal arithmetic proof.
+The premerge full workspace test suite also passes, with only two preexisting
+external-CLI analytics tests ignored. After the combined native WAL/floating
+integration, temporal seventeen, DATE seven, casts eleven and nested nineteen
+tests pass, as do ordinary check/clippy and the standalone mixed-WAL executable.
+Its promotion adds an eighteenth ordinary temporal test without changing the
+matrix's assertions. The latest 688-case differential run is correctness
+evidence; performance measurements remain the lead's isolated combined gate.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.

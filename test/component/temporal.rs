@@ -939,6 +939,12 @@ fn clock_physical_domain_crosses_casts_nested_checkpoints_keys_and_calendar_roll
 
 #[test]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn clock_physical_domain_crosses_nested_native_wal_keys_mutations_and_reopen() -> Result<()> {
+    clock_domain::run(true)
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn interval_cast_categories_remain_exact_while_try_cast_suppresses_only_local_input_failures()
 -> Result<()> {
     use duckdb_rust::Error;
