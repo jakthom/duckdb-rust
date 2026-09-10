@@ -28,7 +28,27 @@ impl ScalarFunction for BitFunction {
         let types = (0..arguments.len())
             .map(|i| arguments.data_type(i))
             .collect::<Result<Vec<_>>>()?;
-        let targets = self.argument_types(&types, query.types())?;
+        let mut contextual = None;
+        if self.name == "xor" && types.len() == 2 {
+            for (literal, other) in [(0, 1), (1, 0)] {
+                let target = &types[other];
+                let fits = arguments.integer_literal(literal)?.is_some_and(|value| {
+                    if target.is_unsigned_integer() {
+                        value >= 0 && Value::Unsigned(value as u128).fits_type(target)
+                    } else {
+                        target.is_signed_integer() && Value::Integer(value).fits_type(target)
+                    }
+                });
+                if fits || (*target == DataType::Bit && arguments.is_string_literal(literal)?) {
+                    contextual = Some(vec![target.clone(); 2]);
+                    break;
+                }
+            }
+        }
+        let targets = match contextual {
+            Some(targets) => targets,
+            None => self.argument_types(&types, query.types())?,
+        };
         self.return_type(&targets, query.types())?;
         Ok(Some(Arc::new(Self {
             name: self.name,
@@ -41,6 +61,12 @@ impl ScalarFunction for BitFunction {
         types: &TypeRegistry,
     ) -> Result<Vec<DataType>> {
         use DataType::*;
+        if self.name == "xor"
+            && arguments.len() == 2
+            && let Some(input) = &self.input
+        {
+            return Ok(vec![input.clone(); 2]);
+        }
         Ok(match (self.name, arguments) {
             ("get_bit", [_, _]) => vec![Bit, Integer],
             ("set_bit", [_, _, _]) => vec![Bit, Integer, Integer],

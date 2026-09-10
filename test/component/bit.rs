@@ -465,6 +465,12 @@ fn bit_functions_aggregates_windows_and_mutations_use_logical_positions() -> Res
             vec![vec![Value::Integer(3),Value::Integer(3),Value::Integer(3),Value::Integer(3),Value::Integer(1),Value::Varchar("020203".into()),Value::Integer(0),Value::Integer(1)]]);
         assert_eq!(c.query("SELECT '101'::BIT & '011'::BIT,'101'::BIT | '011'::BIT,xor('101'::BIT,'011'::BIT),~'101'::BIT,'101'::BIT << 1,'101'::BIT >> 1,'101'::BIT >> -1,'101'::BIT << 3,bit_count(-1::HUGEINT),bit_count(255::UTINYINT)")?.rows,
             vec![vec![bit("001"),bit("111"),bit("110"),bit("010"),bit("010"),bit("010"),bit("000"),bit("000"),Value::Integer(-128),Value::Integer(8)]]);
+        assert_eq!(c.query("SELECT typeof(xor(1::UTINYINT,1)),typeof(xor(1::UTINYINT,1::INTEGER)),typeof(xor(1::UTINYINT,CASE WHEN true THEN 1 ELSE 2 END)),typeof(xor(1::UTINYINT,256)),xor('101'::BIT,'011')")?.rows,
+            vec![vec![Value::Varchar("UTINYINT".into()),Value::Varchar("INTEGER".into()),Value::Varchar("INTEGER".into()),Value::Varchar("INTEGER".into()),bit("110")]]);
+        assert_eq!(
+            c.execute_params("SELECT typeof(xor(1::UTINYINT,$1))", &[Value::Integer(1)])?[0].rows,
+            vec![vec![Value::Varchar("INTEGER".into())]]
+        );
         c.execute("CREATE TABLE b(k INTEGER PRIMARY KEY,v BIT); INSERT INTO b VALUES (1,'001'),(2,'010'),(3,'111'),(4,NULL)")?;
         assert_eq!(
             c.query("SELECT bit_and(v),bit_or(v),bit_xor(v),bit_xor(DISTINCT v) FROM b")?
