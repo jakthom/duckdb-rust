@@ -305,7 +305,7 @@ impl ScalarFunction for Rounding {
                 let result = integer(*value, precision, self.policy, &signature.arguments[0])?;
                 let result = Value::Integer(result);
                 if !result.fits_type(&signature.result) {
-                    return Err(overflow(self.policy));
+                    return Err(overflow(self.policy, "integer"));
                 }
                 result
             }
@@ -351,13 +351,13 @@ impl ScalarFunction for Rounding {
                     if precision < 0 {
                         divided
                             .checked_mul(DECIMAL_POWERS[precision.unsigned_abs() as usize] as i128)
-                            .ok_or_else(|| overflow(self.policy))?
+                            .ok_or_else(|| overflow(self.policy, "DECIMAL(38)"))?
                     } else {
                         divided
                     }
                 };
                 if result.unsigned_abs() >= DECIMAL_POWERS[usize::from(width)] {
-                    return Err(overflow(self.policy));
+                    return Err(overflow(self.policy, "DECIMAL(38)"));
                 }
                 decimal(result, width, target_scale)?
             }
@@ -378,9 +378,9 @@ fn decimal_storage_width(width: u8) -> u8 {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn overflow(policy: Policy) -> Error {
+fn overflow(policy: Policy, domain: &str) -> Error {
     Error::OutOfRange(format!(
-        "Overflow in {} of numeric value",
+        "Overflow in {} of {domain}",
         if policy == Policy::Even {
             "ROUND_EVEN"
         } else {
@@ -432,7 +432,7 @@ fn integer(value: i128, precision: i32, policy: Policy, ty: &DataType) -> Result
     let Some(power) = power else { return Ok(0) };
     divide(value, power as i128, policy)
         .checked_mul(power as i128)
-        .ok_or_else(|| overflow(policy))
+        .ok_or_else(|| overflow(policy, "integer"))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
