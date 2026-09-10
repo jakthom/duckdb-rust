@@ -67,3 +67,28 @@ annotations. The interface-count change is from the integrated base, not a new
 public literal API. Trace compatibility passes in 1m00s with zero error returns,
 panics or open spans; temporary telemetry is deleted. Integrated maintained
 Kani and controlled regression/performance evidence remain lead-owned.
+
+## Refreshed evidence
+
+The [expanded paired report](numeric-binding-reference.json) builds unchanged
+production source in 1m43s. All 672 prior numeric cases now match development,
+including the three requested repairs. Thirty additional direct literal and
+ordered CASE cases also match, giving development 702/705. The three explicitly
+retained wider UHUGEINT CASE/list combinations above account for every remaining
+development failure. Release matches 361/705 and retains its distinct older
+rounding and oversized-integer behavior; it can parse beyond-machine integers
+as DOUBLE where development preserves BIGNUM. Native C++ producer, Rust
+checkpoint and Rust WAL paths pass 3/3 against each pin. Comparing prior passing
+SQL identities on both pins finds no lost passing cases. The strict all-pin
+wrapper exits 1; no failures or reference divergences were hidden.
+
+The focused [upstream CASE run](upstream-numeric-binding-case.json) passes
+`case_varchar.test` 3/3 records. `case_condition.test` remains at 1/2 because
+numeric predicates are not implicitly BOOLEAN; `case_short_circuit.test`
+remains at 2/3 on unsupported SUBSTR syntax. The [integer-literal upstream
+file](upstream-numeric-binding-integers.json) remains at its first assertion:
+the Python oracle compares expected `true` with returned `1`. These exact
+statuses, prefixes and reasons also appear in the earlier controlled
+`value-expression-upstream-checkpoint5-d.json`; they are not new regressions.
+The numeric exact fallback intentionally does not reinterpret BOOLEAN cells.
+No expected SQL values, assertion types or diagnostics were changed.

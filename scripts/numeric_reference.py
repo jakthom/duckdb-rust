@@ -174,6 +174,41 @@ SQL += [
 ERROR_CASES += [(f'SELECT abs({argument})', 'Binder Error') for argument in
                 ("'1'", "'1'::VARCHAR", 'TRUE', "'1'::ENUM('1')", '[1]', "DATE '2024-01-01'", '', '1,2')]
 
+for literal in ('2147483647','2147483648','-2147483648','-2147483649',
+                '9223372036854775807','9223372036854775808','-9223372036854775808','-9223372036854775809',
+                '170141183460469231731687303715884105727','170141183460469231731687303715884105728',
+                '-170141183460469231731687303715884105728','-170141183460469231731687303715884105729',
+                '340282366920938463463374607431768211455','340282366920938463463374607431768211456',
+                '-340282366920938463463374607431768211455','1234567890'*100):
+    SQL.append(f'SELECT {literal},typeof({literal}),({literal})::VARCHAR')
+for expression in (
+    'CASE WHEN false THEN 0::TINYINT ELSE 1 END',
+    'CASE WHEN false THEN 0::TINYINT ELSE 1::INTEGER END',
+    'CASE WHEN false THEN 0::UTINYINT ELSE 255 END',
+    'CASE WHEN false THEN 0::UTINYINT ELSE 256 END',
+    'CASE WHEN false THEN NULL WHEN false THEN 2::TINYINT ELSE 1 END',
+    'CASE WHEN false THEN 1 WHEN false THEN 2::TINYINT ELSE 1 END',
+    'CASE WHEN false THEN 2::TINYINT WHEN false THEN 1 ELSE 1 END',
+    'CASE WHEN false THEN 2::TINYINT ELSE NULL END',
+    'CASE 3 WHEN 1 THEN 0::SMALLINT WHEN 2 THEN 1 ELSE 1 END',
+    "CASE WHEN false THEN 'bad' ELSE 1::INTEGER END",
+    "CASE WHEN false THEN 1::INTEGER ELSE '2' END",
+):
+    SQL.append(f'SELECT {expression},typeof({expression})')
+ERROR_CASES += [(f'SELECT {expression}', 'Binder Error') for expression in (
+    "CASE WHEN false THEN '1' WHEN false THEN 2 ELSE '1' END",
+    "CASE WHEN false THEN NULL WHEN false THEN 2 ELSE '1' END",
+    "CASE WHEN false THEN 1 ELSE '2'::VARCHAR END",
+)]
+# Deliberately retained broader follow-up: the existing signed-only literal
+# hook and wide unsigned/signed common-type proposals do not implement these
+# development UHUGEINT combinations. Do not claim the parser repair closes them.
+SQL += [
+    'SELECT typeof(CASE WHEN false THEN 340282366920938463463374607431768211455 ELSE 1 END)',
+    'SELECT typeof(CASE WHEN false THEN 340282366920938463463374607431768211455::UHUGEINT ELSE 1::INTEGER END)',
+    'SELECT typeof([340282366920938463463374607431768211455,1])',
+]
+
 
 def equivalent(a, b, expected_error=None):
     if expected_error:
