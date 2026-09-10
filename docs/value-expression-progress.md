@@ -546,3 +546,16 @@ are not waived: this campaign ran alongside workspace/proof work, and a single
 controlled full-suite rerun is planned after all heavy jobs are idle. It will
 retain the same assertions, all file identities, deadline and worker count.
 The current follow-up remains unpushed pending that investigation and Kani.
+
+Final-source workspace tests complete successfully (the same two pre-existing
+external-CLI analytics ignores); recovery tail truncation completes in 67.30 s.
+Coverage is 284 files / 2,565 functions / 208 interface methods, with no missing
+attributes. Trace compilation finishes in 44.58 s with zero errors, panics or
+open spans; temporary telemetry is deleted. Full Kani 0.67.0 passes all six
+maintained harnesses: TIMETZ 46.413 s, unsigned keys 0.796 s, dense offsets
+0.487 s, ROWS 2.188 s, uniform bounds 2.302 s, packed byte counts 72.068 s.
+Caller-location (one) and foreign-function (two) unsupported constructs remain
+unreachable in these proofs; atomic operations remain sequential, and the
+vendor parser's unused-variable warning remains. These bounded results do not
+prove the new reducer, full SQL/storage behavior or concurrency. The controlled
+full upstream investigation is the remaining pre-push check for this source.
