@@ -1,4 +1,4 @@
-"""Run the pinned, complete Kani suite at a rewrite stage boundary."""
+"""Run a Kani checkpoint; report proof outcomes independently of stage completion."""
 
 from pathlib import Path
 import re
@@ -18,7 +18,7 @@ SUMMARY = re.compile(
 
 
 def verification_status(returncode, output):
-    """Require both a successful process and a complete, nonempty proof result."""
+    """Report proof success only for a complete, nonempty successful run."""
     if returncode:
         return returncode if returncode > 0 else 1
     summaries = SUMMARY.findall(output)
@@ -42,7 +42,7 @@ def main():
                 "cargo kani setup", file=sys.stderr,
             )
             return 1
-        print("Stage validation: " + " ".join(COMMAND), flush=True)
+        print("Kani checkpoint: " + " ".join(COMMAND), flush=True)
         output = []
         with subprocess.Popen(
             COMMAND, cwd=ROOT, text=True, stdout=subprocess.PIPE,
@@ -53,7 +53,11 @@ def main():
                 output.append(line)
             status = verification_status(process.wait(), "".join(output))
         if status:
-            print("Kani stage gate is incomplete; inspect the output above.", file=sys.stderr)
+            print(
+                "Kani verification was unsuccessful or incomplete. Investigate findings "
+                "and record limits; proof success is not required for exploratory "
+                "stage completion. See specs/testing/kani.md.", file=sys.stderr,
+            )
         return status
     except OSError as error:
         print(f"Kani stage validation could not run: {error}", file=sys.stderr)

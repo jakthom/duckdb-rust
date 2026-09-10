@@ -60,10 +60,12 @@ to full parity while unmeasured scopes remain.
 
 ## Additional testing
 
-Each large implementation chunk must also pass the [Kani stage-validation
-gate](kani.md). Maintain proofs of the changed invariants and run the maintained
-suite at stage completion, rather than on every edit. Bounded proof results are
-separate evidence; they do not establish upstream test or performance parity.
+Each large implementation chunk must also run and report a [Kani
+checkpoint](kani.md), rather than running it on every edit. During exploration,
+proof success and comprehensive proof coverage are not stage-completion
+conditions. Investigate findings, record limitations, and let proofs follow the
+emerging design. Bounded proof results are separate evidence; they do not
+establish upstream test or performance parity.
 
 Review SQLite's independent harnesses and carry over applicable methods:
 generated/differential SQL, malformed files paired with SQL, transient and

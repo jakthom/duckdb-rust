@@ -1,10 +1,15 @@
-# Kani stage validation
+# Kani exploratory checkpoints
 
 [Rewrite principles](../rewrite-principles.md) · [Parity acceptance](parity.md) · [Implementation checks](../../docs/verification.md)
 
 Accepted rewrite requirement, 2026-09-10. [Kani](https://github.com/model-checking/kani)
 is a required checkpoint for each substantial Rust implementation chunk. This is
 a rewrite policy, separate from the C++ source-baseline harness inventory.
+
+The current phase prioritizes design exploration. The requirement is to run the
+tool, investigate findings, and report limits. A passing proof suite is not a
+condition for completing a chunk. Formal proof coverage and acceptance gates
+are deferred until the design settles.
 
 ## Cadence and completion
 
@@ -17,23 +22,35 @@ Documentation-only, formatting, and isolated low-impact edits need no Kani run.
 
 At the checkpoint:
 
-1. Identify changed invariants and add or update proofs for the tractable Rust
-   logic. Exercise the production functions and relevant adapter contracts.
-2. Run `python3 scripts/verify_kani.py` from the rewrite checkout. This runs all
+1. Run `python3 scripts/verify_kani.py` from the rewrite checkout. This runs all
    maintained library harnesses with tracing disabled, including earlier proofs.
-3. Resolve failures and rerun. Timeouts, unsupported reachable code, insufficient
-   unwind bounds, compilation/setup failures, and zero verified harnesses leave
-   the gate incomplete. An unexecuted or failed run cannot be reported as passed.
-4. Record the stage, source revision and local changes, Kani version, command,
-   harness names, input assumptions, bounds, results, and remaining gaps in the
-   stage validation summary. Run the ordinary, compatibility, and performance
-   checks required by that change as well.
+2. Investigate counterexamples against intended behavior. Distinguish an actual
+   bug from an outdated assertion, incorrect harness assumption, or tool limit.
+   Handle confirmed bugs through the ordinary correctness process; this policy
+   does not make an incorrect implementation correct.
+3. Record timeouts, unsupported code, insufficient unwind bounds, compilation or
+   setup failures, and zero verified harnesses as unsuccessful or incomplete
+   verification. Make a reasonable setup/retry attempt where practical, then
+   continue exploration with unresolved limits explicit. These outcomes do not
+   block chunk completion and must never be counted as successful proofs.
+4. Briefly report the command, outcome, findings and limits in the chunk's
+   summary. Link a reproducer or capture assumptions and bounds when needed to
+   understand a finding. A new formal report artifact is not required for every
+   checkpoint. Ordinary correctness, compatibility, and performance obligations
+   remain applicable independently of Kani.
 
-For code that Kani cannot handle directly, isolate a bounded contract or pure
-transition while keeping its connection to production explicit. Document any
-model/stub and the behavior it omits. Do not replace production with a simplified
-copy solely to obtain a green result. If the changed behavior remains outside
-proof scope, record that gap even when the existing suite passes.
+Add or adapt proofs when they help clarify a design that is taking shape. There
+is no requirement to prove every changed invariant or increase proof coverage
+with every chunk. Prefer observable behavior and intended contracts; internal
+representations, algorithms, and module boundaries remain provisional. Revise or
+retire an outdated harness with an explanation when an intended contract changes.
+Do not remove a valid counterexample merely to obtain a passing result.
+
+Kani's capabilities must not dictate the implementation. Do not restructure
+production code or restrict algorithm, ownership, concurrency, or representation
+choices solely to make them provable. If a small proof or model is useful, keep
+its connection to production and its omissions explicit. Otherwise, record the
+unproved scope and continue using other evidence while exploring the design.
 
 ## Installation and execution
 
@@ -60,7 +77,9 @@ cargo kani -p duckdb-rust --lib --no-default-features \
 
 The stage runner checks the pinned version, preserves Kani's failure status,
 rejects an empty/incomplete verification summary, and caps each harness at five
-minutes. A timeout is a failure to complete validation, not a waived proof.
+minutes. Its exit status describes the verification outcome, not whether an
+exploratory chunk may be completed. Keep failures visible; do not suppress them
+or turn this checkpoint into a mandatory passing CI/merge check during this phase.
 It does not run automatically on every Cargo invocation or push.
 
 ## Harness conventions and interpretation
@@ -97,9 +116,11 @@ These are arithmetic and boundary proofs. Packed payload decoding, peer GROUPS
 and RANGE semantics, full window results, concurrency, persistence and ecosystem
 compatibility need their own verification. Passing Kani neither replaces the
 upstream parity suite nor establishes zero performance regressions. Proof scope
-must grow with the implementation; a fixed initial suite alone does not cover
-each future feature.
+can grow as useful contracts emerge; this initial suite does not cover each
+future feature, and its existence does not freeze the current design.
 
 The [initial integration record](../../docs/kani-validation.json) contains the
 executed results and checked source hashes, including the independently
-reproduced SQL-suite failure on the unmodified PR base.
+reproduced SQL-suite failure on the unmodified PR base. It is historical evidence
+from the original integration; its gate terminology predates this exploratory
+policy and does not impose a current completion requirement.

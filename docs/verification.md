@@ -23,8 +23,11 @@ The checks here concern this Rust implementation. The source-system testing spec
 
 `python3 scripts/verify_kani.py` runs the maintained Kani proof suite at each
 substantial implementation-stage boundary. The [Kani policy and runbook](../specs/testing/kani.md)
-define cadence, installation, proof scope, and incomplete-gate handling. Ordinary
-checks/tests remain the per-edit feedback loop.
+define cadence, installation, proof scope, and how to report findings and limits.
+During exploration, a checkpoint requires a run and a short report; proof success
+is not a stage-completion condition. The command retains nonzero exit statuses
+for unsuccessful or incomplete verification. Ordinary checks/tests remain the
+per-edit feedback loop.
 
 `cargo test --all-targets` runs the contract suite, native file compatibility cases, and the supported SQLLogicTest corpus. It requires no installed DuckDB engine. Interface tests vary adapters through `DatabaseBuilder` and the ordinary public contracts.
 

@@ -1,4 +1,4 @@
-"""An empty, failed, or incomplete verifier run must never pass the stage gate."""
+"""Checkpoint reporting must never label an empty or failed proof run successful."""
 
 import subprocess
 import unittest
@@ -10,7 +10,7 @@ import verify_kani
 PASSED = "Complete - 3 successfully verified harnesses, 0 failures, 3 total.\n"
 
 
-class KaniGateTests(unittest.TestCase):
+class KaniOutcomeTests(unittest.TestCase):
     def test_complete_run(self):
         self.assertEqual(verify_kani.verification_status(0, "compiler output\n" + PASSED), 0)
 

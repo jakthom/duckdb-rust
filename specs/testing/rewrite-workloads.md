@@ -34,8 +34,9 @@ Fuzz supported operation sequences and capability combinations, including cancel
 ## Measurement and promotion rules
 
 Before completing each substantial implementation chunk, run the [Kani
-stage-validation gate](kani.md) and record its proof scope and results alongside
-the applicable workload checks. A passing proof does not establish workload
+checkpoint](kani.md) and record its findings and limitations alongside the
+applicable workload checks. During exploration, Kani proof success is not a
+condition for completing a chunk. A passing proof does not establish workload
 correctness or performance beyond the properties and inputs it covers.
 
 Record implementation revisions, adapter versions and configuration, hardware, datasets and distributions, indexes/layouts, concurrency, cache state, load generation, offered and completed load, and resource limits. Include warm and cold runs where relevant. End-to-end latency must include queueing and retries; record transaction isolation and durability settings with every transactional result.

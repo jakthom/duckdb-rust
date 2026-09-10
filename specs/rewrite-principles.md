@@ -85,11 +85,12 @@ AI functionality must be optional and attach through declared interfaces at the 
 
 ### Verification and acceptance
 
-Each substantial Rust implementation chunk must pass the [Kani stage-validation
-gate](testing/kani.md) before it is declared complete. Ordinary edit/test passes
-use the normal checks; Kani runs at stage boundaries. Proof scope, assumptions,
-bounds, and execution results must remain explicit alongside other acceptance
-evidence.
+Each substantial Rust implementation chunk must run and report a [Kani
+checkpoint](testing/kani.md) before it is declared complete. During exploration,
+proof success is not a stage-completion condition. Investigate counterexamples
+and record tool limitations without forcing implementation choices to suit the
+verifier. Ordinary edit/test passes use the normal checks. Formal proof coverage
+and acceptance requirements can be established once the design settles.
 
 The interface is the primary conformance-test surface. Built-in and alternative adapters must run the same applicable contract tests. Adapter-specific tests supplement, rather than replace, those checks. Fuzzing, failure injection, and benchmarks must select implementations through the declared seams.
 

@@ -2,7 +2,7 @@
 
 Use ordinary `cargo check`, `cargo test` and `cargo clippy` for each edit/test pass.
 
-## Stage validation with Kani
+## Exploratory checkpoints with Kani
 
 Run `python3 scripts/verify_kani.py` before declaring each substantial rewrite
 chunk or planned implementation stage complete. This includes a feature slice,
@@ -15,14 +15,22 @@ formatting, and isolated low-impact edits do not require a run. Focused
 `cargo kani --harness ...` runs are useful when debugging a proof, but stage
 completion requires the full maintained suite through the command above.
 
-At the stage boundary, add or update bounded proofs for the changed invariants
-and retain existing proofs. Verify production functions, document input/loop
-bounds and assumptions, and leave safety and unwinding checks enabled. A failed,
-timed-out, unsupported, missing-tool, or empty run is an incomplete gate. Fix or
-isolate the cause and rerun; report unresolved limitations without claiming the
-stage passed. Record commands, version, source revision, proof scope and results
-in the stage's validation summary. Kani supplements the required ordinary,
-compatibility and performance checks. See [the policy](specs/testing/kani.md).
+During the exploratory rewrite, the requirement is to run Kani and report what
+was learned. A passing proof suite is not required to complete the chunk. The
+runner's nonzero status reports unsuccessful or incomplete verification; it is
+not a stage-completion verdict. Investigate counterexamples against the intended
+behavior and handle confirmed bugs through the ordinary correctness process.
+Record timeouts, unsupported code, setup failures and unproved behavior as limits;
+after a reasonable setup/retry attempt, continue exploration with those limits
+explicit. Never describe an unsuccessful or unexecuted proof as passing.
+
+Add or adapt proofs when they help clarify the emerging design. Do not reshape
+production code, restrict design choices, or require a proof for every invariant
+to satisfy Kani. Internal architecture remains provisional; revise or retire
+outdated harnesses with a reason when intended contracts change. Keep assumptions
+and bounds honest and safety checks enabled. A short checkpoint summary of the
+command, outcome, findings and limits is sufficient. Formal coverage requirements
+and proof acceptance gates can be established later. See [the policy](specs/testing/kani.md).
 
 ## Development tracing
 
