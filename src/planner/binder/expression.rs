@@ -706,6 +706,14 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
             .map(|expression| self.evaluate_constant(expression))
             .transpose()
     }
+    fn is_provably_null(&self, index: usize) -> Result<bool> {
+        self.context.query.check()?;
+        let expression = self
+            .arguments
+            .get(index)
+            .ok_or_else(|| Error::Bind("function argument outside signature".into()))?;
+        super::provably_null(expression, self.context)
+    }
     fn constant_as(&self, index: usize, target: &DataType, mode: CastMode) -> Result<Value> {
         let expression = self.required_constant_argument(index)?;
         let mode = super::coercion::scalar_argument_cast_mode(expression, target, mode);

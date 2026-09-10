@@ -51,3 +51,16 @@ tests and all-target clippy then pass. The continuing rounding prototype is
 present only in the worker tree during these checks and is excluded from this
 prerequisite commit. Instrumentation compatibility will be refreshed with the
 combined numeric increment before substantial-stage completion.
+
+A separate `is_provably_null` capability now shares the existing selected
+operator NULL-template probe with scalar binding. It checks cancellation before
+dependency/effect classification and validation remains outside the speculative
+error boundary. Only Conversion/Execution/OutOfRange/InvalidInput evaluation
+failures mean unsuccessful probing; Resource/Interrupted/Internal and malformed
+selected output remain fatal. Default frontends validate the index then report
+Unsupported. Expanded tests verify this contrast with required and optional
+constant evaluation, both of which still propagate every evaluation error.
+Both focused contracts and all-target clippy pass. The motivating failed
+rounding CASE witness and source cause are retained in
+[numeric precision findings](numeric-precision-values.md); its adapter repair
+is a separate follow-up, not bundled in this shared prerequisite.

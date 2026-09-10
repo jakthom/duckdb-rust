@@ -68,6 +68,16 @@ impl CastFunction for ConstantCast {
     fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
         query.check()?;
         match value {
+            Value::Varchar(text) if text == "conversion" => {
+                Err(Error::Conversion("probe conversion".into()))
+            }
+            Value::Varchar(text) if text == "execution" => {
+                Err(Error::Execution("probe execution".into()))
+            }
+            Value::Varchar(text) if text == "range" => Err(Error::OutOfRange("probe range".into())),
+            Value::Varchar(text) if text == "input" => {
+                Err(Error::InvalidInput("probe input".into()))
+            }
             Value::Varchar(text) if text == "interrupted" => Err(Error::Interrupted),
             Value::Varchar(text) if text == "resource" => {
                 Err(Error::Resource("typed constant resource".into()))
@@ -147,10 +157,39 @@ impl ScalarFunction for OptionalProbe {
     }
 }
 
+#[derive(Debug)]
+struct NullProbe(Option<bool>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for NullProbe {
+    fn name(&self) -> &str {
+        "typed_null"
+    }
+    fn bind(
+        &self,
+        arguments: &dyn ScalarBindArguments,
+        _: &QueryContext,
+    ) -> Result<Option<Arc<dyn ScalarFunction>>> {
+        Ok(Some(Arc::new(Self(Some(arguments.is_provably_null(0)?)))))
+    }
+    fn argument_evaluation(&self) -> ArgumentEvaluation {
+        ArgumentEvaluation::TypeOnly
+    }
+    fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+    fn evaluate(&self, arguments: &[Value], _: &QueryContext) -> Result<Value> {
+        assert!(arguments.is_empty());
+        self.0
+            .map(Value::Boolean)
+            .ok_or_else(|| Error::Internal("unbound NULL probe".into()))
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn registry() -> Result<FunctionRegistry> {
     let mut functions = FunctionRegistry::builtins();
     functions.register_scalar(Arc::new(OptionalProbe(None)))?;
+    functions.register_scalar(Arc::new(NullProbe(None)))?;
     for (name, mode, index) in [
         ("typed_implicit", CastMode::Implicit, 0),
         ("typed_explicit", CastMode::Explicit, 0),
@@ -215,6 +254,37 @@ fn typed_constants_retain_selected_cast_modes_literals_parameters_and_failures()
                 assert!(matches!(c.query(sql), Err(Error::Bind(_))), "{sql}");
             }
             assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert_eq!(c.query("SELECT typed_null(NULL::INTEGER),typed_null(i),typed_null(volatile_constant()),typed_null(external_constant()),typed_null('1'::TINYINT) FROM range(1) t(i)")?.rows,vec![vec![Value::Boolean(true),Value::Boolean(false),Value::Boolean(false),Value::Boolean(false),Value::Boolean(false)]]);
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert!(matches!(
+                c.query("SELECT typed_null()"),
+                Err(Error::Bind(_))
+            ));
+            for input in ["conversion", "execution", "range", "input"] {
+                assert_eq!(
+                    c.query(&format!("SELECT typed_null('{input}'::TINYINT)"))?
+                        .rows,
+                    vec![vec![Value::Boolean(false)]]
+                );
+                // Speculation does not weaken either required or optional
+                // constant evaluation, nor execute a rejected expression later.
+                for function in ["typed_implicit", "typed_optional"] {
+                    let expression = if function == "typed_optional" {
+                        format!("'{input}'::TINYINT")
+                    } else {
+                        format!("'{input}'")
+                    };
+                    let error = c
+                        .query(&format!("SELECT {function}({expression})"))
+                        .unwrap_err();
+                    assert!(match input {
+                        "conversion" => matches!(error, Error::Conversion(_)),
+                        "execution" => matches!(error, Error::Execution(_)),
+                        "range" => matches!(error, Error::OutOfRange(_)),
+                        _ => matches!(error, Error::InvalidInput(_)),
+                    });
+                }
+            }
             assert_eq!(c.query("SELECT typed_optional(i),typed_optional(volatile_constant()),typed_optional(external_constant()),typed_optional(NULL::INTEGER),typed_optional('1'::TINYINT) FROM range(1) t(i)")?.rows, vec![vec![Value::Integer(99),Value::Integer(99),Value::Integer(99),Value::Null,Value::Integer(11)]]);
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             assert!(matches!(
@@ -271,6 +341,14 @@ fn typed_constants_retain_selected_cast_modes_literals_parameters_and_failures()
             ] {
                 let error = c
                     .query(&format!("SELECT typed_optional('{input}'::TINYINT)"))
+                    .unwrap_err();
+                assert!(match input {
+                    "resource" => matches!(error, Error::Resource(_)),
+                    "interrupted" => matches!(error, Error::Interrupted),
+                    _ => matches!(error, Error::Internal(_)),
+                });
+                let error = c
+                    .query(&format!("SELECT typed_null('{input}'::TINYINT)"))
                     .unwrap_err();
                 assert!(match input {
                     "resource" => matches!(error, Error::Resource(_)),
@@ -346,6 +424,14 @@ fn typed_constant_frontends_reject_missing_capability_and_invalid_evaluator_resu
         ExternalArguments.constant_if_closed(1),
         Err(Error::Bind(_))
     ));
+    assert!(matches!(
+        ExternalArguments.is_provably_null(0),
+        Err(Error::Unsupported(_))
+    ));
+    assert!(matches!(
+        ExternalArguments.is_provably_null(1),
+        Err(Error::Bind(_))
+    ));
     for mode in [CastMode::Implicit, CastMode::Explicit, CastMode::Assignment] {
         assert!(matches!(
             ExternalArguments.constant_as(0, &DataType::TinyInt, mode),
@@ -365,6 +451,7 @@ fn typed_constant_frontends_reject_missing_capability_and_invalid_evaluator_resu
         for sql in [
             "SELECT typed_explicit(1)",
             "SELECT typed_optional(1::TINYINT)",
+            "SELECT typed_null(1::TINYINT)",
         ] {
             let error = c.query(sql).unwrap_err();
             if resource {

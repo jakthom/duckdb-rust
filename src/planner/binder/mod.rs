@@ -447,6 +447,42 @@ fn constant_expression(expression: &BoundExpr) -> bool {
     }
 }
 
+/// Selected speculative NULL-template binding, shared by scalar and operator
+/// frontends. Failed ordinary folds are not NULL evidence; required constant
+/// requests do not use this error-deferring boundary.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn provably_null(expression: &BoundExpr, context: &BindContext<'_>) -> Result<bool> {
+    context.query.check()?;
+    if !constant_expression(expression) {
+        return Ok(false);
+    }
+    let value = match context
+        .expressions
+        .evaluate(expression, &Vec::new(), context.query)
+    {
+        Ok(value) => value,
+        Err(
+            Error::Conversion(_)
+            | Error::Execution(_)
+            | Error::OutOfRange(_)
+            | Error::InvalidInput(_),
+        ) => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    context
+        .query
+        .types()
+        .bind(&expression.data_type)?
+        .validate(&value, context.query)
+        .map_err(|error| match error {
+            Error::Conversion(_) => {
+                Error::Internal("constant evaluator returned an invalid value".into())
+            }
+            other => other,
+        })?;
+    Ok(value.is_null())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn schema(table: &TableDefinition) -> Schema {
     table
@@ -539,7 +575,7 @@ impl State<'_, '_> {
                 && !arguments.iter().any(window::has_effects)
             {
                 for argument in &arguments {
-                    if self.provably_null(argument)? {
+                    if provably_null(argument, self.context)? {
                         self.context
                             .query
                             .types()
@@ -570,42 +606,6 @@ impl State<'_, '_> {
             data_type: signature.result.clone(),
             kind: ExprKind::Operator(resolved.function, arguments),
         })
-    }
-
-    /// Match development's pre-coercion template NULL binding. An unsuccessful
-    /// data-dependent fold is not evidence of NULL. Infrastructure and invalid
-    /// selected-adapter failures must not disappear under a later NULL input.
-    fn provably_null(&self, expression: &BoundExpr) -> Result<bool> {
-        if !constant_expression(expression) {
-            return Ok(false);
-        }
-        let value =
-            match self
-                .context
-                .expressions
-                .evaluate(expression, &Vec::new(), self.context.query)
-            {
-                Ok(value) => value,
-                Err(
-                    Error::Conversion(_)
-                    | Error::Execution(_)
-                    | Error::OutOfRange(_)
-                    | Error::InvalidInput(_),
-                ) => return Ok(false),
-                Err(error) => return Err(error),
-            };
-        self.context
-            .query
-            .types()
-            .bind(&expression.data_type)?
-            .validate(&value, self.context.query)
-            .map_err(|error| match error {
-                Error::Conversion(_) => {
-                    Error::Internal("constant evaluator returned an invalid value".into())
-                }
-                other => other,
-            })?;
-        Ok(value.is_null())
     }
 
     fn sql_literal(&self, expr: &ast::Expr) -> Result<BoundExpr> {

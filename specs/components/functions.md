@@ -88,3 +88,13 @@ It does not turn evaluation errors into None. Required and optional requests
 share the same dependency/effect classification. Other frontends validate the
 index then explicitly reject this capability if they cannot provide it. Known
 NULL values remain distinct from unavailable constants and from failed evaluation.
+
+`is_provably_null(index)` is an explicitly speculative NULL-template probe,
+separate from either constant request. The SQL frontend shares the operator
+template probe, first checks cancellation and closed/effect-free eligibility,
+then uses its selected evaluator. Conversion, Execution, OutOfRange and
+InvalidInput evaluation failures make this probe unsuccessful; Resource,
+Interrupted and Internal failures propagate. Logical output validation occurs
+outside this speculative error boundary and remains fatal. The default validates
+the argument index then reports Unsupported. This capability does not weaken
+required constant evaluation or permit a scalar adapter to swallow failures.

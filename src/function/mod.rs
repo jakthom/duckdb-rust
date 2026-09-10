@@ -65,6 +65,15 @@ pub trait ScalarBindArguments {
             "frontend does not support optional closed constants".into(),
         ))
     }
+    /// Speculative NULL-template probe, distinct from required constant
+    /// evaluation. Data-dependent errors may make this probe unsuccessful;
+    /// infrastructure and selected logical validation failures remain fatal.
+    fn is_provably_null(&self, index: usize) -> Result<bool> {
+        self.data_type(index)?;
+        Err(Error::Unsupported(
+            "frontend does not support NULL-template probes".into(),
+        ))
+    }
     /// Request a closed, effect-free argument converted through the frontend's
     /// selected cast registry and evaluator. SQL literal privileges apply only
     /// to an Implicit request; Explicit and Assignment retain their exact mode.
