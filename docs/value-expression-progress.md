@@ -61,10 +61,52 @@ that performance is preserved. No milestone changes have been pushed yet.
 
 ## Continuing integration obligations
 
-Literal-sensitive and comparison/CASE/function coercion; typed NULL versus an
-active NULL UNION member; constant-NULL result metadata; unnumbered prepared
-parameters; explicit indexes; transactional named-type lookup/dependencies;
+Literal-sensitive and comparison/CASE/function coercion; fuller UNION/VARIANT
+NULL behavior; constant-NULL result metadata; named prepared parameters;
+explicit indexes; transactional named-type lookup/dependencies;
 native nested persistence and mixed-family recovery/reopen; remaining numeric
 and core scalar/temporal/nested semantics; combined upstream and performance
 regression campaigns. These are implementation work within the assignment, not
 reasons to stop after the first isolated passing path.
+
+## Second integrated checkpoint, 2026-09-10
+
+At `7c2841e`, temporal arithmetic, native temporal checkpoint/WAL/default codecs,
+ordered ENUM metadata, UNION member constructors/accessors and scalar casts,
+LIST aggregates/windows, anonymous prepared parameters, and CTAS NULL-leaf
+normalization are integrated. The selected cast NULL-handling contract permits
+a typed NULL to become an active NULL UNION member, retaining child adapters in
+scalar and batch execution. Invalid non-NULL-to-NULL results remain rejected.
+Anonymous parameters receive lexical positions before binding visits FROM,
+aliases or reused expressions; numbered parameters advance the position and
+quoted/comment text does not consume positions. Mixed-schema tests cover typed
+inserts, updates and rollback. CTAS resolves untyped NULL children recursively
+before assignment, publication and private-format reopen.
+
+The immutable [numeric campaign](value-expression-numeric-reference-checkpoint2.json)
+records unchanged sources during the run: development 38/38 SQL and 3/3 native
+cases, release 20/38 SQL and 3/3 native cases. The same 18 release disagreements
+remain governed by development. Newly consumed development ownership metadata
+and bounded segment payload sizes repair reading development-produced files.
+Constant segments may retain a prior nonzero byte size despite having no block;
+their decoder uses validated statistics. No broader file compatibility is
+inferred from these three producer paths.
+
+The combined workspace suite passed with the same two ignored external-CLI
+tests. After parameter/storage-boundary changes, all 19 contract tests passed;
+ordinary check/clippy and instrumentation coverage/trace checks passed. Coverage
+reported 238 files, 2,070 functions and 201 interface methods with no missing
+instrumentation. Temporary telemetry was deleted.
+
+`python3 scripts/verify_kani.py` ran on this checkpoint with Kani 0.67.0: 6/6
+maintained harnesses passed, zero failures. Times were TIMETZ packing 20.983 s,
+unsigned keys 0.765 s, dense offsets 0.494 s, ROWS clipping 2.142 s, uniform bounds
+2.333 s and packed byte counts 91.410 s. Caller-location (1) and foreign-function
+(4) warnings were unreachable in these proofs; atomics remained sequential.
+The new proof bounds valid TIMETZ packing and equality identity. It does not
+prove general timezone/calendar semantics, parser behavior, recursive values,
+transactional durability or concurrency.
+
+Native nested checkpoint work and grammar fixes are subsequent increments.
+Performance and the full upstream regression refresh have not been rerun on
+this checkpoint; the preceding passing baseline remains historical evidence.
