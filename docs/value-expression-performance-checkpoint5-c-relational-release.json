@@ -1,0 +1,4686 @@
+{
+  "recorded_at": "2026-09-10T21:12:12.744821+00:00",
+  "baseline": "pinned-cpp-duckdb",
+  "reference_identity": {
+    "target": "release",
+    "required_version": "1.5.5",
+    "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+    "reported_source_id": "d8cdaa33fd",
+    "version": "v1.5.5 (Variegata) d8cdaa33fd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+    "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+  },
+  "max_ratio": 1.0,
+  "iterations": 21,
+  "warmups": 3,
+  "order": "paired, alternating engine order",
+  "cpp_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+  "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+  "cpp_worker_sha256": "9cdad7423c218901546ae79ce6ab1e4e7fd853bb09d36ced0d25531d0057adf8",
+  "cpp_worker_source_sha256": "72ba2c4866e914f4545bf308c18fccfa9667db46063be0e6548e30fd7f525b99",
+  "cpp_build_configuration_sha256": "83855d70a789cd8b23c62cd147a6dc23f6ca0f7adb23ec6fc308f66b8988e879",
+  "compile_command": [
+    "c++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-I/Users/jacobthomas/code/ddb/duckdb-v1.5.5/src/include",
+    "/Users/jacobthomas/code/ddb/duckdb-rust/benchmark/reference.cpp",
+    "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src/libduckdb.dylib",
+    "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src",
+    "-o",
+    "/Users/jacobthomas/code/ddb/duckdb-rust/target/reference-measure-release"
+  ],
+  "compiler": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.5.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin",
+  "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "rust_build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--release",
+    "--no-default-features",
+    "--bin",
+    "duckdb-rust-measure"
+  ],
+  "rust_source_sha256": "672dd25dbb65046f5915ab8c1cb6557ac5cd82533dd3cd61a7258f70b5405c21",
+  "rust_binary_sha256": "4ab82b0683fbeebeb6d86d0d3c29071bbf610de45195769cf7202ada769af9b5",
+  "workloads_path": "/Users/jacobthomas/code/ddb/duckdb-rust/benchmark/relational_workloads.json",
+  "workloads_sha256": "cab81b0f22fff5958253a0daad149aefb5bdb772d5915e1df99fcb2a3d8ada80",
+  "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "workloads": [
+    {
+      "name": "using_inner",
+      "sql": "SELECT t.i FROM t JOIN u USING(i)",
+      "rows": 32,
+      "sum": "496",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 205334,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 248958,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 208833,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 195708,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 188292,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 167500,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 185958,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 166083,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 172083,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 190458,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 155291,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 144959,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 150583,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 147583,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 142541,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 150208,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 150458,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 149708,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 156708,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 154375,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 154000,
+          "rows": 32,
+          "sum": "496"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 144459,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 152500,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 145167,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 127500,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 123833,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 134292,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 124083,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 125041,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 117334,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 127209,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 104542,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 105209,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 105083,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 105000,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 100791,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 106500,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 100875,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 113750,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 111000,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 112250,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 110917,
+          "rows": 32,
+          "sum": "496"
+        }
+      ],
+      "cpp_median_ns": 156708,
+      "rust_median_ns": 113750,
+      "rust_over_cpp": 0.7258723230466856,
+      "passed": true
+    },
+    {
+      "name": "using_full",
+      "sql": "SELECT sum(i) FROM t FULL JOIN u USING(i)",
+      "rows": 1,
+      "sum": "1249975000",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 443208,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 375125,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 365625,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 358750,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 364500,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 358125,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 356125,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 353375,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 389000,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 371125,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 391166,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 360167,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 365666,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 407084,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 407084,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 379709,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 365875,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 351333,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 372209,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 364041,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 501416,
+          "rows": 1,
+          "sum": "1249975000"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 158958,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 157791,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 150250,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 153417,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 166041,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 151292,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 149833,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 158041,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 149166,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 145166,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 173500,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 169833,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 159875,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 176792,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 148542,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 153542,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 147500,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 157584,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 144041,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 165792,
+          "rows": 1,
+          "sum": "1249975000"
+        },
+        {
+          "elapsed_ns": 255042,
+          "rows": 1,
+          "sum": "1249975000"
+        }
+      ],
+      "cpp_median_ns": 365875,
+      "rust_median_ns": 157584,
+      "rust_over_cpp": 0.43070447557225827,
+      "passed": true
+    },
+    {
+      "name": "natural_semi",
+      "sql": "SELECT count(*) FROM t NATURAL SEMI JOIN u",
+      "rows": 1,
+      "sum": "32",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 127250,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 120875,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 122625,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 121042,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 118667,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 116500,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 118834,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 116500,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 120500,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 153458,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 134208,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 126166,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 124792,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 124167,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 123791,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 121041,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 118292,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 167042,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 134167,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 126583,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 128291,
+          "rows": 1,
+          "sum": "32"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 112000,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 111084,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 108083,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 107000,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 107584,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 106500,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 105208,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 108375,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 105166,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 121875,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 108750,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 111042,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 109750,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 109500,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 106459,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 106333,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 106959,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 116917,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 108083,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 107708,
+          "rows": 1,
+          "sum": "32"
+        },
+        {
+          "elapsed_ns": 105875,
+          "rows": 1,
+          "sum": "32"
+        }
+      ],
+      "cpp_median_ns": 123791,
+      "rust_median_ns": 108083,
+      "rust_over_cpp": 0.8731087074181483,
+      "passed": true
+    },
+    {
+      "name": "intersect_distinct",
+      "sql": "SELECT i FROM t INTERSECT SELECT i FROM u",
+      "rows": 32,
+      "sum": "496",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 267959,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 261625,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 257458,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 256750,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 316375,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 285375,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 275666,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 320625,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 268916,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 267333,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 266625,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 267042,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 259500,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 255209,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 275708,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 259208,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 256375,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 272500,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 256958,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 271458,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 267583,
+          "rows": 32,
+          "sum": "496"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 41167,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 41583,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 38209,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 42167,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 43625,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 47208,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 43334,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 48000,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 40792,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 44459,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 38167,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 46917,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 37708,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 38083,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 37083,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 39791,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 37292,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 42583,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 41042,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 42250,
+          "rows": 32,
+          "sum": "496"
+        },
+        {
+          "elapsed_ns": 39167,
+          "rows": 32,
+          "sum": "496"
+        }
+      ],
+      "cpp_median_ns": 267333,
+      "rust_median_ns": 41167,
+      "rust_over_cpp": 0.1539914638297554,
+      "passed": true
+    },
+    {
+      "name": "intersect_all",
+      "sql": "SELECT i%128 AS k FROM t INTERSECT ALL SELECT i%128 FROM t WHERE i%2=0",
+      "rows": 25000,
+      "sum": "1574040",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 6501125,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6423333,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6571208,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6531083,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6714459,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6736625,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 7256917,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6841209,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6727167,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6536417,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6829750,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6655542,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6863084,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6369041,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6938917,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6378458,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6646208,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6328875,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6688000,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6336584,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 6502458,
+          "rows": 25000,
+          "sum": "1574040"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 2020666,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2081958,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 1989500,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2163000,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2121500,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2154833,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2207292,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2155375,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2099166,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2122125,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2138166,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2205208,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2010750,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2085125,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2159417,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2193209,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2148000,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2274042,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2059750,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2125917,
+          "rows": 25000,
+          "sum": "1574040"
+        },
+        {
+          "elapsed_ns": 2029959,
+          "rows": 25000,
+          "sum": "1574040"
+        }
+      ],
+      "cpp_median_ns": 6646208,
+      "rust_median_ns": 2125917,
+      "rust_over_cpp": 0.31986916449199304,
+      "passed": true
+    },
+    {
+      "name": "except_all",
+      "sql": "SELECT i%128 AS k FROM t EXCEPT ALL SELECT i%128 FROM t WHERE i%2=0",
+      "rows": 25000,
+      "sum": "1599040",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 6703166,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6508833,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6584834,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6407792,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6519750,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6386125,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6392625,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6331875,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6674458,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6660917,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6616916,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6518042,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6653959,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6564416,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6472458,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6334708,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6913500,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6617958,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6896292,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 6294875,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 7083917,
+          "rows": 25000,
+          "sum": "1599040"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 2067541,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2127708,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2122916,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2092750,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2074333,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2087833,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2014208,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2073000,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2098042,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2071458,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2131208,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2123083,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2140291,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2133167,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2027625,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2022041,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2233625,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2098125,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2298417,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2203500,
+          "rows": 25000,
+          "sum": "1599040"
+        },
+        {
+          "elapsed_ns": 2001541,
+          "rows": 25000,
+          "sum": "1599040"
+        }
+      ],
+      "cpp_median_ns": 6564416,
+      "rust_median_ns": 2098042,
+      "rust_over_cpp": 0.31960832463999844,
+      "passed": true
+    },
+    {
+      "name": "window_row_number",
+      "sql": "SELECT row_number() OVER () FROM t",
+      "rows": 50000,
+      "sum": "1250025000",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 885958,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 934292,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 885041,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 877042,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 880125,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 924333,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 877958,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 875500,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 886375,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 884084,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 868625,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 889208,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 904250,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 944417,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 882625,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 871042,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 883167,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 889417,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 873042,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 867209,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 883792,
+          "rows": 50000,
+          "sum": "1250025000"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 388750,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 414125,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 393208,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 394292,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 382750,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 397750,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 382167,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 388500,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 381333,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 391459,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 400875,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 393083,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 384750,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 402125,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 386375,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 395709,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 383416,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 391292,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 385833,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 397416,
+          "rows": 50000,
+          "sum": "1250025000"
+        },
+        {
+          "elapsed_ns": 383875,
+          "rows": 50000,
+          "sum": "1250025000"
+        }
+      ],
+      "cpp_median_ns": 883792,
+      "rust_median_ns": 391292,
+      "rust_over_cpp": 0.44274218368122814,
+      "passed": true
+    },
+    {
+      "name": "window_running_sum",
+      "sql": "SELECT sum(i) OVER (ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM t",
+      "rows": 50000,
+      "sum": "20833333325000",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 5013208,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4778000,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4885208,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4821709,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 5111917,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4752000,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4861291,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4753708,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 5054167,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4947291,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 5022792,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4867917,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 5012959,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4780083,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 5022458,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4734916,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4921209,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4779208,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 5097083,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4959042,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 4866750,
+          "rows": 50000,
+          "sum": "20833333325000"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 2227792,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2274667,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2227958,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2252667,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2218959,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2429333,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2226209,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2463333,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2220291,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2455584,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2209083,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2351167,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2238792,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2316542,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2204500,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2274250,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2187084,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2356041,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2268375,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2294209,
+          "rows": 50000,
+          "sum": "20833333325000"
+        },
+        {
+          "elapsed_ns": 2280583,
+          "rows": 50000,
+          "sum": "20833333325000"
+        }
+      ],
+      "cpp_median_ns": 4885208,
+      "rust_median_ns": 2268375,
+      "rust_over_cpp": 0.4643353977967775,
+      "passed": true
+    },
+    {
+      "name": "window_partition_sum",
+      "sql": "SELECT sum(i) OVER (PARTITION BY i%128) FROM t",
+      "rows": 50000,
+      "sum": "488272234360",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 1775333,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1657500,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1711833,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1630459,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1672958,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1595041,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1762042,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1685166,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1744292,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1652042,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1683833,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1624250,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1667083,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1623417,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1653042,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1684500,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1848584,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1632916,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1672958,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1599625,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1667417,
+          "rows": 50000,
+          "sum": "488272234360"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 1564667,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1626709,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1623584,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1642500,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1559625,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1666500,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1574917,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1663417,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1510708,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1625792,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1518459,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1660458,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1610291,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1672084,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1532417,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1599458,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1535666,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1665791,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1544042,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1664041,
+          "rows": 50000,
+          "sum": "488272234360"
+        },
+        {
+          "elapsed_ns": 1555625,
+          "rows": 50000,
+          "sum": "488272234360"
+        }
+      ],
+      "cpp_median_ns": 1667417,
+      "rust_median_ns": 1610291,
+      "rust_over_cpp": 0.9657398239312661,
+      "passed": true
+    },
+    {
+      "name": "window_qualify",
+      "sql": "SELECT i FROM t QUALIFY row_number() OVER (PARTITION BY i%128 ORDER BY i DESC)=1",
+      "rows": 128,
+      "sum": "6391744",
+      "workers": [
+        {
+          "ready": true,
+          "engine": "cpp",
+          "threads": 1,
+          "source_id": "d8cdaa33fd",
+          "version": "v1.5.5"
+        },
+        {
+          "adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "engine": "rust",
+          "ready": true
+        }
+      ],
+      "cpp": [
+        {
+          "elapsed_ns": 6944875,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6441708,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6536292,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6427958,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6811000,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6358792,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6613000,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6692458,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6905375,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6867625,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6648333,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6308042,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6515083,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6304583,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6504417,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6311250,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6417458,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6335834,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6523291,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6857916,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 6787333,
+          "rows": 128,
+          "sum": "6391744"
+        }
+      ],
+      "rust": [
+        {
+          "elapsed_ns": 5267209,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5927500,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5288000,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5685375,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5519750,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5440083,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5433542,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5615375,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5355209,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5709833,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5511459,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5517125,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5269500,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5351292,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5261375,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5342042,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5324500,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5334625,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5260708,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5467916,
+          "rows": 128,
+          "sum": "6391744"
+        },
+        {
+          "elapsed_ns": 5803333,
+          "rows": 128,
+          "sum": "6391744"
+        }
+      ],
+      "cpp_median_ns": 6523291,
+      "rust_median_ns": 5433542,
+      "rust_over_cpp": 0.8329449046501222,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "complete_performance_parity": false,
+  "scope": "Serial in-memory embedded APIs against pinned C++. Query cases time execution and complete result validation. DDL cases reset state before every sample and verify effects after timing; their timing includes execution, result consumption and any required prepared-statement rebind. Setup, initial preparation, process startup and DDL reset/effect checks are untimed. Cold I/O, durable commits, concurrency, other APIs/tooling and full workloads remain unmeasured. Every ratio above 1 fails."
+}

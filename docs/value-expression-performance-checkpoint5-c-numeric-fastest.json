@@ -1,0 +1,207 @@
+{
+  "workloads": [
+    {
+      "name": "unsigned_scan",
+      "selected_reference": "release",
+      "baseline_median_ns": 903875,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 903875,
+          "rust_median_ns": 234833,
+          "rust_over_cpp": 0.2598069423316277,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 927250,
+          "rust_median_ns": 227500,
+          "rust_over_cpp": 0.2453491507144783,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.2598069423316277,
+        "development": 0.25169409486931266
+      },
+      "passed": true
+    },
+    {
+      "name": "unsigned_filter",
+      "selected_reference": "release",
+      "baseline_median_ns": 500834,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 500834,
+          "rust_median_ns": 363125,
+          "rust_over_cpp": 0.7250406322254479,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 607000,
+          "rust_median_ns": 362834,
+          "rust_over_cpp": 0.5977495881383855,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.7250406322254479,
+        "development": 0.72445960138489
+      },
+      "passed": true
+    },
+    {
+      "name": "unsigned_sum",
+      "selected_reference": "release",
+      "baseline_median_ns": 349875,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 349875,
+          "rust_median_ns": 49916,
+          "rust_over_cpp": 0.1426680957484816,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 446625,
+          "rust_median_ns": 54209,
+          "rust_over_cpp": 0.12137475510775259,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.1426680957484816,
+        "development": 0.15493819221150412
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_filter",
+      "selected_reference": "release",
+      "baseline_median_ns": 57875,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 57875,
+          "rust_median_ns": 30458,
+          "rust_over_cpp": 0.5262721382289417,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 173000,
+          "rust_median_ns": 32542,
+          "rust_over_cpp": 0.18810404624277458,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.5262721382289417,
+        "development": 0.5622807775377969
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_total_cents",
+      "selected_reference": "release",
+      "baseline_median_ns": 51625,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 51625,
+          "rust_median_ns": 49541,
+          "rust_over_cpp": 0.9596319612590799,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 174250,
+          "rust_median_ns": 52166,
+          "rust_over_cpp": 0.2993744619799139,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.9596319612590799,
+        "development": 1.0104794188861985
+      },
+      "passed": false
+    },
+    {
+      "name": "decimal_grouped_cents",
+      "selected_reference": "release",
+      "baseline_median_ns": 407708,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 407708,
+          "rust_median_ns": 368084,
+          "rust_over_cpp": 0.9028127973942135,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 582167,
+          "rust_median_ns": 374542,
+          "rust_over_cpp": 0.6433583490647873,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.9028127973942135,
+        "development": 0.9186525650710803
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_equality_join",
+      "selected_reference": "release",
+      "baseline_median_ns": 887084,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 887084,
+          "rust_median_ns": 785667,
+          "rust_over_cpp": 0.8856737355199733,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 1033125,
+          "rust_median_ns": 782708,
+          "rust_over_cpp": 0.7576120992135511,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.8856737355199733,
+        "development": 0.8823380874866417
+      },
+      "passed": true
+    },
+    {
+      "name": "decimal_window_cents",
+      "selected_reference": "release",
+      "baseline_median_ns": 5306125,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 5306125,
+          "rust_median_ns": 2601209,
+          "rust_over_cpp": 0.490227614313647,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 5371459,
+          "rust_median_ns": 2637958,
+          "rust_over_cpp": 0.4911064200620353,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.490227614313647,
+        "development": 0.49715338406087306
+      },
+      "passed": true
+    }
+  ],
+  "passed": false,
+  "max_ratio": 1.0,
+  "complete_performance_parity": false,
+  "scope": "Same workload/source/binary/host/configuration identities across two separately paired campaigns. Each workload selects the smaller C++ median and gates both retained Rust medians against it. All original samples and failed runs remain in the input reports. This is scoped latency evidence; CPU, memory, I/O, concurrency and other unmeasured costs remain open.",
+  "recorded_at": "2026-09-10T21:11:51.043492+00:00",
+  "inputs": {
+    "docs/value-expression-performance-checkpoint5-c-numeric-release.json": "38f669237534a51840d59ec0718b88ce257bd8d79b4b726814926943451a8fd8",
+    "docs/value-expression-performance-checkpoint5-c-numeric-development.json": "bb5f89fd6b146463e4ce4b90559f48191c3bc48687520bd628e3957699eedf22",
+    "benchmark/numeric_workloads.json": "e7dae563dda33f243b1859acafa214d40436b4bb20289a47b9a58cc8d3213555"
+  },
+  "script_sha256": "a6e33d210f67138553400b7bfd0643c9f87bf85dca38d4d8f85cdc78689b16c8"
+}

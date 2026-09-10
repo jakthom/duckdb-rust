@@ -14,13 +14,20 @@ regressions; [numeric batch work](numeric-batches.md) records subsequent
 performance changes and pre-push checks. No selected campaign establishes full
 correctness, performance or native-file parity.
 
-The current [value-and-expression checkpoint](value-expression-progress.md)
-repairs three diagnostic regressions exposed by its first full run. Its repaired
-5,638-file run preserves every previously passing file and record prefix:
-391 files and 18,606 records pass. All 34 existing faster-reference workloads
-also pass in an isolated campaign. Both initial failures and repaired evidence
-remain retained; new-family workloads and the rest of the full parity matrix
-remain open.
+The latest [value-and-expression checkpoint](value-expression-progress.md)
+integrates BIGNUM, BIT, temporal boundary repairs, recursive WAL recovery and
+typed concat/combination binding. Its latest fifth-checkpoint refresh executes
+all 5,638 files: 423 pass, with 19,240 successful records including failed-file
+prefixes. No checkpoint-three full-file pass is lost. The initial shorter
+constant-column timeout prefix does not reproduce against the last pushed source
+in paired diagnosis; a later join deadline reaches all previous assertions with
+an extended timeout, but its source-paired investigation remains open. Timeouts
+and the 512 MiB writer limit remain gaps. All three new timing trials pass
+33/34 faster-reference workloads: decimal total aggregation still fails and is
+being repaired before pushing. The preceding 34/34 checkpoint-three timing
+matrix is historical, not evidence that this later source passes. All failures
+remain retained; new-family workloads and the rest of the parity matrix remain
+open.
 
 The [earlier performance comparisons](settings/README.md) pass all sixteen
 measured workloads against both **v1.5.5** (`d8cdaa33fd`) and the pinned

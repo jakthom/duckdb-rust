@@ -25,6 +25,10 @@ temporal and nested workers share that end-to-end outcome; type declarations and
 small commits are internal steps. Its third integrated checkpoint preserves all
 prior upstream passes (391 passing files / 18,606 passing records), repairs three
 diagnostic regressions, and passes all 34 existing faster-reference workloads.
+The later fifth checkpoint reaches 423 passing files and 19,240 successful
+records, with no lost full-file pass; its three retained timing trials still fail
+decimal total aggregation (33/34), so follow-up publication is held for repair.
+These later results do not inherit the earlier performance pass.
 Full value/function/native parity remains open. The preceding increment added unsigned and
 decimal types and coercion; its
 [progress report](numeric-port.md) records the implemented foundation and open

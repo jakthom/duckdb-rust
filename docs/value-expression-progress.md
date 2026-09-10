@@ -442,11 +442,45 @@ fails `decimal_total_cents`: release C++ is faster at 50,292 ns, while the two
 Rust medians are 49,792 ns and 54,042 ns (maximum ratio 1.074565). Passing each
 pin separately does not satisfy the faster-reference rule. The other numeric
 cases and all native/grouping/ordering/relational cases pass. All 21 paired
-samples per pin and all failed results remain retained; no follow-up push is
-authorized by this failed campaign. The shared aggregation repair is ongoing.
+samples per pin and all failed results remain retained; the follow-up push is
+held for repair of this failed gate. The shared aggregation repair is ongoing.
 
 The second [numeric trial](value-expression-performance-checkpoint5-b-numeric-fastest.json)
 on `c3a03f6` keeps all 34 workload identities and again passes 33. Independent
 arithmetic/validity lanes reduce the worst decimal ratio to 1.020428, but the
 threshold is not rounded into a pass: the exact baseline is 50,959 ns,
 and Rust medians are 49,125 ns and 52,000 ns. This trial remains failed.
+
+The third [numeric trial](value-expression-performance-checkpoint5-c-numeric-fastest.json)
+on `487d8f0` replaces conditional-zero/validity bookkeeping with checked
+coefficient loads; arithmetic lanes, prefix bounds, cancellation and wide
+fallbacks remain. Again 33/34 cases pass: decimal total has Rust medians
+49,541 ns and 52,166 ns against the faster release median of 51,625 ns,
+maximum ratio 1.010479. This is still a failure, not a rounded pass. All three
+campaigns retain every sample and unchanged workload identity. Shared scan and
+aggregation overhead require further investigation before the follow-up push.
+
+On that frozen source, full workspace tests pass with the same two external-CLI
+ignores; focused numeric/execution/grouping/BIGNUM tests and all-target clippy
+also pass. Coverage reports 284 files, 2,562 functions, 208 interface methods,
+no missing attributes. The trace check completed in 39.15 s with zero errors,
+panics or open spans and deleted its telemetry. Full Kani 0.67.0 verification
+passed all six harnesses: TIMETZ 49.038 s, unsigned keys 0.837 s, dense offsets
+0.506 s, ROWS clipping 2.319 s, uniform bounds 2.824 s, packed counts 86.956 s.
+The same unreachable/unsupported constructs and sequential-concurrency limits
+apply. No new proof of SUM arithmetic or end-to-end engine correctness is claimed.
+
+The [post-reduction full upstream run](value-expression-upstream-checkpoint5-b.json)
+again executes all 5,638 files: 423 passed, 2,091 failed, 3,110 unsupported,
+11 timed out and three incomplete, with 19,240 passed records. No full-file
+pass is lost. The dictionary-emission join file reaches 29 records before its
+three-second deadline, instead of the preceding 30 then unsupported result.
+The first [focused diagnostic](value-expression-upstream-checkpoint5-join-quiet.json)
+was named `quiet` prematurely: another worker's already-running compilation
+was still active; it reached 26. The actual [isolated retry](value-expression-upstream-checkpoint5-join-isolated.json)
+reaches 29. An [extended diagnostic](value-expression-upstream-checkpoint5-join-extended.json)
+passes all 30 prior assertions in 3.040 s, then reaches the same unsupported
+`IS NOT DISTINCT FROM` join. This restores assertion coverage, not the
+three-second outcome; source-paired timing investigation remains open. The
+other changed outcome is the already-failing large grouping-set insert reaching
+its existing 512 MiB writer limit before the deadline instead of timing out.
