@@ -130,12 +130,7 @@ struct CheckpointIdentity {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CheckpointIdentity {
     fn storage_version(self) -> u64 {
-        match self.database_version {
-            0..=3 | 64 => 64,
-            4..=7 => self.database_version + 61,
-            69 => 69,
-            _ => unreachable!("validated checkpoint storage version"),
-        }
+        storage_version(self.database_version)
     }
     fn read(bytes: &[u8]) -> Result<Self> {
         if bytes.get(8..12) != Some(b"DUCK") {
@@ -168,6 +163,19 @@ struct Blocks {
     block_count: u64,
     root: u64,
     vector_size: usize,
+    storage_version: u64,
+}
+
+mod free_tail;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn storage_version(database_version: u64) -> u64 {
+    match database_version {
+        0..=3 | 64 => 64,
+        4..=7 => database_version + 61,
+        69 => 69,
+        _ => unreachable!("validated checkpoint storage version"),
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -182,7 +190,7 @@ impl Blocks {
                 .ok_or_else(|| corrupt("truncated main header"))?,
         )?;
         let header = database_header(&bytes)?;
-        header_versions(&bytes, header)?;
+        let (_, database_version) = header_versions(&bytes, header)?;
         let block_size = match u64_at(header, 40)? {
             0 => 262144,
             n => usize::try_from(n).map_err(|_| corrupt("block size overflow"))?,
@@ -201,26 +209,33 @@ impl Blocks {
         }
         let root = u64_at(header, 16)?;
         let block_count = u64_at(header, 32)?;
-        if block_count > ((bytes.len() - 12288) / block_size) as u64 {
-            return Err(corrupt("truncated block storage"));
-        }
-        Ok(Self {
+        let free_list = u64_at(header, 24)?;
+        let blocks = Self {
             bytes,
             block_size,
             block_count,
             root,
             vector_size,
-        })
+            storage_version: storage_version(database_version),
+        };
+        blocks.validate_free_tail(free_list)?;
+        Ok(blocks)
     }
     fn block(&self, id: u64) -> Result<&[u8]> {
         if id >= self.block_count {
             return Err(corrupt(format!("block {id} outside file")));
         }
-        let offset = 12288
-            + usize::try_from(id).map_err(|_| corrupt("block ID overflow"))? * self.block_size;
+        let offset = usize::try_from(id)
+            .ok()
+            .and_then(|id| id.checked_mul(self.block_size))
+            .and_then(|offset| offset.checked_add(12288))
+            .ok_or_else(|| corrupt("block offset overflow"))?;
+        let end = offset
+            .checked_add(self.block_size)
+            .ok_or_else(|| corrupt("block end overflow"))?;
         let bytes = self
             .bytes
-            .get(offset..offset + self.block_size)
+            .get(offset..end)
             .ok_or_else(|| corrupt("truncated block"))?;
         verify(bytes)?;
         Ok(&bytes[8..])

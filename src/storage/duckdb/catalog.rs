@@ -59,17 +59,22 @@ pub(super) fn load(
                 if reader.optional(104)? {
                     indexes(&mut reader)?;
                 }
-                if reader.optional(105)? {
-                    reader.unsigned()?;
-                }
+                let next_row_id = reader.optional_unsigned(105, total as u64)?;
                 reader.end()?;
-                let rows = columns::read_table(blocks, decoders, pointer, &definition, total)?;
+                let rows = columns::read_table(
+                    blocks,
+                    decoders,
+                    pointer,
+                    &definition,
+                    total,
+                    next_row_id,
+                )?;
                 let name = definition.name.clone();
                 snapshot.create_table(definition, false)?;
                 snapshot.restore_rows(
                     &name,
                     rows,
-                    total as u64,
+                    next_row_id,
                     &crate::parallel::QueryContext::background(),
                 )?;
             }

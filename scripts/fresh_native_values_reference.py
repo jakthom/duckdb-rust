@@ -85,6 +85,7 @@ def main():
                     ("rollback", "BEGIN; UPDATE t SET id=id+10; DELETE FROM t WHERE id=12; ROLLBACK", "rust"),
                     ("rust_commit", "UPDATE t SET id=id+10 WHERE id=1; DELETE FROM t WHERE id=2", "rust"),
                     ("cpp_commit", "UPDATE t SET xs=[3,NULL,4],n={'d':56.78,'ts':TIMESTAMP_NS '2025-02-03 04:05:06.987654321'} WHERE id=11; CHECKPOINT", "development"),
+                    ("rust_after_cpp", "UPDATE t SET id=21,xs=[5,NULL] WHERE id=11", "rust"),
                 ]:
                     previous = digest(path)
                     if mutation:
@@ -93,11 +94,13 @@ def main():
                     expected = result(engines["development"], twin, query)
                     stage = {"name": label, "mutation": mutation, "expected": expected,
                              "readers": {kind: result(engine, path, query) for kind, engine in engines.items()},
+                             "rust_reads_development_twin": result(engines["rust"], twin, query),
                              "header": header(path)}
                     stage["version_preserved"] = stage["header"]["effective"] == version
                     stage["identity_preserved"] = stage["header"]["identifier"] == initial["identifier"]
                     stage["rollback_unchanged"] = label != "rollback" or digest(path) == previous
                     stage["passed"] = ("rows" in expected and stage["readers"]["rust"] == stage["readers"]["development"] == expected
+                                       and stage["rust_reads_development_twin"] == expected
                                        and stage["version_preserved"] and stage["identity_preserved"] and stage["rollback_unchanged"])
                     stage["release_agrees"] = stage["readers"]["release"] == expected
                     case["stages"].append(stage)

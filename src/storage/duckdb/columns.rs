@@ -3,6 +3,7 @@ use super::{
     binary::{Reader, corrupt},
     catalog::block_pointer,
 };
+mod row_identity;
 mod string_statistics;
 use crate::{
     catalog::TableDefinition,
@@ -24,7 +25,10 @@ pub(super) fn read_table(
     pointer: (u64, usize),
     table: &TableDefinition,
     total: usize,
+    next_row_id: u64,
 ) -> Result<Vec<(crate::storage::RowId, Row)>> {
+    let mut identities =
+        row_identity::RowIdentity::new(blocks.storage_version, total, next_row_id)?;
     let mut reader = blocks.metadata(pointer)?;
     reader.field(100)?;
     let count = reader.length()?;
@@ -60,17 +64,12 @@ pub(super) fn read_table(
         return Err(corrupt("too many row groups"));
     }
     let mut rows = Vec::new();
-    let mut physical_count = 0;
     for _ in 0..groups {
         reader.field(100)?;
-        if reader.unsigned()? != physical_count as u64 {
-            return Err(corrupt("noncontiguous row group identity"));
-        }
+        let start = reader.unsigned()?;
         reader.field(101)?;
         let count = reader.length()?;
-        if count > total.saturating_sub(physical_count) {
-            return Err(corrupt("row group exceeds table count"));
-        }
+        let row_start = identities.push(start, count)?;
         reader.field(102)?;
         let column_count = reader.length()?;
         if column_count != table.columns.len() {
@@ -83,8 +82,7 @@ pub(super) fn read_table(
         let delete_pointers = (0..reader.length()?)
             .map(|_| reader.pointer())
             .collect::<Result<Vec<_>>>()?;
-        let deleted =
-            super::visibility::deleted_rows(blocks, &delete_pointers, physical_count, count)?;
+        let deleted = super::visibility::deleted_rows(blocks, &delete_pointers, row_start, count)?;
         if reader.optional(104)? {
             reader.boolean()?;
         }
@@ -107,20 +105,17 @@ pub(super) fn read_table(
                 &mut column_reader,
                 Some(&column.data_type),
                 count,
-                physical_count,
+                row_start,
             )?;
             for (row, value) in group.iter_mut().zip(values) {
                 row[index] = value;
             }
         }
         rows.extend(group.into_iter().zip(deleted).enumerate().filter_map(
-            |(index, (row, deleted))| (!deleted).then_some(((physical_count + index) as u64, row)),
+            |(index, (row, deleted))| (!deleted).then_some((start + index as u64, row)),
         ));
-        physical_count += count;
     }
-    if physical_count != total {
-        return Err(corrupt("table row count mismatch"));
-    }
+    identities.finish()?;
     Ok(rows)
 }
 

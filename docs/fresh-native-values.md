@@ -37,3 +37,38 @@ and all-target clippy pass before the new fixture repair. Python harness tests
 also pass 38/38. The next substantial combined Kani checkpoint and full upstream/
 faster-reference regression campaign remain required. No new performance result
 is inferred from these compatibility checks.
+
+## Row identity and free-tail repair
+
+The reader now restores catalog property 105 as the append watermark and uses
+actual row-group starts for row identities, column streams and deletion masks.
+Physical cardinality is checked separately. Ordered nonoverlapping intervals,
+checked endpoints, the append bound, legacy-version continuity and exact total
+counts remain mandatory. The retained hybrid image contains live row ID 1 and
+next ID 2; the independent development twin contains ID 3 and next ID 4, matching
+development's `SELECT rowid,id FROM t` observations.
+
+Testing that independent twin exposed a second compatibility gap: its header
+allocates five blocks, but C++ has truncated the last two free blocks, leaving
+three. `SingleFileBlockManager::Truncate` runs after checkpoint header publication;
+the persisted free list accounts for the removed suffix. The Rust reader now
+permits an aligned missing suffix only when a bounded, strictly ordered free
+list accounts for every missing block. Referenced blocks must still exist and
+pass checksums. Block-offset arithmetic is checked even for forged allocation
+watermarks. This does not synthesize data or weaken live-block truncation checks.
+
+Both fixtures pass direct recovery append/update/delete identity checks, plus
+prepared SQL updates, hash/B-tree indexes, failed key changes, rollback with
+unchanged bytes, mixed typed joins/windows, checkpoint publication and reopen.
+Their decimal, nanosecond, binary, unsigned, VARIANT, TUPLE and empty-container
+content matches the retained development result. Partial and missing-live-block
+files remain rejected without changing their bytes. Range/free-list unit tests
+cover overlap, ordering, bounds, overflow, missing coverage and resource limits.
+Ordinary check, library 59, compatibility 15 before the final two connected tests,
+all three new compatibility tests, clippy and instrumentation coverage pass
+(326 files, 3,040 functions, 216 interface methods, no missing attributes).
+
+The fresh-file script now also checks Rust reading every development twin and a
+Rust mutation after the C++ checkpoint. The expanded campaign and combined
+workspace/tracing/Kani checkpoint are pending; the initial failure reports remain
+unchanged. Native VARIANT/TUPLE WAL publication remains separately unsupported.

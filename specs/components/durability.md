@@ -30,6 +30,23 @@ Replay must distinguish complete committed work from incomplete tails and must r
 
 ## Fault model and verification
 
+### Truncated free-block suffixes
+
+The C++ block manager can truncate a free suffix after checkpoint header
+publication. Therefore the header's allocated-block watermark can exceed the
+file's remaining physical blocks. The Rust reader may accept only a complete
+block-aligned suffix whose every missing block is explicitly free in the
+persisted, bounded, ordered free list. Missing referenced blocks, incomplete
+blocks, malformed free identities and uncovered suffix ranges remain corrupt.
+Compute physical offsets with checked arithmetic; a forged allocation watermark
+must not cause overflow or an allocation/loop proportional to that watermark.
+This does not authorize ignoring a missing live block or repairing input bytes.
+
+Sources: `SingleFileBlockManager::{WriteHeader,LoadFreeList,Truncate}` in
+[single_file_block_manager.cpp](../../../duckdb/src/storage/single_file_block_manager.cpp)
+and checkpoint truncation ordering in
+[checkpoint_manager.cpp](../../../duckdb/src/storage/checkpoint_manager.cpp).
+
 ### Retained checkpoint publication metadata
 
 The native main-header version and database-header version are different
