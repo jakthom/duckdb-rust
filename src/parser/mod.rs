@@ -1,5 +1,6 @@
 use crate::common::{Error, Result};
 mod dialect;
+mod parameters;
 
 /// Shared SQL syntax interchange; only the SQL binder consumes this AST.
 /// Other frontends can submit logical plans through the runtime's plan API.
@@ -55,8 +56,7 @@ impl Parser for DuckDbParser {
         use sqlparser::tokenizer::Token;
         let mut parser = sqlparser::parser::Parser::new(&dialect::RewriteDialect)
             .with_recursion_limit(128)
-            .try_with_sql(sql)
-            .map_err(|e| Error::Parse(e.to_string()))?;
+            .with_tokens_with_locations(parameters::tokens(sql, &dialect::RewriteDialect)?);
         let mut statements = Vec::new();
         loop {
             while parser.consume_token(&Token::SemiColon) {}

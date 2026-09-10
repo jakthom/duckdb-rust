@@ -383,8 +383,13 @@ impl State<'_, '_> {
                 columns = source
                     .schema
                     .iter()
-                    .map(|f| ColumnDefinition::new(&f.name, f.data_type.clone()))
-                    .collect();
+                    .map(|f| {
+                        Ok(ColumnDefinition::new(
+                            &f.name,
+                            crate::common::nested::normalize_storage_type(&f.data_type)?,
+                        ))
+                    })
+                    .collect::<Result<_>>()?;
             } else if columns.len() != source.schema.len() {
                 return Err(Error::Bind("CREATE TABLE AS column count mismatch".into()));
             }

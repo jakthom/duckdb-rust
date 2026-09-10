@@ -241,6 +241,105 @@ fn prepared_statements_rebind_catalog_and_parameters() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn anonymous_parameters_keep_lexical_identity_across_rebinding_and_typed_execution() -> Result<()> {
+    let mut c = Database::memory()?.connect();
+    let prepared = c.prepare("SELECT ? AS x, v FROM (VALUES (?)) t(v) ORDER BY x")?;
+    for values in [integers(&[11, 22]), integers(&[33, 44])] {
+        assert_eq!(
+            c.execute_prepared(&prepared, &values)?.rows,
+            vec![values.clone()]
+        );
+    }
+    let prepared = c.prepare("SELECT $3, ?, $1, ?, '?;?' AS literal /* ? */")?;
+    assert_eq!(
+        c.execute_prepared(&prepared, &integers(&[1, 2, 3, 4, 5]))?
+            .rows,
+        vec![vec![
+            Value::Integer(3),
+            Value::Integer(4),
+            Value::Integer(1),
+            Value::Integer(5),
+            Value::Varchar("?;?".into())
+        ]]
+    );
+    c.execute("CREATE TABLE typed(id UUID PRIMARY KEY, d DECIMAL(12,2), ts TIMESTAMP, b BLOB, nested STRUCT(d DECIMAL(12,2), ts TIMESTAMP[]))")?;
+    let insert =
+        c.prepare("INSERT INTO typed VALUES (?, ?, ?, ?, {'d': ?, 'ts': [?::TIMESTAMP, NULL]})")?;
+    let values = [
+        Value::Uuid(1),
+        Value::Varchar("12.34".into()),
+        Value::Temporal(duckdb_rust::common::TemporalValue::Timestamp(0)),
+        Value::Blob(vec![0, 255]),
+        Value::Varchar("99.50".into()),
+        Value::Varchar("2000-01-01".into()),
+    ];
+    c.execute_prepared(&insert, &values)?;
+    c.execute("BEGIN")?;
+    let update = c.prepare("UPDATE typed SET d=? WHERE id=?")?;
+    c.execute_prepared(&update, &[Value::Null, Value::Uuid(1)])?;
+    c.execute("ROLLBACK")?;
+    let query = c.prepare("SELECT d, b, nested.d FROM typed WHERE id=?")?;
+    let rows = c.execute_prepared(&query, &[Value::Uuid(1)])?.rows;
+    assert_eq!(rows[0][0].to_string(), "12.34");
+    assert_eq!(rows[0][1], Value::Blob(vec![0, 255]));
+    assert_eq!(rows[0][2].to_string(), "99.50");
+    assert!(c.execute_prepared(&insert, &values[..5]).is_err());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn ctas_resolves_untyped_null_leaves_before_assignment_and_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("inferred-types.json");
+    let open = || {
+        DatabaseBuilder::new()
+            .durability(Arc::new(FileCheckpoint::open(
+                &path,
+                OpenMode::ReadWrite,
+                Arc::new(JsonSnapshotFormat),
+            )?))
+            .build()
+    };
+    {
+        let mut c = open()?.connect();
+        c.execute("CREATE TABLE t AS SELECT NULL AS n, [] AS empty, [NULL] AS child, {'a': NULL, 'd': 1.25::DECIMAL(12,2)} AS s")?;
+        c.execute("INSERT INTO t VALUES (4,[5],[6],{'a': 7,'d': 2.50})")?;
+    }
+    let mut c = open()?.connect();
+    let types = c.query("SELECT typeof(n), typeof(empty), typeof(child) FROM t LIMIT 1")?;
+    assert_eq!(
+        types.rows[0],
+        vec![
+            Value::Varchar("INTEGER".into()),
+            Value::Varchar("INTEGER[]".into()),
+            Value::Varchar("INTEGER[]".into()),
+        ]
+    );
+    assert_eq!(
+        c.query("SELECT s FROM t LIMIT 1")?.columns[0].data_type,
+        duckdb_rust::common::NestedType::Struct(vec![
+            ("a".into(), DataType::Integer),
+            (
+                "d".into(),
+                DataType::Decimal {
+                    width: 12,
+                    scale: 2
+                }
+            ),
+        ])
+        .data_type(),
+    );
+    let rows = c
+        .query("SELECT n, empty[1], child[1], s.a, s.d FROM t ORDER BY n")?
+        .rows;
+    assert_eq!(&rows[0][..4], integers(&[4, 5, 6, 7]));
+    assert!(rows[1][..4].iter().all(Value::is_null));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn values_ctes_set_operations_and_hidden_sort_keys() -> Result<()> {
     let mut c = Database::memory()?.connect();
     assert_eq!(c.query("WITH a AS (SELECT range AS i FROM range(4)) SELECT i+1 AS n FROM a WHERE i > 0 ORDER BY i DESC LIMIT 2")?.rows, vec![integers(&[4]),integers(&[3])]);
