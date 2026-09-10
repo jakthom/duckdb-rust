@@ -9,6 +9,17 @@ use super::{DataType, Date, Error, NestedPayload, Result, Value};
 mod interval;
 mod text;
 
+/// Selected ordinary SQL DATE conversion. Calendar-only callers retain
+/// Date::parse_checked's full-consumption contract.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn parse_date_cast_checked(
+    text: &str,
+    check: &mut dyn FnMut() -> Result<()>,
+) -> Result<Date> {
+    check()?;
+    text::parse_date_cast(text, check)
+}
+
 pub const MICROS_PER_DAY: i64 = 86_400_000_000;
 /// Provisional physical domain closed under the selected SQL clock constructors
 /// and casts. make_time's leap-second rounding can produce 24:00:00.5; text

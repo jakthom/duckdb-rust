@@ -44,6 +44,15 @@ Sources: [VARIANT fallback](../../../duckdb/src/function/cast/variant/from_varia
 [cast entry points](../../../duckdb/src/common/operator/cast_operators.cpp),
 [calendar parsing](../../../duckdb/src/common/types/date.cpp).
 
+Ordinary DATE casting validates a timestamp suffix but returns the original
+calendar date, including for a 24:00 clock. A DATE outside the timestamp range
+must not be rejected solely because timestamp construction overflows: the
+development cast retries suffix validation with a placeholder calendar date.
+This conversion policy is distinct from fully consuming calendar-only parsing
+and strict VARIANT parsing. Implementations may reuse the parsed suffix without
+copying an unbounded input string, but must retain clock validity, checked
+arithmetic, cancellation and the format/range diagnostic distinction.
+
 Decimal arithmetic must preserve both precision and scale constraints; temporal types have units and semantic distinctions that cannot be recovered from an integer's width alone. String and binary values differ even when both have byte storage. LIST and fixed-size ARRAY differ in shape constraints. MAP and UNION add semantic structure over nested storage. These are engineering obligations derived from the type model, not permission to interchange physically similar types.
 
 ## Cross-component invariants

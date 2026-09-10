@@ -84,8 +84,25 @@ impl Date {
 
     /// Calendar text uses matching -, /, backslash or space separators,
     /// optional (BC), and ASCII whitespace. Timestamp suffixes are not parsed.
-    pub(crate) fn parse_checked(text: &str, mut check: impl FnMut() -> Result<()>) -> Result<Self> {
-        let (date, mut pos) = Self::parse_prefix_checked(text, &mut check)?;
+    pub(crate) fn parse_checked(text: &str, check: impl FnMut() -> Result<()>) -> Result<Self> {
+        Self::parse_full_checked(text, false, check)
+    }
+
+    /// Strict source conversion additionally requires at least two year
+    /// digits. Neither calendar-only entry point accepts a timestamp suffix.
+    pub(crate) fn parse_strict_checked(
+        text: &str,
+        check: impl FnMut() -> Result<()>,
+    ) -> Result<Self> {
+        Self::parse_full_checked(text, true, check)
+    }
+
+    fn parse_full_checked(
+        text: &str,
+        strict: bool,
+        mut check: impl FnMut() -> Result<()>,
+    ) -> Result<Self> {
+        let (date, mut pos) = Self::parse_prefix_with_policy_checked(text, strict, &mut check)?;
         skip_space(text.as_bytes(), &mut pos, &mut check)?;
         check()?;
         if pos != text.len() {
@@ -95,10 +112,18 @@ impl Date {
     }
 
     /// Parse a calendar prefix while retaining the exact first suffix byte.
-    /// Timestamp parsing owns that suffix; ordinary DATE casts still require
-    /// full consumption through `parse_checked`. Special values stay strict.
+    /// Timestamp parsing and selected SQL casts own suffix validation;
+    /// `parse_checked` remains fully consuming. Special values stay strict.
     pub(crate) fn parse_prefix_checked(
         text: &str,
+        check: impl FnMut() -> Result<()>,
+    ) -> Result<(Self, usize)> {
+        Self::parse_prefix_with_policy_checked(text, false, check)
+    }
+
+    fn parse_prefix_with_policy_checked(
+        text: &str,
+        strict: bool,
         mut check: impl FnMut() -> Result<()>,
     ) -> Result<(Self, usize)> {
         check()?;
@@ -143,13 +168,16 @@ impl Date {
             if pos.is_multiple_of(1024) {
                 check()?;
             }
+            if year >= 100_000_000 {
+                return Err(Error::Conversion("date field value out of range".into()));
+            }
             year = year
                 .checked_mul(10)
                 .and_then(|n| n.checked_add(i32::from(*digit - b'0')))
                 .ok_or_else(invalid_date)?;
             pos += 1;
         }
-        if pos == start {
+        if pos == start || (strict && pos - start < 2) {
             return Err(invalid_date());
         }
         let separator = *bytes.get(pos).ok_or_else(invalid_date)?;
@@ -327,6 +355,48 @@ mod tests {
             Date::parse_checked("inf", || Err(Error::Interrupted)),
             Err(Error::Interrupted)
         ));
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn strict_calendar_year_policy_keeps_full_consumption_and_checked_scanning() -> Result<()> {
+        for text in ["1-1-1", "-1-1-1", "1-1-1 (BC)"] {
+            assert!(Date::parse_checked(text, || Ok(())).is_ok());
+            assert!(Date::parse_strict_checked(text, || Ok(())).is_err());
+        }
+        for text in ["01-1-1", "-01-1-1", "01-1-1 (BC)", "epoch", "infinity "] {
+            assert_eq!(
+                Date::parse_checked(text, || Ok(()))?,
+                Date::parse_strict_checked(text, || Ok(()))?
+            );
+        }
+        for text in ["01-1-1 12:34:56", "5881580-07-10 24:00:00"] {
+            assert!(Date::parse_checked(text, || Ok(())).is_err());
+            assert!(Date::parse_strict_checked(text, || Ok(())).is_err());
+        }
+        for text in [
+            " ".repeat(100_000) + "01-1-1",
+            "0".repeat(100_000) + "1-1-1",
+            "01-1-1".to_owned() + &" ".repeat(100_000),
+        ] {
+            let mut checks = 0;
+            let result = Date::parse_strict_checked(&text, || {
+                checks += 1;
+                if checks == 8 {
+                    Err(Error::Interrupted)
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(matches!(result, Err(Error::Interrupted)));
+            assert_eq!(checks, 8);
+        }
+        for text in ["1000000000-01-01", "2147483648-01-01"] {
+            assert!(
+                matches!(Date::parse_checked(text,|| Ok(())),Err(Error::Conversion(message)) if message == "date field value out of range")
+            );
+        }
         Ok(())
     }
 }

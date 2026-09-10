@@ -153,7 +153,19 @@ fn timestamp(
     nanos: bool,
     check: &mut dyn FnMut() -> Result<()>,
 ) -> Result<Parts> {
-    let (date, mut pos) = Date::parse_prefix_checked(text, &mut *check)?;
+    let (date, pos) = Date::parse_prefix_checked(text, &mut *check)?;
+    timestamp_after_date(text, date, pos, use_offset, nanos, check)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn timestamp_after_date(
+    text: &str,
+    date: Date,
+    mut pos: usize,
+    use_offset: bool,
+    nanos: bool,
+    check: &mut dyn FnMut() -> Result<()>,
+) -> Result<Parts> {
     if pos == text.len() {
         let micros = if date == Date::INFINITY {
             i64::MAX
@@ -228,6 +240,51 @@ fn timestamp(
     }
     (suffix.check)()?;
     Ok(parts)
+}
+
+/// Ordinary DATE conversion accepts a validated timestamp suffix, retaining
+/// the original date even when the clock is 24:00. Core retries an overflowing
+/// timestamp with a placeholder calendar date. Reuse its parsed suffix offset
+/// instead of allocating and reparsing an unbounded replacement string.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn parse_date_cast(text: &str, check: &mut dyn FnMut() -> Result<()>) -> Result<Date> {
+    let (date, pos) = Date::parse_prefix_checked(text, &mut *check)?;
+    let mut suffix = Scanner {
+        bytes: text.as_bytes(),
+        pos,
+        check,
+    };
+    suffix.space()?;
+    if suffix.pos == text.len() {
+        (suffix.check)()?;
+        return Ok(date);
+    }
+    let result = timestamp_after_date(text, date, pos, false, false, suffix.check);
+    let result = match result {
+        Err(Error::Conversion(message)) if message == "timestamp outside finite range" => {
+            timestamp_after_date(
+                text,
+                Date::from_ymd(2000, 1, 1)?,
+                pos,
+                false,
+                false,
+                suffix.check,
+            )
+        }
+        other => other,
+    };
+    result.map(|_| date).map_err(|error| match error {
+        Error::Conversion(message)
+            if matches!(
+                message.as_str(),
+                "timestamp outside finite range" | "time field value out of range"
+            ) =>
+        {
+            invalid("date field value out of range")
+        }
+        Error::Conversion(_) => invalid("invalid DATE calendar text"),
+        other => other,
+    })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -385,6 +442,30 @@ pub(super) fn parse_clock(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn date_cast_suffix_validation_is_cooperative_across_calendar_range_retry() {
+        for text in [
+            " ".repeat(100_000) + "2000-01-01 12:34:56",
+            "2000-01-01 12:34:56.".to_owned() + &"0".repeat(100_000),
+            "5881580-07-10 24:00:00.".to_owned() + &"0".repeat(100_000),
+            "5881580-07-10 24:00:00 ".to_owned() + &"z".repeat(100_000),
+            "5877642-06-25 (BC) 24:00:00".to_owned() + &" ".repeat(100_000),
+        ] {
+            let mut checks = 0;
+            let result = super::super::parse_date_cast_checked(&text, &mut || {
+                checks += 1;
+                if checks == 8 {
+                    Err(Error::Interrupted)
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(matches!(result, Err(Error::Interrupted)), "{result:?}");
+            assert_eq!(checks, 8);
+        }
+    }
 
     #[test]
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -23,6 +23,8 @@ use duckdb_rust::{
     },
 };
 
+mod date_cast_context;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn date(text: &str) -> Value {
     Value::Date(text.parse().expect("test date"))
