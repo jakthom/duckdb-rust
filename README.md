@@ -1,5 +1,28 @@
 # duckdb-rust
 
+A port of DuckDB to Rust.
+
+**This is highly experimental!!!**
+
+I'm experimenting. Playing. Having fun with databases, code, and science. Harnessing (human) brilliance with (ai) brilliance to see what I can learn and do.
+
+**You probably shouldn't use this for production use.** Use or follow along at your own risk. You might get burned. I'm sure I will. But it will be a fun ride.
+
+## Guiding principles
+
+- **Zero performance regressions:** 'nuff said. DuckDB is ridiculously fast and good. Why spend time making something worse in another language? Making things faster is a different story...
+- **DuckDB compatibility:** preserve DuckDB behavior and compatibility with its extension ecosystem as internals evolve.
+- **Spec-first:** design, architecture, contracts, testing, performance, and verification requirements were generated and thoroughly reviewed prior to any code being written.
+- **Pluggability:** Certain internals will shuffle behind explicit contracts, not just extension hooks. So the guts of the machine can be hot-swapped - not just the interfaces (via extensions).
+- **Measure. Experiment. Learn. Improve. Measure again...** because it's the way humanity advances.
+- **Open interop** with clean interfaces to file formats, storage engines, extensions, and other databases.
+- **Flexible workloads? Maybe??:** preserving OLAP strengths while exploring a consistent interface to OLTP, graph, and ai-centric workloads would be cool.
+- **Iterative refinement:** because improvement never happens at once.
+
+See the [engineering specs](specs/README.md) and [rewrite principles](specs/rewrite-principles.md).
+
+## Implementation status
+
 An experimental database engine implemented in Rust, with an embedded API and SQL command-line tool. It runs independently of the C++ DuckDB engine. The directory structure follows the original system: `src/common`, `catalog`, `parser`, `planner`, `optimizer`, `execution`, `storage`, `transaction`, `function`, `parallel`, and `main`, with `tools`, `test`, `benchmark`, and `scripts` alongside them.
 
 **The full DuckDB rewrite is unfinished.** This implementation executes a relational SQL subset and natively reads and writes a subset of DuckDB checkpoints. It does not yet offer general DuckDB feature, file, extension, or performance compatibility. See [implemented contracts and remaining work](docs/architecture.md).
