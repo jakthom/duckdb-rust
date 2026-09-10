@@ -99,6 +99,16 @@ impl TypeAdapter for NestedTypes {
                     }
                 }
             }
+            NestedType::Object(fields) => {
+                let mut names = BTreeSet::new();
+                for (name, _) in fields {
+                    if !names.insert(name) {
+                        return Err(Error::Bind(
+                            "OBJECT fields require exact unique names".into(),
+                        ));
+                    }
+                }
+            }
             _ => {}
         }
         Ok(())

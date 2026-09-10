@@ -95,7 +95,10 @@ impl CastFunction for NestedTextCast {
                 }
                 append(&mut output, "]", query)?;
             }
-            (NestedType::Struct(fields), NestedPayload::Struct(values)) => {
+            (
+                NestedType::Struct(fields) | NestedType::Object(fields),
+                NestedPayload::Struct(values),
+            ) => {
                 append(&mut output, "{", query)?;
                 for (index, ((name, ty), value)) in fields.iter().zip(values).enumerate() {
                     if index > 0 {

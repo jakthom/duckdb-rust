@@ -366,6 +366,7 @@ impl TypeRegistry {
             "builtin.list",
             "builtin.array",
             "builtin.struct",
+            "builtin.variant_object",
             "builtin.tuple",
             "builtin.map",
             "builtin.union",
@@ -500,8 +501,9 @@ impl TypeRegistry {
             for child in metadata.children() {
                 Self::validate_metadata(child, depth + 1, nodes, bytes)?;
             }
-            if let super::NestedType::Struct(fields) | super::NestedType::Union(fields) =
-                metadata.as_ref()
+            if let super::NestedType::Struct(fields)
+            | super::NestedType::Union(fields)
+            | super::NestedType::Object(fields) = metadata.as_ref()
             {
                 for (name, _) in fields {
                     *bytes = bytes

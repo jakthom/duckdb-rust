@@ -63,7 +63,7 @@ impl<'a> Node<'a> {
                     | NestedType::Array { .. }
                     | NestedType::Map { .. }
                     | NestedType::Tuple(_) => 14,
-                    NestedType::Struct(_) => 15,
+                    NestedType::Struct(_) | NestedType::Object(_) => 15,
                     _ => return Err(invalid()),
                 },
                 _ => return Err(Error::Unsupported(format!("VARIANT category for {ty}"))),
@@ -102,8 +102,10 @@ impl<'a> Node<'a> {
                 vec![("key", Self::Typed(kt, k)), ("value", Self::Typed(vt, v))]
             }
             Self::Typed(DataType::Nested(metadata), Value::Nested(value)) => {
-                let (NestedType::Struct(fields), NestedPayload::Struct(values)) =
-                    (metadata.as_ref(), &value.payload)
+                let (
+                    NestedType::Struct(fields) | NestedType::Object(fields),
+                    NestedPayload::Struct(values),
+                ) = (metadata.as_ref(), &value.payload)
                 else {
                     return Err(invalid());
                 };
@@ -256,7 +258,14 @@ impl<'a> Node<'a> {
                     fields.push((name.to_owned(), ty));
                     values.push(value);
                 }
-                let ty = NestedType::Struct(fields).data_type();
+                let ty = if matches!(node, Self::Typed(DataType::Nested(metadata), _) if matches!(metadata.as_ref(), NestedType::Object(_))) {
+                    NestedType::Object(fields)
+                } else {
+                    // Preserve retained declared STRUCT adapters and old
+                    // private VARIANT payloads; only dynamic OBJECT metadata
+                    // uses the separate exact-name validation contract.
+                    NestedType::Struct(fields)
+                }.data_type();
                 Ok((
                     ty.clone(),
                     NestedValue::value(ty, NestedPayload::Struct(values))?,

@@ -16,6 +16,11 @@ impl State<'_, '_> {
             NestedType::Struct(_) | NestedType::Tuple(_) => "struct_extract",
             NestedType::Union(_) => "union_extract",
             NestedType::Variant => "variant_extract",
+            NestedType::Object(_) => {
+                return Err(Error::Unsupported(
+                    "direct access to internal OBJECT metadata".into(),
+                ));
+            }
         };
         self.scalar_call(name, vec![value, key])
     }

@@ -187,6 +187,31 @@ impl CastFunction for NestedCast {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut CastRegistry) {
+    // Internal OBJECT metadata is not a SQL type constructor. Keep only its
+    // identity, NULL, selected text and VARIANT-injection boundaries available.
+    registry
+        .register_family(
+            "builtin.null",
+            "builtin.variant_object",
+            Arc::new(StructuralCast),
+        )
+        .expect("unique internal OBJECT NULL cast");
+    for target in ["builtin.variant_object", "builtin.varchar"] {
+        registry
+            .register_family(
+                "builtin.variant_object",
+                target,
+                Arc::new(NestedCast::default()),
+            )
+            .expect("unique internal OBJECT cast");
+    }
+    registry
+        .register_family(
+            "builtin.variant_object",
+            "builtin.variant",
+            Arc::new(variant::VariantCast::default()),
+        )
+        .expect("unique internal OBJECT injection");
     let families = [
         "builtin.list",
         "builtin.array",

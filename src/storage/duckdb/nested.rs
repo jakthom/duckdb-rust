@@ -72,6 +72,11 @@ pub(super) fn read_statistics(reader: &mut Reader, metadata: &NestedType) -> Res
             }
         }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT statistics".into())),
+        NestedType::Object(_) => {
+            return Err(Error::Unsupported(
+                "native internal OBJECT statistics".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -231,6 +236,9 @@ pub(super) fn read_column(
             }
         }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT column".into())),
+        NestedType::Object(_) => {
+            return Err(Error::Unsupported("native internal OBJECT column".into()));
+        }
     }
     reader.end()?;
     Ok(output)
@@ -250,6 +258,11 @@ pub(super) fn type_id(metadata: &NestedType) -> Result<u64> {
             ));
         }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT type layout".into())),
+        NestedType::Object(_) => {
+            return Err(Error::Unsupported(
+                "native internal OBJECT type layout".into(),
+            ));
+        }
     })
 }
 
@@ -298,6 +311,11 @@ pub(super) fn write_info(output: &mut Encoder, metadata: &NestedType) -> Result<
             ));
         }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT type layout".into())),
+        NestedType::Object(_) => {
+            return Err(Error::Unsupported(
+                "native internal OBJECT type layout".into(),
+            ));
+        }
     }
     output.end();
     Ok(())

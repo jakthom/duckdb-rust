@@ -50,6 +50,7 @@ fn normalize_storage_type_inner(data_type: &DataType) -> Result<DataType> {
             length: *length,
         },
         NestedType::Struct(children) => NestedType::Struct(fields(children)?),
+        NestedType::Object(children) => NestedType::Object(fields(children)?),
         NestedType::Tuple(children) => NestedType::Tuple(
             children
                 .iter()
@@ -69,12 +70,21 @@ fn normalize_storage_type_inner(data_type: &DataType) -> Result<DataType> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum NestedType {
     List(DataType),
-    Array { element: DataType, length: usize },
+    Array {
+        element: DataType,
+        length: usize,
+    },
     Struct(Vec<(String, DataType)>),
     Tuple(Vec<DataType>),
-    Map { key: DataType, value: DataType },
+    Map {
+        key: DataType,
+        value: DataType,
+    },
     Union(Vec<(String, DataType)>),
     Variant,
+    /// Internal dynamic OBJECT metadata. Unlike SQL STRUCT, names may be empty
+    /// and are compared exactly, including case. It has no SQL declaration.
+    Object(Vec<(String, DataType)>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,7 +111,9 @@ impl NestedType {
     pub fn children(&self) -> Vec<&DataType> {
         match self {
             Self::List(element) | Self::Array { element, .. } => vec![element],
-            Self::Struct(fields) | Self::Union(fields) => fields.iter().map(|(_, ty)| ty).collect(),
+            Self::Struct(fields) | Self::Union(fields) | Self::Object(fields) => {
+                fields.iter().map(|(_, ty)| ty).collect()
+            }
             Self::Tuple(fields) => fields.iter().collect(),
             Self::Map { key, value } => vec![key, value],
             Self::Variant => Vec::new(),
@@ -117,6 +129,7 @@ impl NestedType {
             Self::Map { .. } => "builtin.map",
             Self::Union(_) => "builtin.union",
             Self::Variant => "builtin.variant",
+            Self::Object(_) => "builtin.variant_object",
         }
     }
 }
@@ -169,7 +182,10 @@ impl NestedValue {
             (NestedType::Array { element, length }, NestedPayload::Sequence(values)) => {
                 values.len() == *length && values.iter().all(|value| fits(value, element))
             }
-            (NestedType::Struct(fields), NestedPayload::Struct(values)) => {
+            (
+                NestedType::Struct(fields) | NestedType::Object(fields),
+                NestedPayload::Struct(values),
+            ) => {
                 fields.len() == values.len()
                     && fields
                         .iter()
@@ -202,6 +218,7 @@ impl fmt::Display for NestedType {
             Self::Array { element, length } => write!(f, "{}[{length}]", ChildType(element)),
             Self::Map { key, value } => write!(f, "MAP({}, {})", ChildType(key), ChildType(value)),
             Self::Struct(fields) if fields.is_empty() => write!(f, "STRUCT"),
+            Self::Object(fields) if fields.is_empty() => write!(f, "OBJECT"),
             Self::Tuple(fields) if fields.is_empty() => write!(f, "TUPLE"),
             Self::Tuple(fields) => {
                 write!(f, "TUPLE(")?;
@@ -213,12 +230,14 @@ impl fmt::Display for NestedType {
                 }
                 write!(f, ")")
             }
-            Self::Struct(fields) | Self::Union(fields) => {
+            Self::Struct(fields) | Self::Union(fields) | Self::Object(fields) => {
                 write!(
                     f,
                     "{}(",
                     if matches!(self, Self::Struct(_)) {
                         "STRUCT"
+                    } else if matches!(self, Self::Object(_)) {
+                        "OBJECT"
                     } else {
                         "UNION"
                     }
@@ -279,7 +298,8 @@ impl fmt::Display for NestedValue {
                     }
                     return write!(f, ")");
                 }
-                let NestedType::Struct(fields) = metadata.as_ref() else {
+                let (NestedType::Struct(fields) | NestedType::Object(fields)) = metadata.as_ref()
+                else {
                     return Err(fmt::Error);
                 };
                 write!(f, "{{")?;

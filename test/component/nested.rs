@@ -14,6 +14,8 @@ mod accessors;
 mod concat;
 #[path = "nested/native.rs"]
 mod native;
+#[path = "nested/object.rs"]
+mod object;
 #[path = "nested/tuple.rs"]
 mod tuple;
 #[path = "nested/variant.rs"]

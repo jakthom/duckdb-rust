@@ -53,6 +53,11 @@ pub(super) fn write(
             total
         }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT WAL vector".into())),
+        NestedType::Object(_) => {
+            return Err(Error::Unsupported(
+                "native internal OBJECT WAL vector".into(),
+            ));
+        }
     };
     if planned.is_none_or(|planned| planned > *remaining) {
         return Err(Error::Resource(
@@ -109,6 +114,11 @@ pub(super) fn write(
             e.end();
         }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT WAL vector".into())),
+        NestedType::Object(_) => {
+            return Err(Error::Unsupported(
+                "native internal OBJECT WAL vector".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -268,6 +278,11 @@ pub(super) fn read(
             }
         }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT WAL vector".into())),
+        NestedType::Object(_) => {
+            return Err(Error::Unsupported(
+                "native internal OBJECT WAL vector".into(),
+            ));
+        }
     }
     Ok(output)
 }

@@ -26,6 +26,11 @@ pub(in crate::storage::duckdb) fn child_values(
         NestedType::Variant => {
             return Err(Error::Unsupported("native VARIANT child streams".into()));
         }
+        NestedType::Object(_) => {
+            return Err(Error::Unsupported(
+                "native internal OBJECT child streams".into(),
+            ));
+        }
     };
     let data_type = metadata.clone().data_type();
     for value in values {

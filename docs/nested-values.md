@@ -629,3 +629,31 @@ analytics tests remain ignored. Coverage reports 289 files, 2,608 functions and
 completed in 38.33 seconds with zero error returns, panics or open spans;
 temporary telemetry was deleted. The subsequent substantial integrated
 checkpoint, not this worker-only reader report, owns the maintained Kani run.
+
+### Internal exact-name OBJECT prerequisite
+
+Dynamic OBJECT metadata now has a separate internal nested family, retaining
+the compact outer type/value representation and existing owned record payload.
+Its fields may have empty or case-distinct names; exact duplicate names are
+rejected. Ordinary SQL STRUCT and UNION naming rules remain unchanged. The
+metadata participates in bounded child validation, retained selected child
+adapters and selected VARCHAR casts. No SQL OBJECT declaration, direct accessor,
+native top-level OBJECT type or new index capability is introduced.
+
+Prepared OBJECT-to-VARIANT injection, exact-key extraction and presence checks,
+mixed DECIMAL/TIMESTAMP_NS children, comparisons, grouping, joins, windows,
+rollback, indexed scalar-ID mutations and private snapshot reopen are exercised.
+Old STRUCT-backed private VARIANT payloads still decode and execute; they are
+not silently reinterpreted as a new serialized shape. Selected child VARCHAR
+replacement is tested in scalar and batch paths with an unrelated ambient type
+registry. This prerequisite does not yet change native VARIANT materialization;
+its read-side switch is the next increment. The missing independent JSON fixture
+and unsupported native publication boundaries described above remain explicit.
+
+Ordinary check, nested 29/29, casts 12/12, types 15/15, contracts 27/27,
+temporal 25/25 and all-target clippy pass. Coverage reports 298 files, 2,690
+functions and 209 interface methods with no missing attributes. The maintained
+Kani run belongs to the lead's next substantial integrated checkpoint, not this
+internal worker prerequisite. Instrumentation compatibility completed in 58.36
+seconds with zero error returns, panics or open spans; temporary telemetry was
+deleted.

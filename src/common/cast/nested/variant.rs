@@ -121,6 +121,12 @@ impl VariantCast {
                 NestedType::Union(_) => {
                     return Err(Error::Conversion("Can't convert VARIANT to UNION".into()).into());
                 }
+                NestedType::Object(_) => {
+                    return Err(Error::Unsupported(
+                        "direct cast to internal OBJECT metadata".into(),
+                    )
+                    .into());
+                }
                 NestedType::Variant => unreachable!("handled VARIANT target"),
             };
             return Ok(NestedValue::value(target.clone(), payload)?);
