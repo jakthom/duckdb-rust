@@ -92,9 +92,10 @@ pub(super) fn read_table(
                 reader.unsigned()?;
             }
         }
-        if reader.optional(106)? && reader.boolean()? {
-            return Err(Error::Unsupported("per-column metadata blocks".into()));
+        if reader.optional(106)? {
+            reader.boolean()?;
         }
+        read_column_ownership(&mut reader, blocks, column_count)?;
         reader.end()?;
         let mut group = vec![vec![Value::Null; column_count]; count];
         for (index, (column, pointer)) in table.columns.iter().zip(pointers).enumerate() {
@@ -120,6 +121,37 @@ pub(super) fn read_table(
         return Err(corrupt("table row count mismatch"));
     }
     Ok(rows)
+}
+
+/// Ownership records support C++ incremental column checkpoints. They do not
+/// replace the column pointers: this reader materializes all columns and its
+/// writer publishes a fresh compacted image. Consume and validate the packed
+/// column markers/metadata block identifiers without treating them as values.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn read_column_ownership(
+    reader: &mut Reader,
+    blocks: &Blocks,
+    columns: usize,
+) -> Result<()> {
+    if reader.optional(107)? {
+        let mut previous = None;
+        for _ in 0..reader.length()? {
+            let entry = reader.unsigned()?;
+            if entry >> 63 != 0 {
+                let column = entry & !(1_u64 << 63);
+                if column >= columns as u64 || previous.is_some_and(|previous| previous >= column) {
+                    return Err(corrupt("invalid per-column metadata ownership marker"));
+                }
+                previous = Some(column);
+            } else if previous.is_none()
+                || entry >> 56 >= 64
+                || (entry & 0x00ff_ffff_ffff_ffff) >= blocks.block_count
+            {
+                return Err(corrupt("invalid per-column metadata block identifier"));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -164,6 +196,7 @@ fn read_column(
                 }
                 reader.end()?;
             }
+            let byte_size = segment_byte_size(reader)?;
             reader.end()?;
             let data = if block == -1 {
                 &[][..]
@@ -173,6 +206,21 @@ fn read_column(
                     .block(id)?
                     .get(offset..)
                     .ok_or_else(|| corrupt("segment offset outside block"))?
+            };
+            let data = match byte_size {
+                // C++ records size before replacing constant segments with
+                // statistics-only storage, so an absent block can retain a
+                // nonzero former payload extent. No decoder may read it.
+                Some(size) if block == -1 && compression == 2 => {
+                    if size > blocks.block_size - 8 {
+                        return Err(corrupt("constant segment byte size exceeds block capacity"));
+                    }
+                    data
+                }
+                Some(size) => data
+                    .get(..size)
+                    .ok_or_else(|| corrupt(format!("segment byte size {size} exceeds {} available bytes (block {block}, offset {offset}, codec {compression})", data.len())))?,
+                None => data,
             };
             output.extend(decoders.decode(
                 CodecId(compression),
@@ -206,6 +254,17 @@ fn read_column(
     }
     reader.end()?;
     Ok(output)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn segment_byte_size(reader: &mut Reader) -> Result<Option<usize>> {
+    if reader.optional(106)? && reader.boolean()? {
+        let size = u32::try_from(reader.unsigned()?)
+            .map_err(|_| corrupt("segment byte size overflows uint32"))?;
+        Ok(Some(size as usize))
+    } else {
+        Ok(None)
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

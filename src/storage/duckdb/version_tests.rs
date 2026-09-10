@@ -123,3 +123,61 @@ fn development_default_source_spans_do_not_change_the_value() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn per_column_metadata_ownership_is_bounded_and_column_ordered() -> Result<()> {
+    let blocks = Blocks::new(writer::encode(&Snapshot::new(
+        crate::common::type_registry::builtin_types(),
+    ))?)?;
+    let marker = 1_u64 << 63;
+    for (entries, accepted) in [
+        (vec![], true),
+        (vec![marker, 0, marker | 1, 0], true),
+        (vec![0], false),
+        (vec![marker | 2, 0], false),
+        (vec![marker | 1, 0, marker, 0], false),
+        (vec![marker, blocks.block_count], false),
+        (vec![marker, 64_u64 << 56], false),
+    ] {
+        let mut output = binary::Encoder::default();
+        output.property(107, entries.len() as u64);
+        for entry in entries {
+            output.unsigned(entry);
+        }
+        output.end();
+        assert_eq!(
+            columns::read_column_ownership(&mut Reader::new(output.0), &blocks, 2).is_ok(),
+            accepted
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn segment_byte_sizes_preserve_absence_and_reject_width_overflow() -> Result<()> {
+    for (value, expected) in [(None, None), (Some(0), Some(0)), (Some(1234), Some(1234))] {
+        let mut output = binary::Encoder::default();
+        output.field(106);
+        output.boolean(value.is_some());
+        if let Some(value) = value {
+            output.unsigned(value);
+        }
+        output.end();
+        assert_eq!(
+            columns::segment_byte_size(&mut Reader::new(output.0))?,
+            expected
+        );
+    }
+    let mut output = binary::Encoder::default();
+    output.field(106);
+    output.boolean(true);
+    output.unsigned(u64::from(u32::MAX) + 1);
+    output.end();
+    assert!(matches!(
+        columns::segment_byte_size(&mut Reader::new(output.0)),
+        Err(crate::Error::Corrupt(_))
+    ));
+    Ok(())
+}
