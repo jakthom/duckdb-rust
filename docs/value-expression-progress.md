@@ -444,3 +444,9 @@ pin separately does not satisfy the faster-reference rule. The other numeric
 cases and all native/grouping/ordering/relational cases pass. All 21 paired
 samples per pin and all failed results remain retained; no follow-up push is
 authorized by this failed campaign. The shared aggregation repair is ongoing.
+
+The second [numeric trial](value-expression-performance-checkpoint5-b-numeric-fastest.json)
+on `c3a03f6` keeps all 34 workload identities and again passes 33. Independent
+arithmetic/validity lanes reduce the worst decimal ratio to 1.020428, but the
+threshold is not rounded into a pass: the exact baseline is 50,959 ns,
+and Rust medians are 49,125 ns and 52,000 ns. This trial remains failed.

@@ -1,0 +1,87 @@
+{
+  "workloads": [
+    {
+      "name": "grouped_sum",
+      "selected_reference": "release",
+      "baseline_median_ns": 624417,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 624417,
+          "rust_median_ns": 586041,
+          "rust_over_cpp": 0.9385410711111325,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 855208,
+          "rust_median_ns": 533917,
+          "rust_over_cpp": 0.6243124479658749,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.9385410711111325,
+        "development": 0.8550648044495905
+      },
+      "passed": true
+    },
+    {
+      "name": "rollup_sum",
+      "selected_reference": "release",
+      "baseline_median_ns": 718958,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 718958,
+          "rust_median_ns": 462042,
+          "rust_over_cpp": 0.6426550646908442,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 816250,
+          "rust_median_ns": 464083,
+          "rust_over_cpp": 0.5685549770290965,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.6426550646908442,
+        "development": 0.6454938953318553
+      },
+      "passed": true
+    },
+    {
+      "name": "cube_sum",
+      "selected_reference": "development",
+      "baseline_median_ns": 1280833,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 1584041,
+          "rust_median_ns": 1116584,
+          "rust_over_cpp": 0.7048958960026919,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 1280833,
+          "rust_median_ns": 1136333,
+          "rust_over_cpp": 0.8871827943221325,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.8717639223848854,
+        "development": 0.8871827943221325
+      },
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "max_ratio": 1.0,
+  "complete_performance_parity": false,
+  "scope": "Same workload/source/binary/host/configuration identities across two separately paired campaigns. Each workload selects the smaller C++ median and gates both retained Rust medians against it. All original samples and failed runs remain in the input reports. This is scoped latency evidence; CPU, memory, I/O, concurrency and other unmeasured costs remain open.",
+  "recorded_at": "2026-09-10T20:56:11.442629+00:00",
+  "inputs": {
+    "docs/value-expression-performance-checkpoint5-b-grouping-release.json": "b8894c1f052cc5636775c5b1178c952dcd8703c765d635b5c2a285db56d39306",
+    "docs/value-expression-performance-checkpoint5-b-grouping-development.json": "724e54fd55ad7e73112afe61434fbc8277d256cea3add31279a2e4ed3a91df54",
+    "benchmark/grouping_workloads.json": "56e1e1e318be34b0e9eb6521522a3c156b56d85c946c480bf634ad25b4cf8d07"
+  },
+  "script_sha256": "a6e33d210f67138553400b7bfd0643c9f87bf85dca38d4d8f85cdc78689b16c8"
+}
