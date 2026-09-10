@@ -26,10 +26,9 @@ lead owns the combined maintained Kani
 checkpoint under the exploratory policy; this internal fix is not a subsystem
 completion or performance claim.
 
-LIST/ARRAY input selects a separate concat overload in development. This scalar
-commit explicitly rejects that not-yet-integrated specialization; the nested
-worker is delivering its binding/evaluation helper for the same checkpoint.
-That helper must select before VARCHAR conversion and remove the provisional
-guard and its negative assertion. It must not duplicate the scalar catalog name
-or stringify sequence inputs. Operator `||` and named arithmetic aliases remain
-separate paths and are not broadened by this patch.
+LIST/ARRAY input selects a separate concat overload in development. The nested
+integration now selects its retained child-type binding/evaluation helper before
+VARCHAR conversion. The provisional guard is removed and its assertion now
+checks successful typed concat. No duplicate scalar catalog name or sequence
+stringification is introduced. Operator `||`, list aliases and named arithmetic
+aliases remain separate paths and are not broadened by this patch.

@@ -67,13 +67,6 @@ impl ScalarFunction for Builtin {
             if arguments.is_empty() {
                 return Err(Error::Bind("concat requires at least one argument".into()));
             }
-            if arguments.iter().any(|argument| {
-                matches!(argument, DataType::Nested(metadata) if matches!(metadata.as_ref(), crate::common::NestedType::List(_) | crate::common::NestedType::Array { .. }))
-            }) {
-                return Err(Error::Unsupported(
-                    "LIST/ARRAY concat overload is not implemented".into(),
-                ));
-            }
             return Ok(vec![DataType::Varchar; arguments.len()]);
         }
         if matches!(self.0, "coalesce" | "nullif") {

@@ -75,10 +75,10 @@ fn concat_keeps_selected_text_casts_nulls_failures_and_atomic_mutations() -> Res
                 normal.query("SELECT concat()"),
                 Err(Error::Bind(_))
             ));
-            assert!(matches!(
-                normal.query("SELECT concat([1])"),
-                Err(Error::Unsupported(_))
-            ));
+            assert_eq!(
+                normal.query("SELECT concat([1])::VARCHAR")?.rows,
+                vec![vec![Value::Varchar("[1]".into())]]
+            );
             for sql in [
                 "SELECT concat(make_timestamp(-9223372036854775806))",
                 "SELECT TRY_CAST(concat(make_timestamp(-9223372036854775806)) AS VARCHAR)",
