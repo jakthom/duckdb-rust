@@ -61,6 +61,11 @@ fn independent_variant_child_streams_preserve_dynamic_types_and_nested_nulls() -
             vec![vec![Value::Integer(count - 1)]]
         );
         assert_eq!(
+            c.query("SELECT count(*) FROM t a JOIN t b ON a.v=b.xs[1]")?
+                .rows,
+            vec![vec![Value::Integer(count - 1)]]
+        );
+        assert_eq!(
             c.query("SELECT count(*) FROM t WHERE xs[2] IS NULL")?.rows,
             vec![vec![Value::Integer(count)]]
         );

@@ -62,6 +62,23 @@ For `SELECT x + ? FROM t`, the binder must distinguish the type of t.x, admissib
 
 ## Invariants and failure handling
 
+For dotted value references, resolve the longest available qualified column
+before treating the remaining identifiers as nested fields. A following
+subscript does not change the preceding column namespace: `t.xs[1]` accesses
+column `xs` in relation `t`, whereas `(t).xs[1]` first binds the value `t`.
+Quoted dots remain part of an identifier. Nested access must retain the selected
+function and child-type/cast bindings, grouping obligations, and correlation
+depth; it must not discard ambiguous-name or selected-adapter failures while
+trying shorter prefixes. Grouping a whole nested value permits extracting its
+children from the grouped output. Same-scope columns take precedence over outer
+references in the corresponding nested-path cases.
+
+Source: [column qualification](../../../duckdb/src/planner/column_qualifier.cpp)
+and [column-reference binding](../../../duckdb/src/planner/binder/expression/bind_columnref_expression.cpp).
+The Rust qualification increment supports its existing table/schema namespace,
+not arbitrary attached catalogs or nested schemas. Same-SELECT-list alias reuse
+and implicit whole-table STRUCT packing remain separate obligations.
+
 Every output binding consumed above a node must be supplied by that subtree or handled as an explicit dependency. Aliases and projection maps must survive renumbering. Implicit casts cannot silently change required strict/try-cast semantics. Ambiguous names, nonexistent objects, illegal grouping and incompatible types are ordinary binding errors, while inconsistent generated bindings indicate an internal bug.
 
 Bind data that survives planning needs the required copy/serialization behavior. Extension fallback binding must still establish the same names/types/properties contract as native binding; returning a non-null operator alone is insufficient.

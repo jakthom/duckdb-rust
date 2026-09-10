@@ -269,8 +269,31 @@ impl State<'_, '_> {
             ),
             ast::Expr::Nested(e) => recurse(e),
             ast::Expr::CompoundFieldAccess { root, access_chain } => {
-                let mut value = recurse(root)?;
-                for access in access_chain {
+                // sqlparser keeps a dotted name inside this node when a later
+                // subscript follows it. Resolve that name before extracting
+                // children: `t.xs[1]` names column xs in table t, whereas
+                // `(t).xs[1]` explicitly extracts from the value t.
+                let mut names = match root.as_ref() {
+                    ast::Expr::Identifier(name) => vec![name.clone()],
+                    ast::Expr::CompoundIdentifier(names) => names.clone(),
+                    _ => Vec::new(),
+                };
+                let mut consumed = 0;
+                if !names.is_empty() {
+                    for access in access_chain {
+                        let ast::AccessExpr::Dot(ast::Expr::Identifier(name)) = access else {
+                            break;
+                        };
+                        names.push(name.clone());
+                        consumed += 1;
+                    }
+                }
+                let mut value = if consumed == 0 {
+                    recurse(root)?
+                } else {
+                    recurse(&ast::Expr::CompoundIdentifier(names))?
+                };
+                for access in &access_chain[consumed..] {
                     let key = match access {
                         ast::AccessExpr::Subscript(ast::Subscript::Index { index }) => {
                             recurse(index)?

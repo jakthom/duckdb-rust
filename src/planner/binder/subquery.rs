@@ -16,44 +16,50 @@ impl State<'_, '_> {
         fields: &Scope,
         grouping: Option<&GroupScope>,
     ) -> Result<BoundExpr> {
-        if let Some(index) = fields.resolve_optional(parts)? {
-            if grouping.is_some() {
-                return Err(Error::Bind(format!(
+        if let Some((index, prefix)) = fields.resolve_prefix(parts)? {
+            let column = if let Some(grouping) = grouping {
+                grouping.groups.iter().position(
+                    |(_, expression)| matches!(expression.kind, ExprKind::Column(column) if column == index),
+                ).ok_or_else(|| Error::Bind(format!(
                     "column \"{}\" must appear in the GROUP BY clause or must be part of an aggregate function.",
                     parts.join(".")
-                )));
-            }
-            return Ok(BoundExpr::column(index, fields[index].data_type.clone()));
+                )))?
+            } else {
+                index
+            };
+            return self.column_fields(
+                BoundExpr::column(column, fields[index].data_type.clone()),
+                &parts[prefix..],
+            );
         }
         for (depth, scope) in self.outer.iter().rev().enumerate() {
-            if let Some(index) = scope.fields.resolve_optional(parts)? {
+            if let Some((index, prefix)) = scope.fields.resolve_prefix(parts)? {
                 let column = scope.columns[index].ok_or_else(|| {
                     Error::Bind(format!(
                         "outer column {} must appear in GROUP BY",
                         parts.join(".")
                     ))
                 })?;
-                return Ok(BoundExpr {
-                    kind: ExprKind::OuterColumn {
-                        depth: depth + 1,
-                        column,
+                return self.column_fields(
+                    BoundExpr {
+                        kind: ExprKind::OuterColumn {
+                            depth: depth + 1,
+                            column,
+                        },
+                        data_type: scope.fields[index].data_type.clone(),
                     },
-                    data_type: scope.fields[index].data_type.clone(),
-                });
-            }
-        }
-        for prefix in (1..parts.len()).rev() {
-            if let Ok(mut value) = self.column(&parts[..prefix], fields, grouping)
-                && matches!(value.data_type, DataType::Nested(_))
-            {
-                for field in &parts[prefix..] {
-                    value = self
-                        .nested_access(value, BoundExpr::literal(Value::Varchar(field.clone())))?;
-                }
-                return Ok(value);
+                    &parts[prefix..],
+                );
             }
         }
         Err(Error::Bind(format!("column {} not found", parts.join("."))))
+    }
+
+    fn column_fields(&self, mut value: BoundExpr, fields: &[String]) -> Result<BoundExpr> {
+        for field in fields {
+            value = self.nested_access(value, BoundExpr::literal(Value::Varchar(field.clone())))?;
+        }
+        Ok(value)
     }
 
     pub(super) fn subquery(

@@ -126,6 +126,21 @@ impl Scope {
             .ok_or_else(|| Error::Bind(format!("column {} not found", parts.join("."))))
     }
 
+    /// Prefer the most qualified column before interpreting trailing names as
+    /// nested fields. Table bindings currently have at most schema + table;
+    /// a longer path may still be a supported column followed by many fields.
+    pub fn resolve_prefix(&self, parts: &[String]) -> Result<Option<(usize, usize)>> {
+        if parts.is_empty() {
+            return Err(Error::Bind("empty column name".into()));
+        }
+        for length in (1..=parts.len().min(3)).rev() {
+            if let Some(index) = self.resolve_optional(&parts[..length])? {
+                return Ok(Some((index, length)));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn combine(&self, right: &Self) -> Self {
         let mut result = self.clone();
         result
