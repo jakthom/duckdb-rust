@@ -36,6 +36,7 @@ fn run() -> Result<()> {
     let mut json = false;
     let mut adapters = false;
     let mut format = "duckdb".to_owned();
+    let mut storage_version = None;
     let mut mode = OpenMode::ReadWrite;
     let mut logged = false;
     let mut checkpoint_policy: Option<Arc<dyn CheckpointPolicy>> = None;
@@ -46,7 +47,7 @@ fn run() -> Result<()> {
         match arg.as_str() {
             "-h" | "--help" => {
                 println!(
-                    "Usage: duckdb-rust [DATABASE] [-c SQL] [--json] [--read-only] [--format duckdb|snapshot] [--durability checkpoint|wal]\nFiles use DuckDB checkpoints by default. Omit the path or use :memory: for memory.\nWithout -c, reads SQL from standard input. Unsupported file features return errors.\n--durability wal appends native transaction logs; requires a writable DuckDB file.\n--checkpoint-bytes N or --checkpoint-commits N selects automatic checkpoint scheduling.\nCHECKPOINT publishes acknowledged log work without closing the database.\n--subqueries streaming|materializing selects nested query consumption.\n--adapters prints the selected implementations instead of executing SQL."
+                    "Usage: duckdb-rust [DATABASE] [-c SQL] [--json] [--read-only] [--format duckdb|snapshot] [--durability checkpoint|wal]\nFiles use DuckDB checkpoints by default. Omit the path or use :memory: for memory.\nWithout -c, reads SQL from standard input. Unsupported file features return errors.\n--storage-version 64..69 selects new native files only (default 64); existing files are never upgraded.\n--durability wal appends native transaction logs; requires a writable DuckDB file.\n--checkpoint-bytes N or --checkpoint-commits N selects automatic checkpoint scheduling.\nCHECKPOINT publishes acknowledged log work without closing the database.\n--subqueries streaming|materializing selects nested query consumption.\n--adapters prints the selected implementations instead of executing SQL."
                 );
                 return Ok(());
             }
@@ -73,6 +74,19 @@ fn run() -> Result<()> {
                 };
             }
             "--read-only" => mode = OpenMode::ReadOnly,
+            "--storage-version" => {
+                if storage_version.is_some() {
+                    return Err(Error::Parse("select only one storage version".into()));
+                }
+                storage_version = Some(
+                    args.next()
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .filter(|version| (64..=69).contains(version))
+                        .ok_or_else(|| {
+                            Error::Parse("--storage-version requires 64 through 69".into())
+                        })?,
+                );
+            }
             "--durability" => {
                 logged = match args.next().as_deref() {
                     Some("wal") => true,
@@ -111,8 +125,19 @@ fn run() -> Result<()> {
             _ => return Err(Error::Parse("too many database paths".into())),
         }
     }
+    if storage_version.is_some()
+        && (format != "duckdb"
+            || mode == OpenMode::ReadOnly
+            || path.as_deref().is_none_or(|path| path == ":memory:"))
+    {
+        return Err(Error::Parse(
+            "--storage-version requires a writable DuckDB file".into(),
+        ));
+    }
     let format: Arc<dyn SnapshotFormat> = match format.as_str() {
-        "duckdb" => Arc::new(DuckDbFormat::default()),
+        "duckdb" => {
+            Arc::new(DuckDbFormat::default().with_storage_version(storage_version.unwrap_or(64))?)
+        }
         "snapshot" => Arc::new(JsonSnapshotFormat),
         _ => return Err(Error::Parse("--format requires duckdb or snapshot".into())),
     };

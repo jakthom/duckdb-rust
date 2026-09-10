@@ -14,6 +14,82 @@ use duckdb_rust::{
 use std::{fs, path::Path};
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn native_shell_version_selection_rejects_invalid_options_before_file_creation() -> Result<()> {
+    use std::process::Command;
+    let directory = tempfile::tempdir()?;
+    let shell = env!("CARGO_BIN_EXE_duckdb-rust");
+    let invalid = directory.path().join("invalid.duckdb");
+    for options in [
+        vec!["--storage-version"],
+        vec!["--storage-version", "63"],
+        vec!["--storage-version", "70"],
+        vec!["--storage-version", "999"],
+        vec!["--storage-version", "68", "--storage-version", "69"],
+        vec!["--storage-version", "68", "--format", "snapshot"],
+        vec!["--storage-version", "68", "--read-only"],
+    ] {
+        let result = Command::new(shell).arg(&invalid).args(&options).output()?;
+        assert!(!result.status.success(), "{options:?}");
+        assert!(
+            !invalid.exists(),
+            "invalid arguments created a file: {options:?}"
+        );
+    }
+    for path in [None, Some(":memory:")] {
+        let mut command = Command::new(shell);
+        if let Some(path) = path {
+            command.arg(path);
+        }
+        let result = command
+            .args(["--storage-version", "69", "-c", "SELECT 1"])
+            .output()?;
+        assert!(!result.status.success());
+    }
+    for version in 64..=69 {
+        let path = directory.path().join(format!("version-{version}.duckdb"));
+        let result = Command::new(shell)
+            .arg(&path)
+            .args([
+                "--storage-version",
+                &version.to_string(),
+                "-c",
+                "CREATE TABLE t(i INTEGER); INSERT INTO t VALUES(1)",
+            ])
+            .output()?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let header = fs::read(&path)?;
+        assert_eq!(
+            u64::from_le_bytes(header[12..20].try_into().unwrap()),
+            version
+        );
+        let result = Command::new(shell)
+            .arg(&path)
+            .args(["--storage-version", "69", "-c", "UPDATE t SET i=2"])
+            .output()?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let after = fs::read(&path)?;
+        assert_eq!(&after[12..20], &header[12..20]);
+        assert_eq!(
+            Database::open_read_only(path)?
+                .connect()
+                .query("SELECT i FROM t")?
+                .rows,
+            vec![vec![Value::Integer(2)]]
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn open(path: &Path, version: u64, indexes: Arc<dyn IndexFactory>) -> Result<Database> {
     DatabaseBuilder::new()
         .indexes(indexes)

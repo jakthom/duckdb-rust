@@ -98,6 +98,15 @@ and depth 64; shared allocations do not waive the logical visit count. This
 physical check does not authorize native VARIANT canonicalization or SQL equality
 as a substitute for format-owned content validation.
 
+Development storage 69 can persist noncontiguous row groups. Catalog property
+105 carries `next_row_id`, defaulting to total physical rows when absent; it is
+not redundant row-count metadata. Restore each stored row-group start and the
+append high-water mark independently of live/physical cardinality. Check ordered,
+nonoverlapping ranges, arithmetic bounds and version capability before restoring
+rows or applying a WAL. Source: [table data writer](../../../duckdb/src/storage/checkpoint/table_data_writer.cpp),
+[checkpoint reader](../../../duckdb/src/storage/checkpoint_manager.cpp), and
+[row-group collection](../../../duckdb/src/storage/table/row_group_collection.cpp).
+
 Three complementary test classes are required: ordinary close/reopen and checkpoint tests; process-interruption/WAL replay tests; and injected file-write or synchronization failures. The native storage fuzzer performs operation sequences with one-shot filesystem faults and verifies the next reopen against the last expected state. It is not a general malformed-database-byte generator.
 
 Assertions should separate acknowledged commits, rejected commits, and indeterminate external failures. Check table contents, catalog objects, indexes, and future database usability, not just whether opening succeeds. Historical storage files and cross-version readers add a separate format-compatibility obligation described in [compatibility testing](../testing/compatibility.md). Relevant code and execution limitations for fault campaigns are in [fuzzing](../testing/fuzzer.md) and [stress](../testing/stress.md).
