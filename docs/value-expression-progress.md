@@ -4,15 +4,46 @@ The [accepted milestone](../specs/value-expression-milestone.md) remains active.
 The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
-Latest integrated source: `12586bf`; the sixth-checkpoint section below tracks
-the combined family increments and qualified nested binding. Workspace and
-exploratory Kani validation pass; new upstream/performance acceptance remains
-open. A subsequent native publication repair is under combined validation;
-the earlier proof result does not cover its changed state protocol.
+Latest integrated source: `8bd50a3`. This includes the native publication repair,
+DATE source-context repair, numeric direction functions and full-scale decimal
+text repair, exact-name dynamic objects, selected typed-constant binding, and a
+test-only canonical VARIANT encoder. The encoder is an internal prerequisite,
+not native publication support. Full workspace and exploratory Kani validation
+pass on this combined source. New upstream/performance acceptance remains open.
 The last pushed checkpoint is `135eece`, whose engine source
 `88e9094` passed the 34-workload timing gate and controlled upstream refresh.
 Those timings do not measure the new combined source. Earlier sections retain
 historical results and limits.
+
+## Seventh integrated implementation checkpoint
+
+At `8bd50a3`, `cargo check --workspace`, `cargo test --workspace`, and all-target
+clippy with warnings denied pass. The same two external-CLI analytics tests
+remain ignored, not passing obligations. The suite includes 51 library tests,
+32 numeric, 31 nested, 25 temporal, 9 DATE, 12 cast, 29 contract, 11 checkpoint,
+14 compatibility and 14 recovery tests. The full recovery tail sweep took
+63.73 seconds. Coverage reports 305 files, 2,796 functions, 212 interface methods
+and no missing instrumentation. Trace compatibility passed in 57.989 seconds,
+with zero errors, panics or open spans; temporary telemetry was deleted.
+
+`python3 scripts/verify_kani.py` ran with Kani 0.67.0: all six maintained
+harnesses passed, zero failures. Times were TIMETZ packing 48.149 s, unsigned
+keys 0.789 s, dense offsets 0.498 s, ROWS clipping 2.319 s, uniform bounds
+2.686 s and packed byte counts 57.611 s. Caller-location (1) and foreign-function
+(4) warnings remained unreachable; atomics (5 subtract, 4 fence) were modeled
+sequentially. These proofs do not cover the new publication-state protocol,
+native VARIANT codec, SQL binding, general temporal semantics or concurrency.
+The command was run at the combined checkpoint; that is not a proof of every
+changed invariant.
+
+The new [native publication diagnostic](nested-publication-initial.json) retains
+four independent C++-produced files: development unshredded/shredded VARIANT,
+release shredded VARIANT, and development TUPLE/empty STRUCT. Original reads and
+rollback paths match development in all four. Committed Rust mutations fail
+explicitly in all four at the still-disabled writer paths; later mutation stages
+are unexecuted. The production binary was built with `--release --no-default-features`.
+Both pinned reader outcomes, fixture and binary hashes are retained. This is
+not an upstream refresh, timing gate, or full file-compatibility claim.
 
 ## First integrated checkpoint, 2026-09-10
 
