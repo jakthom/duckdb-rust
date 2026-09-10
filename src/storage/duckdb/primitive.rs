@@ -7,7 +7,7 @@ pub(super) fn width(data_type: &DataType) -> Result<usize> {
         DataType::SmallInt | DataType::USmallInt => Ok(2),
         DataType::Integer | DataType::UInteger | DataType::Float | DataType::Date => Ok(4),
         DataType::BigInt | DataType::UBigInt | DataType::Double => Ok(8),
-        DataType::HugeInt | DataType::UHugeInt => Ok(16),
+        DataType::HugeInt | DataType::UHugeInt | DataType::Uuid => Ok(16),
         DataType::Decimal { width, .. } => Ok(match width {
             1..=4 => 2,
             5..=9 => 4,
@@ -59,6 +59,9 @@ pub(super) fn scalar(data: &[u8], offset: usize, data_type: &DataType) -> Result
 /// Numeric codecs operate on physical integers. Reconstruct the logical value
 /// here; column validity is applied by the caller after segment decoding.
 pub(super) fn integer_value(value: i128, data_type: &DataType) -> Result<Value> {
+    if *data_type == DataType::Uuid {
+        return Ok(Value::Uuid((value as u128) ^ (1_u128 << 127)));
+    }
     if let Some(bits) = data_type.unsigned_bits() {
         return Ok(Value::Unsigned(if bits == 128 {
             value as u128
@@ -95,6 +98,8 @@ pub(super) fn type_id(data_type: &DataType) -> Result<u64> {
         DataType::Float => Ok(22),
         DataType::Double => Ok(23),
         DataType::Varchar => Ok(25),
+        DataType::Blob => Ok(26),
+        DataType::Uuid => Ok(54),
         DataType::HugeInt => Ok(50),
         DataType::UTinyInt => Ok(28),
         DataType::USmallInt => Ok(29),
@@ -143,6 +148,7 @@ pub(super) fn write_numeric(
     } else {
         let n = match value {
             Value::Decimal { value, .. } => *value,
+            Value::Uuid(value) => (*value ^ (1_u128 << 127)) as i128,
             _ => value.as_i128()?,
         };
         if width(data_type)? == 16 {

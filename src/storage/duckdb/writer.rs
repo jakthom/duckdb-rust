@@ -275,7 +275,7 @@ fn column_data(
 ) -> Result<u64> {
     let mut segments = Vec::new();
     for (chunk, values) in values.chunks(2048).enumerate() {
-        if *data_type == DataType::Varchar {
+        if matches!(data_type, DataType::Varchar | DataType::Blob) {
             let mut start = 0;
             while start < values.len() {
                 let mut size = 8;
@@ -283,6 +283,7 @@ fn column_data(
                 while end < values.len() {
                     let length = match &values[end] {
                         Value::Varchar(v) => v.len(),
+                        Value::Blob(v) => v.len(),
                         _ => 0,
                     };
                     let length = if length > 4096 { 12 } else { length };
@@ -348,13 +349,14 @@ fn segment(
 ) -> Result<Vec<u8>> {
     let mut data = Vec::new();
     let mut overflow_blocks = Vec::new();
-    if *data_type == DataType::Varchar {
+    if matches!(data_type, DataType::Varchar | DataType::Blob) {
         let mut strings = Vec::new();
         let mut offsets = Vec::new();
         let mut size = 0u32;
         for value in values {
             let bytes = match value {
                 Value::Varchar(v) => v.as_bytes(),
+                Value::Blob(v) => v.as_slice(),
                 _ => &[],
             };
             if bytes.len() > 4096 {
@@ -412,6 +414,7 @@ fn segment(
                         Value::Null => 0,
                         Value::Decimal { value, .. } => *value,
                         Value::Unsigned(value) => *value as i128,
+                        Value::Uuid(value) => (*value ^ (1_u128 << 127)) as i128,
                         _ => value.as_i128()?,
                     };
                     let width = super::primitive::width(data_type)?;
@@ -454,7 +457,7 @@ fn statistics(output: &mut Encoder, data_type: Option<&DataType>, values: &[Valu
     output.field(103);
     match data_type {
         None => {}
-        Some(DataType::Varchar) => {
+        Some(DataType::Varchar | DataType::Blob) => {
             output.field(200);
             output.blob(&[0; 8]);
             output.field(201);
@@ -469,6 +472,7 @@ fn statistics(output: &mut Encoder, data_type: Option<&DataType>, values: &[Valu
                     .iter()
                     .map(|v| match v {
                         Value::Varchar(v) => v.len() as u64,
+                        Value::Blob(v) => v.len() as u64,
                         _ => 0,
                     })
                     .max()

@@ -144,7 +144,7 @@ fn flat(
             .is_none_or(|mask| mask[i / 8] & (1 << (i % 8)) != 0)
     };
     reader.field(102)?;
-    if *data_type == DataType::Varchar {
+    if matches!(data_type, DataType::Varchar | DataType::Blob) {
         if reader.length()? != count {
             return Err(corrupt("WAL string count mismatch"));
         }
@@ -153,10 +153,14 @@ fn flat(
                 context.check()?;
                 let bytes = reader.blob()?;
                 if valid(i) {
-                    Ok(Value::Varchar(
-                        String::from_utf8(bytes)
-                            .map_err(|_| corrupt("invalid WAL string UTF-8"))?,
-                    ))
+                    if *data_type == DataType::Blob {
+                        Ok(Value::Blob(bytes))
+                    } else {
+                        Ok(Value::Varchar(
+                            String::from_utf8(bytes)
+                                .map_err(|_| corrupt("invalid WAL string UTF-8"))?,
+                        ))
+                    }
                 } else {
                     Ok(Value::Null)
                 }

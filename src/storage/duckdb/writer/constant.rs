@@ -23,7 +23,7 @@ pub(in crate::storage::duckdb) fn write(
             }
             Value::Boolean(v) => output.boolean(v),
             Value::Date(v) => output.signed(i64::from(v.days())),
-            Value::Blob(v) => output.blob(&v),
+            value @ Value::Blob(_) => output.string(&value.to_string())?,
             Value::Uuid(v) => {
                 output.signed(((v ^ (1_u128 << 127)) >> 64) as i64);
                 output.unsigned(v as u64);

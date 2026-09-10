@@ -409,13 +409,14 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
             e.blob(&mask);
         }
         e.field(102);
-        if *data_type == DataType::Varchar {
+        if matches!(data_type, DataType::Varchar | DataType::Blob) {
             e.unsigned(rows.len() as u64);
             for row in rows {
                 context.check()?;
                 bound.validate(&row[column], context)?;
                 match &row[column] {
                     Value::Varchar(text) => e.string(text)?,
+                    Value::Blob(bytes) => e.blob(bytes),
                     Value::Null => e.string("")?,
                     _ => return Err(invalid("string physical type")),
                 }
@@ -431,6 +432,7 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
                     Value::Boolean(value) => bytes.push(u8::from(*value)),
                     Value::Integer(value) => bytes.extend(&value.to_le_bytes()[..width]),
                     Value::Unsigned(value) => bytes.extend(&value.to_le_bytes()[..width]),
+                    Value::Uuid(value) => bytes.extend((*value ^ (1_u128 << 127)).to_le_bytes()),
                     Value::Decimal { value, .. } => bytes.extend(&value.to_le_bytes()[..width]),
                     Value::Float(value) => bytes.extend(value.to_le_bytes()),
                     Value::Double(value) => bytes.extend(value.to_le_bytes()),

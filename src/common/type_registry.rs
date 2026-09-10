@@ -5,6 +5,7 @@ mod batch;
 pub mod date;
 mod key;
 pub mod numeric;
+pub mod scalar;
 pub mod temporal;
 pub use key::KeyWriter;
 
@@ -327,6 +328,11 @@ impl TypeRegistry {
         registry
             .register(DataType::Date.family(), Arc::new(date::DateType))
             .expect("unique DATE family");
+        for data_type in [DataType::Blob, DataType::Uuid] {
+            registry
+                .register(data_type.family(), Arc::new(scalar::BinaryScalarTypes))
+                .expect("unique binary scalar family");
+        }
         for data_type in [
             DataType::UTinyInt,
             DataType::USmallInt,
@@ -570,8 +576,10 @@ impl TypeAdapter for PrimitiveTypes {
         "primitive-types"
     }
     fn validate_type(&self, data_type: &DataType) -> Result<()> {
-        if matches!(data_type, DataType::Date | DataType::Extension(_))
-            || data_type.is_unsigned_integer()
+        if matches!(
+            data_type,
+            DataType::Date | DataType::Blob | DataType::Uuid | DataType::Extension(_)
+        ) || data_type.is_unsigned_integer()
             || data_type.is_decimal()
         {
             return Err(Error::Unsupported(

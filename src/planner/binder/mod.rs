@@ -136,6 +136,11 @@ impl State<'_, '_> {
                 },
             ),
             T::Interval { .. } => Ok(DataType::Interval),
+            T::Blob(None) | T::Binary(None) | T::Varbinary(None) | T::Bytea => Ok(DataType::Blob),
+            T::Blob(Some(_)) | T::Binary(Some(_)) | T::Varbinary(Some(_)) => {
+                Err(Error::Bind("BLOB does not take type parameters".into()))
+            }
+            T::Uuid => Ok(DataType::Uuid),
             T::TinyInt(_) => Ok(DataType::TinyInt),
             T::SmallInt(_) | T::Int2(_) | T::Int16 => Ok(DataType::SmallInt),
             T::Int(_) | T::Integer(_) | T::Int4(_) | T::Int32 => Ok(DataType::Integer),
@@ -206,6 +211,10 @@ impl State<'_, '_> {
                         self.context.query.types().bind(&data_type)?;
                         return Ok(data_type);
                     }
+                }
+                if name == "guid" && modifiers.is_empty() {
+                    self.context.query.types().bind(&DataType::Uuid)?;
+                    return Ok(DataType::Uuid);
                 }
                 let parameters = modifiers
                     .iter()

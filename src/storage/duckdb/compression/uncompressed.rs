@@ -22,7 +22,9 @@ impl SegmentDecoder for UncompressedDecoder {
     fn decode(&self, input: DecodeInput<'_>, context: &DecodeContext<'_>) -> Result<Vec<Value>> {
         context.query.check_rows(input.count)?;
         match input.kind {
-            SegmentType::Values(DataType::Varchar) => strings(context, input.data, input.count),
+            SegmentType::Values(data_type @ (DataType::Varchar | DataType::Blob)) => {
+                strings(context, input.data, input.count, data_type)
+            }
             kind => (0..input.count)
                 .map(|i| {
                     if i % 1024 == 0 {
@@ -48,7 +50,12 @@ impl SegmentDecoder for UncompressedDecoder {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn strings(context: &DecodeContext<'_>, data: &[u8], count: usize) -> Result<Vec<Value>> {
+fn strings(
+    context: &DecodeContext<'_>,
+    data: &[u8],
+    count: usize,
+    data_type: &DataType,
+) -> Result<Vec<Value>> {
     let size = u32_at(data, 0)? as usize;
     let end = u32_at(data, 4)? as usize;
     if size > end || end > data.len() || end - size < 8 + count * 4 {
@@ -79,9 +86,7 @@ fn strings(context: &DecodeContext<'_>, data: &[u8], count: usize) -> Result<Vec
                 .ok_or_else(|| corrupt("string outside dictionary"))?
                 .to_vec()
         };
-        values.push(Value::Varchar(
-            String::from_utf8(bytes).map_err(|_| corrupt("invalid UTF-8 string"))?,
-        ));
+        values.push(super::strings::string_value(bytes, data_type)?);
         previous = offset;
     }
     Ok(values)

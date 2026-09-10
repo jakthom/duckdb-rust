@@ -124,6 +124,8 @@ pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
         22 => DataType::Float,
         23 => DataType::Double,
         25 => DataType::Varchar,
+        26 => DataType::Blob,
+        54 => DataType::Uuid,
         50 => DataType::HugeInt,
         28 => DataType::UTinyInt,
         29 => DataType::USmallInt,

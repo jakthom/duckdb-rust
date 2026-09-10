@@ -4,6 +4,7 @@ mod builtin;
 mod date;
 mod integer;
 pub mod numeric;
+pub mod scalar;
 pub mod temporal;
 
 pub use date::DateCast;
@@ -375,6 +376,7 @@ impl CastRegistry {
         }
         numeric::register(&mut registry);
         temporal::register(&mut registry);
+        scalar::register(&mut registry);
         registry
     }
     /// A selected family adapter resolves parameterized types without expanding
@@ -560,9 +562,13 @@ impl CastFunction for PrimitiveCast {
         "primitive-cast"
     }
     fn supports(&self, spec: &CastSpec) -> bool {
-        if matches!(spec.source, DataType::Date | DataType::Extension(_))
-            || matches!(spec.target, DataType::Date | DataType::Extension(_))
-            || spec.source.is_unsigned_integer()
+        if matches!(
+            spec.source,
+            DataType::Date | DataType::Blob | DataType::Uuid | DataType::Extension(_)
+        ) || matches!(
+            spec.target,
+            DataType::Date | DataType::Blob | DataType::Uuid | DataType::Extension(_)
+        ) || spec.source.is_unsigned_integer()
             || spec.target.is_unsigned_integer()
             || spec.source.is_decimal()
             || spec.target.is_decimal()

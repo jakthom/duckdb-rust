@@ -77,6 +77,11 @@ pub(super) fn value(reader: &mut Reader) -> Result<Value> {
             DataType::Float => Value::Float(reader.float()?),
             DataType::Double => Value::Double(reader.double()?),
             DataType::Varchar => Value::Varchar(reader.string()?),
+            DataType::Blob => Value::Blob(
+                crate::common::scalar::parse_blob(&reader.string()?, || Ok(()))
+                    .map_err(|_| corrupt("invalid serialized BLOB literal"))?,
+            ),
+            DataType::Uuid => super::super::primitive::read_numeric(reader, &data_type)?,
             _ if data_type.is_decimal() || data_type.is_unsigned_integer() => {
                 super::super::primitive::read_numeric(reader, &data_type)?
             }

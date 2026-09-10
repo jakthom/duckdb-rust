@@ -87,6 +87,10 @@ name = "numeric"
 path = "test/component/numeric.rs"
 
 [[test]]
+name = "binary_scalars"
+path = "test/component/binary_scalars.rs"
+
+[[test]]
 name = "optimizer"
 path = "test/component/optimizer.rs"
 

@@ -150,7 +150,9 @@ fn read_column(
             let statistics = statistics(reader, data_type)?;
             if reader.optional(105)? && reader.boolean()? {
                 // The uncompressed string state records overflow block ownership.
-                if compression != 1 || data_type != Some(&DataType::Varchar) {
+                if compression != 1
+                    || !matches!(data_type, Some(DataType::Varchar | DataType::Blob))
+                {
                     return Err(Error::Unsupported(
                         "DuckDB compression segment state".into(),
                     ));
@@ -217,7 +219,7 @@ fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> Result<Stati
     reader.field(103)?;
     let mut minimum = Value::Null;
     match data_type {
-        Some(DataType::Varchar) => {
+        Some(DataType::Varchar | DataType::Blob) => {
             reader.field(200)?;
             reader.blob()?;
             reader.field(201)?;

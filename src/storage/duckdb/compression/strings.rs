@@ -15,7 +15,10 @@ macro_rules! string_decoder {
                 $label
             }
             fn supports(&self, kind: SegmentType<'_>) -> bool {
-                kind == SegmentType::Values(&DataType::Varchar)
+                matches!(
+                    kind,
+                    SegmentType::Values(DataType::Varchar | DataType::Blob)
+                )
             }
             fn decode(
                 &self,
@@ -26,7 +29,10 @@ macro_rules! string_decoder {
                 if !self.supports(input.kind) {
                     return Err(Error::Unsupported("string segment type".into()));
                 }
-                $decode(input.data, input.count, context.query)
+                let SegmentType::Values(data_type) = input.kind else {
+                    unreachable!("checked string type");
+                };
+                $decode(input.data, input.count, context.query, data_type)
             }
         }
     };
@@ -53,6 +59,7 @@ pub(super) fn dictionary(
     data: &[u8],
     count: usize,
     query: &crate::parallel::QueryContext,
+    data_type: &DataType,
 ) -> Result<Vec<Value>> {
     let size = u32_at(data, 0)? as usize;
     let end = u32_at(data, 4)? as usize;
@@ -83,11 +90,7 @@ pub(super) fn dictionary(
         }
         if i > 0 {
             let bytes = &data[end - offset..end - previous];
-            dictionary.push(Value::Varchar(
-                std::str::from_utf8(bytes)
-                    .map_err(|_| corrupt("invalid dictionary UTF-8"))?
-                    .into(),
-            ));
+            dictionary.push(string_value(bytes.to_vec(), data_type)?);
         }
         previous = offset;
     }
@@ -107,6 +110,7 @@ pub(super) fn fsst(
     data: &[u8],
     count: usize,
     query: &crate::parallel::QueryContext,
+    data_type: &DataType,
 ) -> Result<Vec<Value>> {
     let size = u32_at(data, 0)? as usize;
     let end = u32_at(data, 4)? as usize;
@@ -161,11 +165,20 @@ pub(super) fn fsst(
                 );
             }
         }
-        values.push(Value::Varchar(
-            String::from_utf8(output).map_err(|_| corrupt("invalid FSST UTF-8"))?,
-        ));
+        values.push(string_value(output, data_type)?);
     }
     Ok(values)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn string_value(bytes: Vec<u8>, data_type: &DataType) -> Result<Value> {
+    match data_type {
+        DataType::Blob => Ok(Value::Blob(bytes)),
+        DataType::Varchar => String::from_utf8(bytes)
+            .map(Value::Varchar)
+            .map_err(|_| corrupt("invalid UTF-8 string")),
+        _ => Err(corrupt("invalid string physical type")),
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
