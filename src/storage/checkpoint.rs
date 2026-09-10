@@ -1,4 +1,7 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use super::{
     filesystem::{CheckpointStorage, LocalCheckpointStorage, OpenMode},
@@ -68,6 +71,13 @@ pub struct FileCheckpoint {
     file: Arc<dyn CheckpointStorage>,
     format: Arc<dyn SnapshotFormat>,
     recovery: Option<Arc<dyn Recovery>>,
+    publication: Mutex<PublicationState>,
+}
+
+enum PublicationState {
+    Unloaded,
+    Ready(Option<Box<dyn super::format::CheckpointEncoder>>),
+    Uncertain,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -77,6 +87,7 @@ impl FileCheckpoint {
             file,
             format,
             recovery: None,
+            publication: Mutex::new(PublicationState::Unloaded),
         }
     }
     /// Select recovery independently of checkpoint representation and I/O.
@@ -142,10 +153,22 @@ impl Durability for FileCheckpoint {
         self.file.writable()
     }
     fn load(&self, types: Arc<crate::common::type_registry::TypeRegistry>) -> Result<Snapshot> {
+        let mut publication = self
+            .publication
+            .lock()
+            .map_err(|_| Error::Internal("checkpoint publication mutex poisoned".into()))?;
+        if !matches!(*publication, PublicationState::Unloaded) {
+            return Err(Error::Transaction(
+                "checkpoint already loaded; share its transaction manager".into(),
+            ));
+        }
         let checkpoint = self.file.read()?;
         let log = self.file.read_log()?;
         if log.is_empty() {
-            return self.format.decode(checkpoint, types);
+            let encoder = self.format.checkpoint_encoder(&checkpoint)?;
+            let snapshot = self.format.decode(checkpoint, types)?;
+            *publication = PublicationState::Ready(encoder);
+            return Ok(snapshot);
         }
         let recovery = self.recovery.as_ref().ok_or_else(|| {
             Error::Unsupported("no recovery adapter selected for nonempty log".into())
@@ -159,17 +182,59 @@ impl Durability for FileCheckpoint {
                 ));
             }
             let prepared = recovery.prepare(input, self.format.as_ref(), &context)?;
-            self.file
-                .publish_recovery(&prepared.basis, &prepared.publication)?;
+            let bytes = match &prepared.publication {
+                super::recovery::RecoveryPublication::Replace { checkpoint, .. } => checkpoint,
+                super::recovery::RecoveryPublication::RetireLog => &prepared.basis.checkpoint,
+            };
+            let encoder = self.format.checkpoint_encoder(bytes)?;
+            if let Err(error) = self
+                .file
+                .publish_recovery(&prepared.basis, &prepared.publication)
+            {
+                if matches!(error, Error::CommitUnknown(_)) {
+                    *publication = PublicationState::Uncertain;
+                }
+                return Err(error);
+            }
+            *publication = PublicationState::Ready(encoder);
             Ok(prepared.snapshot)
         } else {
-            recovery.recover(input, self.format.as_ref(), &context)
+            let snapshot = recovery.recover(input, self.format.as_ref(), &context)?;
+            *publication = PublicationState::Ready(None);
+            Ok(snapshot)
         }
     }
     fn publish(&self, commit: Commit<'_>) -> Result<()> {
         if !self.writable() {
             return Err(Error::Unsupported("writing a read-only checkpoint".into()));
         }
-        self.file.replace(&self.format.encode(commit.snapshot)?)
+        let mut publication = self
+            .publication
+            .lock()
+            .map_err(|_| Error::Internal("checkpoint publication mutex poisoned".into()))?;
+        let encoder = match &*publication {
+            PublicationState::Ready(encoder) => encoder,
+            PublicationState::Unloaded => {
+                return Err(Error::Internal("checkpoint has not been loaded".into()));
+            }
+            PublicationState::Uncertain => {
+                return Err(Error::CommitUnknown(
+                    "previous checkpoint publication failed".into(),
+                ));
+            }
+        };
+        let bytes = match encoder {
+            Some(encoder) => encoder.encode(commit.snapshot)?,
+            None => self.format.encode(commit.snapshot)?,
+        };
+        let next = self.format.checkpoint_encoder(&bytes)?;
+        if let Err(error) = self.file.replace(&bytes) {
+            if matches!(error, Error::CommitUnknown(_)) {
+                *publication = PublicationState::Uncertain;
+            }
+            return Err(error);
+        }
+        *publication = PublicationState::Ready(next);
+        Ok(())
     }
 }

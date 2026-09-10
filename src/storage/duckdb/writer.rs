@@ -113,7 +113,7 @@ impl Arena {
         let mut output = Vec::with_capacity(12288 + self.blocks.len() * ALLOCATION);
         let mut main = vec![0; 4088];
         main[..4].copy_from_slice(b"DUCK");
-        main[4..12].copy_from_slice(&64u64.to_le_bytes());
+        main[4..12].copy_from_slice(&previous.map_or(64, |p| p.main_version).to_le_bytes());
         main[44..54].copy_from_slice(b"v0.1-rust\0");
         let iteration = if let Some(previous) = previous {
             main[116..132].copy_from_slice(&previous.identifier);
@@ -130,9 +130,17 @@ impl Arena {
             (0, u64::MAX, u64::MAX, 0),
         ] {
             let mut header = vec![0; 4088];
-            for (i, value) in [iteration, meta, list, count, ALLOCATION as u64, 2048, 1]
-                .into_iter()
-                .enumerate()
+            for (i, value) in [
+                iteration,
+                meta,
+                list,
+                count,
+                ALLOCATION as u64,
+                2048,
+                previous.map_or(1, |p| p.database_version),
+            ]
+            .into_iter()
+            .enumerate()
             {
                 header[i * 8..i * 8 + 8].copy_from_slice(&value.to_le_bytes());
             }

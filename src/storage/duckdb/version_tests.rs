@@ -34,8 +34,14 @@ fn storage_versions_distinguish_the_development_sentinel_from_legacy_serializati
             bytes[offset + 56..offset + 64].copy_from_slice(&database.to_le_bytes());
             rechecksum(&mut bytes[offset..offset + 4096])?;
         }
-        let decoded =
-            DuckDbFormat::default().decode(bytes, crate::common::type_registry::builtin_types());
+        let encoder = DuckDbFormat::default().checkpoint_encoder(&bytes);
+        assert_eq!(
+            encoder.is_ok(),
+            accepted,
+            "publication main={main}, database={database}"
+        );
+        let decoded = DuckDbFormat::default()
+            .decode(bytes.clone(), crate::common::type_registry::builtin_types());
         assert_eq!(
             decoded.is_ok(),
             accepted,
@@ -43,7 +49,57 @@ fn storage_versions_distinguish_the_development_sentinel_from_legacy_serializati
         );
         if !accepted {
             assert!(matches!(decoded, Err(Error::Unsupported(_))));
+        } else {
+            let previous = CheckpointIdentity::read(&bytes)?;
+            let snapshot = decoded?;
+            let next = encoder?.unwrap().encode(&snapshot)?;
+            let next = CheckpointIdentity::read(&next)?;
+            assert_eq!(next.main_version, main);
+            assert_eq!(next.database_version, database);
+            assert_eq!(next.identifier, previous.identifier);
+            assert_eq!(next.iteration, previous.iteration + 1);
+            assert_ne!(next.root, previous.root);
         }
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn native_successor_bindings_reject_flags_and_keep_identity_through_owned_generations() -> Result<()>
+{
+    let snapshot = Snapshot::new(crate::common::type_registry::builtin_types());
+    let original = writer::encode(&snapshot)?;
+    for offset in [20, 28, 36, 44] {
+        let mut bytes = original.clone();
+        bytes[offset..offset + 8].copy_from_slice(&1_u64.to_le_bytes());
+        rechecksum(&mut bytes[..4096])?;
+        assert!(matches!(
+            DuckDbFormat::default().checkpoint_encoder(&bytes),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            DuckDbFormat::default().encode_successor(&snapshot, &bytes),
+            Err(Error::Unsupported(_))
+        ));
+    }
+    let mut bytes = original;
+    bytes[124..140].copy_from_slice(b"retained-file-id");
+    rechecksum(&mut bytes[..4096])?;
+    let first = CheckpointIdentity::read(&bytes)?;
+    let format = DuckDbFormat::default();
+    let binding = format.checkpoint_encoder(&bytes)?.unwrap();
+    drop(bytes);
+    let mut bytes = binding.encode(&snapshot)?;
+    for step in 1..=5 {
+        let identity = CheckpointIdentity::read(&bytes)?;
+        assert_eq!(identity.identifier, first.identifier);
+        assert_eq!(identity.iteration, first.iteration + step);
+        assert_eq!(identity.main_version, first.main_version);
+        assert_eq!(identity.database_version, first.database_version);
+        let binding = format.checkpoint_encoder(&bytes)?.unwrap();
+        drop(bytes);
+        bytes = binding.encode(&snapshot)?;
     }
     Ok(())
 }

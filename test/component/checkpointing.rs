@@ -28,6 +28,9 @@ use std::{
     },
 };
 
+#[path = "checkpoint_publication.rs"]
+mod publication;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn seed(path: &Path) -> Result<()> {
     Database::open(path)?.connect().execute(

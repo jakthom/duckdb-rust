@@ -30,6 +30,38 @@ Replay must distinguish complete committed work from incomplete tails and must r
 
 ## Fault model and verification
 
+### Retained checkpoint publication metadata
+
+The native main-header version and database-header version are different
+namespaces in older files. Main versions 64–69 and the development sentinel
+999 do not by themselves identify the active serialization layout. For legacy
+database-header values, 0–3 and historical 64 map to storage 64; values 4–7 map
+to storage 65–68. The modern database value 69 identifies v2 storage. Unknown
+versions and encryption/flag capabilities must be rejected, including when a
+caller asks only for successor encoding.
+
+Checkpoint publication must preserve the existing database identifier and
+storage compatibility and advance the generation. It must not reset these to
+fresh-file defaults simply because tables are reencoded. Any deliberate version
+upgrade requires its own capability decision; preserving a v2 header alone does
+not authorize a new type's checkpoint or WAL layout. Development additionally
+gates empty STRUCT and TUPLE table columns to storage 69 and VARIANT columns to
+storage 68, recursively through child types.
+
+Sources: [header version mapping](../../../duckdb/src/storage/single_file_block_manager.cpp)
+and [table type gates](../../../duckdb/src/catalog/catalog_entry/duck_table_entry.cpp).
+
+For the Rust rewrite, the selected format may bind a small owned checkpoint
+encoder that retains publication metadata. The file layer neither interprets
+that state nor rereads/retains all prior table bytes per commit. Construct and
+validate the successor binding before external publication; install it only
+after publication succeeds. Definite failures keep the prior binding usable.
+Uncertain outcomes block further publication until reopening. Stateful file
+durability has one transaction-manager owner; connections share that manager.
+Formats without such metadata keep their selected stateless encoder. These
+representation choices remain provisional; the identity, failure and ownership
+contracts do not depend on a particular object layout.
+
 Three complementary test classes are required: ordinary close/reopen and checkpoint tests; process-interruption/WAL replay tests; and injected file-write or synchronization failures. The native storage fuzzer performs operation sequences with one-shot filesystem faults and verifies the next reopen against the last expected state. It is not a general malformed-database-byte generator.
 
 Assertions should separate acknowledged commits, rejected commits, and indeterminate external failures. Check table contents, catalog objects, indexes, and future database usability, not just whether opening succeeds. Historical storage files and cross-version readers add a separate format-compatibility obligation described in [compatibility testing](../testing/compatibility.md). Relevant code and execution limitations for fault campaigns are in [fuzzing](../testing/fuzzer.md) and [stress](../testing/stress.md).

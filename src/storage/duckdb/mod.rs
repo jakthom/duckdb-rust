@@ -61,6 +61,14 @@ impl SnapshotFormat for DuckDbFormat {
         snapshot.validate()?;
         writer::encode(snapshot)
     }
+    fn checkpoint_encoder(
+        &self,
+        bytes: &[u8],
+    ) -> Result<Option<Box<dyn super::format::CheckpointEncoder>>> {
+        Ok(Some(Box::new(NativeCheckpointEncoder(
+            CheckpointIdentity::read(bytes)?,
+        ))))
+    }
     fn encode_successor(
         &self,
         snapshot: &Snapshot,
@@ -77,11 +85,23 @@ impl SnapshotFormat for DuckDbFormat {
     }
 }
 
+struct NativeCheckpointEncoder(CheckpointIdentity);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl super::format::CheckpointEncoder for NativeCheckpointEncoder {
+    fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>> {
+        snapshot.validate()?;
+        writer::encode_successor(snapshot, self.0)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct CheckpointIdentity {
     identifier: [u8; 16],
     iteration: u64,
     root: u64,
+    main_version: u64,
+    database_version: u64,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -96,6 +116,7 @@ impl CheckpointIdentity {
                 .ok_or_else(|| corrupt("truncated main header"))?,
         )?;
         let header = database_header(bytes)?;
+        let (main_version, database_version) = header_versions(bytes, header)?;
         Ok(Self {
             identifier: bytes
                 .get(124..140)
@@ -104,6 +125,8 @@ impl CheckpointIdentity {
                 .map_err(|_| corrupt("database identifier"))?,
             iteration: u64_at(header, 8)?,
             root: u64_at(header, 16)?,
+            main_version,
+            database_version,
         })
     }
 }
@@ -127,21 +150,8 @@ impl Blocks {
                 .get(..4096)
                 .ok_or_else(|| corrupt("truncated main header"))?,
         )?;
-        let version = u64_at(&bytes, 12)?;
-        if !(64..=69).contains(&version) && version != 999 {
-            return Err(Error::Unsupported(format!(
-                "DuckDB storage version {version}"
-            )));
-        }
-        for offset in [20, 28, 36, 44] {
-            if u64_at(&bytes, offset)? != 0 {
-                return Err(Error::Unsupported(
-                    "DuckDB header flags or encryption".into(),
-                ));
-            }
-        }
         let header = database_header(&bytes)?;
-        validate_storage_version(version, u64_at(header, 56)?)?;
+        header_versions(&bytes, header)?;
         let block_size = match u64_at(header, 40)? {
             0 => 262144,
             n => usize::try_from(n).map_err(|_| corrupt("block size overflow"))?,
@@ -218,6 +228,24 @@ impl Blocks {
         }
         Ok(Reader::new(output))
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn header_versions(bytes: &[u8], header: &[u8]) -> Result<(u64, u64)> {
+    let main = u64_at(bytes, 12)?;
+    if !(64..=69).contains(&main) && main != 999 {
+        return Err(Error::Unsupported(format!("DuckDB storage version {main}")));
+    }
+    for offset in [20, 28, 36, 44] {
+        if u64_at(bytes, offset)? != 0 {
+            return Err(Error::Unsupported(
+                "DuckDB header flags or encryption".into(),
+            ));
+        }
+    }
+    let database = u64_at(header, 56)?;
+    validate_storage_version(main, database)?;
+    Ok((main, database))
 }
 
 /// Development v2 uses 999 in the main header and stores storage version 69

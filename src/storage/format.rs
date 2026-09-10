@@ -10,6 +10,15 @@ pub const DUCKDB_FORMAT: FormatId = FormatId("duckdb");
 pub const JSON_FORMAT: FormatId = FormatId("duckdb-rust-json");
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// A selected format's owned publication state, bound from a validated image.
+/// It retains only the metadata needed to encode successors, not the previous
+/// table data. Encoding has no effects and leaves this state unchanged. The
+/// caller binds the returned image's successor state before publishing bytes.
+pub trait CheckpointEncoder: Send + Sync {
+    fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>>;
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A complete checkpoint representation, independent of I/O and transaction
 /// publication. Decoding owns its input and returns an independently owned
 /// catalog/data snapshot. Unsupported types or metadata must fail explicitly;
@@ -29,6 +38,13 @@ pub trait SnapshotFormat: Send + Sync {
         types: std::sync::Arc<crate::common::type_registry::TypeRegistry>,
     ) -> Result<Snapshot>;
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>>;
+    /// Retain format-owned identity/version state for ordinary checkpoint
+    /// publication. None keeps this format's stateless encode implementation.
+    /// A binding may not borrow the bytes or retain the whole prior image.
+    /// Unsupported metadata must fail before publication, not be discarded.
+    fn checkpoint_encoder(&self, _bytes: &[u8]) -> Result<Option<Box<dyn CheckpointEncoder>>> {
+        Ok(None)
+    }
     fn supports_successor(&self) -> bool {
         false
     }
