@@ -34,6 +34,34 @@ fn integers(values: &[i128]) -> Vec<Value> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn scalar_catalog_resolution_precedes_unsupported_argument_binding() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    for sql in [
+        "SELECT missing_scalar(NULL::ANY)",
+        "SELECT missing_scalar(*, 'sum')",
+        "SELECT missing_scalar(ARRAY[(1,2), (3,4)])",
+        "SELECT missing_scalar(1/0)",
+    ] {
+        assert!(
+            matches!(connection.query(sql), Err(Error::Catalog(message)) if message.contains("missing_scalar")),
+            "{sql}"
+        );
+    }
+    // Existing functions still validate their own arguments rather than being
+    // converted into missing-function errors by the shared binding path.
+    assert!(matches!(
+        connection.query("SELECT length(1)"),
+        Err(Error::Bind(_))
+    ));
+    assert_eq!(
+        connection.query("SELECT length('abc')")?.rows,
+        vec![vec![Value::Integer(3)]]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn column_projection_preserves_shared_values_shape_and_lifetimes() -> Result<()> {
     let source = DataChunk::new(
         vec![

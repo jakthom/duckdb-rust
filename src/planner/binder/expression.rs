@@ -6,6 +6,14 @@ impl State<'_, '_> {
     /// retained argument/cast contracts. Syntax sugar shares ordinary calls.
     pub(super) fn scalar_call(&self, name: &str, arguments: Vec<BoundExpr>) -> Result<BoundExpr> {
         let function_impl = self.context.functions.scalar(name)?;
+        self.scalar_call_selected(function_impl, arguments)
+    }
+
+    fn scalar_call_selected(
+        &self,
+        function_impl: std::sync::Arc<dyn crate::function::ScalarFunction>,
+        arguments: Vec<BoundExpr>,
+    ) -> Result<BoundExpr> {
         let function_impl = function_impl
             .bind(
                 &FunctionArguments {
@@ -494,11 +502,15 @@ impl State<'_, '_> {
                     if function.filter.is_some() {
                         return Err(Error::Bind("FILTER requires an aggregate".into()));
                     }
+                    // Resolve the catalog entry before binding arguments. An
+                    // absent function must not become an unsupported argument
+                    // construct, and retain this same selection for binding.
+                    let function_impl = self.context.functions.scalar(&name)?;
                     let arguments = function_arguments(function)?
                         .iter()
                         .map(&recurse)
                         .collect::<Result<Vec<_>>>()?;
-                    self.scalar_call(&name, arguments)
+                    self.scalar_call_selected(function_impl, arguments)
                 }
             }
             ast::Expr::Case {
