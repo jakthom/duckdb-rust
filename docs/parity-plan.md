@@ -25,13 +25,13 @@ temporal and nested workers share that end-to-end outcome; type declarations and
 small commits are internal steps. Its third integrated checkpoint preserves all
 prior upstream passes (391 passing files / 18,606 passing records), repairs three
 diagnostic regressions, and passes all 34 existing faster-reference workloads.
-The later fifth checkpoint reaches 423 passing files and 19,240 successful
+The later fifth checkpoint reaches 423 passing files and 19,241 successful
 records, with no lost full-file pass. Three full timing trials and a fourth
 numeric-only trial retain the decimal aggregation failure; the fifth trial
 repairs it and passes all 34 faster-reference workloads on `88e9094`. Final
-workspace/Kani validation is running before publication. The concurrent final
-upstream run records 420 passes / 19,235 records with three prior full passes
-timing out; a controlled full-suite run is planned to investigate them. These later
+workspace/check/clippy and all six Kani harnesses pass. A controlled full-suite
+run restores the preceding concurrent run's three deadline losses, retaining
+identical source/binary and harness settings; both campaigns remain recorded. These later
 results do not inherit the earlier performance pass.
 Full value/function/native parity remains open. The preceding increment added unsigned and
 decimal types and coercion; its

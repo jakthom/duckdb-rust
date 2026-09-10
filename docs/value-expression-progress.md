@@ -5,7 +5,7 @@ The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
 Latest source checkpoint: `88e9094`; the fifth-checkpoint section below tracks
-the passing 34-workload timing repair and pending final correctness refresh.
+the passing 34-workload timing repair, controlled upstream refresh and Kani.
 Earlier sections retain historical results and limits.
 
 ## First integrated checkpoint, 2026-09-10
@@ -559,3 +559,25 @@ unreachable in these proofs; atomic operations remain sequential, and the
 vendor parser's unused-variable warning remains. These bounded results do not
 prove the new reducer, full SQL/storage behavior or concurrency. The controlled
 full upstream investigation is the remaining pre-push check for this source.
+
+The [controlled full-suite refresh](value-expression-upstream-checkpoint5-d.json)
+is now complete, with all implementation builds/proofs/reference jobs paused.
+It uses the same frozen source and binary hashes as the preceding concurrent
+run, all 5,638 file identities, unchanged assertions, three-second deadline and
+two workers. Results: 423 passed, 2,091 failed, 3,111 unsupported, 10 timeouts,
+three incomplete; 19,241 passed records including failing-file prefixes. All
+three transiently lost full passes are restored, and no full-file pass or
+record prefix is lost against either fifth-checkpoint run 5-a or 5-b. No earlier
+checkpoint-three full pass is lost. Its sole shorter checkpoint-three prefix
+remains the constant-column timeout already investigated with paired sources
+above; neither that timeout nor the 512 MiB writer limit is waived.
+
+The concurrent failures remain retained as environment-sensitive deadline
+outcomes, not deleted or reclassified as passes. This whole-suite controlled
+run, the 34/34 faster-reference campaign, workspace/check/clippy and exploratory
+Kani checkpoint complete the regression investigation for this follow-up.
+README still matches `origin/main`, and the user's pre-sync stash is unchanged.
+The queued floating formatter, Base64, temporal aliases/strict VARIANT casts,
+sequence aliases and native VARIANT reader are not part of this frozen source;
+they require continuous integration and their own combined validation. The
+large value-and-expression milestone remains active and incomplete.

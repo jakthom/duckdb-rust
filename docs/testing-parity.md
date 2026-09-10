@@ -16,20 +16,19 @@ correctness, performance or native-file parity.
 
 The latest [value-and-expression checkpoint](value-expression-progress.md)
 integrates BIGNUM, BIT, temporal boundary repairs, recursive WAL recovery and
-typed concat/combination binding. The fifth-checkpoint refresh before the final
-reducer executes all 5,638 files: 423 pass, with 19,240 successful records
-including failed-file prefixes; no checkpoint-three full-file pass is lost.
-The final reducer's concurrent refresh records 420 passes / 19,235 records,
-with three prior full passes now timing out. A controlled full-suite run is
-planned after heavy jobs finish; these losses remain under investigation.
+typed concat/combination binding. The final reducer's controlled full refresh
+executes all 5,638 files: 423 pass, with 19,241 successful records including
+failed-file prefixes; no checkpoint-three full-file pass is lost. The preceding
+concurrent refresh's three deadline losses are retained, and all are restored
+by the controlled full run with identical source/binary and harness settings.
 The initial shorter
 constant-column timeout prefix does not reproduce against the last pushed source
 in paired diagnosis; a later join deadline also loses no previous prefix in
 three alternating source pairs. Timeouts and the 512 MiB writer limit remain
 gaps. Three full timing trials and a fourth numeric-only trial retain the
 decimal aggregation failure. The fifth trial on `88e9094` repairs it and passes
-all 34 faster-reference workloads; the final workspace/upstream/Kani refresh
-is running before publication. The preceding checkpoint-three timing matrix
+all 34 faster-reference workloads; final workspace/check/clippy and all six Kani
+harnesses pass. The preceding checkpoint-three timing matrix
 remains historical and separate. All failures
 remain retained; new-family workloads and the rest of the parity matrix remain
 open.
