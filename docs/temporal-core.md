@@ -67,6 +67,7 @@ do not establish diagnostic-category parity.
 | [Integrated functions](temporal-functions-reference-integrated.json) | 437/437 | 412/437 | 3/3 | 3/3 |
 | [Interval text initial](temporal-text-reference-initial.json) | 443/448 | 418/448 | 3/3 | 3/3 |
 | [Interval text repair](temporal-text-reference-repaired.json) | 448/448 | 422/448 | 3/3 | 3/3 |
+| [Interval units/diagnostics](temporal-diagnostics-reference.json) | 455/455 | 429/455 | 3/3 | 3/3 |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -119,6 +120,19 @@ diagnostics, plural unit syntax, INTERVAL type qualifiers/alias(), scalar range(
 and a boolean expectation normalization issue. Selected differential passes do
 not erase those broader obligations. Their original results/journal are retained.
 
+The [interval diagnostic follow-up](upstream-temporal-interval-diagnostics.json)
+advances to three passing and seven failing files, with none unsupported. Plural
+unit syntax uses the same retained cast/truncation/function path as singular
+syntax, including prepared mutations under both evaluators. The colon-overflow
+file now passes all eight records. The constants file advances from zero to 20
+records before a shared numeric-cast diagnostic mismatch; the TRY_CAST file
+advances from zero to 18 of 19 records before an exact Invalid Input category
+mismatch. General parsing, unrecognized/unsupported specifiers and AGO/checked
+addition messages are repaired, but native cast categories and TRY_CAST failure
+classification still require a shared contract change. Boolean harness
+normalization, missing UNNEST/INTERVAL type qualifiers and general overload
+diagnostics remain explicit failures. Assertions and prior evidence are unchanged.
+
 ## Checkpoint validation
 
 Routine checks pass: `cargo check`; ten temporal component tests plus DATE,
@@ -168,6 +182,12 @@ six of six maintained harnesses (19.987, 0.814, 0.521, 2.479, 3.304 and 78.827
 seconds). Scanner cancellation/rounding and full parser behavior are not formal
 proof claims. The upstream worker built successfully in release mode, but this
 checkpoint has no new execution-performance gate.
+
+The small plural-unit/diagnostic follow-up passes twelve temporal tests, ordinary
+check/clippy, instrumentation coverage (255 files, 2228 functions, 205 interfaces,
+no missing entries), and all-target trace compilation (53.38 seconds, temporary
+telemetry deleted). It does not add a separate formal-proof claim; the preceding
+interval-text checkpoint is the latest full Kani run.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
