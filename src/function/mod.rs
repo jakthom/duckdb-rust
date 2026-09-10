@@ -42,6 +42,11 @@ pub trait ScalarBindArguments {
         self.len() == 0
     }
     fn data_type(&self, index: usize) -> Result<DataType>;
+    /// SQL string-literal identity is contextual binding information, not an
+    /// implicit cast granted to every VARCHAR column or external frontend.
+    fn is_string_literal(&self, index: usize) -> Result<bool> {
+        self.data_type(index).map(|_| false)
+    }
     fn constant(&self, index: usize) -> Result<Value>;
 }
 

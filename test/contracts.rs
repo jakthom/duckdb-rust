@@ -442,6 +442,25 @@ fn contextual_comparisons_carry_scalar_types_through_joins_membership_and_mutati
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn scalar_literal_coercion_does_not_grant_implicit_varchar_column_casts() -> Result<()> {
+    let mut c = Database::memory()?.connect();
+    assert_eq!(
+        c.query("SELECT make_date('2024',2,29)")?.rows[0][0].to_string(),
+        "2024-02-29"
+    );
+    assert!(matches!(
+        c.query("SELECT make_date(y,2,29) FROM (VALUES ('2024')) t(y)"),
+        Err(Error::Bind(_))
+    ));
+    assert!(matches!(
+        c.query("SELECT make_date('bad',2,29)"),
+        Err(Error::Conversion(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn values_ctes_set_operations_and_hidden_sort_keys() -> Result<()> {
     let mut c = Database::memory()?.connect();
     assert_eq!(c.query("WITH a AS (SELECT range AS i FROM range(4)) SELECT i+1 AS n FROM a WHERE i > 0 ORDER BY i DESC LIMIT 2")?.rows, vec![integers(&[4]),integers(&[3])]);

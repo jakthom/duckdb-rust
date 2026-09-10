@@ -29,9 +29,14 @@ impl State<'_, '_> {
             .into_iter()
             .zip(argument_types.iter())
             .map(|(e, target)| {
+                let mode = if super::coercion::string_literal(&e) {
+                    CastMode::Explicit
+                } else {
+                    CastMode::Implicit
+                };
                 e.cast(
                     target.clone(),
-                    CastMode::Implicit,
+                    mode,
                     self.context.casts,
                     self.context.query.types(),
                 )
@@ -642,6 +647,12 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
         self.arguments
             .get(index)
             .map(|a| a.data_type.clone())
+            .ok_or_else(|| Error::Bind("function argument outside signature".into()))
+    }
+    fn is_string_literal(&self, index: usize) -> Result<bool> {
+        self.arguments
+            .get(index)
+            .map(super::coercion::string_literal)
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))
     }
     fn constant(&self, index: usize) -> Result<Value> {
