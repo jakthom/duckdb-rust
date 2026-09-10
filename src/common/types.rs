@@ -22,6 +22,8 @@ pub enum DataType {
     Float,
     Double,
     Varchar,
+    Blob,
+    Uuid,
     Date,
     Extension(Arc<TypeIdentity>),
 }
@@ -65,6 +67,8 @@ impl DataType {
             Self::Float => "builtin.float",
             Self::Double => "builtin.double",
             Self::Varchar => "builtin.varchar",
+            Self::Blob => "builtin.blob",
+            Self::Uuid => "builtin.uuid",
             Self::Date => "builtin.date",
             Self::Extension(identity) => &identity.name,
         }
@@ -165,6 +169,8 @@ impl fmt::Display for DataType {
                 Self::Float => "FLOAT",
                 Self::Double => "DOUBLE",
                 Self::Varchar => "VARCHAR",
+                Self::Blob => "BLOB",
+                Self::Uuid => "UUID",
                 Self::Date => "DATE",
                 Self::Extension(_) => unreachable!("handled extension type"),
             }
@@ -180,10 +186,17 @@ pub enum Value {
     Boolean(bool),
     Integer(i128),
     Unsigned(u128),
-    Decimal { value: i128, width: u8, scale: u8 },
+    Decimal {
+        value: i128,
+        width: u8,
+        scale: u8,
+    },
     Float(#[serde(with = "float32_bits")] f32),
     Double(#[serde(with = "float_bits")] f64),
     Varchar(String),
+    Blob(Vec<u8>),
+    /// UUID bits in network/text order, without the native storage sign-bit flip.
+    Uuid(u128),
     Date(Date),
     Extension(Arc<ExtensionValue>),
 }
@@ -218,6 +231,8 @@ impl Value {
             Self::Float(_) => DataType::Float,
             Self::Double(_) => DataType::Double,
             Self::Varchar(_) => DataType::Varchar,
+            Self::Blob(_) => DataType::Blob,
+            Self::Uuid(_) => DataType::Uuid,
             Self::Date(_) => DataType::Date,
             Self::Extension(value) => value.data_type.clone(),
         }
@@ -362,6 +377,8 @@ impl Value {
             (Self::Boolean(a), Self::Boolean(b)) => Ok(a.cmp(b)),
             (Self::Date(a), Self::Date(b)) => Ok(a.cmp(b)),
             (Self::Varchar(a), Self::Varchar(b)) => Ok(a.cmp(b)),
+            (Self::Blob(a), Self::Blob(b)) => Ok(a.cmp(b)),
+            (Self::Uuid(a), Self::Uuid(b)) => Ok(a.cmp(b)),
             (Self::Float(a), Self::Float(b)) => Ok(float_cmp(f64::from(*a), f64::from(*b))),
             (Self::Double(a), Self::Double(b)) => Ok(float_cmp(*a, *b)),
             (left, right) if left.data_type().is_numeric() && right.data_type().is_numeric() => {
@@ -419,7 +436,7 @@ impl Value {
                 };
                 key.extend_from_slice(&bits.to_le_bytes())?;
             }
-            Self::Date(_) | Self::Extension(_) => {
+            Self::Date(_) | Self::Blob(_) | Self::Uuid(_) | Self::Extension(_) => {
                 return Err(Error::Unsupported(
                     "registered type requires its selected key adapter".into(),
                 ));
@@ -456,6 +473,8 @@ impl fmt::Display for Value {
             Self::Float(v) => write!(f, "{v}"),
             Self::Double(v) => write!(f, "{v}"),
             Self::Varchar(v) => write!(f, "{v}"),
+            Self::Blob(v) => super::scalar::format_blob(v, f),
+            Self::Uuid(v) => super::scalar::format_uuid(*v, f),
             Self::Date(v) => write!(f, "{v}"),
             Self::Extension(value) => write!(f, "{}({} bytes)", value.data_type, value.bytes.len()),
         }

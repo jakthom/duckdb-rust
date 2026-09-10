@@ -224,6 +224,9 @@ fn print_result(result: &QueryResult, json: bool) -> Result<()> {
                         }
                         duckdb_rust::Value::Null => serde_json::Value::Null,
                         duckdb_rust::Value::Date(v) => serde_json::Value::String(v.to_string()),
+                        duckdb_rust::Value::Blob(_) | duckdb_rust::Value::Uuid(_) => {
+                            serde_json::Value::String(value.to_string())
+                        }
                         duckdb_rust::Value::Boolean(v) => serde_json::Value::Bool(*v),
                         duckdb_rust::Value::Integer(v) => serde_json::from_str(&v.to_string())
                             .unwrap_or_else(|_| serde_json::Value::String(v.to_string())),

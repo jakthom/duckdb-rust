@@ -60,7 +60,7 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
                 result
             }
             Value::Null => unreachable!("handled NULL"),
-            Value::Date(_) | Value::Extension(_) => {
+            Value::Date(_) | Value::Blob(_) | Value::Uuid(_) | Value::Extension(_) => {
                 return Err(Error::Conversion(
                     "value requires a separate cast adapter".into(),
                 ));

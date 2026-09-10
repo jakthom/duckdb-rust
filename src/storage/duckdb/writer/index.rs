@@ -285,6 +285,16 @@ fn encode_value(value: &Value, data_type: &DataType, output: &mut Vec<u8>) -> Re
             ));
         }
         Value::Boolean(v) => output.push(u8::from(*v)),
+        Value::Uuid(v) => output.extend(v.to_be_bytes()),
+        Value::Blob(v) => {
+            for byte in v {
+                if *byte <= 1 {
+                    output.push(1);
+                }
+                output.push(*byte);
+            }
+            output.push(0);
+        }
         Value::Unsigned(v) => {
             let width = super::super::primitive::width(data_type)?;
             output.extend(&v.to_be_bytes()[16 - width..]);

@@ -3,6 +3,7 @@ mod date;
 mod error;
 pub mod numeric;
 mod row_collection;
+pub mod scalar;
 pub use row_collection::RowCollection;
 
 pub use date::Date;
