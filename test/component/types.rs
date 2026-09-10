@@ -491,3 +491,56 @@ fn malformed_function_and_operator_values_never_escape_or_become_try_cast_nulls(
     }
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn selected_boolean_integral_combination_does_not_widen_implicit_casts() -> Result<()> {
+    use duckdb_rust::common::NestedType;
+    let types = TypeRegistry::builtins();
+    let casts = CastRegistry::builtins();
+    for integer in [
+        DataType::TinyInt,
+        DataType::SmallInt,
+        DataType::Integer,
+        DataType::BigInt,
+        DataType::HugeInt,
+        DataType::UTinyInt,
+        DataType::USmallInt,
+        DataType::UInteger,
+        DataType::UBigInt,
+        DataType::UHugeInt,
+    ] {
+        for (left, right) in [
+            (DataType::Boolean, integer.clone()),
+            (integer.clone(), DataType::Boolean),
+        ] {
+            assert_eq!(types.common_type(&left, &right)?, integer);
+            let nested = |ty| {
+                NestedType::List(NestedType::Struct(vec![("n".into(), ty)]).data_type()).data_type()
+            };
+            assert_eq!(
+                types.common_type(&nested(left), &nested(right))?,
+                nested(integer.clone())
+            );
+        }
+        assert!(
+            casts
+                .bind(&DataType::Boolean, &integer, CastMode::Implicit, &types)
+                .is_err()
+        );
+        assert!(
+            casts
+                .bind(&DataType::Boolean, &integer, CastMode::Explicit, &types)
+                .is_ok()
+        );
+    }
+    for other in [
+        DataType::Float,
+        DataType::Double,
+        DataType::Decimal { width: 8, scale: 2 },
+    ] {
+        assert!(types.common_type(&DataType::Boolean, &other).is_err());
+        assert!(types.common_type(&other, &DataType::Boolean).is_err());
+    }
+    Ok(())
+}

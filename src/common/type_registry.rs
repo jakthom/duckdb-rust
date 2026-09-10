@@ -665,6 +665,12 @@ impl TypeAdapter for PrimitiveTypes {
         context.check()
     }
     fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        if *left == DataType::Boolean && right.is_integer() {
+            return Ok(Some(right.clone()));
+        }
+        if *right == DataType::Boolean && left.is_integer() {
+            return Ok(Some(left.clone()));
+        }
         Ok(DataType::common(left, right).ok())
     }
     fn compare(
