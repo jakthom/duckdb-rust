@@ -51,6 +51,156 @@ impl ScalarFunction for CoercionProbe {
 #[derive(Debug)]
 struct SelectedArgumentCast(Arc<AtomicUsize>, CastMode);
 
+#[derive(Debug)]
+struct CombinationCast(Arc<AtomicUsize>, CastMode);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for CombinationCast {
+    fn name(&self) -> &'static str {
+        "selected-combination-cast"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Boolean && spec.target == DataType::Integer && spec.mode == self.1
+    }
+    fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(spec.mode, self.1);
+        // Delegation is explicit here even when the selected replacement elects
+        // to offer an implicit conversion. Built-ins still do not offer it.
+        PrimitiveCast.cast(
+            value,
+            &CastSpec {
+                mode: CastMode::Explicit,
+                ..spec.clone()
+            },
+            query,
+        )
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn combination_contexts_retain_selected_casts_without_widening_function_overloads() -> Result<()> {
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            for selected_mode in [CastMode::Explicit, CastMode::Implicit] {
+                let calls = Arc::new(AtomicUsize::new(0));
+                let mut casts = CastRegistry::builtins();
+                assert!(
+                    casts
+                        .coercion_cost_with_types(
+                            &DataType::Boolean,
+                            &DataType::Integer,
+                            CastMode::Implicit,
+                            &TypeRegistry::builtins()
+                        )?
+                        .is_none()
+                );
+                let spec = CastSpec {
+                    source: DataType::Boolean,
+                    target: DataType::Integer,
+                    mode: selected_mode,
+                };
+                let adapter = Arc::new(CombinationCast(calls.clone(), selected_mode));
+                if selected_mode == CastMode::Implicit {
+                    casts.register(spec, adapter)?;
+                } else {
+                    casts.replace(spec, adapter)?;
+                }
+                let mut c = DatabaseBuilder::new()
+                    .casts(casts)
+                    .expressions(evaluator.clone())
+                    .optimizer(optimizer.clone())
+                    .batch_size(2)
+                    .build()?
+                    .connect();
+                c.execute("CREATE TABLE t(id INTEGER PRIMARY KEY, b BOOLEAN); INSERT INTO t VALUES (1,true),(2,false),(3,NULL)")?;
+                for (sql, expected) in [
+                    (
+                        "SELECT CASE WHEN id<3 THEN b ELSE 7 END FROM t ORDER BY id",
+                        vec![1, 0, 7],
+                    ),
+                    (
+                        "SELECT CASE WHEN id=3 THEN 7 ELSE b END FROM t ORDER BY id",
+                        vec![1, 0, 7],
+                    ),
+                    (
+                        "SELECT x FROM (VALUES (true),(false),(2)) v(x) ORDER BY x",
+                        vec![0, 1, 2],
+                    ),
+                    (
+                        "SELECT b AS x FROM t WHERE id<3 UNION SELECT 2 ORDER BY x",
+                        vec![0, 1, 2],
+                    ),
+                    (
+                        "SELECT 2 AS x UNION ALL SELECT b FROM t WHERE id<3 ORDER BY x",
+                        vec![0, 1, 2],
+                    ),
+                    (
+                        "SELECT b AS x FROM t WHERE id<3 INTERSECT SELECT 1 ORDER BY x",
+                        vec![1],
+                    ),
+                    (
+                        "SELECT b AS x FROM t WHERE id<3 EXCEPT SELECT 1 ORDER BY x",
+                        vec![0],
+                    ),
+                ] {
+                    let before = calls.load(Ordering::Relaxed);
+                    let result = c.query(sql)?;
+                    assert_eq!(result.columns[0].data_type, DataType::Integer, "{sql}");
+                    assert_eq!(
+                        result.rows,
+                        expected
+                            .into_iter()
+                            .map(|n| vec![Value::Integer(n)])
+                            .collect::<Vec<_>>(),
+                        "{sql}"
+                    );
+                    assert!(
+                        calls.load(Ordering::Relaxed) > before,
+                        "selected cast must execute: {sql}"
+                    );
+                }
+                let prepared =
+                    c.prepare("SELECT CASE WHEN id<3 THEN b ELSE ? END FROM t ORDER BY id")?;
+                assert_eq!(
+                    c.execute_prepared(&prepared, &[Value::Integer(7)])?.rows,
+                    vec![
+                        vec![Value::Integer(1)],
+                        vec![Value::Integer(0)],
+                        vec![Value::Integer(7)]
+                    ]
+                );
+                c.execute("CREATE TABLE combined AS SELECT CASE WHEN id<3 THEN b ELSE 7 END AS x FROM t; BEGIN; UPDATE combined SET x=9 WHERE x=1; ROLLBACK")?;
+                assert_eq!(
+                    c.query("SELECT x,sum(x) OVER (ORDER BY x) FROM combined ORDER BY x")?
+                        .rows,
+                    vec![integers(&[0, 0]), integers(&[1, 1]), integers(&[7, 8])]
+                );
+                for sql in [
+                    "SELECT CASE WHEN true THEN true ELSE 1.0::DOUBLE END",
+                    "SELECT CASE WHEN true THEN 1.0::DECIMAL(2,1) ELSE false END",
+                ] {
+                    assert!(matches!(c.query(sql), Err(Error::Bind(_))), "{sql}");
+                }
+                if selected_mode == CastMode::Explicit {
+                    assert!(matches!(
+                        c.query("SELECT abs(b) FROM t"),
+                        Err(Error::Bind(_))
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for SelectedArgumentCast {
     fn name(&self) -> &'static str {

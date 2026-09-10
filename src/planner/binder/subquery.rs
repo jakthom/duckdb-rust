@@ -102,8 +102,8 @@ impl State<'_, '_> {
                     false,
                     true,
                 )?;
-                let needle = self.comparison_cast(needle, &common)?;
-                let mode = self.comparison_cast_mode(&plan.schema[0].data_type, &common)?;
+                let needle = self.combination_cast(needle, &common)?;
+                let mode = self.combination_cast_mode(&plan.schema[0].data_type, &common)?;
                 plan = self.coerce_plan(plan, std::slice::from_ref(&common), mode)?;
                 (
                     SubqueryKind::In {

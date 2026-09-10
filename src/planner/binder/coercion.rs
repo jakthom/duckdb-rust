@@ -1,6 +1,6 @@
-//! Comparison combination is a binding context, not a global implicit cast.
-//! Prefer selected type proposals and retained cast capabilities; built-in SQL
-//! equality has a documented fallback that ordering comparisons do not share.
+//! Combination is a binding context, not a global implicit cast. CASE, VALUES,
+//! set operations and comparisons retain selected casts after common-type
+//! inference. Equality has an additional type fallback ordering does not share.
 use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -35,7 +35,7 @@ pub(super) fn integer_literal_fits(value: &BoundExpr, target: &DataType) -> bool
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
-    pub(super) fn comparison_cast_mode(
+    pub(super) fn combination_cast_mode(
         &self,
         source: &DataType,
         target: &DataType,
@@ -58,8 +58,12 @@ impl State<'_, '_> {
             },
         )
     }
-    pub(super) fn comparison_cast(&self, value: BoundExpr, target: &DataType) -> Result<BoundExpr> {
-        let mode = self.comparison_cast_mode(&value.data_type, target)?;
+    pub(super) fn combination_cast(
+        &self,
+        value: BoundExpr,
+        target: &DataType,
+    ) -> Result<BoundExpr> {
+        let mode = self.combination_cast_mode(&value.data_type, target)?;
         value.cast(
             target.clone(),
             mode,

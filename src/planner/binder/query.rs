@@ -128,8 +128,8 @@ impl State<'_, '_> {
                             .common_type(&l.data_type, &r.data_type)
                     })
                     .collect::<Result<Vec<_>>>()?;
-                left = self.coerce_plan(left, &types, CastMode::Implicit)?;
-                right = self.coerce_plan(right, &types, CastMode::Implicit)?;
+                left = self.combine_plan(left, &types)?;
+                right = self.combine_plan(right, &types)?;
                 let all = match set_quantifier {
                     ast::SetQuantifier::All => true,
                     ast::SetQuantifier::None | ast::SetQuantifier::Distinct => false,
@@ -175,13 +175,13 @@ impl State<'_, '_> {
         if rows.iter().any(|row| row.len() != width) {
             return Err(Error::Bind("VALUES rows differ in width".into()));
         }
-        let (types, mode) = if let Some(types) = destinations {
+        let types = if let Some(types) = destinations {
             if types.len() != width {
                 return Err(Error::Bind(
                     "INSERT column count does not match source".into(),
                 ));
             }
-            (types.to_vec(), CastMode::Assignment)
+            types.to_vec()
         } else {
             let mut types = vec![DataType::Null; width];
             for row in &rows {
@@ -193,16 +193,20 @@ impl State<'_, '_> {
                         .common_type(data_type, &expression.data_type)?;
                 }
             }
-            (types, CastMode::Implicit)
+            types
         };
         for row in &mut rows {
             for (expression, data_type) in row.iter_mut().zip(&types) {
-                *expression = expression.clone().cast(
-                    data_type.clone(),
-                    mode,
-                    self.context.casts,
-                    self.context.query.types(),
-                )?;
+                *expression = if destinations.is_some() {
+                    expression.clone().cast(
+                        data_type.clone(),
+                        CastMode::Assignment,
+                        self.context.casts,
+                        self.context.query.types(),
+                    )?
+                } else {
+                    self.combination_cast(expression.clone(), data_type)?
+                };
             }
         }
         Ok(LogicalPlan {

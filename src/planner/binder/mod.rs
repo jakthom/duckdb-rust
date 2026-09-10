@@ -619,8 +619,8 @@ impl State<'_, '_> {
                     matches!(op, Equal | NotEqual),
                 )?;
                 (
-                    self.comparison_cast(left, &target)?,
-                    self.comparison_cast(right, &target)?,
+                    self.combination_cast(left, &target)?,
+                    self.combination_cast(right, &target)?,
                     DataType::Boolean,
                 )
             }
@@ -709,6 +709,21 @@ impl State<'_, '_> {
         types: &[DataType],
         mode: CastMode,
     ) -> Result<LogicalPlan> {
+        self.project_casts(plan, types, |_, _| Ok(mode))
+    }
+
+    fn combine_plan(&self, plan: LogicalPlan, types: &[DataType]) -> Result<LogicalPlan> {
+        self.project_casts(plan, types, |source, target| {
+            self.combination_cast_mode(source, target)
+        })
+    }
+
+    fn project_casts(
+        &self,
+        plan: LogicalPlan,
+        types: &[DataType],
+        mode: impl Fn(&DataType, &DataType) -> Result<CastMode>,
+    ) -> Result<LogicalPlan> {
         let fields = plan
             .schema
             .iter()
@@ -726,7 +741,7 @@ impl State<'_, '_> {
             .map(|(i, (f, t))| {
                 BoundExpr::column(i, f.data_type.clone()).cast(
                     t.clone(),
-                    mode,
+                    mode(&f.data_type, t)?,
                     self.context.casts,
                     self.context.query.types(),
                 )

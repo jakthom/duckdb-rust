@@ -570,24 +570,9 @@ impl State<'_, '_> {
                     kind: ExprKind::Case(
                         branches
                             .into_iter()
-                            .map(|(p, v)| {
-                                Ok((
-                                    p,
-                                    v.cast(
-                                        data_type.clone(),
-                                        CastMode::Implicit,
-                                        self.context.casts,
-                                        self.context.query.types(),
-                                    )?,
-                                ))
-                            })
+                            .map(|(p, v)| Ok((p, self.combination_cast(v, &data_type)?)))
                             .collect::<Result<Vec<_>>>()?,
-                        Box::new(otherwise.cast(
-                            data_type.clone(),
-                            CastMode::Implicit,
-                            self.context.casts,
-                            self.context.query.types(),
-                        )?),
+                        Box::new(self.combination_cast(otherwise, &data_type)?),
                     ),
                     data_type,
                 }))
@@ -635,9 +620,9 @@ impl State<'_, '_> {
                 Ok(BoundExpr {
                     data_type: DataType::Boolean,
                     kind: ExprKind::InList(
-                        Box::new(self.comparison_cast(value, &data_type)?),
+                        Box::new(self.combination_cast(value, &data_type)?),
                         list.into_iter()
-                            .map(|e| self.comparison_cast(e, &data_type))
+                            .map(|e| self.combination_cast(e, &data_type))
                             .collect::<Result<Vec<_>>>()?,
                         *negated,
                         self.context.query.types().bind(&data_type)?.into(),
