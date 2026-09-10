@@ -374,7 +374,7 @@ impl State<'_, '_> {
                 ast::Value::SingleQuotedString(v) | ast::Value::EscapedStringLiteral(v) => {
                     Ok(Value::Varchar(v.clone()))
                 }
-                ast::Value::Number(v, _) => number(v),
+                ast::Value::Number(v, _) => number(v, self.context.query),
                 _ => Err(unsupported(expr)),
             },
             ast::Expr::UnaryOp {
@@ -388,7 +388,7 @@ impl State<'_, '_> {
                 let ast::Value::Number(v, _) = &v.value else {
                     unreachable!()
                 };
-                number(&format!("-{v}"))
+                number(&format!("-{v}"), self.context.query)
             }
             _ => {
                 let bound = self.expr(expr, &Scope::default(), None)?;
@@ -830,17 +830,15 @@ fn order_expressions(order: Option<&ast::OrderBy>, width: usize) -> Result<Vec<a
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn number(value: &str) -> Result<Value> {
+fn number(value: &str, query: &crate::parallel::QueryContext) -> Result<Value> {
+    query.check()?;
     if value.contains('.') && !value.contains(['e', 'E']) {
         let unsigned = value.strip_prefix('-').unwrap_or(value);
         let width = unsigned.len() - 1;
         let scale = unsigned.len() - unsigned.find('.').unwrap() - 1;
         if width <= 38 && width > 0 {
-            let (negative, magnitude) = crate::common::cast::numeric::parse_scaled(
-                value,
-                scale as u8,
-                &crate::parallel::QueryContext::background(),
-            )?;
+            let (negative, magnitude) =
+                crate::common::cast::numeric::parse_scaled(value, scale as u8, query)?;
             let n = i128::try_from(magnitude)
                 .map_err(|_| Error::Conversion("decimal literal overflow".into()))?;
             return crate::common::numeric::decimal(
@@ -856,9 +854,48 @@ fn number(value: &str) -> Result<Value> {
             .map(Value::Double)
             .map_err(|_| Error::Conversion(format!("invalid number {value}")))
     } else {
-        value
-            .parse()
-            .map(Value::Integer)
-            .map_err(|_| Error::Conversion(format!("integer out of range: {value}")))
+        if let Ok(integer) = value.parse::<i128>() {
+            return Ok(Value::Integer(integer));
+        }
+        if let Ok(unsigned) = value.parse::<u128>() {
+            return Ok(Value::Unsigned(unsigned));
+        }
+        // Development preserves integer tokens beyond the machine domains as
+        // BIGNUM rather than losing digits in DOUBLE. The existing family
+        // parser owns bounded allocation and checks this statement's context.
+        crate::common::BignumValue::parse(value, || query.check()).map(|value| value.value())
+    }
+}
+
+#[cfg(test)]
+mod number_tests {
+    use super::*;
+    use crate::parallel::{InterruptHandle, QueryContext};
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn numeric_literal_parsing_uses_the_statement_cancellation_context() -> Result<()> {
+        let interrupt = InterruptHandle::default();
+        let query = QueryContext::new(interrupt.clone(), None, 1, 1)?;
+        interrupt.interrupt();
+        for text in [
+            "1",
+            "1.25",
+            "1e3",
+            "340282366920938463463374607431768211455",
+            "340282366920938463463374607431768211456",
+        ] {
+            assert!(matches!(number(text, &query), Err(Error::Interrupted)));
+        }
+        interrupt.reset();
+        assert_eq!(
+            number("340282366920938463463374607431768211455", &query)?,
+            Value::Unsigned(u128::MAX)
+        );
+        assert!(matches!(
+            number("340282366920938463463374607431768211456", &query)?,
+            Value::Bignum(_)
+        ));
+        Ok(())
     }
 }

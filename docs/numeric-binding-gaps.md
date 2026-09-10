@@ -2,7 +2,8 @@
 
 This bounded follow-up addresses the three development failures retained in
 [the ABS numeric campaign](numeric-absolute-reference.json): two CASE literal
-result types and the bare maximum UHUGEINT literal. Development `99063af2bd`+is the correctness authority; original failed evidence is retained.
+result types and the bare maximum UHUGEINT literal. Development `99063af2bd`
+is the correctness authority; original failed evidence is retained.
 
 ## CASE prerequisite
 
@@ -26,3 +27,43 @@ parameters, lazy failures, atomic mutation and the pre-existing collection
 contract suite. Workspace/all-target check and clippy pass. Paired report and
 integrated maintained Kani evidence follow after the number-parsing prerequisite;
 this is not a separate substantial-stage completion or performance claim.
+
+## Bare integer prerequisite
+
+Numeric token construction now tries signed i128, unsigned u128, then the
+existing exact BIGNUM family parser. `Value::data_type` retains the established
+signed INTEGER/BIGINT/HUGEINT widths, and integers beyond u128 or below i128
+remain BIGNUM. Decimal and floating token rules are not expanded. The helper
+receives the actual statement QueryContext, including its existing decimal
+parse path; BIGNUM allocation and limb loops check that context rather than
+constructing an uninterruptible background query. Source authority is
+`PEGTransformerFactory::ConvertNumberToValue` in `transform_common.cpp`.
+
+Focused tests cover each signed-width transition, i128/u128 boundaries, a
+1,000-digit integer, exact casts/arithmetic, same-domain CASE/nested values,
+prepared parameters, indexed joins, atomic duplicate-key mutation, rollback,
+private/native checkpoints, native WAL and reopen. A helper-level test verifies
+the actual supplied cancellation context for integer, decimal, floating,
+UHUGEINT and BIGNUM tokens. An initial test incorrectly expected a Conversion
+error when assigning BIGNUM(2^128) to UHUGEINT; independent development instead
+returns zero under the previously recorded narrowing semantics. The atomic
+mutation test now exercises a genuine duplicate-key failure without changing
+those existing conversion semantics.
+
+Unsigned-literal provenance remains a separate observed limitation:
+`GetExpressionReturnType` classifies all non-NULL integral constants, including
+UHUGEINT, as INTEGER_LITERAL. Existing signed Option<i128> hints cannot express
+that whole domain. Further direct probes show development combining a maximum
+UHUGEINT with INTEGER into BIGINT in CASE/list contexts, including explicitly
+cast inputs; the rewrite's existing wide signed/unsigned proposal differs.
+The new campaign retains those failures explicitly. This prerequisite does not
+widen the public hint contract or pretend its signed hint covers UHUGEINT.
+
+After the numeric-token repair, numeric 40, contracts 32, types 18, nested 41,
+operators 10 and casts 12 tests pass. The direct statement-cancellation helper
+test passes separately. Workspace/all-target check and clippy pass; coverage
+reports 324 files, 3,033 functions and 216 interface methods, with no missing
+annotations. The interface-count change is from the integrated base, not a new
+public literal API. Trace compatibility passes in 1m00s with zero error returns,
+panics or open spans; temporary telemetry is deleted. Integrated maintained
+Kani and controlled regression/performance evidence remain lead-owned.
