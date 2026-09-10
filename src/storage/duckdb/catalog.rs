@@ -184,7 +184,9 @@ pub(super) fn logical_type_at(reader: &mut Reader, depth: usize) -> Result<DataT
             reader.end()?;
             DataType::enumeration(labels).map_err(|_| corrupt("invalid ENUM dictionary"))?
         }
-        id @ (100 | 101 | 102 | 107 | 108 | 110) => super::nested::read_type(reader, id, depth)?,
+        id @ (100 | 101 | 102 | 107 | 108 | 109 | 110) => {
+            super::nested::read_type(reader, id, depth)?
+        }
         21 => {
             reader.field(101)?;
             if !reader.boolean()? {

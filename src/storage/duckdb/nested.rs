@@ -10,6 +10,7 @@ use crate::{
     common::{NestedPayload, NestedValue, Value},
     storage::compression::DecoderRegistry,
 };
+mod variant;
 mod writer;
 pub(super) use writer::child_values;
 pub(super) use writer::{write_column, write_statistics};
@@ -53,6 +54,9 @@ pub(super) fn list_child(metadata: &NestedType) -> Result<DataType> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_statistics(reader: &mut Reader, metadata: &NestedType) -> Result<()> {
+    if matches!(metadata, NestedType::Variant) {
+        return variant::read_statistics(reader);
+    }
     reader.field(200)?;
     match metadata {
         NestedType::List(_) | NestedType::Map { .. } | NestedType::Array { .. } => {
@@ -315,7 +319,7 @@ pub(super) fn read_type(reader: &mut Reader, id: u64, depth: usize) -> Result<Da
     reader.field(100)?;
     let kind = reader.unsigned()?;
     let expected = match id {
-        100 | 107 | 110 => 5,
+        100 | 107 | 109 | 110 => 5,
         101 | 102 => 4,
         108 => 9,
         _ => return Err(corrupt("unknown nested type")),
@@ -354,7 +358,7 @@ pub(super) fn read_type(reader: &mut Reader, id: u64, depth: usize) -> Result<Da
                 }
             }
         }
-        100 | 107 | 110 => {
+        100 | 107 | 109 | 110 => {
             let count = if reader.optional(200)? {
                 reader.length()?
             } else {
@@ -372,7 +376,12 @@ pub(super) fn read_type(reader: &mut Reader, id: u64, depth: usize) -> Result<Da
                 reader.end()?;
                 fields.push((name, ty));
             }
-            if id == 107 {
+            if id == 109 {
+                if fields != variant::fields() {
+                    return Err(corrupt("VARIANT canonical physical metadata mismatch"));
+                }
+                NestedType::Variant
+            } else if id == 107 {
                 if fields.first() != Some(&(String::new(), DataType::UTinyInt)) {
                     return Err(corrupt("UNION tag metadata mismatch"));
                 }

@@ -543,3 +543,19 @@ missing attributes. Instrumentation compatibility completed in 36.43 seconds
 with zero error returns, panics or open spans; temporary telemetry was deleted.
 Kani is reserved for the lead's subsequent substantial integrated checkpoint;
 this alias increment does not claim a new independent proof run.
+
+### Native VARIANT reader prerequisites (internal increment)
+
+The reader recognizes logical ID109 with its exact canonical StructTypeInfo
+(`keys`, `children`, `values`, `data`), while retaining dynamic VARIANT identity
+in the public schema. VARIANT statistics consume bounded shredding states and
+the unshredded/optional typed child statistics. Recursive dynamic VARIANT inside
+the supposedly ordinary shredded schema is rejected before entering another
+statistics tree. Native column payload decoding and publication are still
+unsupported at this prerequisite; this is not end-to-end storage parity.
+
+Metadata/statistics units 2/2, ordinary check, nested 25/25, types 15/15 and
+all-target clippy pass. Coverage reports 285 files, 2,574 functions and 208
+interface methods without missing attributes. Instrumentation compatibility
+completed in 33.24 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted. Kani remains at the integrated substantial checkpoint.
