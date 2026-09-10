@@ -131,7 +131,8 @@ impl State<'_, '_> {
                     })
                     .collect::<Result<Vec<_>>>()?,
             ),
-            T::Time(_, zone) => Ok(
+            T::Time(Some(_), _) => Err(Error::Bind("TIME does not allow type modifiers".into())),
+            T::Time(None, zone) => Ok(
                 if matches!(
                     zone,
                     ast::TimezoneInfo::WithTimeZone | ast::TimezoneInfo::Tz
@@ -141,7 +142,19 @@ impl State<'_, '_> {
                     DataType::Time
                 },
             ),
-            T::Timestamp(_, zone) => Ok(
+            T::Timestamp(Some(_), ast::TimezoneInfo::Tz) => Err(Error::Bind(
+                "TIMESTAMPTZ does not allow type modifiers".into(),
+            )),
+            T::Timestamp(Some(precision), _) => match precision {
+                0 => Ok(DataType::TimestampS),
+                1..=3 => Ok(DataType::TimestampMs),
+                4..=6 => Ok(DataType::Timestamp),
+                // Pinned development accepts precision10 and resolves an
+                // explicit modifier before WITH TIME ZONE. Preserve both.
+                7..=10 => Ok(DataType::TimestampNs),
+                _ => Err(Error::Bind("TIMESTAMP precision outside 0..=10".into())),
+            },
+            T::Timestamp(None, zone) => Ok(
                 if matches!(
                     zone,
                     ast::TimezoneInfo::WithTimeZone | ast::TimezoneInfo::Tz

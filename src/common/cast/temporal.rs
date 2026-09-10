@@ -44,21 +44,53 @@ impl CastFunction for TemporalCast {
         {
             return true;
         }
-        if source.timestamp_precision().is_some() && target.timestamp_precision().is_some() {
-            return true;
-        }
         if *source == DataType::Date && target.timestamp_precision().is_some() {
             return true;
         }
-        if spec.mode != CastMode::Implicit
-            && source.timestamp_precision().is_some()
-            && matches!(target, DataType::Date | DataType::Time | DataType::TimeNs)
-        {
-            return true;
-        }
+        use DataType::*;
+        // This is the pinned core matrix, not a transitive graph: e.g. NS->S
+        // and TZ->DATE do not become casts merely because an intermediate exists.
         matches!(
             (source, target),
-            (DataType::Time, DataType::TimeNs) | (DataType::TimeNs, DataType::Time)
+            (Time, TimeNs | TimeTz)
+                | (TimeNs | TimeTz, Time)
+                | (
+                    Timestamp,
+                    Date | Time
+                        | TimeTz
+                        | TimestampTz
+                        | TimestampNs
+                        | TimestampTzNs
+                        | TimestampS
+                        | TimestampMs
+                )
+                | (
+                    TimestampTz,
+                    TimeTz | Timestamp | TimestampNs | TimestampS | TimestampMs
+                )
+                | (TimestampTzNs, TimeTz | TimestampNs | TimestampTz)
+                | (
+                    TimestampNs,
+                    Date | Time | TimeNs | Timestamp | TimestampTz | TimestampMs
+                )
+                | (
+                    TimestampS,
+                    Date | Time
+                        | TimestampMs
+                        | Timestamp
+                        | TimestampTz
+                        | TimestampNs
+                        | TimestampTzNs
+                )
+                | (
+                    TimestampMs,
+                    Date | Time
+                        | TimestampS
+                        | Timestamp
+                        | TimestampTz
+                        | TimestampNs
+                        | TimestampTzNs
+                )
         )
     }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {
@@ -71,6 +103,18 @@ impl CastFunction for TemporalCast {
             return Ok(Value::Varchar(value.as_temporal()?.to_string()));
         }
         if let Value::Date(date) = value {
+            if matches!(target, DataType::TimestampS | DataType::TimestampMs) {
+                let intermediate = CastSpec {
+                    source: DataType::Date,
+                    target: DataType::Timestamp,
+                    mode: spec.mode,
+                };
+                return self
+                    .cast(value, &intermediate, context)?
+                    .as_temporal()?
+                    .scale_timestamp(target)
+                    .map(Value::Temporal);
+            }
             let ticks = if !date.is_finite() {
                 if *date == crate::common::Date::INFINITY {
                     i64::MAX
@@ -91,9 +135,15 @@ impl CastFunction for TemporalCast {
             };
             return TemporalValue::from_ticks(target, ticks).map(Value::Temporal);
         }
-        let value = value.as_temporal()?;
+        let mut value = value.as_temporal()?;
         if target.timestamp_precision().is_some() {
             return value.scale_timestamp(target).map(Value::Temporal);
+        }
+        if let TemporalValue::TimeTz { micros, .. } = value {
+            return TemporalValue::from_ticks(target, micros).map(Value::Temporal);
+        }
+        if value.data_type().timestamp_precision().is_some() && *target != DataType::TimeNs {
+            value = value.scale_timestamp(&DataType::Timestamp)?;
         }
         if *target == DataType::Date {
             return value.date().map(Value::Date);
@@ -115,9 +165,25 @@ impl CastFunction for TemporalCast {
         } else {
             1_000_000
         };
-        let ticks = i128::from(value.ticks()?.rem_euclid(source_precision * 86400)) * precision
-            / i128::from(source_precision);
-        TemporalValue::from_ticks(target, ticks as i64).map(Value::Temporal)
+        let ticks = if value.data_type().timestamp_precision().is_some() {
+            value.ticks()?.rem_euclid(source_precision * 86400)
+        } else {
+            value.ticks()?
+        };
+        let ticks = if spec.source == DataType::TimeNs && *target == DataType::Time {
+            // Unlike timestamp casts, clock precision reduction rounds to nearest.
+            (i128::from(ticks) + 500) / 1000
+        } else {
+            i128::from(ticks) * precision / i128::from(source_precision)
+        };
+        if *target == DataType::TimeTz {
+            Ok(Value::Temporal(TemporalValue::TimeTz {
+                micros: ticks as i64,
+                offset: 0,
+            }))
+        } else {
+            TemporalValue::from_ticks(target, ticks as i64).map(Value::Temporal)
+        }
     }
 }
 

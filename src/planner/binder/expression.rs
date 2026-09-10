@@ -157,19 +157,50 @@ impl State<'_, '_> {
                 ],
             ),
             ast::Expr::Interval(interval)
-                if interval.leading_field.is_none() && interval.last_field.is_none() =>
+                if interval.last_field.is_none()
+                    && interval.leading_precision.is_none()
+                    && interval.fractional_seconds_precision.is_none() =>
             {
-                let literal = recurse(&interval.value)?;
-                let cast = self.context.casts.bind(
-                    &literal.data_type,
-                    &DataType::Interval,
-                    CastMode::Explicit,
-                    self.context.query.types(),
-                )?;
-                Ok(BoundExpr {
-                    data_type: DataType::Interval,
-                    kind: ExprKind::Cast(Box::new(literal), cast.into(), false),
-                })
+                let explicit_cast = |inner: BoundExpr, target: DataType| -> Result<BoundExpr> {
+                    let cast = self.context.casts.bind(
+                        &inner.data_type,
+                        &target,
+                        CastMode::Explicit,
+                        self.context.query.types(),
+                    )?;
+                    Ok(BoundExpr {
+                        data_type: target,
+                        kind: ExprKind::Cast(Box::new(inner), cast.into(), false),
+                    })
+                };
+                let inner = recurse(&interval.value)?;
+                let Some(field) = &interval.leading_field else {
+                    return explicit_cast(inner, DataType::Interval);
+                };
+                // Development's parser uses DOUBLE, truncation, then the unit's
+                // declared integer width. Retain selected casts/functions here.
+                let (name, target) = match field.to_string().to_ascii_lowercase().as_str() {
+                    "year" => ("to_years", DataType::Integer),
+                    "month" => ("to_months", DataType::Integer),
+                    "day" => ("to_days", DataType::Integer),
+                    "week" => ("to_weeks", DataType::Integer),
+                    "quarter" => ("to_quarters", DataType::Integer),
+                    "decade" => ("to_decades", DataType::Integer),
+                    "century" => ("to_centuries", DataType::Integer),
+                    "millennium" => ("to_millennia", DataType::Integer),
+                    "hour" => ("to_hours", DataType::BigInt),
+                    "minute" => ("to_minutes", DataType::BigInt),
+                    "microsecond" | "microseconds" => ("to_microseconds", DataType::BigInt),
+                    "millisecond" | "milliseconds" => ("to_milliseconds", DataType::Double),
+                    "second" => ("to_seconds", DataType::Double),
+                    _ => return Err(Error::Unsupported(format!("INTERVAL unit {field}"))),
+                };
+                let mut inner = explicit_cast(inner, DataType::Double)?;
+                if target != DataType::Double {
+                    inner = self.scalar_call("trunc", vec![inner])?;
+                    inner = explicit_cast(inner, target)?;
+                }
+                self.scalar_call(name, vec![inner])
             }
             ast::Expr::TypedString(typed) => {
                 let literal =

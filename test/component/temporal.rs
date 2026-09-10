@@ -375,6 +375,26 @@ fn temporal_functions_extract_epoch_constructors_and_infinity_are_typed() -> Res
     let mut c = Database::memory()?.connect();
     for (sql, expected) in [
         ("make_date(2024,2,29)", "2024-02-29"),
+        ("make_date(1)", "1970-01-02"),
+        ("typeof(NULL::TIMESTAMP(0))", "TIMESTAMP_S"),
+        ("typeof(NULL::TIMESTAMP(3))", "TIMESTAMP_MS"),
+        ("typeof(NULL::TIMESTAMP(6))", "TIMESTAMP"),
+        ("typeof(NULL::TIMESTAMP(10))", "TIMESTAMP_NS"),
+        ("typeof(NULL::TIMESTAMP(3) WITH TIME ZONE)", "TIMESTAMP_MS"),
+        ("TIMESTAMP_S '1969-12-31 23:59:59.5'", "1969-12-31 23:59:59"),
+        ("TIMESTAMP_S '1970-01-01 00:00:00.5'", "1970-01-01 00:00:01"),
+        (
+            "TIMESTAMP_MS '1970-01-01 00:00:00.0005'",
+            "1970-01-01 00:00:00.001",
+        ),
+        (
+            "TIMESTAMP_NS '2000-01-01 23:59:59.999999500'::DATE",
+            "2000-01-02",
+        ),
+        (
+            "TIMESTAMP_NS '1969-12-31 23:59:59.999999500'::TIMESTAMP",
+            "1969-12-31 23:59:59.999999",
+        ),
         ("make_time(12,34,56.1234565)", "12:34:56.123457"),
         (
             "make_timestamp(2000,1,2,3,4,5.123456)",
@@ -401,14 +421,54 @@ fn temporal_functions_extract_epoch_constructors_and_infinity_are_typed() -> Res
         ("month(INTERVAL '-13 months')", "-1"),
         ("hour(INTERVAL '35 hours')", "35"),
         ("epoch(INTERVAL '1 year')", "31557600"),
+        ("epoch_us(INTERVAL '1 year')", "31104000000000"),
+        ("epoch_ms(TIMESTAMP '1969-12-31 23:59:59.999500')", "-1"),
+        ("epoch(TIME_NS '00:00:00.000000789')", "0"),
         ("epoch(TIMETZ '13:00:00+01')", "46800"),
         ("epoch_us(TIME_NS '00:00:00.000000001')", "0"),
         ("epoch_ms(-1)", "1969-12-31 23:59:59.999"),
         ("isinf(TIMESTAMP 'infinity')", "true"),
-        ("isfinite(INTERVAL '1 year')", "true"),
+        ("isfinite(DATE 'epoch')", "true"),
+        ("isfinite('NaN'::DOUBLE)", "false"),
+        ("isinf('NaN'::DOUBLE)", "false"),
+        ("isinf('-Infinity'::FLOAT)", "true"),
         ("epoch(TIMESTAMP 'infinity')", "NULL"),
         ("year(DATE '-infinity')", "NULL"),
         ("date_part('epoch',TIMESTAMP 'epoch')", "0"),
+        (
+            "TIMESTAMP_S '1969-12-31 23:59:59.999999'",
+            "1970-01-01 00:00:00",
+        ),
+        (
+            "TIMESTAMP_MS '1969-12-31 23:59:59.999999'",
+            "1970-01-01 00:00:00",
+        ),
+        (
+            "TIMESTAMPTZ '2000-01-01 00:00:00+23:59'",
+            "1999-12-31 00:01:00+00",
+        ),
+        ("TIMETZ '12:00:00+02'::TIME", "12:00:00"),
+        ("TIME '24:00:00'::TIMETZ", "24:00:00+00"),
+        ("TIME '24:00:00'::TIME_NS", "24:00:00"),
+        ("TIME_NS '24:00:00'::TIME", "24:00:00"),
+        ("TIME_NS '00:00:00.000000500'::TIME", "00:00:00.000001"),
+        (
+            "TIMESTAMP_NS '1969-12-31 23:59:59.999999999'::TIME",
+            "00:00:00",
+        ),
+        (
+            "TIMESTAMP_NS '1969-12-31 23:59:59.999999999'::DATE",
+            "1970-01-01",
+        ),
+        ("epoch(TIMESTAMP_NS '1969-12-31 23:59:59.999999999')", "0"),
+        ("INTERVAL '1.9' YEAR", "1 year"),
+        ("INTERVAL (-1.9) MONTH", "-1 month"),
+        ("INTERVAL '1.5' SECOND", "00:00:01.5"),
+        ("INTERVAL 1 WEEK", "7 days"),
+        ("INTERVAL 1 QUARTER", "3 months"),
+        ("INTERVAL 1 CENTURY", "100 years"),
+        ("INTERVAL 1 DECADE", "10 years"),
+        ("INTERVAL 1 MILLENNIUM", "1000 years"),
     ] {
         assert_eq!(
             c.query(&format!("SELECT {sql}"))?.rows[0][0].to_string(),
@@ -432,8 +492,170 @@ fn temporal_functions_extract_epoch_constructors_and_infinity_are_typed() -> Res
         "SELECT make_time(25,0,0)",
         "SELECT to_years(2147483647)",
         "SELECT make_timestamp_ns('-9223372036854775808'::BIGINT)",
+        "SELECT make_date(DATE 'epoch')",
+        "SELECT make_time(TIME '00:00')",
+        "SELECT isfinite(INTERVAL '1 year')",
+        "SELECT isinf(TIME '00:00')",
+        "SELECT epoch_ms(TIME_NS '00:00:00.000999500')",
+        "SELECT year(TIME '00:00')",
+        "SELECT year(TIMESTAMPTZ 'epoch')",
+        "SELECT epoch(TIMESTAMPTZ 'epoch')",
+        "SELECT NULL::TIMESTAMP(11)",
+        "SELECT NULL::TIMESTAMPTZ(3)",
+        "SELECT NULL::TIME(3)",
+        "SELECT INTERVAL 2147483648 DAY",
+        "SELECT TIMESTAMPTZ 'epoch'::DATE",
+        "SELECT TIMESTAMP_NS 'epoch'::TIMESTAMP_S",
+        "SELECT TIMESTAMP_S '500000-01-01'",
+        "SELECT TIMESTAMP_MS '500000-01-01'",
+        "SELECT DATE '500000-01-01'::TIMESTAMP_S",
     ] {
         assert!(c.query(sql).is_err(), "{sql}");
     }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn temporal_functions_cross_nested_values_parameters_indexes_mutations_and_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    for batched in [false, true] {
+        for hashed in [false, true] {
+            let path = directory
+                .path()
+                .join(format!("calendar-{batched}-{hashed}.json"));
+            let open = || {
+                DatabaseBuilder::new()
+                    .batch_size(2)
+                    .expressions(if batched {
+                        Arc::new(BatchedEvaluator)
+                    } else {
+                        Arc::new(ScalarEvaluator)
+                    })
+                    .indexes(if hashed {
+                        Arc::new(HashIndexFactory)
+                    } else {
+                        Arc::new(BTreeIndexFactory)
+                    })
+                    .durability(Arc::new(FileCheckpoint::open(
+                        &path,
+                        OpenMode::ReadWrite,
+                        Arc::new(JsonSnapshotFormat),
+                    )?))
+                    .build()
+            };
+            let mut c = open()?.connect();
+            c.execute("CREATE TABLE events(id INTEGER PRIMARY KEY,ts TIMESTAMP_NS UNIQUE,payload STRUCT(occurred TIMESTAMP,budget DECIMAL(8,2)),samples TIMESTAMP[],span INTERVAL)")?;
+            let insert=c.prepare("INSERT INTO events SELECT $1,$2,{'occurred':$2::TIMESTAMP,'budget':$3::DECIMAL(8,2)},[$2::TIMESTAMP,NULL],INTERVAL ($4) DAY")?;
+            for (id, time, budget, days) in [
+                (1, "2000-01-31 23:59:59.999999500", "1.25", 1.9),
+                (2, "2000-02-01 00:00:00", "2.50", -1.9),
+            ] {
+                c.execute_prepared(
+                    &insert,
+                    &[
+                        Value::Integer(id),
+                        Value::Temporal(TemporalValue::parse(time, &DataType::TimestampNs)?),
+                        Value::Varchar(budget.into()),
+                        Value::Double(days),
+                    ],
+                )?;
+            }
+            c.execute_prepared(
+                &insert,
+                &[Value::Integer(3), Value::Null, Value::Null, Value::Null],
+            )?;
+            assert!(
+                c.execute("INSERT INTO events(id,ts) VALUES(4,TIMESTAMP_NS '2000-02-01')")
+                    .is_err()
+            );
+            let projection = "SELECT id,year(ts),list_extract(samples,1),struct_extract(payload,'occurred')+span FROM events ORDER BY id";
+            let rows = c.query(projection)?.rows;
+            assert_eq!(rows[0][1], Value::Integer(2000));
+            assert_eq!(rows[0][2].to_string(), "2000-02-01 00:00:00");
+            assert_eq!(rows[0][3].to_string(), "2000-02-02 00:00:00");
+            assert_eq!(rows[1][3].to_string(), "2000-01-31 00:00:00");
+            assert!(rows[2][1..].iter().all(Value::is_null));
+            assert_eq!(
+                c.query("SELECT count(*) FROM events a JOIN events b ON year(a.ts)=year(b.ts)")?
+                    .rows,
+                vec![vec![Value::Integer(4)]]
+            );
+            assert_eq!(c.query("SELECT year(ts),sum(struct_extract(payload,'budget')) FROM events GROUP BY year(ts) ORDER BY year(ts)")?.rows[0],vec![Value::Integer(2000),Value::Decimal{value:375,width:38,scale:2}]);
+            assert_eq!(c.query("SELECT id,epoch_us(min(struct_extract(payload,'occurred')) OVER (ORDER BY ts ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) FROM events ORDER BY id")?.rows[0][1],Value::Integer(949363200000000));
+            c.execute("BEGIN; UPDATE events SET span=INTERVAL 9 DAY; DELETE FROM events WHERE year(ts)=2000; ROLLBACK")?;
+            assert_eq!(c.query(projection)?.rows, rows);
+            c.execute(
+                "UPDATE events SET samples=[make_timestamp(0),NULL],span=to_hours(2) WHERE id=1",
+            )?;
+            let committed = c.query("SELECT * FROM events ORDER BY id")?.rows;
+            drop(c);
+            assert_eq!(
+                open()?
+                    .connect()
+                    .query("SELECT * FROM events ORDER BY id")?
+                    .rows,
+                committed
+            );
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SelectedTemporalSyntaxFunction {
+    name: &'static str,
+    result: Value,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl duckdb_rust::function::ScalarFunction for SelectedTemporalSyntaxFunction {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn return_type(
+        &self,
+        _arguments: &[DataType],
+        _types: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        Ok(if matches!(self.result, Value::Double(_)) {
+            DataType::Double
+        } else {
+            DataType::BigInt
+        })
+    }
+    fn evaluate(
+        &self,
+        _arguments: &[Value],
+        query: &duckdb_rust::parallel::QueryContext,
+    ) -> Result<Value> {
+        query.check()?;
+        Ok(self.result.clone())
+    }
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn temporal_syntax_uses_selected_scalar_adapters() -> Result<()> {
+    let builtins = duckdb_rust::function::FunctionRegistry::builtins();
+    let mut functions = duckdb_rust::function::FunctionRegistry::default();
+    functions.register_scalar(Arc::new(SelectedTemporalSyntaxFunction {
+        name: "date_part",
+        result: Value::Integer(77),
+    }))?;
+    functions.register_scalar(Arc::new(SelectedTemporalSyntaxFunction {
+        name: "trunc",
+        result: Value::Double(2.0),
+    }))?;
+    functions.register_scalar(builtins.scalar("to_days")?)?;
+    let mut c = DatabaseBuilder::new()
+        .functions(functions)
+        .build()?
+        .connect();
+    let rows = c
+        .query("SELECT EXTRACT(year FROM DATE '2000-01-01'),INTERVAL 9 DAY")?
+        .rows;
+    assert_eq!(rows[0][0], Value::Integer(77));
+    assert_eq!(rows[0][1].to_string(), "2 days");
     Ok(())
 }

@@ -44,6 +44,11 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "make_timestamp_ms",
         "make_timestamp_ns",
         "to_years",
+        "to_centuries",
+        "to_decades",
+        "to_millennia",
+        "to_quarters",
+        "to_weeks",
         "to_months",
         "to_days",
         "to_hours",
@@ -97,13 +102,15 @@ impl ScalarFunction for TemporalFunction {
         _types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Vec<DataType>> {
         use DataType::*;
-        let types = match (self.name, arguments.len()) {
+        let mut types = match (self.name, arguments.len()) {
             ("make_date", 3) => vec![BigInt; 3],
+            ("make_date", 1) => vec![Integer],
             ("make_time", 3) => vec![BigInt, BigInt, Double],
             ("make_timestamp", 6) => vec![BigInt, BigInt, BigInt, BigInt, BigInt, Double],
             ("make_timestamp" | "make_timestamp_ms" | "make_timestamp_ns", 1) => vec![BigInt],
             (
-                "to_years" | "to_months" | "to_days" | "to_hours" | "to_minutes"
+                "to_years" | "to_centuries" | "to_decades" | "to_millennia" | "to_quarters"
+                | "to_weeks" | "to_months" | "to_days" | "to_hours" | "to_minutes"
                 | "to_microseconds",
                 1,
             ) => vec![BigInt],
@@ -111,6 +118,21 @@ impl ScalarFunction for TemporalFunction {
             ("epoch_ms", 1) if arguments[0].is_signed_integer() => vec![BigInt],
             _ => arguments.to_vec(),
         };
+        if !self.name.starts_with("make_")
+            && !self.name.starts_with("to_")
+            && let Some(last) = types.last_mut()
+        {
+            // Core overloads use microsecond TIMESTAMP; NS has an exact
+            // overload only for epoch_ns. Coercion happens before evaluation.
+            if matches!(last, TimestampS | TimestampMs)
+                || (*last == TimestampNs && self.name != "epoch_ns")
+            {
+                *last = Timestamp;
+            }
+            if matches!(self.name, "isfinite" | "isinf") && last.is_numeric() && *last != Float {
+                *last = Double;
+            }
+        }
         Ok(types)
     }
     fn return_type(
@@ -121,6 +143,7 @@ impl ScalarFunction for TemporalFunction {
         use DataType::*;
         let result = match (self.name, arguments) {
             ("make_date", [BigInt, BigInt, BigInt]) => Date,
+            ("make_date", [Integer]) => Date,
             ("make_time", [BigInt, BigInt, Double]) => Time,
             ("make_timestamp", [BigInt] | [BigInt, BigInt, BigInt, BigInt, BigInt, Double]) => {
                 Timestamp
@@ -128,37 +151,42 @@ impl ScalarFunction for TemporalFunction {
             ("make_timestamp_ms", [BigInt]) => Timestamp,
             ("make_timestamp_ns", [BigInt]) => TimestampNs,
             (
-                "to_years" | "to_months" | "to_days" | "to_hours" | "to_minutes"
+                "to_years" | "to_centuries" | "to_decades" | "to_millennia" | "to_quarters"
+                | "to_weeks" | "to_months" | "to_days" | "to_hours" | "to_minutes"
                 | "to_microseconds",
                 [BigInt],
             ) => Interval,
             ("to_seconds" | "to_milliseconds", [Double]) => Interval,
             ("epoch_ms", [BigInt]) => Timestamp,
-            ("date_part" | "datepart", [Varchar, t])
-                if *t == Date || t.is_temporal() || *t == Null =>
-            {
+            (
+                "date_part" | "datepart",
+                [
+                    Varchar,
+                    Date | Timestamp | Time | TimeNs | TimeTz | Interval | Null,
+                ],
+            ) => {
                 if self.part.is_none() || self.part.as_deref() == Some("epoch") {
                     Double
                 } else {
                     BigInt
                 }
             }
-            ("isfinite" | "isinf", [t]) if *t == Date || t.is_temporal() || *t == Null => Boolean,
-            ("epoch", [t]) if *t == Date || t.is_temporal() || *t == Null => Double,
+            ("isfinite" | "isinf", [Date | Timestamp | TimestampTz | Float | Double | Null]) => {
+                Boolean
+            }
+            ("epoch", [Date | Timestamp | Time | TimeNs | TimeTz | Interval | Null]) => Double,
             ("epoch_ms" | "epoch_us" | "epoch_ns", [t])
-                if *t == Date || t.is_temporal() || *t == Null =>
+                if matches!(
+                    t,
+                    Date | Timestamp | TimestampTz | Time | TimeNs | TimeTz | Interval | Null
+                ) || (self.name == "epoch_ns" && matches!(t, TimestampNs | TimestampTzNs)) =>
             {
                 BigInt
             }
-            ("last_day", [t]) if *t == Date || t.timestamp_precision().is_some() || *t == Null => {
-                Date
-            }
-            ("dayname" | "monthname", [t])
-                if *t == Date || t.timestamp_precision().is_some() || *t == Null =>
-            {
-                Varchar
-            }
-            (_, [t]) if *t == Date || t.is_temporal() || *t == Null => BigInt,
+            ("last_day", [Date | Timestamp | Null]) => Date,
+            ("dayname" | "monthname", [Date | Timestamp | Null]) => Varchar,
+            (name, [Date | Timestamp | Interval | Null]) if is_extract(name) => BigInt,
+            (name, [Time | TimeNs | TimeTz]) if is_clock_extract(name) => BigInt,
             _ => {
                 return Err(Error::Bind(format!(
                     "no overload for {}({arguments:?})",
@@ -173,7 +201,21 @@ impl ScalarFunction for TemporalFunction {
         if arguments.iter().any(Value::is_null) {
             return Ok(Value::Null);
         }
+        if matches!(self.name, "isfinite" | "isinf") && arguments[0].data_type().is_numeric() {
+            let value = arguments[0].as_f64()?;
+            return Ok(Value::Boolean(if self.name == "isfinite" {
+                value.is_finite()
+            } else {
+                value.is_infinite()
+            }));
+        }
         match self.name {
+            "make_date" if arguments.len() == 1 => {
+                return i32::try_from(arguments[0].as_i128()?)
+                    .map_err(|_| invalid("date days range"))
+                    .and_then(Date::from_days)
+                    .map(Value::Date);
+            }
             "make_date" => return make_date(arguments).map(Value::Date),
             "make_time" => {
                 return make_time(arguments).map(|v| Value::Temporal(TemporalValue::Time(v)));
@@ -264,6 +306,33 @@ fn make_date(arguments: &[Value]) -> Result<Date> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn is_clock_extract(name: &str) -> bool {
+    matches!(
+        name,
+        "hour" | "minute" | "second" | "microsecond" | "millisecond"
+    )
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn is_extract(name: &str) -> bool {
+    is_clock_extract(name)
+        || matches!(
+            name,
+            "year"
+                | "month"
+                | "day"
+                | "dayofmonth"
+                | "quarter"
+                | "dayofyear"
+                | "dayofweek"
+                | "isodow"
+                | "century"
+                | "decade"
+                | "millennium"
+        )
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn make_time(arguments: &[Value]) -> Result<i64> {
     let hour = arguments[0].as_i128()?;
     let minute = arguments[1].as_i128()?;
@@ -281,16 +350,30 @@ fn make_time(arguments: &[Value]) -> Result<i64> {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn interval_constructor(name: &str, value: &Value) -> Result<Value> {
     let (months, days, micros) = match name {
-        "to_years" => (
+        "to_years" | "to_centuries" | "to_decades" | "to_millennia" | "to_quarters" => (
             value
                 .as_i128()?
-                .checked_mul(12)
+                .checked_mul(match name {
+                    "to_centuries" => 1200,
+                    "to_decades" => 120,
+                    "to_millennia" => 12000,
+                    "to_quarters" => 3,
+                    _ => 12,
+                })
                 .ok_or_else(|| invalid("interval years overflow"))?,
             0,
             0,
         ),
         "to_months" => (value.as_i128()?, 0, 0),
         "to_days" => (0, value.as_i128()?, 0),
+        "to_weeks" => (
+            0,
+            value
+                .as_i128()?
+                .checked_mul(7)
+                .ok_or_else(|| invalid("interval weeks overflow"))?,
+            0,
+        ),
         "to_hours" => (
             0,
             0,
@@ -331,6 +414,50 @@ fn interval_constructor(name: &str, value: &Value) -> Result<Value> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn epoch(value: &Value, part: &str) -> Result<Value> {
+    if part == "epoch_ms"
+        && let Value::Temporal(t) = value
+    {
+        if t.data_type() == DataType::TimeNs {
+            // The pinned core advertises this overload, but its execution
+            // is an unimplemented cast; preserve NULL propagation above.
+            return Err(invalid("core epoch_ms(TIME_NS) cast is unimplemented"));
+        }
+        if t.data_type().timestamp_precision().is_some() {
+            return t
+                .scale_timestamp(&DataType::TimestampMs)?
+                .ticks()
+                .map(|n| Value::Integer(i128::from(n)));
+        }
+    }
+    if part != "epoch"
+        && let Value::Temporal(TemporalValue::Interval {
+            months,
+            days,
+            micros,
+        }) = value
+    {
+        // Integer epoch units use 30-day months, unlike floating epoch's
+        // 365.25-day years. Match checked component additions before scaling.
+        let divisor = if part == "epoch_ms" { 1000 } else { 1 };
+        let month = i64::from(*months)
+            .checked_mul(MICROS_PER_DAY * 30 / divisor)
+            .ok_or_else(|| invalid("interval epoch month overflow"))?;
+        let day = i64::from(*days)
+            .checked_mul(MICROS_PER_DAY / divisor)
+            .ok_or_else(|| invalid("interval epoch day overflow"))?;
+        let total = (micros / divisor)
+            .checked_add(month)
+            .and_then(|n| n.checked_add(day))
+            .ok_or_else(|| invalid("interval epoch overflow"))?;
+        let total = if part == "epoch_ns" {
+            total
+                .checked_mul(1000)
+                .ok_or_else(|| invalid("interval epoch nanos overflow"))?
+        } else {
+            total
+        };
+        return Ok(Value::Integer(i128::from(total)));
+    }
     let (ticks, precision) = match value {
         Value::Date(date) => (i128::from(date.days()) * 86400, 1),
         Value::Temporal(TemporalValue::Interval {
@@ -347,6 +474,9 @@ fn epoch(value: &Value, part: &str) -> Result<Value> {
             )
         }
         Value::Temporal(TemporalValue::TimeTz { micros, .. }) => (i128::from(*micros), 1_000_000),
+        Value::Temporal(TemporalValue::TimeNs(nanos)) if part != "epoch_ns" => {
+            (i128::from(nanos / 1000), 1_000_000)
+        }
         Value::Temporal(t) => (
             i128::from(t.ticks()?),
             t.data_type()
@@ -436,6 +566,10 @@ fn extract(value: &Value, part: &str) -> Result<Value> {
         "second" | "seconds" => micros / 1_000_000 % 60,
         "millisecond" | "milliseconds" => micros % 60_000_000 / 1000,
         "microsecond" | "microseconds" => micros % 60_000_000,
+        "quarter" if interval => i64::from((months % 12) / 3 + 1),
+        "century" if interval => i64::from(months / 1200),
+        "decade" if interval => i64::from(months / 120),
+        "millennium" if interval => i64::from(months / 12000),
         "timezone" | "timezone_hour" | "timezone_minute" => {
             let offset = match value {
                 Value::Temporal(TemporalValue::TimeTz { offset, .. }) => i64::from(*offset),
