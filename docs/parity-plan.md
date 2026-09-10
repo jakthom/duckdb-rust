@@ -19,7 +19,11 @@ measurements and the selected baseline; non-comparable or unmeasured scopes
 remain open. See the acceptance requirements for the 2026-09-10 clarification.
 
 Implementation priority is porting database functionality to Rust. The current
-increment adds unsigned and decimal types and coercion; its
+large assignment is the [value-and-expression subsystem](../specs/value-expression-milestone.md),
+with [continuous integration progress](value-expression-progress.md). Numeric,
+temporal and nested workers share that end-to-end outcome; type declarations and
+small commits are internal steps. The preceding increment added unsigned and
+decimal types and coercion; its
 [progress report](numeric-port.md) records the implemented foundation and open
 correctness, native-file and performance obligations. The latest
 [binding follow-up](binding-regressions.md) corrects destination-directed VALUES

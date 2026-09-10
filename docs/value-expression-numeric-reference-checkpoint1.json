@@ -1,0 +1,3182 @@
+{
+  "recorded_at": "2026-09-10T17:51:52.514515+00:00",
+  "source_sha256": "2ee565802a152551f393e83c597efba72a9bbce50fc77c56594a83540c7605e3",
+  "build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--release",
+    "--no-default-features",
+    "--bin",
+    "duckdb-rust",
+    "--bin",
+    "duckdb-rust-test-worker"
+  ],
+  "rust_worker_sha256": "5ae734390383f74e0b739211c4ba98e317cb9fb09226d89f2e8bec0b1eae0d1a",
+  "rust_cli_sha256": "729e1bd5c2e546cc274da8e32099e8218a1b2b2ec6a44051355887e31cbae8bb",
+  "script_sha256": "45122d9218eac582a6426d6b64fd92cac8cd5a0610cfad74aa5c3a5a671f7686",
+  "targets": [
+    {
+      "target": "release",
+      "sql": [
+        {
+          "sql": "SELECT 255::UTINYINT,65535::USMALLINT,4294967295::UINTEGER,18446744073709551615::UBIGINT,'340282366920938463463374607431768211455'::UHUGEINT",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UTINYINT",
+              "USMALLINT",
+              "UINTEGER",
+              "UBIGINT",
+              "UHUGEINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "255",
+                "65535",
+                "4294967295",
+                "18446744073709551615",
+                "340282366920938463463374607431768211455"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT",
+              "USMALLINT",
+              "UINTEGER",
+              "UBIGINT",
+              "UHUGEINT"
+            ],
+            "rows": [
+              [
+                "255",
+                "65535",
+                "4294967295",
+                "18446744073709551615",
+                "340282366920938463463374607431768211455"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1.25, 1.25+2.5, 1.25*2.5, 1.25/2.5, 10.0%3.0, -1.25",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(3,2)",
+              "DECIMAL(4,2)",
+              "DECIMAL(5,3)",
+              "DOUBLE",
+              "DECIMAL(3,1)",
+              "DECIMAL(3,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.25",
+                "3.75",
+                "3.125",
+                "0.5",
+                "1.0",
+                "-1.25"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(3,2)",
+              "DECIMAL(4,2)",
+              "DECIMAL(5,3)",
+              "DOUBLE",
+              "DECIMAL(3,1)",
+              "DECIMAL(3,2)"
+            ],
+            "rows": [
+              [
+                "1.25",
+                "3.75",
+                "3.125",
+                "0.5",
+                "1.0",
+                "-1.25"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UTINYINT+1, 1::UTINYINT+1::USMALLINT, 1::UINTEGER+1::BIGINT, 1::UBIGINT+1::BIGINT, 1::UHUGEINT+1::BIGINT",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UTINYINT",
+              "USMALLINT",
+              "BIGINT",
+              "HUGEINT",
+              "DOUBLE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "2",
+                "2",
+                "2",
+                "2",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT",
+              "USMALLINT",
+              "BIGINT",
+              "HUGEINT",
+              "DOUBLE"
+            ],
+            "rows": [
+              [
+                "2",
+                "2",
+                "2",
+                "2",
+                "2.0"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 0.5::DECIMAL(1,1)+1::TINYINT, 0.5::DECIMAL(1,1)+1::BIGINT, 0.5::DECIMAL(1,1)*10::INTEGER",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,1)",
+              "DECIMAL(21,1)",
+              "DECIMAL(11,1)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.5",
+                "1.5",
+                "5.0"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,1)",
+              "DECIMAL(21,1)",
+              "DECIMAL(11,1)"
+            ],
+            "rows": [
+              [
+                "1.5",
+                "1.5",
+                "5.0"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '-1.235'::DECIMAL(5,2), '1.234999999999999999999999999999999999'::DECIMAL(5,2), '123.45e-1'::DECIMAL(8,3)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)",
+              "DECIMAL(8,3)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-1.24",
+                "1.23",
+                "12.345"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)",
+              "DECIMAL(8,3)"
+            ],
+            "rows": [
+              [
+                "-1.24",
+                "1.23",
+                "12.345"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1.235::DECIMAL(5,2), (-1.235)::DECIMAL(5,2), (1.5::DECIMAL(3,1))::INTEGER, (-1.5::DECIMAL(3,1))::INTEGER",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)",
+              "INTEGER",
+              "INTEGER"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.24",
+                "-1.24",
+                "2",
+                "-2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)",
+              "INTEGER",
+              "INTEGER"
+            ],
+            "rows": [
+              [
+                "1.24",
+                "-1.24",
+                "2",
+                "-2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST('256' AS UTINYINT),TRY_CAST('-1' AS UHUGEINT),TRY_CAST('999.995' AS DECIMAL(5,2)),TRY_CAST('bad' AS DECIMAL(38,3))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UTINYINT",
+              "UHUGEINT",
+              "DECIMAL(5,2)",
+              "DECIMAL(38,3)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT",
+              "UHUGEINT",
+              "DECIMAL(5,2)",
+              "DECIMAL(38,3)"
+            ],
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT abs(-1.25),round(-1.25),abs(1::UTINYINT),round(1::UBIGINT),sqrt(4::DECIMAL(3,1))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(3,2)",
+              "DECIMAL(3,0)",
+              "UTINYINT",
+              "HUGEINT",
+              "DOUBLE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.25",
+                "-1",
+                "1",
+                "1",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(3,2)",
+              "DECIMAL(3,0)",
+              "UTINYINT",
+              "HUGEINT",
+              "DOUBLE"
+            ],
+            "rows": [
+              [
+                "1.25",
+                "-1",
+                "1",
+                "1",
+                "2.0"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT x FROM (SELECT 1::UTINYINT x UNION ALL SELECT -1::TINYINT UNION ALL SELECT 255::UTINYINT) t ORDER BY x",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "SMALLINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-1"
+              ],
+              [
+                "1"
+              ],
+              [
+                "255"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "SMALLINT"
+            ],
+            "rows": [
+              [
+                "-1"
+              ],
+              [
+                "1"
+              ],
+              [
+                "255"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT x FROM (SELECT 1.25::DECIMAL(5,2) x UNION ALL SELECT 1.250::DECIMAL(8,3)) t ORDER BY x",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(8,3)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.250"
+              ],
+              [
+                "1.250"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(8,3)"
+            ],
+            "rows": [
+              [
+                "1.250"
+              ],
+              [
+                "1.250"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT sum(x),avg(x),min(x),max(x) FROM (VALUES (1.25::DECIMAL(5,2)),(2.50),(NULL)) t(x)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(38,2)",
+              "DOUBLE",
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "3.75",
+                "1.875",
+                "1.25",
+                "2.50"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(38,2)",
+              "DOUBLE",
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)"
+            ],
+            "rows": [
+              [
+                "3.75",
+                "1.875",
+                "1.25",
+                "2.50"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT sum(x),avg(x),min(x),max(x) FROM (VALUES (18446744073709551615::UBIGINT),(1::UBIGINT),(NULL)) t(x)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "HUGEINT",
+              "DOUBLE",
+              "UBIGINT",
+              "UBIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "18446744073709551616",
+                "9223372036854776000",
+                "1",
+                "18446744073709551615"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "HUGEINT",
+              "DOUBLE",
+              "UBIGINT",
+              "UBIGINT"
+            ],
+            "rows": [
+              [
+                "18446744073709551616",
+                "9.223372036854776e+18",
+                "1",
+                "18446744073709551615"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT sum(x),avg(x) FROM (VALUES ('340282366920938463463374607431768211455'::UHUGEINT),(NULL)) t(x)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DOUBLE",
+              "DOUBLE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "340282366920938500000000000000000000000",
+                "340282366920938500000000000000000000000"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DOUBLE",
+              "DOUBLE"
+            ],
+            "rows": [
+              [
+                "3.402823669209385e+38",
+                "3.402823669209385e+38"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT x, sum(x) OVER (ORDER BY x ROWS UNBOUNDED PRECEDING) FROM (VALUES (1.25::DECIMAL(5,2)),(2.50)) t(x) ORDER BY x",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(38,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.25",
+                "1.25"
+              ],
+              [
+                "2.50",
+                "3.75"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(38,2)"
+            ],
+            "rows": [
+              [
+                "1.25",
+                "1.25"
+              ],
+              [
+                "2.50",
+                "3.75"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT a.x FROM (VALUES (1.25::DECIMAL(5,2)),(NULL)) a(x) JOIN (VALUES (1.250::DECIMAL(8,3))) b(x) USING(x)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.25"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)"
+            ],
+            "rows": [
+              [
+                "1.25"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT x FROM (VALUES ('340282366920938463463374607431768211455'::UHUGEINT),(0::UHUGEINT),(NULL)) t(x) INTERSECT SELECT x FROM (VALUES ('340282366920938463463374607431768211455'::UHUGEINT),(NULL)) u(x) ORDER BY x",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UHUGEINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "340282366920938463463374607431768211455"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UHUGEINT"
+            ],
+            "rows": [
+              [
+                "340282366920938463463374607431768211455"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT typeof(1::DECIMAL(18,0)+1::DECIMAL(18,0)),typeof(coalesce(1::DECIMAL(38,0),1::DECIMAL(38,38)))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "DECIMAL(19,0)",
+                "DECIMAL(38,0)"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "DECIMAL(18,0)",
+                "DECIMAL(38,0)"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT typeof(CAST('bad' AS DECIMAL(5,2))),typeof(round(1::UTINYINT)),typeof(round(1::UHUGEINT))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "DECIMAL(5,2)",
+                "BIGINT",
+                "DOUBLE"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "DECIMAL(5,2)",
+                "BIGINT",
+                "DOUBLE"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '1_2.3_4'::DECIMAL(5,2),'0xf_f'::UHUGEINT,'0b1_0'::UBIGINT,'1e1_0'::DECIMAL(38,0)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)",
+              "UHUGEINT",
+              "UBIGINT",
+              "DECIMAL(38,0)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "12.34",
+                "255",
+                "2",
+                "10000000000"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string '0xf_f' to UINT128\n\nLINE 1: SELECT '1_2.3_4'::DECIMAL(5,2),'0xf_f'::UHUGEINT,'0b1_0'::UBIGINT,'1e1_0'::DECIMAL(38,0)\n                                              ^"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT TRY_CAST('+0xff' AS UBIGINT),TRY_CAST('0x_ff' AS UBIGINT),TRY_CAST('1__2' AS UBIGINT),TRY_CAST('1_.0' AS DECIMAL(5,2))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UBIGINT",
+              "UBIGINT",
+              "UBIGINT",
+              "DECIMAL(5,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UBIGINT",
+              "UBIGINT",
+              "UBIGINT",
+              "DECIMAL(5,2)"
+            ],
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT -1::UTINYINT",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in UTINYINT arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT"
+            ],
+            "rows": [
+              [
+                "255"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT -1::USMALLINT",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in USMALLINT arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "USMALLINT"
+            ],
+            "rows": [
+              [
+                "65535"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT -1::UINTEGER",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in UINTEGER arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UINTEGER"
+            ],
+            "rows": [
+              [
+                "4294967295"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT -1::UBIGINT",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in UBIGINT arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UBIGINT"
+            ],
+            "rows": [
+              [
+                "18446744073709551615"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT -1::UHUGEINT",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in UHUGEINT arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UHUGEINT"
+            ],
+            "rows": [
+              [
+                "340282366920938463463374607431768211455"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::UTINYINT//0::UTINYINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::UTINYINT%0::UTINYINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::USMALLINT//0::USMALLINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "USMALLINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::USMALLINT%0::USMALLINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "USMALLINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::UINTEGER//0::UINTEGER",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UINTEGER"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::UINTEGER%0::UINTEGER",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UINTEGER"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::UBIGINT//0::UBIGINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UBIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::UBIGINT%0::UBIGINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UBIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::UHUGEINT//0::UHUGEINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UHUGEINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1::UHUGEINT%0::UHUGEINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UHUGEINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 1.0%0.0",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(2,1)"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT 'a'::DECIMAL(5,2)",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Could not convert string \"a\" to DECIMAL(5,2)",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string \"a\" to DECIMAL(5,2)\n\nLINE 1: SELECT 'a'::DECIMAL(5,2)\n                  ^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 256::UTINYINT",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Type INTEGER with value 256 can't be cast because the value is out of range for the destination type UTINYINT",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Type INT32 with value 256 can't be cast because the value is out of range for the destination type UINT8\n\nLINE 1: SELECT 256::UTINYINT\n                  ^"
+          },
+          "passed": true
+        }
+      ],
+      "persistence": [
+        {
+          "producer": "cpp",
+          "passed": true,
+          "checkpoint_sha256": "9a6a22b0d4798cc49b0b1962ce567f287b7de7944401aa366a4078ff9834e728",
+          "final_rows": [
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "-99999999999999999999999999999999999.999"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "3.375"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "4.500"
+            }
+          ]
+        },
+        {
+          "producer": "rust-checkpoint",
+          "passed": true,
+          "checkpoint_sha256": "3ea138d5a9294b6e8a0c0637dbc7c9c1c6848a89221313f01a0860da901dd021",
+          "final_rows": [
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "-99999999999999999999999999999999999.999"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "3.375"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "4.500"
+            }
+          ]
+        },
+        {
+          "producer": "rust-wal",
+          "passed": true,
+          "checkpoint_sha256": "f9480165a4db443cc4760a5de5b03187281f10c63eb92d5a57c112684cd2742a",
+          "wal_sha256": "f9e032962c87161f22385689c4fde4efd69a290da48bf28343a68cff57fe5a90",
+          "final_rows": [
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "-99999999999999999999999999999999999.999"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "3.375"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "4.500"
+            }
+          ]
+        }
+      ],
+      "passed": false,
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb-v1.5.5/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/target/numeric-reference-release"
+      ],
+      "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+      "cpp_worker_sha256": "e21300555f1c64584da6f0ad30c5ee3b3177d7b2c9e9d7d6d79b3e1b940f65d9",
+      "rust_adapters": {
+        "adapters": [
+          [
+            "transactions",
+            "optimistic-snapshot"
+          ],
+          [
+            "catalog",
+            "snapshot-catalog"
+          ],
+          [
+            "storage",
+            "snapshot-table"
+          ],
+          [
+            "indexes",
+            "hash-equality"
+          ],
+          [
+            "types",
+            "binary-scalar-types"
+          ],
+          [
+            "types",
+            "calendar-temporal"
+          ],
+          [
+            "types",
+            "exact-numeric-types"
+          ],
+          [
+            "types",
+            "gregorian-date"
+          ],
+          [
+            "types",
+            "primitive-types"
+          ],
+          [
+            "types",
+            "recursive-nested-types"
+          ],
+          [
+            "durability",
+            "memory"
+          ],
+          [
+            "casts",
+            "binary-scalar-cast"
+          ],
+          [
+            "casts",
+            "calendar-temporal-cast"
+          ],
+          [
+            "casts",
+            "exact-numeric-cast"
+          ],
+          [
+            "casts",
+            "gregorian-date-cast"
+          ],
+          [
+            "casts",
+            "primitive-cast"
+          ],
+          [
+            "casts",
+            "recursive-nested-cast"
+          ],
+          [
+            "casts",
+            "structural-cast"
+          ],
+          [
+            "operators",
+            "blob-concatenate"
+          ],
+          [
+            "operators",
+            "checked-decimal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-numeric-arithmetic"
+          ],
+          [
+            "operators",
+            "gregorian-date-arithmetic"
+          ],
+          [
+            "operators",
+            "like-greedy"
+          ],
+          [
+            "operators",
+            "string-concatenate"
+          ],
+          [
+            "physical_planner",
+            "native-physical"
+          ],
+          [
+            "scan_filter",
+            "fused-scan-filter"
+          ],
+          [
+            "recursion",
+            "streaming-recursion"
+          ],
+          [
+            "aggregation",
+            "hash-aggregation"
+          ],
+          [
+            "sorting",
+            "integer-radix-sort"
+          ],
+          [
+            "set_operations",
+            "hash-set-operations"
+          ],
+          [
+            "windows",
+            "hash-partitioned-windows"
+          ],
+          [
+            "join_algorithm",
+            "hash"
+          ],
+          [
+            "join_algorithm",
+            "nested-loop"
+          ],
+          [
+            "optimizer",
+            "pipeline"
+          ],
+          [
+            "optimizer_pass",
+            "simplify-expressions"
+          ],
+          [
+            "optimizer_pass",
+            "key-lookup"
+          ],
+          [
+            "optimizer_pass",
+            "decorrelate-exists"
+          ],
+          [
+            "parser",
+            "sqlparser-duckdb"
+          ],
+          [
+            "binder",
+            "sql-binder"
+          ],
+          [
+            "executor",
+            "pull"
+          ],
+          [
+            "expressions",
+            "batched-expression"
+          ],
+          [
+            "subqueries",
+            "streaming-subqueries"
+          ],
+          [
+            "scheduler",
+            "inline"
+          ],
+          [
+            "configuration",
+            "snapshot-configuration"
+          ]
+        ],
+        "ok": true
+      }
+    },
+    {
+      "target": "development",
+      "sql": [
+        {
+          "sql": "SELECT 255::UTINYINT,65535::USMALLINT,4294967295::UINTEGER,18446744073709551615::UBIGINT,'340282366920938463463374607431768211455'::UHUGEINT",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UTINYINT",
+              "USMALLINT",
+              "UINTEGER",
+              "UBIGINT",
+              "UHUGEINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "255",
+                "65535",
+                "4294967295",
+                "18446744073709551615",
+                "340282366920938463463374607431768211455"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT",
+              "USMALLINT",
+              "UINTEGER",
+              "UBIGINT",
+              "UHUGEINT"
+            ],
+            "rows": [
+              [
+                "255",
+                "65535",
+                "4294967295",
+                "18446744073709551615",
+                "340282366920938463463374607431768211455"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1.25, 1.25+2.5, 1.25*2.5, 1.25/2.5, 10.0%3.0, -1.25",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(3,2)",
+              "DECIMAL(4,2)",
+              "DECIMAL(5,3)",
+              "DOUBLE",
+              "DECIMAL(3,1)",
+              "DECIMAL(3,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.25",
+                "3.75",
+                "3.125",
+                "0.5",
+                "1.0",
+                "-1.25"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(3,2)",
+              "DECIMAL(4,2)",
+              "DECIMAL(5,3)",
+              "DOUBLE",
+              "DECIMAL(3,1)",
+              "DECIMAL(3,2)"
+            ],
+            "rows": [
+              [
+                "1.25",
+                "3.75",
+                "3.125",
+                "0.5",
+                "1.0",
+                "-1.25"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UTINYINT+1, 1::UTINYINT+1::USMALLINT, 1::UINTEGER+1::BIGINT, 1::UBIGINT+1::BIGINT, 1::UHUGEINT+1::BIGINT",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UTINYINT",
+              "USMALLINT",
+              "BIGINT",
+              "HUGEINT",
+              "DOUBLE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "2",
+                "2",
+                "2",
+                "2",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT",
+              "USMALLINT",
+              "BIGINT",
+              "HUGEINT",
+              "DOUBLE"
+            ],
+            "rows": [
+              [
+                "2",
+                "2",
+                "2",
+                "2",
+                "2.0"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 0.5::DECIMAL(1,1)+1::TINYINT, 0.5::DECIMAL(1,1)+1::BIGINT, 0.5::DECIMAL(1,1)*10::INTEGER",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,1)",
+              "DECIMAL(21,1)",
+              "DECIMAL(11,1)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.5",
+                "1.5",
+                "5.0"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,1)",
+              "DECIMAL(21,1)",
+              "DECIMAL(11,1)"
+            ],
+            "rows": [
+              [
+                "1.5",
+                "1.5",
+                "5.0"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '-1.235'::DECIMAL(5,2), '1.234999999999999999999999999999999999'::DECIMAL(5,2), '123.45e-1'::DECIMAL(8,3)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)",
+              "DECIMAL(8,3)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-1.24",
+                "1.23",
+                "12.345"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)",
+              "DECIMAL(8,3)"
+            ],
+            "rows": [
+              [
+                "-1.24",
+                "1.23",
+                "12.345"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1.235::DECIMAL(5,2), (-1.235)::DECIMAL(5,2), (1.5::DECIMAL(3,1))::INTEGER, (-1.5::DECIMAL(3,1))::INTEGER",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)",
+              "INTEGER",
+              "INTEGER"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.24",
+                "-1.24",
+                "2",
+                "-2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)",
+              "INTEGER",
+              "INTEGER"
+            ],
+            "rows": [
+              [
+                "1.24",
+                "-1.24",
+                "2",
+                "-2"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST('256' AS UTINYINT),TRY_CAST('-1' AS UHUGEINT),TRY_CAST('999.995' AS DECIMAL(5,2)),TRY_CAST('bad' AS DECIMAL(38,3))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UTINYINT",
+              "UHUGEINT",
+              "DECIMAL(5,2)",
+              "DECIMAL(38,3)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UTINYINT",
+              "UHUGEINT",
+              "DECIMAL(5,2)",
+              "DECIMAL(38,3)"
+            ],
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT abs(-1.25),round(-1.25),abs(1::UTINYINT),round(1::UBIGINT),sqrt(4::DECIMAL(3,1))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(3,2)",
+              "DECIMAL(3,0)",
+              "UTINYINT",
+              "HUGEINT",
+              "DOUBLE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.25",
+                "-1",
+                "1",
+                "1",
+                "2"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(3,2)",
+              "DECIMAL(3,0)",
+              "UTINYINT",
+              "HUGEINT",
+              "DOUBLE"
+            ],
+            "rows": [
+              [
+                "1.25",
+                "-1",
+                "1",
+                "1",
+                "2.0"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT x FROM (SELECT 1::UTINYINT x UNION ALL SELECT -1::TINYINT UNION ALL SELECT 255::UTINYINT) t ORDER BY x",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "SMALLINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-1"
+              ],
+              [
+                "1"
+              ],
+              [
+                "255"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "SMALLINT"
+            ],
+            "rows": [
+              [
+                "-1"
+              ],
+              [
+                "1"
+              ],
+              [
+                "255"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT x FROM (SELECT 1.25::DECIMAL(5,2) x UNION ALL SELECT 1.250::DECIMAL(8,3)) t ORDER BY x",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(8,3)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.250"
+              ],
+              [
+                "1.250"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(8,3)"
+            ],
+            "rows": [
+              [
+                "1.250"
+              ],
+              [
+                "1.250"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT sum(x),avg(x),min(x),max(x) FROM (VALUES (1.25::DECIMAL(5,2)),(2.50),(NULL)) t(x)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(38,2)",
+              "DOUBLE",
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "3.75",
+                "1.875",
+                "1.25",
+                "2.50"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(38,2)",
+              "DOUBLE",
+              "DECIMAL(5,2)",
+              "DECIMAL(5,2)"
+            ],
+            "rows": [
+              [
+                "3.75",
+                "1.875",
+                "1.25",
+                "2.50"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT sum(x),avg(x),min(x),max(x) FROM (VALUES (18446744073709551615::UBIGINT),(1::UBIGINT),(NULL)) t(x)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "HUGEINT",
+              "DOUBLE",
+              "UBIGINT",
+              "UBIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "18446744073709551616",
+                "9223372036854776000",
+                "1",
+                "18446744073709551615"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "HUGEINT",
+              "DOUBLE",
+              "UBIGINT",
+              "UBIGINT"
+            ],
+            "rows": [
+              [
+                "18446744073709551616",
+                "9.223372036854776e+18",
+                "1",
+                "18446744073709551615"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT sum(x),avg(x) FROM (VALUES ('340282366920938463463374607431768211455'::UHUGEINT),(NULL)) t(x)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DOUBLE",
+              "DOUBLE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "340282366920938500000000000000000000000",
+                "340282366920938500000000000000000000000"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DOUBLE",
+              "DOUBLE"
+            ],
+            "rows": [
+              [
+                "3.402823669209385e+38",
+                "3.402823669209385e+38"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT x, sum(x) OVER (ORDER BY x ROWS UNBOUNDED PRECEDING) FROM (VALUES (1.25::DECIMAL(5,2)),(2.50)) t(x) ORDER BY x",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(38,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.25",
+                "1.25"
+              ],
+              [
+                "2.50",
+                "3.75"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)",
+              "DECIMAL(38,2)"
+            ],
+            "rows": [
+              [
+                "1.25",
+                "1.25"
+              ],
+              [
+                "2.50",
+                "3.75"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT a.x FROM (VALUES (1.25::DECIMAL(5,2)),(NULL)) a(x) JOIN (VALUES (1.250::DECIMAL(8,3))) b(x) USING(x)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1.25"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)"
+            ],
+            "rows": [
+              [
+                "1.25"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT x FROM (VALUES ('340282366920938463463374607431768211455'::UHUGEINT),(0::UHUGEINT),(NULL)) t(x) INTERSECT SELECT x FROM (VALUES ('340282366920938463463374607431768211455'::UHUGEINT),(NULL)) u(x) ORDER BY x",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UHUGEINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "340282366920938463463374607431768211455"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UHUGEINT"
+            ],
+            "rows": [
+              [
+                "340282366920938463463374607431768211455"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT typeof(1::DECIMAL(18,0)+1::DECIMAL(18,0)),typeof(coalesce(1::DECIMAL(38,0),1::DECIMAL(38,38)))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "DECIMAL(19,0)",
+                "DECIMAL(38,0)"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "DECIMAL(19,0)",
+                "DECIMAL(38,0)"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT typeof(CAST('bad' AS DECIMAL(5,2))),typeof(round(1::UTINYINT)),typeof(round(1::UHUGEINT))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "DECIMAL(5,2)",
+                "BIGINT",
+                "DOUBLE"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "VARCHAR",
+              "VARCHAR",
+              "VARCHAR"
+            ],
+            "rows": [
+              [
+                "DECIMAL(5,2)",
+                "BIGINT",
+                "DOUBLE"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT '1_2.3_4'::DECIMAL(5,2),'0xf_f'::UHUGEINT,'0b1_0'::UBIGINT,'1e1_0'::DECIMAL(38,0)",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "DECIMAL(5,2)",
+              "UHUGEINT",
+              "UBIGINT",
+              "DECIMAL(38,0)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "12.34",
+                "255",
+                "2",
+                "10000000000"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DECIMAL(5,2)",
+              "UHUGEINT",
+              "UBIGINT",
+              "DECIMAL(38,0)"
+            ],
+            "rows": [
+              [
+                "12.34",
+                "255",
+                "2",
+                "10000000000"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST('+0xff' AS UBIGINT),TRY_CAST('0x_ff' AS UBIGINT),TRY_CAST('1__2' AS UBIGINT),TRY_CAST('1_.0' AS DECIMAL(5,2))",
+          "expected_development_error": null,
+          "rust": {
+            "columns": [
+              "UBIGINT",
+              "UBIGINT",
+              "UBIGINT",
+              "DECIMAL(5,2)"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "UBIGINT",
+              "UBIGINT",
+              "UBIGINT",
+              "DECIMAL(5,2)"
+            ],
+            "rows": [
+              [
+                "NULL",
+                "NULL",
+                "NULL",
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT -1::UTINYINT",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in UTINYINT arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Out of Range Error: Overflow in negation of numeric value!"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT -1::USMALLINT",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in USMALLINT arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Out of Range Error: Overflow in negation of numeric value!"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT -1::UINTEGER",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in UINTEGER arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Out of Range Error: Overflow in negation of numeric value!"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT -1::UBIGINT",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in UBIGINT arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Out of Range Error: Overflow in negation of numeric value!"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT -1::UHUGEINT",
+          "expected_development_error": "Out of Range Error",
+          "rust": {
+            "message": "Out of Range Error: Overflow in UHUGEINT arithmetic",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Out of Range Error: Overflow in negation of numeric value!"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UTINYINT//0::UTINYINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UTINYINT%0::UTINYINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::USMALLINT//0::USMALLINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::USMALLINT%0::USMALLINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UINTEGER//0::UINTEGER",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UINTEGER%0::UINTEGER",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UBIGINT//0::UBIGINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UBIGINT%0::UBIGINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UHUGEINT//0::UHUGEINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1::UHUGEINT%0::UHUGEINT",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 1.0%0.0",
+          "expected_development_error": "Invalid Input Error",
+          "rust": {
+            "message": "Invalid Input Error: Division by zero",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Invalid Input Error: Division by zero in expression (1.0 % 0.0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 'a'::DECIMAL(5,2)",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Could not convert string \"a\" to DECIMAL(5,2)",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert string \"a\" to DECIMAL(5,2)\n\nLINE 1: SELECT 'a'::DECIMAL(5,2)\n                  ^^^^^^^^^^^^^^"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT 256::UTINYINT",
+          "expected_development_error": "Conversion Error",
+          "rust": {
+            "message": "Conversion Error: Type INTEGER with value 256 can't be cast because the value is out of range for the destination type UTINYINT",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Type INT32 with value 256 can't be cast because the value is out of range for the destination type UINT8\n\nLINE 1: SELECT 256::UTINYINT\n                  ^^^^^^^^^^"
+          },
+          "passed": true
+        }
+      ],
+      "persistence": [
+        {
+          "producer": "cpp",
+          "passed": false,
+          "checkpoint_sha256": "1648560c1984b49ffd1f8a10d56f370bb506c94a73009b8f5bc4279e93e4abdf",
+          "error": "duckdb-rust: SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e FROM t ORDER BY k\nNot implemented: DuckDB metadata field 106 at offset 74, expected 65535\n"
+        },
+        {
+          "producer": "rust-checkpoint",
+          "passed": true,
+          "checkpoint_sha256": "3ea138d5a9294b6e8a0c0637dbc7c9c1c6848a89221313f01a0860da901dd021",
+          "final_rows": [
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "-99999999999999999999999999999999999.999"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "3.375"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "4.500"
+            }
+          ]
+        },
+        {
+          "producer": "rust-wal",
+          "passed": true,
+          "checkpoint_sha256": "f9480165a4db443cc4760a5de5b03187281f10c63eb92d5a57c112684cd2742a",
+          "wal_sha256": "f9e032962c87161f22385689c4fde4efd69a290da48bf28343a68cff57fe5a90",
+          "final_rows": [
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "-99999999999999999999999999999999999.999"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "3.375"
+            },
+            {
+              "a": "255",
+              "b": "65535",
+              "c": "4294967295",
+              "d": "18446744073709551615",
+              "e": "340282366920938463463374607431768211455",
+              "k": "4.500"
+            }
+          ]
+        }
+      ],
+      "passed": false,
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/target/numeric-reference-development"
+      ],
+      "cpp_library_sha256": "74b604b07e2c7d0f3d1e60afcbcfc388390f51d016d079f75aced1e6c1637240",
+      "cpp_worker_sha256": "6b007c07b8070f7edc411fd92f83702fede7192a18e3e63e30d4b4086343b2e6",
+      "rust_adapters": {
+        "adapters": [
+          [
+            "transactions",
+            "optimistic-snapshot"
+          ],
+          [
+            "catalog",
+            "snapshot-catalog"
+          ],
+          [
+            "storage",
+            "snapshot-table"
+          ],
+          [
+            "indexes",
+            "hash-equality"
+          ],
+          [
+            "types",
+            "binary-scalar-types"
+          ],
+          [
+            "types",
+            "calendar-temporal"
+          ],
+          [
+            "types",
+            "exact-numeric-types"
+          ],
+          [
+            "types",
+            "gregorian-date"
+          ],
+          [
+            "types",
+            "primitive-types"
+          ],
+          [
+            "types",
+            "recursive-nested-types"
+          ],
+          [
+            "durability",
+            "memory"
+          ],
+          [
+            "casts",
+            "binary-scalar-cast"
+          ],
+          [
+            "casts",
+            "calendar-temporal-cast"
+          ],
+          [
+            "casts",
+            "exact-numeric-cast"
+          ],
+          [
+            "casts",
+            "gregorian-date-cast"
+          ],
+          [
+            "casts",
+            "primitive-cast"
+          ],
+          [
+            "casts",
+            "recursive-nested-cast"
+          ],
+          [
+            "casts",
+            "structural-cast"
+          ],
+          [
+            "operators",
+            "blob-concatenate"
+          ],
+          [
+            "operators",
+            "checked-decimal-arithmetic"
+          ],
+          [
+            "operators",
+            "checked-numeric-arithmetic"
+          ],
+          [
+            "operators",
+            "gregorian-date-arithmetic"
+          ],
+          [
+            "operators",
+            "like-greedy"
+          ],
+          [
+            "operators",
+            "string-concatenate"
+          ],
+          [
+            "physical_planner",
+            "native-physical"
+          ],
+          [
+            "scan_filter",
+            "fused-scan-filter"
+          ],
+          [
+            "recursion",
+            "streaming-recursion"
+          ],
+          [
+            "aggregation",
+            "hash-aggregation"
+          ],
+          [
+            "sorting",
+            "integer-radix-sort"
+          ],
+          [
+            "set_operations",
+            "hash-set-operations"
+          ],
+          [
+            "windows",
+            "hash-partitioned-windows"
+          ],
+          [
+            "join_algorithm",
+            "hash"
+          ],
+          [
+            "join_algorithm",
+            "nested-loop"
+          ],
+          [
+            "optimizer",
+            "pipeline"
+          ],
+          [
+            "optimizer_pass",
+            "simplify-expressions"
+          ],
+          [
+            "optimizer_pass",
+            "key-lookup"
+          ],
+          [
+            "optimizer_pass",
+            "decorrelate-exists"
+          ],
+          [
+            "parser",
+            "sqlparser-duckdb"
+          ],
+          [
+            "binder",
+            "sql-binder"
+          ],
+          [
+            "executor",
+            "pull"
+          ],
+          [
+            "expressions",
+            "batched-expression"
+          ],
+          [
+            "subqueries",
+            "streaming-subqueries"
+          ],
+          [
+            "scheduler",
+            "inline"
+          ],
+          [
+            "configuration",
+            "snapshot-configuration"
+          ]
+        ],
+        "ok": true
+      }
+    }
+  ],
+  "full_parity": false,
+  "scope": "Selected typed numeric SQL plus native checkpoint/WAL/default/index round trips. Error cases check the declared category, not full diagnostic text; full messages are retained. Development governs reference disagreements. This is not full numeric or engine parity.",
+  "source_unchanged": true,
+  "development_sql_passed": true,
+  "reference_divergences": [
+    {
+      "sql": "SELECT typeof(1::DECIMAL(18,0)+1::DECIMAL(18,0)),typeof(coalesce(1::DECIMAL(38,0),1::DECIMAL(38,38)))",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "VARCHAR",
+          "VARCHAR"
+        ],
+        "rows": [
+          [
+            "DECIMAL(18,0)",
+            "DECIMAL(38,0)"
+          ]
+        ]
+      },
+      "development": {
+        "ok": true,
+        "columns": [
+          "VARCHAR",
+          "VARCHAR"
+        ],
+        "rows": [
+          [
+            "DECIMAL(19,0)",
+            "DECIMAL(38,0)"
+          ]
+        ]
+      },
+      "rust": {
+        "columns": [
+          "VARCHAR",
+          "VARCHAR"
+        ],
+        "ok": true,
+        "rows": [
+          [
+            "DECIMAL(19,0)",
+            "DECIMAL(38,0)"
+          ]
+        ]
+      }
+    },
+    {
+      "sql": "SELECT '1_2.3_4'::DECIMAL(5,2),'0xf_f'::UHUGEINT,'0b1_0'::UBIGINT,'1e1_0'::DECIMAL(38,0)",
+      "authority": "development",
+      "release": {
+        "ok": false,
+        "message": "Conversion Error: Could not convert string '0xf_f' to UINT128\n\nLINE 1: SELECT '1_2.3_4'::DECIMAL(5,2),'0xf_f'::UHUGEINT,'0b1_0'::UBIGINT,'1e1_0'::DECIMAL(38,0)\n                                              ^"
+      },
+      "development": {
+        "ok": true,
+        "columns": [
+          "DECIMAL(5,2)",
+          "UHUGEINT",
+          "UBIGINT",
+          "DECIMAL(38,0)"
+        ],
+        "rows": [
+          [
+            "12.34",
+            "255",
+            "2",
+            "10000000000"
+          ]
+        ]
+      },
+      "rust": {
+        "columns": [
+          "DECIMAL(5,2)",
+          "UHUGEINT",
+          "UBIGINT",
+          "DECIMAL(38,0)"
+        ],
+        "ok": true,
+        "rows": [
+          [
+            "12.34",
+            "255",
+            "2",
+            "10000000000"
+          ]
+        ]
+      }
+    },
+    {
+      "sql": "SELECT -1::UTINYINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UTINYINT"
+        ],
+        "rows": [
+          [
+            "255"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Out of Range Error: Overflow in negation of numeric value!"
+      },
+      "rust": {
+        "message": "Out of Range Error: Overflow in UTINYINT arithmetic",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT -1::USMALLINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "USMALLINT"
+        ],
+        "rows": [
+          [
+            "65535"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Out of Range Error: Overflow in negation of numeric value!"
+      },
+      "rust": {
+        "message": "Out of Range Error: Overflow in USMALLINT arithmetic",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT -1::UINTEGER",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UINTEGER"
+        ],
+        "rows": [
+          [
+            "4294967295"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Out of Range Error: Overflow in negation of numeric value!"
+      },
+      "rust": {
+        "message": "Out of Range Error: Overflow in UINTEGER arithmetic",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT -1::UBIGINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UBIGINT"
+        ],
+        "rows": [
+          [
+            "18446744073709551615"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Out of Range Error: Overflow in negation of numeric value!"
+      },
+      "rust": {
+        "message": "Out of Range Error: Overflow in UBIGINT arithmetic",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT -1::UHUGEINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UHUGEINT"
+        ],
+        "rows": [
+          [
+            "340282366920938463463374607431768211455"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Out of Range Error: Overflow in negation of numeric value!"
+      },
+      "rust": {
+        "message": "Out of Range Error: Overflow in UHUGEINT arithmetic",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::UTINYINT//0::UTINYINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UTINYINT"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::UTINYINT%0::UTINYINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UTINYINT"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::USMALLINT//0::USMALLINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "USMALLINT"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::USMALLINT%0::USMALLINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "USMALLINT"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::UINTEGER//0::UINTEGER",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UINTEGER"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::UINTEGER%0::UINTEGER",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UINTEGER"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::UBIGINT//0::UBIGINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UBIGINT"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::UBIGINT%0::UBIGINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UBIGINT"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::UHUGEINT//0::UHUGEINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UHUGEINT"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 // 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1::UHUGEINT%0::UHUGEINT",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "UHUGEINT"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1 % 0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    },
+    {
+      "sql": "SELECT 1.0%0.0",
+      "authority": "development",
+      "release": {
+        "ok": true,
+        "columns": [
+          "DECIMAL(2,1)"
+        ],
+        "rows": [
+          [
+            "NULL"
+          ]
+        ]
+      },
+      "development": {
+        "ok": false,
+        "message": "Invalid Input Error: Division by zero in expression (1.0 % 0.0). Use TRY(...) to return NULL for this expression, or SET null_on_division_by_zero=true to return NULL for all divisions by zero."
+      },
+      "rust": {
+        "message": "Invalid Input Error: Division by zero",
+        "ok": false,
+        "unsupported": false
+      }
+    }
+  ],
+  "passed": false
+}
