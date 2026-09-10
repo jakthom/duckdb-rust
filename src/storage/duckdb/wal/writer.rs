@@ -409,7 +409,10 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
             e.blob(&mask);
         }
         e.field(102);
-        if matches!(data_type, DataType::Varchar | DataType::Blob) {
+        if matches!(
+            data_type,
+            DataType::Varchar | DataType::Blob | DataType::Bit
+        ) {
             e.unsigned(rows.len() as u64);
             for row in rows {
                 context.check()?;
@@ -417,6 +420,7 @@ fn chunk(e: &mut Encoder, types: &[DataType], rows: &[Row], context: &QueryConte
                 match &row[column] {
                     Value::Varchar(text) => e.string(text)?,
                     Value::Blob(bytes) => e.blob(bytes),
+                    Value::Bit(value) => e.blob(&value.to_native(|| context.check())?),
                     Value::Null => e.string("")?,
                     _ => return Err(invalid("string physical type")),
                 }

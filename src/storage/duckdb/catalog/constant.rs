@@ -78,6 +78,9 @@ pub(super) fn value(reader: &mut Reader) -> Result<Value> {
             DataType::Float => Value::Float(reader.float()?),
             DataType::Double => Value::Double(reader.double()?),
             DataType::Varchar => Value::Varchar(reader.string()?),
+            DataType::Bit => {
+                crate::common::BitString::from_native(&reader.blob()?, || Ok(()))?.value()
+            }
             DataType::Blob => Value::Blob(
                 crate::common::scalar::parse_blob(&reader.string()?, || Ok(()))
                     .map_err(|_| corrupt("invalid serialized BLOB literal"))?,

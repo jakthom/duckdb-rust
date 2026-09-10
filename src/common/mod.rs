@@ -1,4 +1,6 @@
+pub mod bit;
 pub mod cast;
+pub use bit::BitString;
 mod date;
 pub mod enumeration;
 mod error;

@@ -19,7 +19,7 @@ impl SegmentDecoder for ConstantDecoder {
         let value = match input.kind {
             SegmentType::Validity => Value::Boolean(input.statistics.has_values),
             _ if !input.statistics.has_values => Value::Null,
-            SegmentType::Values(DataType::Varchar | DataType::Blob) => {
+            SegmentType::Values(DataType::Varchar | DataType::Blob | DataType::Bit) => {
                 return Err(Error::Unsupported("constant string storage".into()));
             }
             _ => input.statistics.minimum.clone(),

@@ -144,7 +144,10 @@ fn flat(
             .is_none_or(|mask| mask[i / 8] & (1 << (i % 8)) != 0)
     };
     reader.field(102)?;
-    if matches!(data_type, DataType::Varchar | DataType::Blob) {
+    if matches!(
+        data_type,
+        DataType::Varchar | DataType::Blob | DataType::Bit
+    ) {
         if reader.length()? != count {
             return Err(corrupt("WAL string count mismatch"));
         }
@@ -155,6 +158,9 @@ fn flat(
                 if valid(i) {
                     if *data_type == DataType::Blob {
                         Ok(Value::Blob(bytes))
+                    } else if *data_type == DataType::Bit {
+                        crate::common::BitString::from_native(&bytes, || context.check())
+                            .map(crate::common::BitString::value)
                     } else {
                         Ok(Value::Varchar(
                             String::from_utf8(bytes)

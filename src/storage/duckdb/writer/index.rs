@@ -298,6 +298,17 @@ fn encode_value(value: &Value, data_type: &DataType, output: &mut Vec<u8>) -> Re
             }
             output.push(0);
         }
+        Value::Bit(value) => {
+            // C++ ART indexes the canonical physical string; logical BIT range
+            // comparisons select a separate bit-order expression upstream.
+            for byte in value.to_native(|| Ok(()))? {
+                if byte <= 1 {
+                    output.push(1);
+                }
+                output.push(byte);
+            }
+            output.push(0);
+        }
         Value::Unsigned(v) => {
             let width = super::super::primitive::width(data_type)?;
             output.extend(&v.to_be_bytes()[16 - width..]);

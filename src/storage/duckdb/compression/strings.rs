@@ -17,7 +17,7 @@ macro_rules! string_decoder {
             fn supports(&self, kind: SegmentType<'_>) -> bool {
                 matches!(
                     kind,
-                    SegmentType::Values(DataType::Varchar | DataType::Blob)
+                    SegmentType::Values(DataType::Varchar | DataType::Blob | DataType::Bit)
                 )
             }
             fn decode(
@@ -158,6 +158,8 @@ pub(super) fn fsst(
 pub(super) fn string_value(bytes: Vec<u8>, data_type: &DataType) -> Result<Value> {
     match data_type {
         DataType::Blob => Ok(Value::Blob(bytes)),
+        DataType::Bit => crate::common::BitString::from_native(&bytes, || Ok(()))
+            .map(crate::common::BitString::value),
         DataType::Varchar => String::from_utf8(bytes)
             .map(Value::Varchar)
             .map_err(|_| corrupt("invalid UTF-8 string")),

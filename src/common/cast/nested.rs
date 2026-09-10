@@ -215,6 +215,7 @@ pub(super) fn register(registry: &mut CastRegistry) {
         "timestamp_tz",
         "timestamp_tz_ns",
         "interval",
+        "bit",
     ] {
         registry
             .register_family(

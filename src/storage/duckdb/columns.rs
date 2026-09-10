@@ -228,7 +228,10 @@ pub(super) fn read_segments(
             if reader.optional(105)? && reader.boolean()? {
                 // The uncompressed string state records overflow block ownership.
                 if compression != 1
-                    || !matches!(data_type, Some(DataType::Varchar | DataType::Blob))
+                    || !matches!(
+                        data_type,
+                        Some(DataType::Varchar | DataType::Blob | DataType::Bit)
+                    )
                 {
                     return Err(Error::Unsupported(
                         "DuckDB compression segment state".into(),
@@ -309,7 +312,7 @@ pub(super) fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> R
     let mut minimum = Value::Null;
     match data_type {
         Some(DataType::Nested(metadata)) => super::nested::read_statistics(reader, metadata)?,
-        Some(DataType::Varchar | DataType::Blob) => {
+        Some(DataType::Varchar | DataType::Blob | DataType::Bit) => {
             string_statistics::read(reader)?;
         }
         Some(data_type) => {

@@ -155,6 +155,7 @@ fn equality_score(ty: &DataType) -> Option<u8> {
         Interval => 58,
         Varchar => 77,
         Enum(_) => 78,
+        Bit => 100,
         Blob => 101,
         Uuid => 102,
         Nested(_) | Extension(_) => return None,

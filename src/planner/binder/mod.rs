@@ -117,6 +117,7 @@ impl State<'_, '_> {
         let resolved = match data_type {
             T::Boolean | T::Bool => Ok(DataType::Boolean),
             T::Date => Ok(DataType::Date),
+            T::Bit(_) => Ok(DataType::Bit),
             T::Enum(members, None) if members.is_empty() => Err(Error::Bind(
                 "ENUM type requires at least one argument".into(),
             )),
@@ -279,6 +280,17 @@ impl State<'_, '_> {
                 if name == "uinteger" && modifiers.is_empty() {
                     self.context.query.types().bind(&DataType::UInteger)?;
                     return Ok(DataType::UInteger);
+                }
+                if name == "bitstring" {
+                    return if modifiers.len() <= 1
+                        && modifiers.iter().all(|value| value.parse::<u64>().is_ok())
+                    {
+                        Ok(DataType::Bit)
+                    } else {
+                        Err(Error::Bind(
+                            "BITSTRING accepts one optional integer modifier".into(),
+                        ))
+                    };
                 }
                 if modifiers.is_empty() {
                     let temporal = match name.as_str() {

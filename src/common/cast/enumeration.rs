@@ -138,6 +138,7 @@ pub(super) fn register(registry: &mut CastRegistry) {
         "builtin.timestamp_tz_ns",
         "builtin.interval",
         "builtin.blob",
+        "builtin.bit",
         "builtin.uuid",
         "builtin.list",
         "builtin.array",

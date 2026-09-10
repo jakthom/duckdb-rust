@@ -43,6 +43,7 @@ pub(super) fn read(reader: &mut Reader) -> Result<DataType> {
         "double" | "float8" => Ok(DataType::Double),
         "varchar" | "text" | "string" => Ok(DataType::Varchar),
         "blob" | "bytea" | "binary" | "varbinary" => Ok(DataType::Blob),
+        "bit" | "bitstring" => Ok(DataType::Bit),
         "uuid" | "guid" => Ok(DataType::Uuid),
         "date" => Ok(DataType::Date),
         "time" => Ok(DataType::Time),
