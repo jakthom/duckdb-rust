@@ -4,10 +4,12 @@ The [accepted milestone](../specs/value-expression-milestone.md) remains active.
 The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
-Latest integrated source: `748dfba`; the sixth-checkpoint section below tracks
+Latest integrated source: `12586bf`; the sixth-checkpoint section below tracks
 the combined family increments and qualified nested binding. Workspace and
 exploratory Kani validation pass; new upstream/performance acceptance remains
-open. The last pushed checkpoint is `135eece`, whose engine source
+open. A subsequent native publication repair is under combined validation;
+the earlier proof result does not cover its changed state protocol.
+The last pushed checkpoint is `135eece`, whose engine source
 `88e9094` passed the 34-workload timing gate and controlled upstream refresh.
 Those timings do not measure the new combined source. Earlier sections retain
 historical results and limits.
@@ -634,3 +636,21 @@ commits require regression validation before another follow-up push. Native
 file-version/successor capability preservation and retained closed default
 expressions through selected statement services are the next shared storage
 integration work. Family implementations continue alongside that work.
+
+### Native publication follow-up
+
+Source `12586bf` repairs the confirmed file-version/identifier/generation reset
+in ordinary checkpoint commits. A selected format-owned encoder retains only
+publication metadata; the file layer prepares and binds the next image before
+I/O and advances state only after durable success. It neither rereads nor caches
+all preceding table bytes per commit. Definite failures keep the prior state;
+uncertain publication blocks writes until reopen.
+
+The [publication report](native-publication-values.md) retains the initial six
+failing metadata cases and repaired 6/6 production campaign across independently
+produced storage 64, 65, 68 and 69 files. Both pinned producers read the expected
+mutated values; versions/identifiers survive and generations advance. This does
+not enable TUPLE/VARIANT layouts, change the fresh-file default version, or
+establish native performance parity. Focused replacement-format, native,
+checkpoint, recovery and typed SQL tests pass; instrumentation and the next
+combined Kani/upstream/performance checkpoints remain tracked separately.
