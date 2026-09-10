@@ -161,3 +161,59 @@ VARIANT normalization is planned for built-in categories with retained selected
 child semantics; no extension-category normalization support is claimed.
 
 Native DuckDB nested WAL and non-NULL default codecs are not implemented yet. The private JSON round trip is not native compatibility evidence. Native default and ART encoding reject nested values explicitly, and native nested indexes must follow reference-supported behavior rather than a blanket assumption that every type is indexable. Further tests must include nested registry replacement, adversarial payload/resource cases, alternate execution/index compositions, mixed temporal/scalar families, independent C++ files, native rollback/recovery/reopen, upstream regressions and isolated faster-reference performance campaigns.
+
+### VARIANT SQL/execution increment
+
+VARIANT now carries declared dynamic children through casts, vectors, comparisons,
+canonical keys, joins, grouping/DISTINCT, sorting, aggregates/windows, prepared
+values, indexed row mutations, rollback and private JSON reopen. Its retained
+registry snapshot supplies dynamic child validation and same-type scalar
+comparisons; a retained cast snapshot supplies dynamic conversions. A regression
+replaces the source registries after binding and executes with an empty ambient
+type registry, including NULL batch casts. Built-in categories have explicit
+VARIANT normalization; extension-category normalization remains unsupported.
+
+Integer/unsigned/decimal values share an exact decimal-scientific comparison/key
+category, including full signed and unsigned 128-bit boundaries. FLOAT/DOUBLE
+share a separate real category. DATE and timestamp precisions compare in the
+development nanosecond category, timezone timestamps remain separate, and nested
+NULL sorts last. Development raw infinity-sentinel scaling is reproduced; DATE,
+TIMESTAMP and TIMESTAMP_NS infinity values are not all equal inside VARIANT.
+Object comparisons/keys sort names case-sensitively, independent of insertion
+order. MAP is viewed as an ARRAY of key/value OBJECTs; UNION resolves its active
+child and ENUM becomes VARCHAR. No second full payload tree is needed for ordinary
+comparison or extraction. A NULL active UNION member becomes SQL NULL through
+the lead's separate selected output-nullability cast capability.
+
+The selected scalar catalog now provides `variant_typeof`, `variant_extract`
+(including subscripts), `variant_type`, `variant_keys`, `variant_array_length`
+and `variant_exists`. Optional path functions accept constant VARCHAR paths or
+lists of paths; a present NULL differs from a missing field for existence/type
+inspection. Array extraction uses positive constant UINTEGER-range 1-based
+indexes. Ordinary scalar/list inputs are rejected by VARIANT functions, while
+string literals and untyped NULL retain their reference binding behavior.
+Combination inference can still adopt VARIANT, such as `[100::VARIANT, 1.2]`.
+
+Pinned development probes exposed an observable presentation distinction:
+natively shreddable STRUCT trees are presented with sorted member names, while
+STRUCTs containing LIST/ENUM/untyped-NULL children retain source order; extracting
+a STRUCT from an unshredded ARRAY also retains source order. The Rust injection
+retains that presentation without requiring a shredded physical representation.
+VARCHAR materialization preserves development's homogeneous versus heterogeneous
+array formatting. Nested scalar quoting now escapes delimiters, empty/NULL-like
+strings and quotes/backslashes, without quoting child containers.
+
+Ordinary check, all 14 nested tests, three focused VARIANT units (including the
+earlier physical-budget unit), the expanded three VARIANT SQL workloads and
+all-target clippy pass. Coverage reports 260 files, 2,253 functions, 204 interface
+methods and no missing attributes. Kani remains an integrated-checkpoint task for
+the lead, not a claimed worker proof or full subsystem completion.
+The instrumentation check completed in 46.51 seconds with zero errors, panics or
+open spans; temporary telemetry was deleted.
+
+Still open: native VARIANT checkpoint/WAL/default codecs, TUPLE/unnamed values,
+VARIANT contains/extract-string/normalization functions, string-to-nested fallback
+casts and broader upstream/performance coverage. Native VARIANT persistence is
+not established by these private-format tests. The shared DICT_FSST and
+EMPTY_VALIDITY integrations have resolved the earlier native nested codec-15
+negative; all retained nested native fixtures now run as positive regressions.

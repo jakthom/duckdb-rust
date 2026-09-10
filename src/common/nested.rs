@@ -221,12 +221,19 @@ impl fmt::Display for NestedValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.payload {
             NestedPayload::Sequence(values) => {
+                let DataType::Nested(metadata) = &self.data_type else {
+                    return Err(fmt::Error);
+                };
+                let child = match metadata.as_ref() {
+                    NestedType::List(child) | NestedType::Array { element: child, .. } => child,
+                    _ => return Err(fmt::Error),
+                };
                 write!(f, "[")?;
                 for (index, value) in values.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{value}")?;
+                    display_child(f, child, value)?;
                 }
                 write!(f, "]")
             }
@@ -238,29 +245,83 @@ impl fmt::Display for NestedValue {
                     return Err(fmt::Error);
                 };
                 write!(f, "{{")?;
-                for (index, ((name, _), value)) in fields.iter().zip(values).enumerate() {
+                for (index, ((name, ty), value)) in fields.iter().zip(values).enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "'{}': {value}", name.replace('\'', "''"))?;
+                    display_quoted(f, name, true)?;
+                    write!(f, ": ")?;
+                    display_child(f, ty, value)?;
                 }
                 write!(f, "}}")
             }
             NestedPayload::Map(entries) => {
+                let DataType::Nested(metadata) = &self.data_type else {
+                    return Err(fmt::Error);
+                };
+                let NestedType::Map { key: kt, value: vt } = metadata.as_ref() else {
+                    return Err(fmt::Error);
+                };
                 write!(f, "{{")?;
                 for (index, (key, value)) in entries.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{key}={value}")?;
+                    display_child(f, kt, key)?;
+                    write!(f, "=")?;
+                    display_child(f, vt, value)?;
                 }
                 write!(f, "}}")
             }
-            NestedPayload::Union { value, .. } | NestedPayload::Variant { value, .. } => {
+            NestedPayload::Union { value, .. } => {
+                write!(f, "{value}")
+            }
+            NestedPayload::Variant { data_type, value } => {
+                let (_, value) = super::variant::Node::Typed(data_type, value)
+                    .materialized(0, &|| Ok(()))
+                    .map_err(|_| fmt::Error)?;
                 write!(f, "{value}")
             }
         }
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn display_child(f: &mut fmt::Formatter<'_>, ty: &DataType, value: &Value) -> fmt::Result {
+    if value.is_null() || matches!(ty, DataType::Nested(_)) {
+        write!(f, "{value}")
+    } else {
+        display_quoted(f, &value.to_string(), false)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn display_quoted(f: &mut fmt::Formatter<'_>, value: &str, key: bool) -> fmt::Result {
+    let quote = key
+        || value.is_empty()
+        || value.eq_ignore_ascii_case("null")
+        || value
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_whitespace)
+        || value.as_bytes().last().is_some_and(u8::is_ascii_whitespace)
+        || value.bytes().any(|byte| {
+            matches!(
+                byte,
+                b'"' | b'\'' | b'(' | b')' | b',' | b':' | b'=' | b'[' | b']' | b'{' | b'}'
+            )
+        });
+    if !quote {
+        return write!(f, "{value}");
+    }
+    write!(f, "'")?;
+    for character in value.chars() {
+        if matches!(character, '\'' | '\\') {
+            write!(f, "\\")?;
+        }
+        write!(f, "{character}")?;
+    }
+    write!(f, "'")
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@ pub use nested::{NestedPayload, NestedType, NestedValue};
 pub use temporal::TemporalValue;
 pub mod type_registry;
 mod types;
+pub(crate) mod variant;
 pub mod vector;
 
 pub use error::{Error, Result};

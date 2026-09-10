@@ -12,6 +12,8 @@ use std::{cmp::Ordering, sync::Arc};
 mod accessors;
 #[path = "nested/native.rs"]
 mod native;
+#[path = "nested/variant.rs"]
+mod variant;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]

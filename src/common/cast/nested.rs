@@ -1,6 +1,7 @@
 use super::*;
 use crate::common::{NestedPayload, NestedType, NestedValue};
 mod union;
+mod variant;
 
 #[derive(Debug, Default)]
 pub struct NestedCast {
@@ -173,7 +174,9 @@ pub(super) fn register(registry: &mut CastRegistry) {
                 .register_family(
                     source,
                     target,
-                    if target == "builtin.union" {
+                    if source == "builtin.variant" || target == "builtin.variant" {
+                        Arc::new(variant::VariantCast::default())
+                    } else if target == "builtin.union" {
                         Arc::new(union::UnionCast::default())
                     } else {
                         Arc::new(NestedCast::default())
@@ -220,5 +223,21 @@ pub(super) fn register(registry: &mut CastRegistry) {
                 Arc::new(union::UnionCast::default()),
             )
             .expect("unique scalar UNION cast");
+        registry
+            .register_family(
+                &format!("builtin.{source}"),
+                "builtin.variant",
+                Arc::new(variant::VariantCast::default()),
+            )
+            .expect("unique scalar VARIANT injection");
+        if source != "varchar" {
+            registry
+                .register_family(
+                    "builtin.variant",
+                    &format!("builtin.{source}"),
+                    Arc::new(variant::VariantCast::default()),
+                )
+                .expect("unique scalar VARIANT extraction");
+        }
     }
 }

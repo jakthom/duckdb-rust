@@ -10,6 +10,7 @@ use crate::{
 };
 use std::sync::Arc;
 mod map;
+mod variant;
 
 #[derive(Debug)]
 pub struct Constructor(pub DataType);
@@ -263,6 +264,7 @@ impl ScalarFunction for NestedFunction {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     map::register(registry);
+    variant::register(registry);
     for name in [
         "list_value",
         "array_value",

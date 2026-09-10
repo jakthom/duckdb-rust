@@ -9,6 +9,7 @@ pub mod nested;
 pub mod numeric;
 pub mod scalar;
 pub mod temporal;
+pub mod variant;
 pub use key::KeyWriter;
 
 use std::{
@@ -359,12 +360,14 @@ impl TypeRegistry {
             "builtin.struct",
             "builtin.map",
             "builtin.union",
-            "builtin.variant",
         ] {
             registry
                 .register(family, Arc::new(nested::NestedTypes::default()))
                 .expect("unique nested family");
         }
+        registry
+            .register("builtin.variant", Arc::new(variant::VariantType::default()))
+            .expect("unique VARIANT family");
         registry
     }
     pub fn register(&mut self, family: &str, adapter: Arc<dyn TypeAdapter>) -> Result<()> {

@@ -15,7 +15,7 @@ impl State<'_, '_> {
             NestedType::List(_) | NestedType::Array { .. } => "list_extract",
             NestedType::Struct(_) => "struct_extract",
             NestedType::Union(_) => "union_extract",
-            _ => return Err(Error::Bind("invalid nested accessor".into())),
+            NestedType::Variant => "variant_extract",
         };
         self.scalar_call(name, vec![value, key])
     }
