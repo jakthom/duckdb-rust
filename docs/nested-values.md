@@ -803,3 +803,23 @@ interface methods with no missing attributes. The maintained Kani run remains
 part of the lead's substantial integrated checkpoint. Instrumentation compatibility
 completed in 35.23 seconds with zero errors, panics or open spans; temporary
 telemetry was deleted.
+
+### Selected integer-literal inference prerequisite
+
+The type registry now has a defaulted contextual common-type hook carrying
+signed integer-literal provenance separately from declared metadata. No-hint
+callers retain their existing path. Existing adapters default to their selected
+registry-aware proposal; builtin signed and unsigned families share only the
+fitting-integral-target rule. Hints move with their operands for reversed
+distinct-family proposals, conflicts still fail, and invalid hints or returned
+metadata cannot bypass binding checks. This internal prerequisite does not yet
+change the sequence binder or resolve the three recorded SQL narrowing gaps.
+
+Two registry tests cover checked signed/unsigned limits, ordinary no-hint
+equivalence, one versus two literal operands, replacement defaults and overrides,
+same-family call count, reversed provenance and disagreement. Check, types 17/17,
+nested 35/35, casts 12/12, contracts 27/27 and clippy pass. Coverage reports 308
+files, 2,845 functions and 212 interface methods with no missing attributes;
+instrumentation compatibility completes in 40.14 seconds with zero errors,
+panics or open spans. Temporary telemetry was deleted. The lead owns the
+subsequent maintained Kani checkpoint; SQL inference integration follows next.

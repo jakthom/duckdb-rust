@@ -179,6 +179,21 @@ pub trait TypeAdapter: Debug + Send + Sync {
     ) -> Result<Option<DataType>> {
         self.common_type(left, right)
     }
+    /// Contextual SQL integer-literal inference. Hints describe only literal
+    /// source identity, never a column, parameter, cast or evaluated expression.
+    /// The default preserves this selected adapter's ordinary proposal; callers
+    /// without hints continue to invoke common_type_with_registry directly.
+    /// When operand order reverses, each hint must move with its operand.
+    fn common_type_with_integer_literals(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        _left_literal: Option<i128>,
+        _right_literal: Option<i128>,
+        types: &TypeRegistry,
+    ) -> Result<Option<DataType>> {
+        self.common_type_with_registry(left, right, types)
+    }
     fn compare(
         &self,
         data_type: &DataType,
@@ -544,8 +559,30 @@ impl TypeRegistry {
     /// Absence is distinct from adapter errors or disagreement. Contextual SQL
     /// coercion can consider registered casts only when both adapters decline.
     pub fn try_common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        self.try_common_type_with_integer_literals(left, right, None, None)
+    }
+    /// Binding-only inference with signed integer literal provenance. Values
+    /// must fit their declared signed underlying type. This does not validate
+    /// casts, grant implicit narrowing, or evaluate an expression to find a hint.
+    pub fn try_common_type_with_integer_literals(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        left_literal: Option<i128>,
+        right_literal: Option<i128>,
+    ) -> Result<Option<DataType>> {
+        for (ty, literal) in [(left, left_literal), (right, right_literal)] {
+            if let Some(value) = literal
+                && (!ty.is_signed_integer() || !Value::Integer(value).fits_type(ty))
+            {
+                return Err(Error::Bind(
+                    "integer literal hint differs from its underlying type".into(),
+                ));
+            }
+        }
+        let hinted = left_literal.is_some() || right_literal.is_some();
         let a = self.bind(left)?;
-        if left == right {
+        if left == right && !hinted {
             return Ok(Some(left.clone()));
         }
         let b = self.bind(right)?;
@@ -554,9 +591,27 @@ impl TypeRegistry {
         } else if *left == DataType::Null {
             Some(right.clone())
         } else {
-            let a = a.adapter.common_type_with_registry(left, right, self)?;
+            let a = if hinted {
+                a.adapter.common_type_with_integer_literals(
+                    left,
+                    right,
+                    left_literal,
+                    right_literal,
+                    self,
+                )?
+            } else {
+                a.adapter.common_type_with_registry(left, right, self)?
+            };
             let b = if left.family() == right.family() {
                 None
+            } else if hinted {
+                b.adapter.common_type_with_integer_literals(
+                    right,
+                    left,
+                    right_literal,
+                    left_literal,
+                    self,
+                )?
             } else {
                 b.adapter.common_type_with_registry(right, left, self)?
             };
@@ -622,6 +677,29 @@ pub fn builtin_types() -> Arc<TypeRegistry> {
 
 #[derive(Debug)]
 pub struct PrimitiveTypes;
+
+/// Builtin family rule only: a single integer literal may adopt a fitting
+/// integral target. Two literal pseudo-types combine their underlying types.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn integer_literal_target(
+    left: &DataType,
+    right: &DataType,
+    left_literal: Option<i128>,
+    right_literal: Option<i128>,
+) -> Option<DataType> {
+    let (value, target) = match (left_literal, right_literal) {
+        (Some(value), None) => (value, right),
+        (None, Some(value)) => (value, left),
+        _ => return None,
+    };
+    let fits = if target.is_unsigned_integer() {
+        value >= 0 && Value::Unsigned(value as u128).fits_type(target)
+    } else {
+        target.is_signed_integer() && Value::Integer(value).fits_type(target)
+    };
+    fits.then(|| target.clone())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for PrimitiveTypes {
     fn ordering_representation(&self, data_type: &DataType) -> OrderingRepresentation {
@@ -674,6 +752,19 @@ impl TypeAdapter for PrimitiveTypes {
             return Ok(Some(left.clone()));
         }
         Ok(DataType::common(left, right).ok())
+    }
+    fn common_type_with_integer_literals(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        left_literal: Option<i128>,
+        right_literal: Option<i128>,
+        types: &TypeRegistry,
+    ) -> Result<Option<DataType>> {
+        if let Some(target) = integer_literal_target(left, right, left_literal, right_literal) {
+            return Ok(Some(target));
+        }
+        self.common_type_with_registry(left, right, types)
     }
     fn compare(
         &self,

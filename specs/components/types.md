@@ -24,6 +24,18 @@ Sources: [LogicalType declarations](../../../duckdb/src/include/duckdb/common/ty
 
 Binding selects common types and inserts casts before most physical execution. `MaxLogicalType`, `TryGetMaxLogicalType`, and related helpers expose common-type selection; context-free `Default*` variants use built-in behavior and must not be assumed equivalent to context-aware resolution when extensions add type behavior. SQL overload resolution, assignment, and explicit casts have different acceptance requirements.
 
+The provisional selected common-type contract accepts optional integer-literal
+provenance separately from declared types. It does not evaluate an expression
+to manufacture a literal, grant a global implicit narrowing cast, or attach
+literal identity to stored values. Hints must fit their signed underlying type.
+Builtin signed and exact-numeric adapters can propose a fitting integral target
+for one literal and one concrete type; two literals combine their underlying
+types. Ordinary no-hint inference is unchanged. Existing replacement adapters
+default to their registry-aware proposal, and each hint moves with its operand
+when a distinct-family proposal reverses roles. Conflicts and invalid returned
+metadata still reject binding. A template binder separately owns the source's
+ordered identical-literal/NULL rules described in the expression specification.
+
 `Value::CastAs` and `TryCastAs` use a cast-function set and context where provided. The default variants provide context-free conversions. The throwing and optional-result APIs encode distinct failure contracts; callers must not replace failed conversion with a legitimate SQL NULL unless that is the intended SQL operation. Vectorized casts apply the corresponding conversion semantics across a batch, including NULL propagation and per-value conversion errors.
 
 Source provenance can affect accepted text independently of explicit/implicit

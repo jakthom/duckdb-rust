@@ -1,4 +1,6 @@
-use super::{ComparisonPredicate, KeyRepresentation, KeyWriter, TypeAdapter, ValueValidation};
+use super::{
+    ComparisonPredicate, KeyRepresentation, KeyWriter, TypeAdapter, TypeRegistry, ValueValidation,
+};
 use crate::{
     common::{DataType, Error, Result, Value},
     parallel::QueryContext,
@@ -60,6 +62,21 @@ impl TypeAdapter for ExactNumericTypes {
     }
     fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
         Ok(DataType::common(left, right).ok())
+    }
+    fn common_type_with_integer_literals(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        left_literal: Option<i128>,
+        right_literal: Option<i128>,
+        types: &TypeRegistry,
+    ) -> Result<Option<DataType>> {
+        if let Some(target) =
+            super::integer_literal_target(left, right, left_literal, right_literal)
+        {
+            return Ok(Some(target));
+        }
+        self.common_type_with_registry(left, right, types)
     }
     fn compare(
         &self,
