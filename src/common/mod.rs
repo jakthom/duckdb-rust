@@ -1,5 +1,6 @@
 pub mod cast;
 mod date;
+pub mod enumeration;
 mod error;
 pub mod nested;
 pub mod numeric;
@@ -9,6 +10,7 @@ pub mod temporal;
 pub use row_collection::RowCollection;
 
 pub use date::Date;
+pub use enumeration::{EnumType, EnumValue};
 pub use nested::{NestedPayload, NestedType, NestedValue};
 pub use temporal::TemporalValue;
 pub mod type_registry;

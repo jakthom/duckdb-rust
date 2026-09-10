@@ -116,6 +116,20 @@ impl State<'_, '_> {
         let resolved = match data_type {
             T::Boolean | T::Bool => Ok(DataType::Boolean),
             T::Date => Ok(DataType::Date),
+            T::Enum(members, None) if members.is_empty() => Err(Error::Bind(
+                "ENUM type requires at least one argument".into(),
+            )),
+            T::Enum(members, None) => DataType::enumeration(
+                members
+                    .iter()
+                    .map(|member| match member {
+                        ast::EnumMember::Name(label) => Ok(label.clone()),
+                        _ => Err(Error::Bind(
+                            "ENUM labels cannot specify ordinal assignments".into(),
+                        )),
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            ),
             T::Time(_, zone) => Ok(
                 if matches!(
                     zone,

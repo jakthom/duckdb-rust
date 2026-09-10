@@ -63,6 +63,7 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
             Value::Date(_)
             | Value::Blob(_)
             | Value::Uuid(_)
+            | Value::Enum(_)
             | Value::Temporal(_)
             | Value::Nested(_)
             | Value::Extension(_) => {

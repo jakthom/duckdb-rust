@@ -24,6 +24,7 @@ pub enum DataType {
     Varchar,
     Blob,
     Uuid,
+    Enum(Arc<super::EnumType>),
     Date,
     Time,
     TimeNs,
@@ -80,6 +81,7 @@ impl DataType {
             Self::Varchar => "builtin.varchar",
             Self::Blob => "builtin.blob",
             Self::Uuid => "builtin.uuid",
+            Self::Enum(_) => "builtin.enum",
             Self::Date => "builtin.date",
             Self::Time => "builtin.time",
             Self::TimeNs => "builtin.time_ns",
@@ -152,6 +154,16 @@ impl fmt::Display for DataType {
         if let Self::Nested(metadata) = self {
             return write!(f, "{metadata}");
         }
+        if let Self::Enum(metadata) = self {
+            write!(f, "ENUM(")?;
+            for (index, label) in metadata.labels.iter().enumerate() {
+                if index > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "'{}'", label.replace('\'', "''"))?;
+            }
+            return write!(f, ")");
+        }
         if let Self::Decimal { width, scale } = self {
             return write!(f, "DECIMAL({width},{scale})");
         }
@@ -196,6 +208,7 @@ impl fmt::Display for DataType {
                 Self::Varchar => "VARCHAR",
                 Self::Blob => "BLOB",
                 Self::Uuid => "UUID",
+                Self::Enum(_) => unreachable!("handled ENUM metadata"),
                 Self::Date => "DATE",
                 Self::Time => "TIME",
                 Self::TimeNs => "TIME_NS",
@@ -233,6 +246,7 @@ pub enum Value {
     Blob(Vec<u8>),
     /// UUID bits in network/text order, without the native storage sign-bit flip.
     Uuid(u128),
+    Enum(Arc<super::EnumValue>),
     Date(Date),
     Temporal(super::TemporalValue),
     Nested(Arc<super::NestedValue>),
@@ -271,6 +285,7 @@ impl Value {
             Self::Varchar(_) => DataType::Varchar,
             Self::Blob(_) => DataType::Blob,
             Self::Uuid(_) => DataType::Uuid,
+            Self::Enum(value) => DataType::Enum(value.data_type.clone()),
             Self::Date(_) => DataType::Date,
             Self::Temporal(value) => value.data_type(),
             Self::Nested(value) => value.data_type.clone(),
@@ -318,6 +333,9 @@ impl Value {
                 matches!(value.data_type, DataType::Extension(_))
                     && value.data_type == *data_type
                     && value.bytes.len() <= 16 * 1024 * 1024
+            }
+            Self::Enum(value) => {
+                matches!(data_type, DataType::Enum(metadata) if value.data_type == *metadata && (value.ordinal as usize) < metadata.labels.len())
             }
             Self::Temporal(value) => value.data_type() == *data_type && value.validate().is_ok(),
             Self::Nested(value) => {
@@ -433,6 +451,13 @@ impl Value {
             (Self::Varchar(a), Self::Varchar(b)) => Ok(a.cmp(b)),
             (Self::Blob(a), Self::Blob(b)) => Ok(a.cmp(b)),
             (Self::Uuid(a), Self::Uuid(b)) => Ok(a.cmp(b)),
+            (Self::Enum(a), Self::Enum(b)) => {
+                if a.data_type == b.data_type {
+                    Ok(a.ordinal.cmp(&b.ordinal))
+                } else {
+                    Ok(a.label()?.cmp(b.label()?))
+                }
+            }
             (Self::Float(a), Self::Float(b)) => Ok(float_cmp(f64::from(*a), f64::from(*b))),
             (Self::Double(a), Self::Double(b)) => Ok(float_cmp(*a, *b)),
             (left, right) if left.data_type().is_numeric() && right.data_type().is_numeric() => {
@@ -493,6 +518,7 @@ impl Value {
             Self::Date(_)
             | Self::Blob(_)
             | Self::Uuid(_)
+            | Self::Enum(_)
             | Self::Temporal(_)
             | Self::Nested(_)
             | Self::Extension(_) => {
@@ -534,6 +560,7 @@ impl fmt::Display for Value {
             Self::Varchar(v) => write!(f, "{v}"),
             Self::Blob(v) => super::scalar::format_blob(v, f),
             Self::Uuid(v) => super::scalar::format_uuid(*v, f),
+            Self::Enum(value) => write!(f, "{}", value.label().map_err(|_| fmt::Error)?),
             Self::Date(v) => write!(f, "{v}"),
             Self::Temporal(v) => write!(f, "{v}"),
             Self::Nested(value) => write!(f, "{value}"),

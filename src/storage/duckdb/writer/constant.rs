@@ -22,6 +22,7 @@ pub(in crate::storage::duckdb) fn write(
                 ));
             }
             Value::Boolean(v) => output.boolean(v),
+            Value::Enum(value) => output.unsigned(u64::from(value.ordinal)),
             Value::Date(v) => output.signed(i64::from(v.days())),
             value @ Value::Blob(_) => output.string(&value.to_string())?,
             Value::Uuid(v) => {

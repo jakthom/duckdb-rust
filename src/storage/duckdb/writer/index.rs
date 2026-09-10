@@ -286,6 +286,9 @@ fn encode_value(value: &Value, data_type: &DataType, output: &mut Vec<u8>) -> Re
         }
         Value::Boolean(v) => output.push(u8::from(*v)),
         Value::Uuid(v) => output.extend(v.to_be_bytes()),
+        Value::Enum(value) => {
+            output.extend(&value.ordinal.to_be_bytes()[4 - value.data_type.physical_width()..])
+        }
         Value::Blob(v) => {
             for byte in v {
                 if *byte <= 1 {

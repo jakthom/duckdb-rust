@@ -2,6 +2,7 @@
 //! retains its adapter; changing a registry does not change existing plans.
 mod builtin;
 mod date;
+pub mod enumeration;
 mod integer;
 mod nested;
 pub mod numeric;
@@ -396,6 +397,7 @@ impl CastRegistry {
             }
         }
         numeric::register(&mut registry);
+        enumeration::register(&mut registry);
         temporal::register(&mut registry);
         scalar::register(&mut registry);
         nested::register(&mut registry);
@@ -586,10 +588,18 @@ impl CastFunction for PrimitiveCast {
     fn supports(&self, spec: &CastSpec) -> bool {
         if matches!(
             spec.source,
-            DataType::Date | DataType::Blob | DataType::Uuid | DataType::Extension(_)
+            DataType::Date
+                | DataType::Blob
+                | DataType::Uuid
+                | DataType::Enum(_)
+                | DataType::Extension(_)
         ) || matches!(
             spec.target,
-            DataType::Date | DataType::Blob | DataType::Uuid | DataType::Extension(_)
+            DataType::Date
+                | DataType::Blob
+                | DataType::Uuid
+                | DataType::Enum(_)
+                | DataType::Extension(_)
         ) || spec.source.is_unsigned_integer()
             || spec.target.is_unsigned_integer()
             || spec.source.is_decimal()

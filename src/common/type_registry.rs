@@ -3,6 +3,7 @@
 pub mod ascii;
 mod batch;
 pub mod date;
+pub mod enumeration;
 mod key;
 pub mod nested;
 pub mod numeric;
@@ -334,6 +335,9 @@ impl TypeRegistry {
                 .register(data_type.family(), Arc::new(scalar::BinaryScalarTypes))
                 .expect("unique binary scalar family");
         }
+        registry
+            .register("builtin.enum", Arc::new(enumeration::EnumTypes))
+            .expect("unique ENUM family");
         for data_type in [
             DataType::UTinyInt,
             DataType::USmallInt,
@@ -446,6 +450,13 @@ impl TypeRegistry {
             return Err(Error::Bind(
                 "DECIMAL requires width 1..38 and scale 0..width".into(),
             ));
+        }
+        if let DataType::Enum(metadata) = data_type {
+            for label in &metadata.labels {
+                *bytes = bytes
+                    .checked_sub(label.len())
+                    .ok_or_else(|| Error::Resource("type metadata exceeds 16 MiB".into()))?;
+            }
         }
         if let DataType::Extension(identity) = data_type {
             let super::TypeIdentity { name, parameters } = identity.as_ref();
@@ -614,7 +625,11 @@ impl TypeAdapter for PrimitiveTypes {
     fn validate_type(&self, data_type: &DataType) -> Result<()> {
         if matches!(
             data_type,
-            DataType::Date | DataType::Blob | DataType::Uuid | DataType::Extension(_)
+            DataType::Date
+                | DataType::Blob
+                | DataType::Uuid
+                | DataType::Enum(_)
+                | DataType::Extension(_)
         ) || data_type.is_unsigned_integer()
             || data_type.is_decimal()
         {
