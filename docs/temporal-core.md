@@ -65,6 +65,8 @@ do not establish diagnostic-category parity.
 | [Functions/casts repair](temporal-functions-reference-repaired.json) | 162/167 | 152/167 | 2/3 | 3/3 |
 | [Function/type matrix](temporal-functions-reference-matrix.json) | 432/433 | 408/433 | 2/3 | 3/3 |
 | [Integrated functions](temporal-functions-reference-integrated.json) | 437/437 | 412/437 | 3/3 | 3/3 |
+| [Interval text initial](temporal-text-reference-initial.json) | 443/448 | 418/448 | 3/3 | 3/3 |
+| [Interval text repair](temporal-text-reference-repaired.json) | 448/448 | 422/448 | 3/3 | 3/3 |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -97,6 +99,25 @@ CLI was incorrectly asked to use the unavailable JSON extension. Its next trial
 corrected the pinned target flag and exposed the real UNBOUND input gap before
 the lead fixed it. These native reference schemas contain eight common temporal
 types; the Rust mixed-schema tests additionally exercise TIME_NS/TIMESTAMPTZ_NS.
+
+The interval scanner now preserves input-order component overflow checks,
+attached aliases, optional leading @, final AGO, unitless seconds, and the
+core's non-strict final clock suffix behavior. Fractional years round to months;
+fractional quarters, months and weeks follow their distinct component rules.
+Fractional MICROSECONDS are discarded while fractional seconds round to whole
+microseconds in development; release differs. Arbitrarily long fractional input
+uses a bounded decimal prefix and sticky tail for binary64 conversion. Unit
+tests compare a rounding midpoint and nonzero tail to ordinary binary64 parsing.
+Cancellation is checked during interval whitespace, integer/fraction/clock and
+repeated-unit scans; deterministic cancellation tests cover each shape.
+
+The unchanged retained development interval files were also executed with
+`scripts/run_upstream.py`. The [first upstream result](upstream-temporal-interval-text.json)
+is explicitly incomplete: two of ten files pass (fractional parsing and interval
+operators), seven fail and one is unsupported. First failures identify exact
+diagnostics, plural unit syntax, INTERVAL type qualifiers/alias(), scalar range(),
+and a boolean expectation normalization issue. Selected differential passes do
+not erase those broader obligations. Their original results/journal are retained.
 
 ## Checkpoint validation
 
@@ -139,6 +160,15 @@ harnesses took 0.833, 0.519, 2.186, 3.168 and 92.955 seconds. Timestamp precisio
 rounding has ordinary half-boundary/extrema/infinity tests, not a separate
 rounding proof. The prior intermediate six-harness run also passed.
 
+The interval-text checkpoint passes eleven temporal component tests, seven DATE
+tests and two adjacent scanner tests, ordinary check/clippy, coverage (247 files,
+2149 functions, 201 interfaces, no missing instrumentation), and all-target trace
+compilation with temporary telemetry deleted. Its full Kani run again passes
+six of six maintained harnesses (19.987, 0.814, 0.521, 2.479, 3.304 and 78.827
+seconds). Scanner cancellation/rounding and full parser behavior are not formal
+proof claims. The upstream worker built successfully in release mode, but this
+checkpoint has no new execution-performance gate.
+
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
 No proof here establishes SQL completeness, concurrency, durability, native
@@ -149,8 +179,9 @@ file interoperability, or performance parity.
 This is not a stopping boundary. The remaining function catalog includes
 date_trunc/date_diff/date_sub/time_bucket, formatting/parsing functions, richer
 date_part specifiers and struct results, current-time functions and broader
-calendar arithmetic. Remaining DATE/text semantics, attached/ISO interval input,
-long-input cancellation, timestamp physical/display extrema, complete
+calendar arithmetic. Remaining DATE/clock/timestamp text semantics, parser error
+diagnostics and unit syntax, non-interval long-input cancellation, timestamp
+physical/display extrema, complete
 conversion/overload/error matrices, and broader indexed-key/native codec cases
 remain open. Existing selected matrices do not assert catalog completeness.
 
