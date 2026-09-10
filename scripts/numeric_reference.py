@@ -80,6 +80,59 @@ for name in ('ceil','ceiling','floor','sign'):
                     ("'1.25'", "'1.25'::VARCHAR", 'TRUE', "'1.25'::ENUM('1.25')", '[1]', "DATE '2024-01-01'", '', '1,2')]
 ERROR_CASES += [("SELECT floor(TIMESTAMP '2024-01-01' TO DAY)", 'Parser Error')]
 
+# Precision rounding retains exact textual comparisons rather than accepting
+# floating tolerance. The transition-width matrix includes nullable columns,
+# whose coarse DECIMAL cutoffs differ from a known constant NULL expression.
+for width in (1, 4, 5, 9, 10, 18, 19, 38):
+    for scale in sorted({0, min(2, width), width}):
+        raw = str(5 * 10 ** (width - 1) - 1)
+        if scale:
+            raw = (raw[:-scale] or '0') + '.' + raw[-scale:]
+        kind = f'DECIMAL({width},{scale})'
+        for precision in sorted({-2147483648, -40, -width, -1, 0, 1, scale, 40, 2147483647}):
+            columns = ','.join(f"{name}(x,{precision})::VARCHAR,typeof({name}(x,{precision}))"
+                               for name in ('round', 'trunc', 'round_even', 'roundbankers'))
+            SQL.append(f"SELECT x::VARCHAR,{columns} FROM (VALUES ('-{raw}'::{kind}),('0'::{kind}),('{raw}'::{kind}),(NULL::{kind})) t(x) ORDER BY x")
+for kind, maximum in (('TINYINT',127),('SMALLINT',32767),('INTEGER',2147483647),
+                      ('BIGINT',9223372036854775807),('HUGEINT',2**127-1),
+                      ('UTINYINT',255),('USMALLINT',65535),('UINTEGER',2**32-1),
+                      ('UBIGINT',2**64-1),('UHUGEINT',2**128-1)):
+    for precision in (-2147483648,-39,-38,-19,-18,-1,0,1,2147483647):
+        # Small values avoid intentionally failing whole queries on carry;
+        # maximum-value truncation and explicit overflow cases are separate.
+        columns = ','.join(f"{name}(x,{precision})::VARCHAR,typeof({name}(x,{precision}))"
+                           for name in ('round','trunc','round_even','roundbankers'))
+        SQL.append(f"SELECT x::VARCHAR,{columns},trunc('{maximum}'::{kind},{precision})::VARCHAR FROM (VALUES (0::{kind}),(25::{kind}),(NULL::{kind})) t(x) ORDER BY x")
+for kind in ('FLOAT','DOUBLE'):
+    values = ','.join(f"('{value}'::{kind})" for value in
+                      ('-inf','-12.55','-2.5','-1.25','-0.0','0.0','1.25','2.5','12.55','inf','nan'))
+    for precision in (-2147483648,-400,-40,-2,-1,0,1,2,40,400,2147483647):
+        columns = ','.join(f"{name}(x,{precision})::VARCHAR,typeof({name}(x,{precision}))"
+                           for name in ('round','trunc','round_even','roundbankers'))
+        SQL.append(f"SELECT x::VARCHAR,{columns} FROM (VALUES {values}) t(x) ORDER BY x")
+SQL += [
+    "SELECT typeof(round(NULL)),typeof(round(NULL,NULL)),typeof(round_even(NULL,NULL)),typeof(round(NULL::INTEGER,1)),typeof(round(NULL::DECIMAL(4,2),1)),typeof(trunc(NULL::DECIMAL(4,2))),typeof(round(1.25::DECIMAL(4,2),NULL)),typeof(round_even(1.25::DECIMAL(4,2),NULL::INTEGER))",
+    "SELECT round(NULL::DECIMAL(4,2),i::INTEGER),typeof(round(NULL::DECIMAL(4,2),i::INTEGER)) FROM range(2) t(i)",
+    "SELECT round(1.25::DECIMAL(4,2),'1')::VARCHAR,trunc(1.25::DECIMAL(4,2),'1')::VARCHAR,round_even(1.25::DECIMAL(4,2),'1')::VARCHAR",
+    "SELECT typeof(round(9999::DECIMAL(4,0),-1)),round(9999::DECIMAL(4,0),-1)::VARCHAR,typeof(trunc(9999::DECIMAL(4,0),-1)),trunc(9999::DECIMAL(4,0),-1)::VARCHAR",
+    "SELECT {'d':round(1.25::DECIMAL(5,2),1),'f':[round_even(1.25::FLOAT,1),NULL]}::VARCHAR,concat(round(1.25::DOUBLE,1))",
+    "SELECT trunc(x,-4)::VARCHAR,count(*),sum(round(x,1))::VARCHAR FROM (VALUES (1.25::DECIMAL(5,2)),(2.25),(NULL)) t(x) GROUP BY trunc(x,-4)",
+    "SELECT a.x::VARCHAR,b.x::VARCHAR FROM (VALUES (1.25::DECIMAL(5,2)),(1.35),(NULL)) a(x) JOIN (VALUES (1.3::DECIMAL(5,1)),(NULL)) b(x) ON round(a.x,1)=b.x ORDER BY a.x",
+    "SELECT round(x,1)::VARCHAR,lag(round_even(x,1)) OVER(ORDER BY x)::VARCHAR,sum(round(x,1)) OVER(ORDER BY x ROWS UNBOUNDED PRECEDING)::VARCHAR FROM (VALUES (1.25::DECIMAL(5,2)),(2.25),(NULL)) t(x) ORDER BY x",
+    "SELECT trunc(340282366920938463463374607431768211455::UHUGEINT,-38)",
+]
+for name in ('round','trunc','round_even','roundbankers'):
+    ERROR_CASES += [(f'SELECT {name}({arguments}) FROM range(2) t(i)','Binder Error') for arguments in
+                    ("1.25::DECIMAL(4,2),1.5", "1.25::DECIMAL(4,2),'1'::VARCHAR",
+                     '1.25::DECIMAL(4,2),i::INTEGER', '1.25::DOUBLE,i::BIGINT',
+                     'TRUE,1', "'1.25',1", '1,1,1', '')]
+ERROR_CASES += [(f'SELECT {name}(1)', 'Binder Error') for name in ('round_even','roundbankers')]
+ERROR_CASES += [(f"SELECT {name}({value}, {precision})", 'Out of Range Error')
+                for name in ('round','round_even','roundbankers')
+                for value,precision in [('127::TINYINT',-1),('32767::SMALLINT',-1),
+                                        ("'170141183460469231731687303715884105727'::HUGEINT",-38),
+                                        ("'99999999999999999999999999999999999999'::DECIMAL(38,0)",-38)]]
+
 
 def equivalent(a, b, expected_error=None):
     if expected_error:

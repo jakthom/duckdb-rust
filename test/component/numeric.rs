@@ -13,6 +13,8 @@ mod batches;
 mod contracts;
 #[path = "numeric_direction.rs"]
 mod direction;
+#[path = "numeric_precision.rs"]
+mod precision;
 #[path = "numeric_rounding.rs"]
 mod rounding;
 
