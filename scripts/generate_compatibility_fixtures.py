@@ -54,6 +54,26 @@ CASES = {
         FROM range(125013) r(i);
         CHECKPOINT;
     """,
+    "dict_fsst_dictionary": """
+        SET force_compression='dict_fsst';
+        CREATE TABLE t AS SELECT i::INTEGER id,
+          CASE WHEN i%11=0 THEN NULL WHEN i%13=0 THEN '' ELSE 'category-' || (i%7) END AS text
+        FROM range(10013) r(i);
+        CHECKPOINT;
+    """,
+    "dict_fsst_combined": """
+        SET force_compression='dict_fsst';
+        CREATE TABLE t AS SELECT i::INTEGER id,
+          CASE WHEN i%29=0 THEN NULL WHEN i%31=0 THEN '' ELSE repeat('duckdb-scalar-🦆-',8) || (i%5003) END AS text
+        FROM range(10013) r(i);
+        CHECKPOINT;
+    """,
+    "dict_fsst_unique": """
+        SET force_compression='dict_fsst';
+        CREATE TABLE t AS SELECT i::INTEGER id, repeat('unique-scalar-',8) || i AS text
+        FROM range(10013) r(i);
+        CHECKPOINT;
+    """,
     "dates_scalar": """
         SET force_compression='uncompressed';
         CREATE TABLE t(id INTEGER, d DATE, c DATE DEFAULT DATE '2000-02-29');
@@ -192,6 +212,11 @@ def main():
             if expected_codec:
                 assert any(row["compression"] == expected_codec and (not name.startswith("dates_") or row["segment_type"] == "DATE") for row in codecs), f"fixture must actually contain {expected_codec} segments of the expected type"
             metadata = {"writer": version, "reference_identity": identity, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "observed_compression": codecs, "observed_table": table}
+            if name.startswith("dict_fsst_"):
+                assert any(row["compression"] == "DICT_FSST" for row in codecs), "fixture must exercise DICT_FSST"
+                metadata["dict_fsst_modes"] = json.loads(subprocess.check_output([str(binary),str(path),"-readonly","-json","-c","SELECT segment_info,count FROM pragma_storage_info('t',include_segment_info=true) WHERE compression='DICT_FSST'"],text=True))
+                expected_mode = {"dict_fsst_dictionary":"DICTIONARY", "dict_fsst_combined":"DICT_FSST", "dict_fsst_unique":"FSST_ONLY"}[name]
+                assert any(row["segment_info"].startswith(expected_mode+":") for row in metadata["dict_fsst_modes"]), f"fixture must actually contain {expected_mode} mode"
             if name in HISTORICAL:
                 metadata.update({"writer": "historical DuckDB artifact; original writer revision unrecorded", "reference_reader": version, "source": str(HISTORICAL[name].relative_to(ROOT.parent)), "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT.parent/"duckdb", text=True).strip(), "query": "SELECT temperature::DOUBLE AS value FROM temperatures_double UNION ALL SELECT temperature::DOUBLE AS value FROM temperatures_float"})
             else:

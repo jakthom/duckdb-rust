@@ -3,6 +3,7 @@ mod alprd;
 mod bitpacking;
 mod chimp;
 mod constant;
+mod dict_fsst;
 mod floating;
 mod layout;
 mod packed;
@@ -21,7 +22,7 @@ pub use constant::ConstantDecoder;
 pub use patas::PatasDecoder;
 pub use rle::RleDecoder;
 pub use roaring::RoaringDecoder;
-pub use strings::{DictionaryDecoder, FsstDecoder};
+pub use strings::{DictFsstDecoder, DictionaryDecoder, FsstDecoder};
 pub use uncompressed::UncompressedDecoder;
 
 use crate::storage::compression::{DecoderRegistry, SegmentDecoder};
@@ -41,6 +42,7 @@ pub fn decoders() -> DecoderRegistry {
         Arc::new(DictionaryDecoder),
         Arc::new(BitPackingDecoder),
         Arc::new(FsstDecoder),
+        Arc::new(DictFsstDecoder),
         Arc::new(ChimpDecoder),
         Arc::new(AlpDecoder),
         Arc::new(AlpRdDecoder),

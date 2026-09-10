@@ -602,3 +602,6 @@ fn shared_decoders_keep_concurrent_requests_independent() -> Result<()> {
 
 #[path = "compression/floating.rs"]
 mod floating;
+
+#[path = "compression/dict_fsst.rs"]
+mod dict_fsst;

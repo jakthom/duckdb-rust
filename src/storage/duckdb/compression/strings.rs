@@ -4,7 +4,7 @@ use crate::{
     storage::compression::{CodecId, DecodeContext, DecodeInput, SegmentDecoder, SegmentType},
 };
 macro_rules! string_decoder {
-    ($name:ident, $id:literal, $label:literal, $decode:ident) => {
+    ($name:ident, $id:literal, $label:literal, $decode:path) => {
         pub struct $name;
         #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
         impl SegmentDecoder for $name {
@@ -39,9 +39,15 @@ macro_rules! string_decoder {
 }
 string_decoder!(DictionaryDecoder, 4, "duckdb-dictionary", dictionary);
 string_decoder!(FsstDecoder, 7, "duckdb-fsst", fsst);
+string_decoder!(
+    DictFsstDecoder,
+    15,
+    "duckdb-dict-fsst",
+    super::dict_fsst::decode
+);
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn unpack(
+pub(super) fn unpack(
     data: &[u8],
     count: usize,
     width: usize,
@@ -142,29 +148,7 @@ pub(super) fn fsst(
             return Err(corrupt("FSST string outside dictionary"));
         }
         let input = &data[end - offset..end - offset + length];
-        let mut output = Vec::new();
-        let mut position = 0;
-        while position < input.len() {
-            if position % 1024 == 0 {
-                query.check()?;
-            }
-            let code = input[position];
-            position += 1;
-            if code == 255 {
-                output.push(
-                    *input
-                        .get(position)
-                        .ok_or_else(|| corrupt("truncated FSST escape"))?,
-                );
-                position += 1;
-            } else {
-                output.extend(
-                    symbols
-                        .get(code as usize)
-                        .ok_or_else(|| corrupt("invalid FSST symbol"))?,
-                );
-            }
-        }
+        let output = decompress(input, &symbols, query)?;
         values.push(string_value(output, data_type)?);
     }
     Ok(values)
@@ -182,7 +166,7 @@ pub(super) fn string_value(bytes: Vec<u8>, data_type: &DataType) -> Result<Value
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn symbol_table(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+pub(super) fn symbol_table(data: &[u8]) -> Result<Vec<Vec<u8>>> {
     if data.len() < 17 {
         return Err(corrupt("truncated FSST symbol table"));
     }
@@ -213,4 +197,36 @@ fn symbol_table(data: &[u8]) -> Result<Vec<Vec<u8>>> {
         }
     }
     Ok(symbols)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn decompress(
+    input: &[u8],
+    symbols: &[Vec<u8>],
+    query: &crate::parallel::QueryContext,
+) -> Result<Vec<u8>> {
+    let mut output = Vec::new();
+    let mut position = 0;
+    while position < input.len() {
+        if position % 1024 == 0 {
+            query.check()?;
+        }
+        let code = input[position];
+        position += 1;
+        if code == 255 {
+            output.push(
+                *input
+                    .get(position)
+                    .ok_or_else(|| corrupt("truncated FSST escape"))?,
+            );
+            position += 1;
+        } else {
+            output.extend(
+                symbols
+                    .get(code as usize)
+                    .ok_or_else(|| corrupt("invalid FSST symbol"))?,
+            );
+        }
+    }
+    Ok(output)
 }
