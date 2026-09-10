@@ -39,4 +39,7 @@ Empty containers can be inferred through CTAS; empty `STRUCT()`/`TUPLE()` type
 annotations remain a parser gap. Full workspace, instrumentation and exploratory
 Kani verification follow at the combined implementation checkpoint. Fresh modern
 files still need independent C++ producer/reader testing beyond Rust round trips.
-The earlier checkpoint's proofs and timings do not cover these changes.
+The [eighth combined checkpoint](value-expression-progress.md) subsequently
+passes workspace/tests/clippy, instrumentation and six maintained Kani harnesses.
+Those bounded proofs do not cover the native publication protocol or codec;
+the earlier timing campaign still does not measure these changes.

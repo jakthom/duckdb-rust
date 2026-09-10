@@ -4,16 +4,51 @@ The [accepted milestone](../specs/value-expression-milestone.md) remains active.
 The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
-Latest integrated source: `8bd50a3`. This includes the native publication repair,
-DATE source-context repair, numeric direction functions and full-scale decimal
-text repair, exact-name dynamic objects, selected typed-constant binding, and a
-test-only canonical VARIANT encoder. The encoder is an internal prerequisite,
-not native publication support. Full workspace and exploratory Kani validation
-pass on this combined source. New upstream/performance acceptance remains open.
+Latest integrated checkpoint: `4b2a027`. This includes versioned native
+VARIANT/TUPLE publication, DATE call syntax, repaired numeric precision functions,
+MAP literals and ordered sequence coercion, selected typed-constant binding,
+and a test-only exact canonical VARIANT content checker. Full workspace and
+exploratory Kani validation pass on this combined source. A subsequently
+reproduced nested-NaN checkpoint-validation gap is being repaired; the passing
+suite did not cover that witness. New upstream/performance acceptance remains open.
 The last pushed checkpoint is `135eece`, whose engine source
 `88e9094` passed the 34-workload timing gate and controlled upstream refresh.
 Those timings do not measure the new combined source. Earlier sections retain
 historical results and limits.
+
+## Eighth integrated implementation checkpoint
+
+Source `4b2a027` passes ordinary workspace check/tests and all-target clippy with
+warnings denied. The same two external-CLI analytics tests remain ignored.
+Library 56, nested 37, numeric 35, contracts 29, DATE 11, temporal 25, casts 12,
+checkpointing 11 and recovery 14 tests pass; the recovery tail sweep took
+65.72 seconds. Coverage reports 315 files, 2,919 functions, 214 interface methods,
+with no missing instrumentation. Trace compatibility passed in 61.635 seconds,
+with zero errors, panics or open spans; temporary telemetry was deleted.
+
+Full `python3 scripts/verify_kani.py` under Kani 0.67.0 passed all six maintained
+harnesses, zero failures: TIMETZ 45.299 s, unsigned keys 0.790 s, dense offsets
+0.477 s, ROWS clipping 2.196 s, uniform bounds 2.835 s and packed byte counts
+83.864 s. Caller-location (1) and foreign-function (2) warnings remained
+unreachable; atomic fences (4) and subtracts (5) were modeled sequentially.
+These proofs do not establish native codec/state-machine correctness, exact
+VARIANT equivalence, general rounding/binding semantics or concurrent durability.
+
+The [native publication report](nested-publication-values.md) records repaired
+4/4 independent C++ file mutation campaigns. Numeric precision's retained
+[repaired report](numeric-precision-values.md) reaches 606/607 development SQL
+cases, with bare maximum UHUGEINT literal binding still open; native cases pass
+3/3 on both pins. The MAP worker's initial/follow-up evidence retains three
+integer-literal inference gaps. Worker evidence is source-specific; these
+campaigns are not a fresh full upstream run on the combined engine.
+
+The lead's [nested-NaN investigation](nested-checkpoint-exactness.md) confirms
+an additional maintenance failure after the checkpoint. Both readers can reopen
+the committed log; C++ can checkpoint it and Rust can read that result. Rust's
+strict layout checker needs recursive bit-exact comparison. This and subsequent
+family repairs receive their own connected checks before the follow-up push.
+No new faster-reference timing or complete upstream campaign has run. README
+still matches `origin/main`, and the user's pre-sync stash remains unchanged.
 
 ## Seventh integrated implementation checkpoint
 
