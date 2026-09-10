@@ -69,6 +69,84 @@ fn readers() -> Vec<Arc<dyn SegmentDecoder>> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn decimal_physical_null_placeholders_preserve_precision_boundaries() -> Result<()> {
+    let registry = compression::decoders();
+    let query = QueryContext::background();
+    for (width, size, sentinel) in [
+        (1, 2, i128::from(i16::MIN)),
+        (4, 2, i128::from(i16::MIN)),
+        (5, 4, i128::from(i32::MIN)),
+        (9, 4, i128::from(i32::MIN)),
+        (10, 8, i128::from(i64::MIN)),
+        (18, 8, i128::from(i64::MIN)),
+        (19, 16, i128::MIN),
+        (38, 16, i128::MIN),
+    ] {
+        for scale in [0, width] {
+            let data_type = DataType::Decimal { width, scale };
+            let maximum = 10_i128.pow(u32::from(width)) - 1;
+            let mut bytes = Vec::new();
+            let mut expected = Vec::new();
+            for coefficient in [sentinel, -maximum, 0, maximum] {
+                bytes.extend_from_slice(&coefficient.to_le_bytes()[..size]);
+                expected.push(if coefficient == sentinel {
+                    Value::Null
+                } else {
+                    Value::Decimal {
+                        value: coefficient,
+                        width,
+                        scale,
+                    }
+                });
+            }
+            assert_eq!(
+                read(
+                    &registry,
+                    1,
+                    &bytes,
+                    4,
+                    SegmentType::Values(&data_type),
+                    &query
+                )?,
+                expected
+            );
+            // A non-sentinel value outside precision is still a broken typed
+            // decoder result, not a value silently normalized into SQL NULL.
+            let invalid = maximum + 1;
+            assert!(
+                read(
+                    &registry,
+                    1,
+                    &invalid.to_le_bytes()[..size],
+                    1,
+                    SegmentType::Values(&data_type),
+                    &query
+                )
+                .is_err()
+            );
+            // Both selected bitpacking algorithms share logical reconstruction.
+            for decoder in readers() {
+                let mut selected = DecoderRegistry::default();
+                selected.register(decoder)?;
+                assert_eq!(
+                    read(
+                        &selected,
+                        6,
+                        &segment(2, size, sentinel, 0, 0, &[]),
+                        3,
+                        SegmentType::Values(&data_type),
+                        &query
+                    )?,
+                    vec![Value::Null; 3]
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn pack(values: &[u128], width: usize) -> Vec<u8> {
     let mut output = vec![0; values.len().div_ceil(32) * 4 * width];
     for (i, value) in values.iter().enumerate() {

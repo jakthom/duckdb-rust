@@ -96,6 +96,21 @@ pub(super) fn integer_value(value: i128, data_type: &DataType) -> Result<Value> 
         }));
     }
     if let DataType::Decimal { width, scale } = data_type {
+        // C++ uncompressed storage writes the physical signed minimum for
+        // invalid rows, including children beneath a NULL nested container.
+        // It is outside every DECIMAL precision supported by that width. Keep
+        // the placeholder NULL until the enclosing column validity is applied;
+        // an explicitly valid row still rejects a missing decoded value.
+        let null_sentinel = match width {
+            1..=4 => i128::from(i16::MIN),
+            5..=9 => i128::from(i32::MIN),
+            10..=18 => i128::from(i64::MIN),
+            19..=38 => i128::MIN,
+            _ => return Err(corrupt("invalid decimal width")),
+        };
+        if value == null_sentinel {
+            return Ok(Value::Null);
+        }
         return Ok(Value::Decimal {
             value,
             width: *width,

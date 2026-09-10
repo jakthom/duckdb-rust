@@ -155,8 +155,9 @@ impl DecoderRegistry {
             };
             if !valid {
                 return Err(Error::Internal(format!(
-                    "{} returned the wrong physical type",
-                    decoder.name()
+                    "{} returned the wrong physical type for {:?} at row {i}",
+                    decoder.name(),
+                    input.kind
                 )));
             }
         }
