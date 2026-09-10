@@ -77,6 +77,15 @@ The optimizer obtains catalog and access capabilities from the same statement sn
 
 The default expression-simplification pass folds successful constant casts and operators whose declared effects permit folding through their retained adapters and removes filters known to be true. Failed attempts remain expressions, preserving error timing for short-circuit branches and empty inputs. Folding preserves declared logical metadata and floating-point bits. Functions with effects are never evaluated by this pass. Expression-child and local-plan-expression traversal preserve ownership and selected adapters; each completed pass still undergoes full plan validation.
 
+Selected scalar specializations declare both argument types and per-argument
+cast modes. The ordinary language binder inserts checked casts through its
+selected registry; functions do not stringify or convert values behind that
+boundary. The default remains implicit conversion. An explicit conversion for
+one argument does not grant it to another argument, and SQL literal privilege
+remains separate from typed API parameter identity. Tests cover retained selected
+casts, both evaluators/optimizers, NULLs, prepared arguments and fatal failures
+through an outer TRY_CAST followed by rollback.
+
 Read-only transactions retain their snapshots. A writer conflicts with every intervening successful writer, including disjoint writes. The result is a conservative serializable model with no automatic retries. A committed snapshot is published before becoming visible. Dropping a transaction discards it. Definite publication failure preserves committed state; `CommitUnknown` makes subsequent transaction starts fail until the database is reopened and recovered.
 
 Explicit transaction execution errors abort the transaction and require `ROLLBACK`. Binding errors retain it. Autocommit operates per statement: earlier statements remain committed if a later statement in the submitted SQL fails. Prepared statements retain syntax and rebind catalog and parameters for each execution.

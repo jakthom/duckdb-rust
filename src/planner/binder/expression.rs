@@ -36,13 +36,14 @@ impl State<'_, '_> {
         let arguments = arguments
             .into_iter()
             .zip(argument_types.iter())
-            .map(|(e, target)| {
+            .enumerate()
+            .map(|(index, (e, target))| {
                 let mode = if super::coercion::string_literal(&e)
                     || super::coercion::integer_literal_fits(&e, target)
                 {
                     CastMode::Explicit
                 } else {
-                    CastMode::Implicit
+                    function_impl.argument_cast_mode(index)
                 };
                 e.cast(
                     target.clone(),

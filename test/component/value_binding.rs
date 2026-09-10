@@ -2,11 +2,156 @@
 //! branch pruning. The selected scalar adapter owns its overload decision.
 use super::*;
 use duckdb_rust::{
+    common::cast::{CastFunction, CastMode, CastRegistry, CastSpec, PrimitiveCast},
     common::type_registry::TypeRegistry,
     execution::expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
     function::ScalarBindArguments,
     optimizer::{Optimizer, PipelineOptimizer},
 };
+
+#[derive(Debug)]
+struct CoercionProbe;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for CoercionProbe {
+    fn name(&self) -> &str {
+        "coercion_probe"
+    }
+    fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
+        if arguments.len() != 2 {
+            return Err(Error::Bind("coercion probe arity".into()));
+        }
+        Ok(vec![DataType::Integer, DataType::BigInt])
+    }
+    fn argument_cast_mode(&self, index: usize) -> CastMode {
+        if index == 0 {
+            CastMode::Explicit
+        } else {
+            CastMode::Implicit
+        }
+    }
+    fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        Ok(DataType::BigInt)
+    }
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        if arguments.iter().any(Value::is_null) {
+            return Ok(Value::Null);
+        }
+        Ok(Value::Integer(
+            arguments[0].as_i128()? + arguments[1].as_i128()?,
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct SelectedArgumentCast(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for SelectedArgumentCast {
+    fn name(&self) -> &'static str {
+        "selected-scalar-argument-cast"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Varchar
+            && spec.target == DataType::Integer
+            && spec.mode == CastMode::Explicit
+    }
+    fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(spec.mode, CastMode::Explicit);
+        if value == &Value::Varchar("fatal".into()) {
+            return Err(Error::Resource("argument cast witness".into()));
+        }
+        PrimitiveCast.cast(value, spec, query)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn selected_scalar_coercion_policy_keeps_cast_registry_null_errors_and_parameter_identity()
+-> Result<()> {
+    assert_eq!(
+        LiteralProbe::default().argument_cast_mode(0),
+        CastMode::Implicit
+    );
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let mut casts = CastRegistry::builtins();
+            casts.replace(
+                CastSpec {
+                    source: DataType::Varchar,
+                    target: DataType::Integer,
+                    mode: CastMode::Explicit,
+                },
+                Arc::new(SelectedArgumentCast(calls.clone())),
+            )?;
+            let mut functions = FunctionRegistry::builtins();
+            functions.register_scalar(Arc::new(CoercionProbe))?;
+            let mut c = DatabaseBuilder::new()
+                .casts(casts)
+                .functions(functions)
+                .expressions(evaluator.clone())
+                .optimizer(optimizer.clone())
+                .batch_size(2)
+                .build()?
+                .connect();
+            c.execute("CREATE TABLE t(id INTEGER PRIMARY KEY,s VARCHAR); INSERT INTO t VALUES (1,'2'),(2,NULL),(3,'4')")?;
+            assert_eq!(
+                c.query("SELECT coercion_probe(s,id) FROM t ORDER BY id")?
+                    .rows,
+                vec![
+                    vec![Value::Integer(3)],
+                    vec![Value::Null],
+                    vec![Value::Integer(7)]
+                ]
+            );
+            assert_eq!(calls.load(Ordering::Relaxed), 2);
+            // A declared explicit conversion is local to that argument. It
+            // neither grants implicit VARCHAR conversion nor changes typed
+            // parameters into SQL literals for the remaining arguments.
+            assert!(matches!(
+                c.query("SELECT coercion_probe(id,s) FROM t"),
+                Err(Error::Bind(_))
+            ));
+            assert_eq!(
+                c.query("SELECT coercion_probe('2','3')")?.rows,
+                vec![vec![Value::Integer(5)]]
+            );
+            let prepared = c.prepare("SELECT coercion_probe(?,?)")?;
+            assert_eq!(
+                c.execute_prepared(&prepared, &[Value::Varchar("2".into()), Value::Integer(3)])?
+                    .rows,
+                vec![vec![Value::Integer(5)]]
+            );
+            assert!(matches!(
+                c.execute_prepared(
+                    &prepared,
+                    &[Value::Varchar("2".into()), Value::Varchar("3".into())]
+                ),
+                Err(Error::Bind(_))
+            ));
+            c.execute("BEGIN; UPDATE t SET s='fatal' WHERE id=1")?;
+            assert!(matches!(
+                c.query("SELECT TRY_CAST(coercion_probe(s,id) AS VARCHAR) FROM t ORDER BY id"),
+                Err(Error::Resource(_))
+            ));
+            c.execute("ROLLBACK")?;
+            assert_eq!(
+                c.query("SELECT s FROM t WHERE id=1")?.rows,
+                vec![vec![Value::Varchar("2".into())]]
+            );
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug, Default)]
 struct LiteralProbe {
