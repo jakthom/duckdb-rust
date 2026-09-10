@@ -187,6 +187,27 @@ exact diagnostic differences, infinity abbreviations, missing nanosecond and
 timetz_byte_comparable functions, timestamp avg, and boolean harness normalization.
 This broader run is not full upstream parity despite the selected 667-case pass.
 
+The [cast-provenance interval follow-up](upstream-temporal-diagnostic-cast-interval.json)
+passes four files and retains six failures. All nineteen interval TRY_CAST records
+now pass: the selected temporal adapter marks its own conversion/narrowing/range
+failures as invalid input while preserving public Conversion, Invalid Input and
+Out of Range categories. Source/output validation and inner-expression failures
+stay fatal; nested TRY_CAST tests retain partial NULL children without suppressing
+an inner strict cast. The constants diagnostic still precedes the separately
+delivered shared floating-cast repair in this report.
+
+The [text diagnostic follow-up](upstream-temporal-diagnostic-cast-time.json)
+passes eleven files, fails nine, and retains six unsupported. TIME range wording,
+TIMESTAMP format/calendar-range distinctions, numeric-offset diagnostics and
+precision-specific INT64 conversion errors now match selected source behavior.
+Exact `inf`/`-inf` abbreviations are accepted only at actual end of input; full
+`infinity` still allows trailing whitespace. Diagnostics copy a bounded prefix
+of malformed input, and checked scanner cancellation remains intact. General
+TIME and incorrect-TIMESTAMP files now pass. The broader run advances to the
+VARIANT-specific strict TIME parser gap and, importantly, reveals a real calendar
+intermediate-overflow bug in timestamp arithmetic. That witnessed failure is
+retained for repair, not classified as an expected diagnostic-only difference.
+
 ## Checkpoint validation
 
 Routine checks pass: `cargo check`; ten temporal component tests plus DATE,
@@ -257,6 +278,17 @@ compilation passes in 32.11 seconds and deletes temporary telemetry. The prior
 clock-stage trace also passed in 50.95 seconds. Production build with
 `cargo build --release --no-default-features` passes (1 minute 34 seconds).
 No new execution-performance gate is claimed.
+
+The cast-provenance/text-diagnostic checkpoint passes sixteen temporal tests,
+seven DATE tests, eleven cast tests, the two adjacent DATE tests and four adjacent
+temporal tests. Ordinary check and workspace/all-target clippy pass. Instrumentation
+coverage reports 273 files, 2414 functions, 207 interfaces and no missing entries.
+The all-target traced check passes in 66.35 seconds and deletes temporary telemetry.
+The full maintained Kani 0.67.0 suite again passes six of six harnesses, none failed
+(49.647, 0.825, 0.503, 2.577, 3.163 and 103.760 seconds). This is the maintained
+packing/key/index/window/byte-count suite, not a proof of parsing or TRY_CAST
+completeness. The compiler reports caller-location and foreign-call constructs
+that remain unreachable in successful harnesses; atomics are sequentially modeled.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
