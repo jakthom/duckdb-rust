@@ -4,6 +4,9 @@ The [accepted milestone](../specs/value-expression-milestone.md) remains active.
 The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
+Latest source checkpoint: `b1cb75c`; the fifth-checkpoint section below tracks
+its combined validation. Earlier sections retain historical results and limits.
+
 ## First integrated checkpoint, 2026-09-10
 
 - Shared type factories retain selected child adapters; composite casts retain
@@ -363,3 +366,81 @@ performance campaign has yet validated these follow-up commits. The preceding
 34 passing measurements belong to checkpoint three. The last pushed source is
 still `ae0cd51`; regression investigation and the controlled combined checkpoint
 must precede the next push.
+
+## Fifth integrated checkpoint, 2026-09-10
+
+Frozen engine `b1cb75c` combines exact BIGNUM operators/SUM/windows, nested
+BIGNUM keys, physical child/validity WAL recovery, temporal text/renderability
+repairs and scalar/LIST/ARRAY concat. Function-selected argument cast modes
+survive binding: an explicitly selected assignment cast is not replaced by
+SQL literal privilege. Its new witness failed before repair. Scalar concat
+uses retained VARCHAR conversions instead of diagnostic Display; sequence
+concat retains child types/casts and nested NULLs through relational execution,
+prepared mutations, rollback and native reopen.
+
+The selected Boolean/integral common-type rule now reaches CASE, VALUES and
+ordinary set operations. Shared combination binding first asks the selected
+implicit cast, then retains an explicit cast when needed after common-type
+selection. It does not widen normal function overloads or table-assignment
+casts. Tests exercise both evaluator/optimizer compositions and selected
+implicit/explicit replacements. The prior implicit-only implementation fails
+the new test. The [paired combination corpus](value-expression-combination-reference-checkpoint5.json)
+passes unchanged against Rust and both C++ pins, including typed results,
+joins, grouping, windows, table mutations and rollback. Broader CASE/literal
+and recursive-CTE type selection remain separate obligations.
+
+The [full upstream refresh](value-expression-upstream-checkpoint5-a.json) retains
+all 5,638 identities with the same three-second deadline and two workers:
+423 passed, 2,090 failed, 3,111 unsupported, 11 timed out and three incomplete.
+It records 19,241 passed SQL instances, including prefixes of failing files;
+these are not all passing files. None of checkpoint three's 391 full passes
+is lost. Its sole shorter record prefix is the already-timing-out million-row
+`constant_columns.test_slow` (seven records instead of eight) during concurrent
+correctness builds. A [quiet three-second retry](value-expression-upstream-checkpoint5-constant-quiet.json)
+also reached seven. The [extended diagnostic](value-expression-upstream-checkpoint5-constant-extended.json)
+preserves all 13 successful assertions before the existing 512 MiB checkpoint
+writer limit, so it covers the previously successful prefix without declaring
+the file passed. The limit exists unchanged in `ae0cd51`.
+
+A separate clean worktree rebuilt `ae0cd51` with the same production flags.
+The [paired deadline investigation](value-expression-constant-deadline-paired.json)
+ran that source and current source alternately, three pairs, without worker
+build/proof load. Both completed seven, eight and eight records in the same
+pairs before the unchanged three-second deadline. All outcomes and source/
+binary identities are retained. This does not reproduce a new source regression;
+it does not waive the timeout, writer limit or unmeasured storage performance,
+and is not the C++ performance acceptance campaign.
+
+Additional retained family evidence includes development BIT 77/77 with 3/3
+native producer paths per pin, BIGNUM 45/45 with 3/3 per pin, temporal lower-NS
+709/709 with 3/3 development native paths, and nested concat 16/16 with two
+independent native producers and three mutation/reopen stages each. Every
+report keeps its own source identity and release disagreements. The VARIANT
+report remains failing 11/14: independent optimizer-setting probes demonstrate
+that stored NULL/count behavior is optimizer-sensitive, not evidence to invent
+a present-NULL physical representation. Default development mismatches remain
+open; disabling a reference optimizer does not redefine the authority.
+
+Normal check, full workspace tests and all-target clippy pass, with the same
+two ignored external-CLI analytics tests. Harness self-tests pass 36/36.
+Coverage reports 284 files, 2,559 functions, 208 interface methods and no missing
+attributes. The trace check completes in 45.67 s, with zero error returns,
+panics or open spans, and deletes its temporary telemetry. It is not a timing
+benchmark. Full `python3 scripts/verify_kani.py` ran with Kani 0.67.0: all six
+maintained harnesses passed, zero failures. Times were TIMETZ packing 45.481 s,
+unsigned keys 0.810 s, dense offsets 0.496 s, ROWS clipping 2.449 s, uniform
+bounds 2.357 s and packed byte counts 70.708 s. Caller-location (one) and foreign
+function (one) constructs were unreachable; atomic fences/subtractions remain
+sequential. The vendor parser retains its unused-variable warning. These
+bounded proofs do not prove BIGNUM arithmetic, recursive recovery, temporal
+parsing/rendering, native interchange or concurrent durability. Faster-reference
+performance acceptance and the pre-push report update are still pending.
+
+The first isolated faster-reference campaign records 33/34 passing workloads.
+The [numeric matrix](value-expression-performance-checkpoint5-a-numeric-fastest.json)
+fails `decimal_total_cents`: release C++ is faster at 50,292 ns, while the two
+Rust medians are 49,792 ns and 54,042 ns (maximum ratio 1.074565). Passing each
+pin separately does not satisfy the faster-reference rule. The other numeric
+cases and all native/grouping/ordering/relational cases pass. All 21 paired
+samples per pin and all failed results remain retained; no follow-up push is
+authorized by this failed campaign. The shared aggregation repair is ongoing.

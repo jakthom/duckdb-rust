@@ -160,3 +160,11 @@ executing functions. Parameter numbering outside discarded modifiers remains
 lexical. Other dialects keep their original precision/modifier grammar.
 Normal checks pass BIT (8), types (14), contracts (25) and all-target clippy.
 The expanded repaired differential campaign is still pending at this commit.
+
+The subsequent [repaired campaign](bit-reference-modifier-repaired.json), on
+integrated source `b1cb75c`, records development 77/77 SQL and release 60/77.
+All three native producer/mutation/reopen paths pass against each pin and the
+source remained unchanged. The earlier 69/70 failure remains retained above.
+The 17 release disagreements are not waived into release passes; development
+is the correctness authority. This closes the selected modifier campaign, not
+the remaining aggregate, compression, diagnostic or full BIT obligations.

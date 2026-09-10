@@ -1,0 +1,1412 @@
+{
+  "recorded_at": "2026-09-10T20:39:11.271294+00:00",
+  "rust_binary_sha256": "38a7c2a1c6209ef9e596d3b4ca97e12a9e96568e6f31b991e4dc4d3dc187280d",
+  "rust_build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--release",
+    "--no-default-features",
+    "--bin",
+    "duckdb-rust-test-worker"
+  ],
+  "rust_source_verified": true,
+  "working_tree_source_sha256": "2db245934914bac68b28ab0fd876084e1f364c37ca54875b18091c33da67f395",
+  "reference_worker_source_sha256": "01e0c8e5e1fc87b429873086fc48251b2c3af2f200cb609ed6ab1900e461c44b",
+  "harness_sha256": {
+    "session_reference.py": "2b518cb3da361b0026021ef937696b9b750fa9e1dadabbfb0a829e9da2ad3734",
+    "sqllogic.py": "b957b7a1657b4c6e2bdcc7d9acd84398f3fde029fec11b9c14cd13fc56f04efb",
+    "run_upstream.py": "08a33e7e6430f2a828e8131575c5e444a62fccc17eb9f18e19cd03bc0f78496e",
+    "reference_version.py": "26761d73bb7ccca1c464e41ee90f5418aa0a9c7cfb73c3fedfe03e8b51439b4c"
+  },
+  "targets": [
+    {
+      "target": "release",
+      "corpora": [
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/value-combination.test",
+          "sha256": "95d53137e902182e067cbe7e00b70d120ef0871f8771523fadd2e56d0dd97f10",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 5,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, b BOOLEAN)",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "INSERT INTO t VALUES (1,true),(2,false),(3,NULL)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 11,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id<3 THEN b ELSE 7 END, typeof(CASE WHEN id<3 THEN b ELSE 7 END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 18,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id=3 THEN 7 ELSE b END, typeof(CASE WHEN id=3 THEN 7 ELSE b END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 25,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id<3 THEN b ELSE 7::UTINYINT END, typeof(CASE WHEN id<3 THEN b ELSE 7::UTINYINT END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 32,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END, typeof(CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 39,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT x FROM (VALUES (true),(false),(2),(NULL)) v(x) ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 47,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t UNION SELECT 2 ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 55,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 2 AS x UNION ALL SELECT b FROM t ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 63,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t INTERSECT SELECT 1 ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 68,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t EXCEPT SELECT 1 ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 74,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE combined AS SELECT CASE WHEN id<3 THEN b ELSE 7 END AS x FROM t",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 77,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT x,sum(x) OVER (ORDER BY x) FROM combined ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 84,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT c.x,count(*) FROM combined c JOIN t ON c.x=CASE WHEN t.id<3 THEN t.b ELSE 7 END GROUP BY c.x ORDER BY c.x",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 91,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "BEGIN",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 94,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "UPDATE combined SET x=9 WHERE x=1",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 97,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 100,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT x FROM combined ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 107,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT CASE WHEN true THEN true ELSE 1.0::DOUBLE END",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 112,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT CASE WHEN true THEN 1.0::DECIMAL(2,1) ELSE false END",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 117,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT abs(b) FROM t",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 5,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, b BOOLEAN)",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "INSERT INTO t VALUES (1,true),(2,false),(3,NULL)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 11,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id<3 THEN b ELSE 7 END, typeof(CASE WHEN id<3 THEN b ELSE 7 END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 18,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id=3 THEN 7 ELSE b END, typeof(CASE WHEN id=3 THEN 7 ELSE b END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 25,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id<3 THEN b ELSE 7::UTINYINT END, typeof(CASE WHEN id<3 THEN b ELSE 7::UTINYINT END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 32,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END, typeof(CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 39,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT x FROM (VALUES (true),(false),(2),(NULL)) v(x) ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 47,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t UNION SELECT 2 ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 55,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 2 AS x UNION ALL SELECT b FROM t ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 63,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t INTERSECT SELECT 1 ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 68,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t EXCEPT SELECT 1 ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 74,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE combined AS SELECT CASE WHEN id<3 THEN b ELSE 7 END AS x FROM t",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 77,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT x,sum(x) OVER (ORDER BY x) FROM combined ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 84,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT c.x,count(*) FROM combined c JOIN t ON c.x=CASE WHEN t.id<3 THEN t.b ELSE 7 END GROUP BY c.x ORDER BY c.x",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 91,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "BEGIN",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 94,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "UPDATE combined SET x=9 WHERE x=1",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 97,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 100,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT x FROM combined ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 107,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT CASE WHEN true THEN true ELSE 1.0::DOUBLE END",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 112,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT CASE WHEN true THEN 1.0::DECIMAL(2,1) ELSE false END",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 117,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT abs(b) FROM t",
+                "passed": true
+              }
+            ]
+          },
+          "passed": true,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "d8cdaa33fd",
+            "version": "v1.5.5"
+          }
+        }
+      ],
+      "passed": true,
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb-v1.5.5/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/target/session-reference-release"
+      ],
+      "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+      "cpp_worker_sha256": "6ce9e80e5ddd891b36de23816d6d6417e62165156770d1c425df32b7cfa57df5"
+    },
+    {
+      "target": "development",
+      "corpora": [
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/value-combination.test",
+          "sha256": "95d53137e902182e067cbe7e00b70d120ef0871f8771523fadd2e56d0dd97f10",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 5,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, b BOOLEAN)",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "INSERT INTO t VALUES (1,true),(2,false),(3,NULL)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 11,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id<3 THEN b ELSE 7 END, typeof(CASE WHEN id<3 THEN b ELSE 7 END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 18,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id=3 THEN 7 ELSE b END, typeof(CASE WHEN id=3 THEN 7 ELSE b END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 25,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id<3 THEN b ELSE 7::UTINYINT END, typeof(CASE WHEN id<3 THEN b ELSE 7::UTINYINT END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 32,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END, typeof(CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 39,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT x FROM (VALUES (true),(false),(2),(NULL)) v(x) ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 47,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t UNION SELECT 2 ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 55,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 2 AS x UNION ALL SELECT b FROM t ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 63,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t INTERSECT SELECT 1 ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 68,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t EXCEPT SELECT 1 ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 74,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE combined AS SELECT CASE WHEN id<3 THEN b ELSE 7 END AS x FROM t",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 77,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT x,sum(x) OVER (ORDER BY x) FROM combined ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 84,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT c.x,count(*) FROM combined c JOIN t ON c.x=CASE WHEN t.id<3 THEN t.b ELSE 7 END GROUP BY c.x ORDER BY c.x",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 91,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "BEGIN",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 94,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "UPDATE combined SET x=9 WHERE x=1",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 97,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 100,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT x FROM combined ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 107,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT CASE WHEN true THEN true ELSE 1.0::DOUBLE END",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 112,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT CASE WHEN true THEN 1.0::DECIMAL(2,1) ELSE false END",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 117,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT abs(b) FROM t",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 5,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, b BOOLEAN)",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "INSERT INTO t VALUES (1,true),(2,false),(3,NULL)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 11,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id<3 THEN b ELSE 7 END, typeof(CASE WHEN id<3 THEN b ELSE 7 END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 18,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id=3 THEN 7 ELSE b END, typeof(CASE WHEN id=3 THEN 7 ELSE b END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 25,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id<3 THEN b ELSE 7::UTINYINT END, typeof(CASE WHEN id<3 THEN b ELSE 7::UTINYINT END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 32,
+                "directive": [
+                  "query",
+                  "IT"
+                ],
+                "sql": "SELECT CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END, typeof(CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END) FROM t ORDER BY id",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 39,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT x FROM (VALUES (true),(false),(2),(NULL)) v(x) ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 47,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t UNION SELECT 2 ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 55,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 2 AS x UNION ALL SELECT b FROM t ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 63,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t INTERSECT SELECT 1 ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 68,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT b AS x FROM t EXCEPT SELECT 1 ORDER BY x NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 74,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE combined AS SELECT CASE WHEN id<3 THEN b ELSE 7 END AS x FROM t",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 77,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT x,sum(x) OVER (ORDER BY x) FROM combined ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 84,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT c.x,count(*) FROM combined c JOIN t ON c.x=CASE WHEN t.id<3 THEN t.b ELSE 7 END GROUP BY c.x ORDER BY c.x",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 91,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "BEGIN",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 94,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "UPDATE combined SET x=9 WHERE x=1",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 97,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 100,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT x FROM combined ORDER BY x",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 107,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT CASE WHEN true THEN true ELSE 1.0::DOUBLE END",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 112,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT CASE WHEN true THEN 1.0::DECIMAL(2,1) ELSE false END",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 117,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT abs(b) FROM t",
+                "passed": true
+              }
+            ]
+          },
+          "passed": true,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "binary-scalar-types"
+            ],
+            [
+              "types",
+              "calendar-temporal"
+            ],
+            [
+              "types",
+              "dynamic-variant-type"
+            ],
+            [
+              "types",
+              "exact-numeric-types"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "magnitude-limb-bignum-type"
+            ],
+            [
+              "types",
+              "ordered-enum-types"
+            ],
+            [
+              "types",
+              "packed-bit-type"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "types",
+              "recursive-nested-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "binary-scalar-cast"
+            ],
+            [
+              "casts",
+              "calendar-temporal-cast"
+            ],
+            [
+              "casts",
+              "dynamic-variant-cast"
+            ],
+            [
+              "casts",
+              "exact-numeric-cast"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "magnitude-limb-bignum-cast"
+            ],
+            [
+              "casts",
+              "nested-union-cast"
+            ],
+            [
+              "casts",
+              "ordered-enum-cast"
+            ],
+            [
+              "casts",
+              "packed-bit-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "recursive-nested-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "blob-concatenate"
+            ],
+            [
+              "operators",
+              "calendar-temporal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-bitwise-operations"
+            ],
+            [
+              "operators",
+              "checked-decimal-arithmetic"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "magnitude-limb-bignum-arithmetic"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "set_operations",
+              "hash-set-operations"
+            ],
+            [
+              "windows",
+              "hash-partitioned-windows"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "99063af2bd",
+            "version": "v2.0.0-dev84019"
+          }
+        }
+      ],
+      "passed": true,
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/target/session-reference-development"
+      ],
+      "cpp_library_sha256": "74b604b07e2c7d0f3d1e60afcbcfc388390f51d016d079f75aced1e6c1637240",
+      "cpp_worker_sha256": "c6873c56ce1297b0724753bd7f69b0824a337c8fda73a5f021ecd3135f078401"
+    }
+  ],
+  "passed": true,
+  "complete_test_parity": false,
+  "complete_compatibility": false,
+  "scope": "Persistent in-memory sessions with unchanged local SQL assertions. Named connections share a database. Each corpus starts with a fresh database. Errors, unsupported cases and partial runs remain failures. No performance or full diagnostic/native-file parity claim.",
+  "source_unchanged": true,
+  "rust_binary_unchanged": true
+}
