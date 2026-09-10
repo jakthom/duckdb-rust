@@ -5,6 +5,7 @@ The default debug build keeps worker build artifacts isolated to this worktree.
 """
 import argparse
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
 import platform
@@ -38,14 +39,80 @@ SQL = [
     "SELECT TIMESTAMP 'infinity'-TIMESTAMP 'infinity'",
     "SELECT TIME_NS '12:00:00'+INTERVAL '1 second'",
     "SELECT TIMESTAMPTZ_NS 'epoch'+INTERVAL '1 day'",
+    "SELECT make_date(2024,2,29),make_date(1),make_time(23,59,59.9999999),make_timestamp(2000,1,1,23,59,59.9999999)",
+    "SELECT make_timestamp(-1),make_timestamp_ms(-1),make_timestamp_ns(-1),epoch_ms(-1)",
+    "SELECT INTERVAL '1.9' YEAR,INTERVAL (-1.9) MONTH,INTERVAL '1.5' SECOND,INTERVAL 1 WEEK,INTERVAL 1 QUARTER,INTERVAL 1 CENTURY,INTERVAL 1 DECADE,INTERVAL 1 MILLENNIUM",
+    "SELECT to_seconds(0.0000009),to_milliseconds(0.0009),to_years(2)+to_days(3)+to_hours(4)+to_minutes(5)+to_microseconds(6)",
+    "SELECT last_day(DATE '2024-02-01'),dayname(DATE 'epoch'),monthname(DATE 'epoch'),quarter(DATE '2024-12-31'),dayofyear(DATE '2024-12-31'),dayofweek(DATE 'epoch'),isodow(DATE 'epoch')",
+    "SELECT extract(year FROM DATE '0001-01-01 (BC)'),extract(microseconds FROM TIME '12:34:56.123456'),year(INTERVAL '-13 months'),month(INTERVAL '-13 months'),hour(INTERVAL '35 hours'),quarter(INTERVAL '-13 months'),century(INTERVAL '-1300 months')",
+    "SELECT epoch(INTERVAL '1 year'),epoch(TIMETZ '13:00:00+01'),epoch_us(TIME_NS '00:00:00.000000001'),epoch(TIMESTAMP_NS '1969-12-31 23:59:59.999999999'),epoch_ns(TIMESTAMP_NS '1969-12-31 23:59:59.999999999')",
+    "SELECT isinf(TIMESTAMP 'infinity'),isfinite(DATE 'epoch'),isfinite('NaN'::DOUBLE),isinf('NaN'::DOUBLE),isinf('-Infinity'::FLOAT),epoch(TIMESTAMP 'infinity'),year(DATE '-infinity')",
+    "SELECT typeof(date_part(p,t)),date_part(p,t) FROM (VALUES ('epoch',TIMESTAMP 'epoch'),('year',TIMESTAMP '2000-01-01')) v(p,t)",
+    "SELECT date_part('year',DATE 'epoch'),date_part('epoch',TIMESTAMP 'epoch'),date_part('timezone',TIMETZ '12:00:00-05:30')",
+    "SELECT INTERVAL (n) DAY FROM (VALUES (1.9),(-1.9),(NULL)) v(n)",
+    "SELECT make_date(2023,2,29)",
+    "SELECT make_time(25,0,0)",
+    "SELECT to_years(2147483647)",
+    "SELECT make_timestamp_ns('-9223372036854775808'::BIGINT)",
+    "SELECT make_date(DATE 'epoch')",
+    "SELECT make_time(TIME '00:00')",
+    "SELECT isfinite(INTERVAL '1 year')",
+    "SELECT isinf(TIME '00:00')",
+    "SELECT year(TIME '00:00')",
+    "SELECT year(TIMESTAMPTZ 'epoch')",
+    "SELECT INTERVAL 2147483648 DAY",
+    "SELECT TIMESTAMP_S '1969-12-31 23:59:59.999999',TIMESTAMP_MS '1969-12-31 23:59:59.999999'",
+    "SELECT TIMESTAMPTZ '2000-01-01 00:00:00+23:59'",
+    "SELECT TIMESTAMPTZ 'epoch'::DATE",
+    "SELECT TIMETZ '12:00:00+02'::TIME",
+    "SELECT TIME '12:00:00'::TIMETZ",
+    "SELECT TIME_NS '00:00:00.000000500'::TIME,TIME_NS '24:00:00'::TIME,TIME '24:00:00'::TIME_NS,TIMESTAMP_NS '1969-12-31 23:59:59.999999999'::TIME,TIMESTAMP_NS '1969-12-31 23:59:59.999999999'::DATE",
+    "SELECT TIMESTAMP_S '1969-12-31 23:59:59.5',TIMESTAMP_S '1970-01-01 00:00:00.5',TIMESTAMP_MS '1970-01-01 00:00:00.0005',TIMESTAMP_NS '2000-01-01 23:59:59.999999500'::DATE,TIMESTAMP_NS '1969-12-31 23:59:59.999999500'::TIMESTAMP",
+    "SELECT epoch(INTERVAL '1 year'),epoch_ms(INTERVAL '1 year'),epoch_us(INTERVAL '1 year'),epoch_ns(INTERVAL '1 year'),epoch_ms(TIMESTAMP '1969-12-31 23:59:59.999500'),epoch(TIME_NS '00:00:00.000000789')",
+    "SELECT typeof(NULL::TIMESTAMP(0)),typeof(NULL::TIMESTAMP(3)),typeof(NULL::TIMESTAMP(6)),typeof(NULL::TIMESTAMP(10)),typeof(NULL::TIMESTAMP(3) WITH TIME ZONE)",
+    "SELECT NULL::TIMESTAMP(11)",
+    "SELECT NULL::TIMESTAMPTZ(3)",
+    "SELECT NULL::TIME(3)",
 ]
+CAST_VALUES = {
+    'DATE': "DATE '2000-01-01'",
+    'TIME': "TIME '12:34:56.123456'",
+    'TIME_NS': "TIME_NS '12:34:56.123456789'",
+    'TIMETZ': "TIMETZ '12:34:56.123456+02'",
+    'TIMESTAMP': "TIMESTAMP '2000-01-01 12:34:56.123456'",
+    'TIMESTAMP_S': "TIMESTAMP_S '2000-01-01 12:34:56'",
+    'TIMESTAMP_MS': "TIMESTAMP_MS '2000-01-01 12:34:56.123'",
+    'TIMESTAMP_NS': "TIMESTAMP_NS '2000-01-01 12:34:56.123456789'",
+    'TIMESTAMPTZ': "TIMESTAMPTZ '2000-01-01 12:34:56.123456+02'",
+    'TIMESTAMPTZ_NS': "TIMESTAMPTZ_NS '2000-01-01 12:34:56.123456789+02'",
+    'INTERVAL': "INTERVAL '1 month 2 days 03:04:05'",
+}
+SQL += [f'SELECT ({value})::{target}' for value in CAST_VALUES.values() for target in CAST_VALUES]
+SQL += [f'SELECT {name}({value})' for name in ('year','month','day','quarter','dayofyear','dayofweek','isodow','century','decade','millennium','hour','minute','second','millisecond','microsecond','epoch','epoch_ms','epoch_us','epoch_ns','isfinite','isinf','last_day','dayname','monthname') for value in CAST_VALUES.values()]
 DEFINITION = "CREATE TABLE t(id INTEGER PRIMARY KEY,tm TIME DEFAULT TIME '12:00:00',ts TIMESTAMP DEFAULT TIMESTAMP 'epoch',s TIMESTAMP_S DEFAULT TIMESTAMP_S 'epoch',ms TIMESTAMP_MS DEFAULT TIMESTAMP_MS 'epoch',ns TIMESTAMP_NS DEFAULT TIMESTAMP_NS 'epoch',z TIMESTAMPTZ DEFAULT TIMESTAMPTZ 'epoch',tz TIMETZ DEFAULT TIMETZ '12:00:00+02',iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t(id) VALUES(1); INSERT INTO t VALUES (2,NULL,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-01 12:00:00.123',TIMESTAMP_NS '2000-01-01 12:00:00.123456789',TIMESTAMPTZ '2000-01-01 12:00:00+02',TIMETZ '00:00:00-05:30',INTERVAL '-1 month 30 days -00:00:00.000001')"
 QUERY = "SELECT id,tm::VARCHAR AS tm,ts::VARCHAR AS ts,s::VARCHAR AS s,ms::VARCHAR AS ms,ns::VARCHAR AS ns,z::VARCHAR AS z,tz::VARCHAR AS tz,iv::VARCHAR AS iv FROM t ORDER BY id"
 
 
 def equivalent(left, right):
     if left.get('ok') and right.get('ok'):
-        return left['columns'] == right['columns'] and left['rows'] == right['rows']
+        if left['columns'] != right['columns'] or len(left['rows']) != len(right['rows']):
+            return False
+        for a, b in zip(left['rows'], right['rows']):
+            if len(a) != len(b) or len(a) != len(left['columns']):
+                return False
+            for kind, x, y in zip(left['columns'], a, b):
+                if x == y:
+                    continue
+                if kind not in ('FLOAT', 'DOUBLE') or x == 'NULL' or y == 'NULL':
+                    return False
+                try:
+                    # Exact numeric equality, not a tolerance: textual 0 and
+                    # 0.0 denote the same floating value. Retain both originals.
+                    if Decimal(x) != Decimal(y):
+                        return False
+                except InvalidOperation:
+                    return False
+        return True
     # Error presence only here; retain full categories/messages, never assert
     # category parity from this coarse rejection check.
     return left.get('ok') is False and right.get('ok') is False
@@ -86,7 +153,7 @@ def main():
             finally:
                 actual.close()
                 cpp.close()
-            cpp_cli = Engine(cpp_path, False)
+            cpp_cli = Engine(cpp_path, False, serialize_json_rows=selected.serialize_json_rows)
             for label, producer in [('cpp', cpp_cli), ('rust-checkpoint', rust), ('rust-wal', Engine(rust.binary, True, ('--durability', 'wal')))]:
                 case = {'producer': label, 'passed': False}
                 trial['persistence'].append(case)
