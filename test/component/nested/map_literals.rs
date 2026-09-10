@@ -232,6 +232,13 @@ impl TypeAdapter for SelectedCombination {
     fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
         if matches!(
             (left, right),
+            (DataType::Integer, DataType::TinyInt) | (DataType::TinyInt, DataType::Integer)
+        ) {
+            self.0.fetch_add(1, AtomicOrdering::Relaxed);
+            return Ok(Some(DataType::BigInt));
+        }
+        if matches!(
+            (left, right),
             (DataType::Integer, DataType::Varchar) | (DataType::Varchar, DataType::Integer)
         ) {
             self.0.fetch_add(1, AtomicOrdering::Relaxed);
@@ -264,6 +271,241 @@ impl TypeAdapter for SelectedCombination {
     ) -> Result<()> {
         PrimitiveTypes.write_key(ty, value, output, query)
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn collection_integer_literals_preserve_order_value_identity_and_nonliteral_boundaries()
+-> Result<()> {
+    let mut c = Database::memory()?.connect();
+    for (expression, expected) in [
+        ("[1,2::TINYINT]", "TINYINT[]"),
+        ("[1,1,3::TINYINT]", "TINYINT[]"),
+        ("[1,2,3::TINYINT]", "INTEGER[]"),
+        ("[1,NULL,1,3::TINYINT]", "TINYINT[]"),
+        ("[NULL,1,3::TINYINT]", "INTEGER[]"),
+        ("['1',1,3::TINYINT]", "INTEGER[]"),
+        ("[3::TINYINT,1,2]", "TINYINT[]"),
+        ("[1::INTEGER,2::TINYINT]", "INTEGER[]"),
+        ("[1+0,2::TINYINT]", "INTEGER[]"),
+        ("[CASE WHEN true THEN 1 ELSE 2 END,3::TINYINT]", "INTEGER[]"),
+        ("[-128,1::TINYINT]", "TINYINT[]"),
+        ("[-129,1::TINYINT]", "INTEGER[]"),
+        ("[127,1::TINYINT]", "TINYINT[]"),
+        ("[128,1::TINYINT]", "INTEGER[]"),
+        ("[255,1::UTINYINT]", "UTINYINT[]"),
+        ("[-1,1::UTINYINT]", "INTEGER[]"),
+        ("[256,1::UTINYINT]", "INTEGER[]"),
+        ("[9223372036854775808,1::UBIGINT]", "UBIGINT[]"),
+        ("[18446744073709551615,1::UBIGINT]", "UBIGINT[]"),
+        ("MAP {1:'a',2::TINYINT:'b'}", "MAP(TINYINT, VARCHAR)"),
+        ("MAP {'a':1,'b':2::TINYINT}", "MAP(VARCHAR, TINYINT)"),
+        ("[1,1.25::DECIMAL(5,2)]", "DECIMAL(12,2)[]"),
+    ] {
+        assert_eq!(
+            c.query(&format!("SELECT typeof({expression})"))?.rows,
+            vec![vec![Value::Varchar(expected.into())]],
+            "{expression}"
+        );
+    }
+    for sql in [
+        "SELECT typeof([$1,2::TINYINT])",
+        "SELECT typeof([i,2::TINYINT]) FROM (SELECT $1 i)t",
+    ] {
+        let prepared = c.prepare(sql)?;
+        assert_eq!(
+            c.execute_prepared(&prepared, &[Value::Integer(1)])?.rows,
+            vec![vec![Value::Varchar("INTEGER[]".into())]]
+        );
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SelectedNarrowCast(Arc<AtomicUsize>, CastMode);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for SelectedNarrowCast {
+    fn name(&self) -> &'static str {
+        "selected-literal-narrowing"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Integer && spec.target == DataType::TinyInt && spec.mode == self.1
+    }
+    fn cast(&self, value: &Value, spec: &CastSpec, q: &QueryContext) -> Result<Value> {
+        self.0.fetch_add(1, AtomicOrdering::Relaxed);
+        assert_eq!(spec.mode, self.1);
+        PrimitiveCast.cast(
+            value,
+            &CastSpec {
+                mode: CastMode::Explicit,
+                ..spec.clone()
+            },
+            q,
+        )
+    }
+}
+
+#[derive(Debug)]
+struct LiteralProbe(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for LiteralProbe {
+    fn name(&self) -> &str {
+        "literal_probe"
+    }
+    fn effects(&self) -> duckdb_rust::function::FunctionEffects {
+        duckdb_rust::function::FunctionEffects {
+            volatile: true,
+            external_access: false,
+        }
+    }
+    fn return_type(&self, args: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        assert!(args.is_empty());
+        Ok(DataType::Integer)
+    }
+    fn evaluate(&self, _: &[Value], q: &QueryContext) -> Result<Value> {
+        q.check()?;
+        self.0.fetch_add(1, AtomicOrdering::Relaxed);
+        Ok(Value::Integer(1))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn collection_literal_inference_retains_selected_casts_types_and_lazy_evaluation() -> Result<()> {
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for mode in [CastMode::Implicit, CastMode::Explicit] {
+            let casts_seen = Arc::new(AtomicUsize::new(0));
+            let effects = Arc::new(AtomicUsize::new(0));
+            let mut functions = FunctionRegistry::builtins();
+            functions.register_scalar(Arc::new(LiteralProbe(effects.clone())))?;
+            let mut casts = CastRegistry::builtins();
+            let spec = CastSpec {
+                source: DataType::Integer,
+                target: DataType::TinyInt,
+                mode,
+            };
+            let adapter = Arc::new(SelectedNarrowCast(casts_seen.clone(), mode));
+            if mode == CastMode::Implicit {
+                casts.register(spec, adapter)?;
+            } else {
+                casts.replace(spec, adapter)?;
+            }
+            let mut c = DatabaseBuilder::new()
+                .functions(functions)
+                .casts(casts)
+                .expressions(evaluator.clone())
+                .build()?
+                .connect();
+            assert_eq!(
+                c.query("SELECT typeof([1,2::TINYINT]),typeof([literal_probe(),2::TINYINT])")?
+                    .rows,
+                vec![vec![
+                    Value::Varchar("TINYINT[]".into()),
+                    Value::Varchar("INTEGER[]".into())
+                ]]
+            );
+            assert_eq!(effects.load(AtomicOrdering::Relaxed), 0);
+            // The ordinary optimizer may fold closed pure casts. Inference
+            // must not execute a volatile expression to discover a literal.
+            let folded_casts = casts_seen.load(AtomicOrdering::Relaxed);
+            let prepared =
+                c.prepare("SELECT [literal_probe(),2::TINYINT]::VARCHAR,[1,2::TINYINT]::VARCHAR")?;
+            assert_eq!(effects.load(AtomicOrdering::Relaxed), 0);
+            assert_eq!(
+                c.execute_prepared(&prepared, &[])?.rows,
+                vec![vec![Value::Varchar("[1, 2]".into()); 2]]
+            );
+            assert_eq!(effects.load(AtomicOrdering::Relaxed), 1);
+            assert!(casts_seen.load(AtomicOrdering::Relaxed) > folded_casts);
+        }
+    }
+    let mut types = TypeRegistry::builtins();
+    let calls = Arc::new(AtomicUsize::new(0));
+    for family in ["builtin.integer", "builtin.tinyint"] {
+        types.replace(family, Arc::new(SelectedCombination(calls.clone())))?;
+    }
+    let mut c = DatabaseBuilder::new()
+        .types(Arc::new(types))
+        .build()?
+        .connect();
+    assert_eq!(
+        c.query(
+            "SELECT typeof([1,2::TINYINT]),typeof([2::TINYINT,1]),typeof(MAP {1:1,2::TINYINT:2})"
+        )?
+        .rows,
+        vec![vec![
+            Value::Varchar("BIGINT[]".into()),
+            Value::Varchar("BIGINT[]".into()),
+            Value::Varchar("MAP(BIGINT, INTEGER)".into())
+        ]]
+    );
+    assert!(calls.load(AtomicOrdering::Relaxed) >= 3);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn inferred_integer_children_survive_ctas_parameters_relations_mutations_and_native_reopen()
+-> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("literal-inference.duckdb");
+    let mut c = Database::open(&path)?.connect();
+    c.execute("CREATE TABLE t AS SELECT 1 id,[1,2::TINYINT] xs,MAP {255:NULL::DECIMAL(6,2),1::UTINYINT:1.25::DECIMAL(6,2)} m")?;
+    let prepared=c.prepare("INSERT INTO t SELECT $1,[1,$2::TINYINT],MAP {255:NULL::DECIMAL(6,2),1::UTINYINT:$3::DECIMAL(6,2)}")?;
+    c.execute_prepared(
+        &prepared,
+        &[
+            Value::Integer(2),
+            Value::Integer(2),
+            Value::Varchar("1.25".into()),
+        ],
+    )?;
+    assert_eq!(
+        c.query("SELECT typeof(xs),typeof(m) FROM t ORDER BY id")?
+            .rows,
+        vec![
+            vec![
+                Value::Varchar("TINYINT[]".into()),
+                Value::Varchar("MAP(UTINYINT, DECIMAL(6,2))".into())
+            ];
+            2
+        ]
+    );
+    assert_eq!(
+        c.query("SELECT count(*) FROM t a JOIN t b ON a.xs=b.xs AND a.m=b.m")?
+            .rows,
+        vec![vec![Value::Integer(4)]]
+    );
+    assert_eq!(
+        c.query("SELECT count(*) OVER(PARTITION BY xs,m) FROM t ORDER BY id")?
+            .rows,
+        vec![vec![Value::Integer(2)]; 2]
+    );
+    let before = c.query("SELECT * FROM t ORDER BY id")?.rows;
+    c.execute("BEGIN; UPDATE t SET xs=[1,127::TINYINT]; DELETE FROM t WHERE id=2; ROLLBACK")?;
+    assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, before);
+    assert!(c.execute("UPDATE t SET xs=[128,1::TINYINT]").is_err());
+    assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, before);
+    c.execute("UPDATE t SET xs=[1,127::TINYINT] WHERE id=2")?;
+    let expected = c.query("SELECT * FROM t ORDER BY id")?.rows;
+    drop(c);
+    let mut c = Database::open(&path)?.connect();
+    assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, expected);
+    assert_eq!(
+        c.query("SELECT typeof(xs),typeof(m) FROM t ORDER BY id")?
+            .rows,
+        vec![
+            vec![
+                Value::Varchar("TINYINT[]".into()),
+                Value::Varchar("MAP(UTINYINT, DECIMAL(6,2))".into())
+            ];
+            2
+        ]
+    );
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

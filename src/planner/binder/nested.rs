@@ -20,6 +20,7 @@ impl State<'_, '_> {
         let types = self.context.query.types();
         let mut child = first.data_type.clone();
         let mut literal = super::coercion::string_literal(first);
+        let mut integer_literal = super::coercion::integer_literal(first);
         // Template inference is ordered: subsequent untyped NULLs do not
         // change an inferred type, but an initial NULL followed by a string
         // normalizes to concrete VARCHAR and loses string-literal identity.
@@ -28,10 +29,24 @@ impl State<'_, '_> {
                 continue;
             }
             let other_literal = super::coercion::string_literal(argument);
+            let other_integer = super::coercion::integer_literal(argument);
             if literal && other_literal {
                 continue;
             }
-            let inferred = types.try_common_type(&child, &argument.data_type)?;
+            // Equal integer pseudo-types retain the original literal identity;
+            // unlike STRING_LITERAL, that equality includes the literal value.
+            if integer_literal.is_some()
+                && integer_literal == other_integer
+                && child == argument.data_type
+            {
+                continue;
+            }
+            let inferred = types.try_common_type_with_integer_literals(
+                &child,
+                &argument.data_type,
+                integer_literal,
+                other_integer,
+            )?;
             child = if let Some(inferred) = inferred {
                 inferred
             } else if literal {
@@ -45,6 +60,7 @@ impl State<'_, '_> {
                 )));
             };
             literal = false;
+            integer_literal = None;
         }
         Ok(child)
     }

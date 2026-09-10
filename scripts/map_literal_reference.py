@@ -1,7 +1,7 @@
 """Compare MAP/sequence literal values, types and errors on both pinned cores.
 
-This preserves integer-literal narrowing and diagnostic gaps rather than counting
-them as passed. MAP values use SQL VARCHAR output to avoid shell-JSON differences.
+This retains earlier integer-literal and diagnostic witnesses and reports any
+remaining mismatch. MAP values use SQL VARCHAR output to avoid shell-JSON differences.
 No performance or new native-publication compatibility claim is made.
 """
 import argparse
@@ -48,13 +48,33 @@ CASES = [
     ("map_duplicate_converted_key", "SELECT MAP {1:1,'1':2}"),
     ("map_duplicate_boolean_key", "SELECT MAP {true:1,1:2}"),
     ("map_bad_conversion", "SELECT MAP {1:1,'bad':2}"),
-    # Preserved narrowing obligations require a selected literal-identity seam.
+    # Keep historical case identities when checking the selected inference repair.
     ("integer_literal_narrowing_gap", "SELECT typeof([1,2::TINYINT]) AS dtype"),
     ("equal_integer_literals_narrowing_gap", "SELECT typeof([1,1,3::TINYINT]) AS dtype"),
     ("typed_first_integer_literal_gap", "SELECT typeof([3::TINYINT,1,2]) AS dtype"),
     ("unequal_integer_literals_normalize", "SELECT typeof([1,2,3::TINYINT]) AS dtype"),
     ("null_first_integer_literal_normalizes", "SELECT typeof([NULL,1,3::TINYINT]) AS dtype"),
     ("string_first_integer_literal_normalizes", "SELECT typeof(['1',1,3::TINYINT]) AS dtype"),
+    ("equal_integer_literals_with_null", "SELECT typeof([1,NULL,1,3::TINYINT]) AS dtype"),
+    ("parenthesized_integer_literal", "SELECT typeof([(1),2::TINYINT]) AS dtype"),
+    ("explicit_integer_cast_not_literal", "SELECT typeof([1::INTEGER,2::TINYINT]) AS dtype"),
+    ("integer_expression_not_literal", "SELECT typeof([1+0,2::TINYINT]) AS dtype"),
+    ("integer_case_not_literal", "SELECT typeof([CASE WHEN true THEN 1 ELSE 2 END,3::TINYINT]) AS dtype"),
+    ("integer_column_not_literal", "SELECT typeof([i,2::TINYINT]) AS dtype FROM (SELECT 1 AS i)t"),
+    ("tinyint_lower_boundary", "SELECT typeof([-128,1::TINYINT]) AS dtype,[-128,1::TINYINT]::VARCHAR AS v"),
+    ("tinyint_below_boundary", "SELECT typeof([-129,1::TINYINT]) AS dtype"),
+    ("tinyint_upper_boundary", "SELECT typeof([127,1::TINYINT]) AS dtype,[127,1::TINYINT]::VARCHAR AS v"),
+    ("tinyint_above_boundary", "SELECT typeof([128,1::TINYINT]) AS dtype"),
+    ("unsigned_upper_boundary", "SELECT typeof([255,1::UTINYINT]) AS dtype,[255,1::UTINYINT]::VARCHAR AS v"),
+    ("unsigned_above_boundary", "SELECT typeof([256,1::UTINYINT]) AS dtype"),
+    ("unsigned_negative_literal", "SELECT typeof([-1,1::UTINYINT]) AS dtype"),
+    ("ubigint_above_signed_range", "SELECT typeof([9223372036854775808,1::UBIGINT]) AS dtype,[9223372036854775808,1::UBIGINT]::VARCHAR AS v"),
+    ("ubigint_upper_boundary", "SELECT typeof([18446744073709551615,1::UBIGINT]) AS dtype,[18446744073709551615,1::UBIGINT]::VARCHAR AS v"),
+    ("uhugeint_signed_literal", "SELECT typeof([170141183460469231731687303715884105727,1::UHUGEINT]) AS dtype"),
+    ("map_key_narrowing", "SELECT typeof(MAP {1:'a',2::TINYINT:'b'}) AS dtype"),
+    ("map_value_narrowing", "SELECT typeof(MAP {'a':1,'b':2::TINYINT}) AS dtype"),
+    ("map_unsigned_narrowing", "SELECT typeof(MAP {255:NULL::DECIMAL(6,2),1::UTINYINT:1.25::DECIMAL(6,2)}) AS dtype"),
+    ("nested_list_narrowing", "SELECT typeof([[1,2::TINYINT],[3,4::TINYINT]]) AS dtype"),
 ]
 
 

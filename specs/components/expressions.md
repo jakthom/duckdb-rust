@@ -63,6 +63,15 @@ they are not permission to bypass a registered type adapter with a hardcoded
 width rule. The initial Rust MAP/string-literal slice does not implement this
 integer-literal distinction.
 
+The follow-up Rust sequence binder now carries the existing literal-provenance
+hint through ordered inference and calls the selected integer-literal common-type
+hook. Repeated equal values with equal underlying types retain the hint; unequal
+literals, casts, computed expressions, parameters and actual type combinations
+do not. Later untyped NULLs preserve the hint, whereas an initial NULL combines
+with the first integer literal to produce a concrete type. No expression is
+evaluated to discover literal identity. Assignment and ordinary scalar-function
+coercion policies remain separate from this collection-template context.
+
 MAP constructor NULL/duplicate keys are invalid input. Converted MAP keys also
 need validation, but the cast records its own rejection provenance so TRY_CAST
 can NULL the entire result for an invalid or duplicate converted key without

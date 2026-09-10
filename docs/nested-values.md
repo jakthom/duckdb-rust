@@ -823,3 +823,37 @@ files, 2,845 functions and 212 interface methods with no missing attributes;
 instrumentation compatibility completes in 40.14 seconds with zero errors,
 panics or open spans. Temporary telemetry was deleted. The lead owns the
 subsequent maintained Kani checkpoint; SQL inference integration follows next.
+
+### Collection integer-literal inference repair
+
+The collection/MAP syntax binder now uses the selected integer-literal hook.
+An identical repeated integer value and underlying type retain literal identity;
+unequal literals or an actual type combination produce concrete metadata. Later
+untyped NULLs preserve a prior hint; initial NULL, explicit casts, parameters,
+columns and computed expressions do not manufacture one. Typed constant and
+CASE provenance remain intact. The binder does not evaluate an expression to
+discover a literal, and ordinary function overload coercion is unchanged.
+
+Three connected tests cover signed/unsigned fitting boundaries, reordered
+arguments, literal equality, NULLs, selected type/cast replacements, both
+evaluators and volatile no-eager-evaluation. Inferred TINYINT lists and MAPs with
+UTINYINT keys/DECIMAL children retain metadata through CTAS, prepared inserts,
+joins, windows, failed assignments, rollback, committed mutation and native
+reopen. Selected old adapters can retain a wider result, and conflicting
+proposals still reject binding rather than silently selecting builtin rules.
+
+After merging integration checkpoint `4b2a027`, the production follow-up
+`nested-map-literal-inference-reference.json` passes 57/57 exact cases on both
+pinned cores with unchanged source. All 37 historical cases remain, including
+the three former narrowing gaps, plus 20 ordering/range/provenance cases. The
+older 30/37 and 34/37 reports remain immutable. This is not full nested catalog
+parity: direct `list_value`/`array_value` function template unification and the
+broader function inventory remain separate obligations.
+
+Ordinary check, library 56/56, nested 40/40, casts 12/12, types 17/17, contracts
+29/29 and all-target clippy pass. Coverage reports 316 files, 2,950 functions and
+215 interface methods with no missing attributes. Instrumentation compatibility
+completed in 61.99 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted. The maintained Kani suite and controlled full upstream/
+performance campaigns belong to the lead's next combined checkpoint. No new
+performance or complete native/WAL compatibility claim is made here.
