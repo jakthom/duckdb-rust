@@ -14,11 +14,12 @@ impl State<'_, '_> {
         let saved = self.ctes.clone();
         let result = (|| {
             if let Some(with) = &query.with {
-                if with.recursive {
-                    return Err(unsupported("recursive CTE"));
-                }
+                let mut names = HashSet::new();
                 for cte in &with.cte_tables {
-                    let mut plan = self.query(&cte.query)?;
+                    if !names.insert(cte.alias.name.value.to_ascii_lowercase()) {
+                        return Err(Error::Bind("duplicate CTE name".into()));
+                    }
+                    let mut plan = self.common_table(cte, with.recursive)?;
                     alias(&mut plan, &cte.alias)?;
                     self.ctes.insert(
                         cte.alias.name.value.to_ascii_lowercase(),
@@ -29,11 +30,11 @@ impl State<'_, '_> {
                     );
                 }
             }
-            let order = order_expressions(query.order_by.as_ref())?;
             let mut plan = if let ast::SetExpr::Select(select) = query.body.as_ref() {
-                self.select(select, &order)?
+                self.select(select, query.order_by.as_ref())?
             } else {
                 let mut plan = self.set(&query.body)?;
+                let order = order_expressions(query.order_by.as_ref(), plan.schema.len())?;
                 if !order.is_empty() {
                     let order = order
                         .iter()
@@ -82,7 +83,7 @@ impl State<'_, '_> {
 
     pub(super) fn set(&mut self, set: &ast::SetExpr) -> Result<LogicalPlan> {
         match set {
-            ast::SetExpr::Select(select) => self.select(select, &[]),
+            ast::SetExpr::Select(select) => self.select(select, None),
             ast::SetExpr::Query(query) => self.query(query),
             ast::SetExpr::Values(values) => {
                 let mut rows = values
@@ -168,7 +169,7 @@ impl State<'_, '_> {
     pub(super) fn select(
         &mut self,
         select: &ast::Select,
-        order: &[ast::OrderByExpr],
+        order: Option<&ast::OrderBy>,
     ) -> Result<LogicalPlan> {
         if select.top.is_some()
             || select.into.is_some()
@@ -257,41 +258,29 @@ impl State<'_, '_> {
         if items.is_empty() {
             return Err(Error::Bind("SELECT has no columns".into()));
         }
-        let group_exprs = match &select.group_by {
-            ast::GroupByExpr::Expressions(expressions, modifiers) if modifiers.is_empty() => {
-                expressions
-            }
-            _ => return Err(unsupported("GROUP BY ALL or grouping sets")),
-        };
-        let mut groups = Vec::new();
-        for expr in group_exprs {
-            let expr = if let Some(index) = ordinal(expr, items.len())? {
-                items[index].0.clone()
-            } else if let ast::Expr::Identifier(name) = expr {
-                if resolve(&input.schema, std::slice::from_ref(&name.value)).is_ok() {
-                    expr.clone()
-                } else {
-                    items
-                        .iter()
-                        .find(|(_, alias)| alias.eq_ignore_ascii_case(&name.value))
-                        .map(|(e, _)| e.clone())
-                        .unwrap_or_else(|| expr.clone())
-                }
-            } else {
-                expr.clone()
-            };
-            groups.push((expr.clone(), self.expr(&expr, &input.schema, None)?));
-        }
-        let aggregate = !groups.is_empty()
+        let order = order_expressions(order, items.len())?;
+        let bound_groups = self.group_by(&select.group_by, &input.schema, &items)?;
+        let groups = bound_groups.groups;
+        let aggregate = bound_groups.explicit
             || items.iter().any(|(e, _)| self.has_aggregate(e))
             || select
                 .having
                 .as_ref()
                 .is_some_and(|e| self.has_aggregate(e))
             || order.iter().any(|o| self.has_aggregate(&o.expr));
-        let grouping = aggregate.then(|| GroupScope {
-            groups,
-            aggregates: RefCell::new(Vec::new()),
+        let grouping = aggregate.then(|| {
+            let aliases = items
+                .iter()
+                .filter_map(|(expression, name)| {
+                    grouping::group_index(expression, &input.schema, &groups)
+                        .map(|index| (name.to_ascii_lowercase(), index))
+                })
+                .collect();
+            GroupScope {
+                groups,
+                aliases,
+                outputs: RefCell::new(Vec::new()),
+            }
         });
         let mut expressions = items
             .iter()
@@ -312,7 +301,7 @@ impl State<'_, '_> {
             })
             .transpose()?;
         let mut bound_order = Vec::new();
-        for item in order {
+        for item in &order {
             let projected = if let Some(index) = ordinal(&item.expr, visible)? {
                 Some(index)
             } else if let ast::Expr::Identifier(name) = &item.expr {
@@ -331,30 +320,38 @@ impl State<'_, '_> {
                 expressions.push(expr);
                 fields.len() - 1
             };
+            let (descending, nulls_first) = self.context.query.settings().ordering(
+                item.options.asc,
+                item.options.nulls_first,
+                self.context.query,
+            )?;
             bound_order.push(OrderExpr {
                 expression: BoundExpr::column(index, fields[index].data_type.clone()),
-                descending: item.options.asc == Some(false),
-                nulls_first: item.options.nulls_first.unwrap_or(false),
+                descending,
+                nulls_first,
             });
         }
         if let Some(grouping) = grouping {
-            let aggregates = grouping.aggregates.into_inner();
+            let outputs = grouping.outputs.into_inner();
             let mut schema: Schema = grouping
                 .groups
                 .iter()
                 .map(|(e, b)| Field::new(e.to_string(), b.data_type.clone()))
                 .collect();
             schema.extend(
-                aggregates
+                outputs
                     .iter()
-                    .map(|(e, a)| Field::new(e.to_string(), a.data_type.clone())),
+                    .map(|(e, a)| Field::new(e.to_string(), a.data_type().clone())),
             );
             input = LogicalPlan {
                 schema,
                 node: PlanNode::Aggregate {
                     input: Box::new(input),
-                    groups: grouping.groups.into_iter().map(|(_, e)| e).collect(),
-                    aggregates: aggregates.into_iter().map(|(_, a)| a).collect(),
+                    aggregation: Aggregation {
+                        groups: grouping.groups.into_iter().map(|(_, e)| e).collect(),
+                        sets: bound_groups.sets,
+                        outputs: outputs.into_iter().map(|(_, a)| a).collect(),
+                    },
                 },
             };
         } else if having.is_some() {

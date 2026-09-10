@@ -38,7 +38,7 @@ west
 statement error
 SELECT region, sum(amount) FROM sales
 ----
-must appear in GROUP BY
+column "region" must appear in the GROUP BY clause
 
 statement ok
 UPDATE sales SET amount=amount+1 WHERE region='east'

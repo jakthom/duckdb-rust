@@ -5,6 +5,15 @@
 `99063af2bd7092aff02e14184a20e24699d34d71`. All previous 1.25 allowances are
 superseded. Faster workloads cannot compensate for slower workloads.
 
+The [latest performance comparisons](settings/README.md) pass all sixteen
+measured workloads against both **v1.5.5** (`d8cdaa33fd`) and the pinned
+development build. ORDER BY ALL joins grouped SUM, ROLLUP, CUBE and the original
+twelve passing cases. Each uses 21 paired samples and the unchanged 1.0 maximum. The
+[earlier combined campaign](references-source-builds/summary.json), including
+its failed performance measurements, is retained. Its file/ALTER compatibility
+failures remain unresolved. Passing sixteen cases does not establish full
+performance parity. [Builds, commands and compatibility gaps](reference-builds.md).
+
 ## Retained upstream inputs
 
 [`test/upstream/duckdb`](../test/upstream/duckdb/README.md) contains the complete
@@ -60,6 +69,21 @@ fixture path/layout semantics, external result files, imported numeric conversio
 rules, full RE2-compatible matching and remaining configuration directives.
 The interpreter's current output comparison is not yet full C++ harness parity.
 
+The native local SQL runner now owns default and named connections for each
+file over the selected `Database`. It preserves session/transaction isolation,
+checks the original result/error assertions, and rejects unavailable engine
+capabilities even inside an expected-error record. It remains a smaller harness
+than the Python upstream interpreter; labels, loops and other unsupported native
+directives still fail explicitly.
+
+[`session_reference.py`](../scripts/session_reference.py) uses the same Python
+record oracle for persistent Rust and C++ sessions. Its default command builds
+the current Rust worker, records source/binary identities and adapter selections,
+and validates both pinned C++ references. An explicitly supplied worker is marked
+as having unverified source identity. Partial files and mismatches remain failed
+even when later records pass. [Settings and ordering results](settings/README.md)
+retain differing C++ behaviors and earlier failed runs.
+
 ```sh
 python3 scripts/upstream_suite.py
 python3 scripts/run_upstream.py --report target/upstream-new.json
@@ -87,20 +111,29 @@ aggregation and correlated EXISTS. Their measured Rust/C++ ratios were 2.679,
 other cases passed. Subsequent changes must be checked against the same C++
 baseline; unrelated performance improvement is not the objective.
 
-The [latest comparison](native-regressions-column-keys.json) passes all six
-measured workloads over 21 paired samples against the unchanged C++ release
-baseline and 1.0 limit.
-The benchmark queries, workers and comparison driver are unchanged. Results are
-fully materialized and every returned value is included in timed validation.
+The [earlier development comparison](native-regressions-alter.json) passes all 12 measured
+workloads over 21 paired samples against the unchanged C++ release baseline
+and 1.0 limit. The prior nine query definitions and setup remain unchanged.
+The workers and driver now also accept explicit DDL reset/effect-check phases.
+Query cases still time execution and complete result validation. Each DDL
+sample starts from reset state, times execution/result consumption (including
+any required prepared-statement rebind), and verifies the mutation afterward.
+Reset and effect verification are untimed and are retained in the report.
 
 | Workload | C++ median (ms) | Rust median (ms) | Rust/C++ ratio | Maximum |
 | --- | ---: | ---: | ---: | ---: |
-| Scan | 0.978583 | 0.192958 | 0.197 | 1.0 |
-| Filter | 0.670292 | 0.534458 | 0.797 | 1.0 |
-| Aggregate | 0.138000 | 0.052959 | 0.384 | 1.0 |
-| Point lookup | 0.122417 | 0.011250 | 0.092 | 1.0 |
-| LIMIT | 4.635709 | 0.012958 | 0.003 | 1.0 |
-| Correlated EXISTS | 2.268958 | 1.951458 | 0.860 | 1.0 |
+| scan | 0.919125 | 0.180042 | 0.196 | 1.0 |
+| filter | 0.630333 | 0.511417 | 0.811 | 1.0 |
+| aggregate | 0.125083 | 0.051750 | 0.414 | 1.0 |
+| point | 0.122333 | 0.012292 | 0.100 | 1.0 |
+| limit | 4.520875 | 0.014083 | 0.003 | 1.0 |
+| correlated_exists | 2.110459 | 1.899334 | 0.900 | 1.0 |
+| recursive_linear | 2.584458 | 1.242792 | 0.481 | 1.0 |
+| recursive_cycle | 0.894125 | 0.308125 | 0.345 | 1.0 |
+| recursive_correlated | 0.289833 | 0.240250 | 0.829 | 1.0 |
+| alter_add_column | 0.143834 | 0.005417 | 0.038 | 1.0 |
+| alter_drop_column | 0.082500 | 0.003958 | 0.048 | 1.0 |
+| alter_rename_table | 0.077208 | 0.003958 | 0.051 | 1.0 |
 
 Published snapshot columns eliminate repeated scan transposition; single-row
 demand retains row delivery. Checked batch expression and aggregate interfaces
@@ -121,16 +154,19 @@ EXISTS by 2.5%; the filename does not indicate acceptance. An
 [inlining trial](native-regressions-inlined-keys.json) also failed and its hints
 were removed. The [previous checkpoint](native-regressions-final.json) failed scan,
 filter, aggregation and correlated EXISTS at 1.197, 5.856, 3.287 and 62.517 times
-C++ respectively. Passing the current six cases clears those measured
-regressions; it does not establish full performance parity.
+C++ respectively. The [six-case column-key comparison](native-regressions-column-keys.json)
+first cleared those measured development regressions. The later 12-case
+development comparison preserved that result and covered recursive queries and
+three DDL operations. These results do not override the v1.5.5 failures recorded
+above and do not establish full performance parity.
 
 ```sh
 python3 scripts/compare_native.py --report target/native-new.json
 ```
 
 This currently requires the sibling checkout's release build at
-`build/engine-walkthrough`. The six cases cover warm, serial, prepared-query
-execution only. Startup, binding/planning, cold storage, durability/recovery,
+`build/engine-walkthrough`. The cases cover serial in-memory queries and
+three DDL operations. Startup, general binding/planning, cold storage, durability/recovery,
 concurrency, other APIs, clients/tooling, CPU, memory and I/O costs still need
 comparable measurements. `complete_performance_parity` remains false while
 these scopes are unmeasured. Rust-to-Rust adapter benchmarks are diagnostics,
@@ -141,20 +177,29 @@ the remaining allocator, crash simulation, concurrency and coverage work.
 
 ## Local validation
 
-The [current validation record](regression-validation.json) records 162 passing
-Cargo tests, 13 Python harness tests, 52 release execution/subquery/type/adversarial
+The [earlier ALTER validation record](alter-validation.json) records 175 passing
+Cargo tests, 16 Python harness tests, 23 release ALTER/logging/checkpointing
 tests, formatting and Clippy. It checks source and executable hashes against the
-performance and file-oracle reports. The six-case C++ performance gate passes;
+performance and file-oracle reports. Its 12-case development performance gate passes;
 full upstream test and full performance acceptance remain unmet, as described
 above. Local conformance success cannot override those wider gaps.
 
-The [earlier validation](parity-validation.json) and
+The [earlier recursive validation](recursive-validation.json),
+[earlier regression validation](regression-validation.json),
+[earlier parity validation](parity-validation.json) and
 [mutation campaign](mutation-report-isolated.json) retain their original source
 provenance. The latter detected all three injected semantic faults after an
 unchanged passing baseline; it was not rerun for this record.
 
-The [current independent native-file check](reference-regressions-verified.json)
-also passed 37 top-level compatibility checks against DuckDB v1.3.0,
+The [historical independent native-file check](reference-alter.json)
+also passed 39 top-level compatibility checks against DuckDB v1.3.0,
 including continued reads and writes in both engines. This is a file/behavior
 oracle for the supported subset; the performance baseline remains the separately
 pinned C++ v2.0 development checkout.
+
+The [SQL/catalog worklist](sql-catalog-parity.md) retains the complete active
+goal. Targeted CTE and ALTER campaigns remain incomplete. The
+[ALTER campaign](upstream-alter-initial.json) passed 17 of 117 files, with 23
+failures and 77 unsupported outcomes. The [local SQL comparison](alter-sql-reference.json)
+also records a pinned C++ ADD COLUMN constraint discrepancy. The historical
+full campaign above has not been rerun for these changes.

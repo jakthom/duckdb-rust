@@ -15,13 +15,20 @@ static std::string Read(const char *path) {
 
 int main(int argc, char **argv) {
     try {
-        if (argc != 3) throw std::runtime_error("expected setup and query file paths");
+        if (argc != 3 && argc != 5) throw std::runtime_error("expected setup/query and optional reset/verification paths");
         duckdb::DuckDB database(nullptr);
         duckdb::Connection connection(database);
         auto configuration = connection.Query("SET threads=1");
         if (configuration->HasError()) throw std::runtime_error(configuration->GetError());
         auto setup = connection.Query(Read(argv[1]));
         if (setup->HasError()) throw std::runtime_error(setup->GetError());
+        std::string reset_sql, verification_sql;
+        if (argc == 5) {
+            reset_sql = Read(argv[3]);
+            verification_sql = Read(argv[4]);
+            auto reset = connection.Query(reset_sql);
+            if (reset->HasError()) throw std::runtime_error(reset->GetError());
+        }
         auto statement = connection.Prepare(Read(argv[2]));
         if (statement->HasError()) throw std::runtime_error(statement->GetError());
         std::cout << "{\"ready\":true,\"engine\":\"cpp\",\"threads\":1,\"source_id\":\""
@@ -30,6 +37,10 @@ int main(int argc, char **argv) {
         std::string request;
         while (std::getline(std::cin, request)) {
             if (request != "sample") throw std::runtime_error("expected sample request");
+            if (argc == 5) {
+                auto reset = connection.Query(reset_sql);
+                if (reset->HasError()) throw std::runtime_error(reset->GetError());
+            }
             auto start = std::chrono::steady_clock::now();
             duckdb::vector<duckdb::Value> parameters;
             auto result = statement->Execute(parameters, false);
@@ -51,6 +62,24 @@ int main(int argc, char **argv) {
             }
             auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - start).count();
+            if (argc == 5) {
+                if (rows != 0) throw std::runtime_error("DDL measurement unexpectedly returned rows");
+                auto verification = connection.Query(verification_sql);
+                if (verification->HasError()) throw std::runtime_error(verification->GetError());
+                while (auto chunk = verification->Fetch()) {
+                    rows += chunk->size();
+                    for (duckdb::idx_t row = 0; row < chunk->size(); row++) {
+                        for (duckdb::idx_t column = 0; column < chunk->ColumnCount(); column++) {
+                            auto value = chunk->GetValue(column, row);
+                            if (value.IsNull()) throw std::runtime_error("unexpected NULL verification");
+                            int64_t next;
+                            if (__builtin_add_overflow(sum, value.GetValue<int64_t>(), &next))
+                                throw std::runtime_error("verification overflow");
+                            sum = next;
+                        }
+                    }
+                }
+            }
             std::cout << "{\"elapsed_ns\":" << elapsed << ",\"rows\":" << rows
                       << ",\"sum\":\"" << sum << "\"}" << std::endl;
         }

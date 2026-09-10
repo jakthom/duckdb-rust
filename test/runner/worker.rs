@@ -77,6 +77,13 @@ impl Session {
     }
     fn run(&mut self, request: Request) -> Result<serde_json::Value> {
         match request.operation.as_str() {
+            "describe" => {
+                let database = self
+                    .database
+                    .as_ref()
+                    .ok_or_else(|| Error::Execution("no open test database".into()))?;
+                return Ok(json!({"ok":true,"adapters":database.adapters()}));
+            }
             "load" => {
                 self.open(request.path, request.read_only, true)?;
                 return Ok(json!({"ok":true}));

@@ -103,7 +103,9 @@ impl<'a> PreparedSubqueries<'a> {
 }
 
 fn correlated(plan: &LogicalPlan, local_depth: usize) -> bool {
-    let mut found = false;
+    // Iteration inputs change without a lexical outer-row reference. Their
+    // scalar reductions must never be cached across recursive generations.
+    let mut found = matches!(plan.node, crate::planner::PlanNode::RecursiveInput(_));
     plan.visit_inputs(&mut |input| found |= correlated(input, local_depth));
     plan.visit_expressions(&mut |expr| found |= correlated_expression(expr, local_depth));
     found

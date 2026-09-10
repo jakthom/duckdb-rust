@@ -1,4 +1,5 @@
 use crate::common::{Error, Result};
+mod dialect;
 
 /// Shared SQL syntax interchange; only the SQL binder consumes this AST.
 /// Other frontends can submit logical plans through the runtime's plan API.
@@ -10,6 +11,10 @@ pub use sqlparser::ast;
 pub enum Statement {
     Sql(Box<ast::Statement>),
     Checkpoint,
+    ResetSetting {
+        name: ast::ObjectName,
+        scope: Option<ast::ContextModifier>,
+    },
 }
 
 pub trait Parser: Send + Sync {
@@ -26,7 +31,7 @@ impl Parser for DuckDbParser {
     }
     fn parse(&self, sql: &str) -> Result<Vec<Statement>> {
         use sqlparser::tokenizer::Token;
-        let mut parser = sqlparser::parser::Parser::new(&sqlparser::dialect::DuckDbDialect {})
+        let mut parser = sqlparser::parser::Parser::new(&dialect::RewriteDialect)
             .with_recursion_limit(128)
             .try_with_sql(sql)
             .map_err(|e| Error::Parse(e.to_string()))?;
@@ -40,6 +45,28 @@ impl Parser for DuckDbParser {
             let statement = if checkpoint {
                 parser.next_token();
                 Statement::Checkpoint
+            } else if parser.parse_keyword(sqlparser::keywords::Keyword::RESET) {
+                use sqlparser::keywords::Keyword;
+                let scope = if parser.parse_keyword(Keyword::GLOBAL) {
+                    Some(ast::ContextModifier::Global)
+                } else if parser.parse_keyword(Keyword::SESSION) {
+                    Some(ast::ContextModifier::Session)
+                } else if parser.parse_keyword(Keyword::LOCAL) {
+                    Some(ast::ContextModifier::Local)
+                } else {
+                    None
+                };
+                if parser.parse_keyword(Keyword::ALL) {
+                    return Err(Error::Unsupported(
+                        "Can only SET or RESET a variable".into(),
+                    ));
+                }
+                Statement::ResetSetting {
+                    name: parser
+                        .parse_object_name(false)
+                        .map_err(|e| Error::Parse(e.to_string()))?,
+                    scope,
+                }
             } else {
                 Statement::Sql(Box::new(
                     parser

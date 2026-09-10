@@ -1,0 +1,8 @@
+Filters: test/sql/alter/alter_type/test_alter_type_expression.test,test/sql/alter/alter_type/test_alter_type_not_null.test
+
+[0/2] (0%): test/sql/alter/alter_type/test_alter_type_not_null.test
+[1/2] (50%): test/sql/alter/alter_type/test_alter_type_expression.test
+[2/2] (100%): test/sql/alter/alter_type/test_alter_type_expression.test
+===============================================================================
+All tests passed (19 assertions in 2 test cases)
+

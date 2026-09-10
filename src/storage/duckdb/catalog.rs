@@ -1,5 +1,11 @@
 mod constant;
 
+pub(super) fn constant_expression(
+    reader: &mut super::binary::Reader,
+) -> crate::Result<crate::Value> {
+    constant::read(reader, 0)
+}
+
 use super::{
     Blocks,
     binary::{Reader, corrupt},

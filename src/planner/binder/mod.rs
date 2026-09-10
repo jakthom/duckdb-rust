@@ -1,5 +1,9 @@
+mod alter;
 mod expression;
+mod grouping;
 mod query;
+mod recursive;
+mod settings;
 mod statement;
 mod subquery;
 mod table;
@@ -11,6 +15,7 @@ use std::{
 
 use super::{
     BindContext, Binder, BoundExpr, BoundStatement, ExprKind, Field, LogicalPlan, PlanNode, Schema,
+    aggregation::{AggregateOutput, Aggregation, GroupingSet},
     expression::{BinaryOp, UnaryOp},
     logical::{AggregateExpr, JoinKind, OrderExpr},
 };
@@ -34,20 +39,25 @@ impl Binder for SqlBinder {
         context: &BindContext<'_>,
     ) -> Result<BoundStatement> {
         context.query.check()?;
-        let crate::parser::Statement::Sql(statement) = statement else {
-            return Ok(BoundStatement::Checkpoint);
-        };
-        State {
+        let mut state = State {
             context,
+            parameters_allowed: true,
             ctes: BTreeMap::new(),
             outer: Vec::new(),
+        };
+        match statement {
+            crate::parser::Statement::Sql(statement) => state.statement(statement),
+            crate::parser::Statement::Checkpoint => Ok(BoundStatement::Checkpoint),
+            crate::parser::Statement::ResetSetting { name, scope } => {
+                state.setting(name, *scope, None)
+            }
         }
-        .statement(statement)
     }
 }
 
 struct State<'a, 'b> {
     context: &'a BindContext<'b>,
+    parameters_allowed: bool,
     ctes: BTreeMap<String, CommonTable>,
     outer: Vec<CorrelationScope>,
 }
@@ -67,7 +77,8 @@ struct CorrelationScope {
 
 struct GroupScope {
     groups: Vec<(ast::Expr, BoundExpr)>,
-    aggregates: RefCell<Vec<(ast::Expr, AggregateExpr)>>,
+    aliases: BTreeMap<String, usize>,
+    outputs: RefCell<Vec<(ast::Expr, AggregateOutput)>>,
 }
 
 fn unsupported(thing: impl std::fmt::Display) -> Error {
@@ -215,6 +226,12 @@ fn constant_expression(expression: &BoundExpr) -> bool {
             constant_expression(left) && constant_expression(right)
         }
         ExprKind::Operator(function, arguments) => {
+            let effects = function.effects();
+            !effects.volatile
+                && !effects.external_access
+                && arguments.iter().all(constant_expression)
+        }
+        ExprKind::Scalar(function, arguments) => {
             let effects = function.effects();
             !effects.volatile
                 && !effects.external_access
@@ -529,13 +546,25 @@ fn ordinal(expr: &ast::Expr, width: usize) -> Result<Option<usize>> {
     Ok(None)
 }
 
-fn order_expressions(order: Option<&ast::OrderBy>) -> Result<Vec<ast::OrderByExpr>> {
+fn order_expressions(order: Option<&ast::OrderBy>, width: usize) -> Result<Vec<ast::OrderByExpr>> {
     match order {
         None => Ok(Vec::new()),
         Some(ast::OrderBy {
             kind: ast::OrderByKind::Expressions(expressions),
             interpolate: None,
         }) if expressions.iter().all(|e| e.with_fill.is_none()) => Ok(expressions.clone()),
+        Some(ast::OrderBy {
+            kind: ast::OrderByKind::All(options),
+            interpolate: None,
+        }) => Ok((1..=width)
+            .map(|index| ast::OrderByExpr {
+                // Bind output ordinals after wildcard expansion. Sorting must
+                // reuse projected values, including volatile expressions.
+                expr: ast::Expr::Value(ast::Value::Number(index.to_string(), false).into()),
+                options: *options,
+                with_fill: None,
+            })
+            .collect()),
         _ => Err(unsupported("ORDER BY modifiers")),
     }
 }

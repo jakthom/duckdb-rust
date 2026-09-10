@@ -1,4 +1,4 @@
-mod constant;
+pub(super) mod constant;
 mod index;
 
 use super::{
@@ -11,7 +11,7 @@ use crate::{
     common::{DataType, Error, Result, Row, Value},
     storage::{TableStorage, table::Snapshot},
 };
-pub(super) use catalog::table_definition;
+pub(super) use catalog::{column_definition, table_definition};
 
 const ALLOCATION: usize = 262144;
 const PAYLOAD: usize = ALLOCATION - 8;

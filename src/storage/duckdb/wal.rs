@@ -1,4 +1,5 @@
 //! Checksummed DuckDB WAL v2 recovery. No filesystem or SQL dependencies.
+mod alter;
 mod chunk;
 mod publication;
 mod records;

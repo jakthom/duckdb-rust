@@ -114,6 +114,7 @@ fn hash_semi_join_builds_once_streams_demand_and_retains_owned_chunks() -> Resul
         subquery_plans: &PreparedSubqueries::new(&planner),
         subqueries: &StreamingSubqueries,
         outer: None,
+        recursive: None,
     };
     let condition = equality(&query)?;
     let left = ProbePlan::new(&(0..10).collect::<Vec<_>>());
@@ -166,6 +167,7 @@ fn hash_semi_join_checks_build_schema_limits_cancellation_and_empty_outer() -> R
         subquery_plans: &PreparedSubqueries::new(&planner),
         subqueries: &StreamingSubqueries,
         outer: None,
+        recursive: None,
     };
     let condition = equality(&query)?;
     let empty = ProbePlan::new(&[]);
@@ -191,5 +193,80 @@ fn hash_semi_join_checks_build_schema_limits_cancellation_and_empty_outer() -> R
     assert!(matches!(cursor.next(1), Err(Error::Interrupted)));
     interrupt.reset();
     assert!(cursor.next(1)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn membership_joins_match_nested_loops_across_domains_and_batch_sizes() -> Result<()> {
+    use duckdb_rust::execution::operator::join::NestedLoopJoin;
+    let minimum = i128::MIN;
+    let maximum = i128::MAX;
+    let cases = [
+        // Negative offsets, gaps, duplicates, and NULLs on both sides.
+        (
+            vec![-70, -69, -7, -6, 0, 1, 1, 9, 63, 64, 65],
+            vec![-69, -7, 0, 1, 1, 64],
+        ),
+        // Sparse integer keys must not allocate an array proportional to range.
+        (vec![minimum, -1, 0, 1, maximum], vec![minimum, 1, maximum]),
+        // Compact domains at either HUGEINT bound expose offset wraparound.
+        (
+            vec![minimum, minimum + 1, maximum - 1, maximum],
+            vec![maximum - 1, maximum],
+        ),
+        (
+            vec![minimum, minimum + 1, maximum - 1, maximum],
+            vec![minimum, minimum + 1],
+        ),
+        (vec![0, 1], vec![]),
+        (vec![], vec![0, 1]),
+    ];
+    for (left, right) in cases {
+        for include_null in [false, true] {
+            let mut expected = None;
+            for algorithm in [
+                Arc::new(NestedLoopJoin) as Arc<dyn JoinAlgorithm>,
+                Arc::new(HashJoin),
+            ] {
+                for batch_size in [1, 3, 2048] {
+                    let db = DatabaseBuilder::new()
+                        .batch_size(batch_size)
+                        .physical_planner(Arc::new(NativePhysicalPlanner::with_joins(vec![
+                            algorithm.clone(),
+                        ])))
+                        .build()?;
+                    let mut c = db.connect();
+                    c.execute("CREATE TABLE l(i HUGEINT); CREATE TABLE r(i HUGEINT)")?;
+                    for (name, values) in [("l", &left), ("r", &right)] {
+                        for value in values {
+                            c.execute(&format!("INSERT INTO {name} VALUES ('{value}'::HUGEINT)"))?;
+                        }
+                        if include_null {
+                            c.execute(&format!("INSERT INTO {name} VALUES (NULL)"))?;
+                        }
+                    }
+                    let mut results = Vec::new();
+                    for predicate in ["EXISTS", "NOT EXISTS"] {
+                        results.push(
+                            c.query(&format!(
+                                "SELECT i FROM l WHERE {predicate}(SELECT 1 FROM r WHERE l.i=r.i)"
+                            ))?
+                            .rows,
+                        );
+                    }
+                    if let Some(expected) = &expected {
+                        assert_eq!(
+                            &results,
+                            expected,
+                            "{} batch={batch_size}",
+                            algorithm.name()
+                        );
+                    } else {
+                        expected = Some(results);
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }

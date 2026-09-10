@@ -27,9 +27,17 @@ pub struct QueryContext {
     batch_size: usize,
     max_intermediate_rows: usize,
     types: Arc<crate::common::type_registry::TypeRegistry>,
+    settings: crate::main::settings::SettingsSnapshot,
 }
 
 impl QueryContext {
+    pub fn settings(&self) -> &crate::main::settings::SettingsSnapshot {
+        &self.settings
+    }
+    pub fn with_settings(mut self, settings: crate::main::settings::SettingsSnapshot) -> Self {
+        self.settings = settings;
+        self
+    }
     pub fn types(&self) -> &crate::common::type_registry::TypeRegistry {
         &self.types
     }
@@ -63,6 +71,7 @@ impl QueryContext {
             batch_size: 2048,
             max_intermediate_rows: usize::MAX,
             types: crate::common::type_registry::builtin_types(),
+            settings: crate::main::settings::SettingsSnapshot::default(),
         }
     }
     pub fn new(
@@ -82,6 +91,7 @@ impl QueryContext {
             batch_size,
             max_intermediate_rows,
             types: crate::common::type_registry::builtin_types(),
+            settings: crate::main::settings::SettingsSnapshot::default(),
         })
     }
     pub fn check(&self) -> Result<()> {

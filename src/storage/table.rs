@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+mod alter;
 mod layout;
 mod recovery;
 mod rows;
@@ -225,6 +226,14 @@ fn validate_definition(
 }
 
 impl CatalogMut for Snapshot {
+    fn alter_table(
+        &mut self,
+        name: &TableName,
+        alteration: &crate::catalog::TableAlteration,
+        context: &QueryContext,
+    ) -> Result<bool> {
+        self.alter(name, alteration, context)
+    }
     fn create_schema(&mut self, name: &str, if_not_exists: bool) -> Result<()> {
         if name.is_empty() {
             return Err(Error::Catalog("empty schema name".into()));

@@ -1,0 +1,65 @@
+╭─ Ungrouped Aggregate ───────────╮
+│ Aggregates: sum_no_overflow(#0) │
+│ ~1 row                          │
+╰────────────────┬────────────────╯
+╭─ Projection ───┴────────────────╮
+│ Projections: i                  │
+│ ~50,000 rows                    │
+╰────────────────┬────────────────╯
+╭─ Seq Scan ─────┴────────────────╮
+│ Table: memory.main.t            │
+│ Type: Sequential Scan           │
+│ Projections: i                  │
+│ ~50,000 rows                    │
+╰─────────────────────────────────╯
+╭─ Ungrouped Aggregate ──────────────╮
+│ Aggregates: count_star()           │
+│ ~1 row                             │
+╰──────────────────┬─────────────────╯
+╭─ CTE ────────────┴─────────────────╮
+│ CTE Name: __duckdb_delim_18        │
+│ Table Index: 18                    │
+│ Execution Mode: PIPELINE_DEPENDENT │
+│ ~10,000 rows                       │
+╰──────────────────┬─────────────────╯
+                   ├────────────────────────────────────────╮
+╭─ Seq Scan ───────┴─────────────────╮  ╭─ Filter ──────────┴──────────────────╮
+│ Table: memory.main.t               │  │ Expression: SUBQUERY                 │
+│ Type: Sequential Scan              │  │ ~10,000 rows                         │
+│ Projections: i                     │  ╰───────────────────┬──────────────────╯
+│ ~50,000 rows                       │  ╭─ Hash Join ───────┴──────────────────╮
+╰────────────────────────────────────╯  │ Join Type: MARK                      │
+                                        │ Conditions: i IS NOT DISTINCT FROM i │
+                                        │ ~50,000 rows                         │
+                                        ╰───────────────────┬──────────────────╯
+                                                            ├────────────────────────────────────────╮
+                                        ╭─ CTE Scan ────────┴──────────────────╮  ╭─ Projection ─────┴─────────────────╮
+                                        │ CTE Index: 18                        │  │ Projections: i                     │
+                                        │ ~50,000 rows                         │  │ ~21 rows                           │
+                                        ╰──────────────────────────────────────╯  ╰──────────────────┬─────────────────╯
+                                                                                  ╭─ Hash Join ──────┴─────────────────╮
+                                                                                  │ Join Type: INNER                   │
+                                                                                  │ Conditions: (i % 64) = i           │
+                                                                                  │ ~21 rows                           │
+                                                                                  ╰──────────────────┬─────────────────╯
+                                                                                                     ├────────────────────────────────╮
+                                                                                  ╭─ Projection ─────┴─────────────────╮  ╭─ Seq Scan ┴───────────╮
+                                                                                  │ Projections: CAST(#0 AS BIGINT)    │  │ Table: memory.main.u  │
+                                                                                  │ ~25,000 rows                       │  │ Type: Sequential Scan │
+                                                                                  ╰──────────────────┬─────────────────╯  │ Projections: i        │
+                                                                                  ╭─ Hash Group By ──┴─────────────────╮  │ ~32 rows              │
+                                                                                  │ Groups: #0                         │  ╰───────────────────────╯
+                                                                                  │ ~25,000 rows                       │
+                                                                                  ╰──────────────────┬─────────────────╯
+                                                                                  ╭─ Projection ─────┴─────────────────╮
+                                                                                  │ Projections: #[0.0]                │
+                                                                                  │ ~50,000 rows                       │
+                                                                                  ╰──────────────────┬─────────────────╯
+                                                                                  ╭─ Projection ─────┴─────────────────╮
+                                                                                  │ Projections: CAST(#0 AS USMALLINT) │
+                                                                                  │ ~50,000 rows                       │
+                                                                                  ╰──────────────────┬─────────────────╯
+                                                                                  ╭─ CTE Scan ───────┴─────────────────╮
+                                                                                  │ CTE Index: 18                      │
+                                                                                  │ ~50,000 rows                       │
+                                                                                  ╰────────────────────────────────────╯

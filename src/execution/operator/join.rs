@@ -11,6 +11,7 @@ use crate::{
 };
 
 mod keys;
+mod membership;
 mod semi;
 use keys::EqualityKeys;
 

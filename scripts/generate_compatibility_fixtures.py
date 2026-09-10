@@ -7,8 +7,9 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from reference_version import TARGETS, require_reference
+
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "test" / "data" / "duckdb"
 CASES = {
     "dates_scalar": """
         SET force_compression='uncompressed';
@@ -123,10 +124,14 @@ HISTORICAL = {codec: ROOT.parent / f"duckdb/test/sql/storage/compression/{codec}
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", action="append", choices=[*CASES, *HISTORICAL], help="Generate only the named fixture; repeat to select several")
+    parser.add_argument("--target", choices=TARGETS, default="release")
+    parser.add_argument("--duckdb", type=Path)
+    parser.add_argument("--output-dir", type=Path, required=True, help="Explicit destination; retained historical fixtures are not replaced by default")
     args = parser.parse_args()
-    FIXTURES.mkdir(parents=True, exist_ok=True)
-    version = subprocess.check_output(["duckdb", "--version"], text=True).strip()
-    manifest_path = FIXTURES / "manifest.json"
+    binary, identity = require_reference(args.duckdb, target=args.target)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    version = identity["version"]
+    manifest_path = args.output_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text()) if args.case and manifest_path.exists() else {}
     with tempfile.TemporaryDirectory() as directory:
         for name in args.case or [*CASES, *HISTORICAL]:
@@ -135,15 +140,15 @@ def main():
             if name in HISTORICAL:
                 path.write_bytes(HISTORICAL[name].read_bytes())
             else:
-                subprocess.run(["duckdb", str(path), "-c", sql], check=True, stdout=subprocess.DEVNULL)
+                subprocess.run([str(binary), str(path), "-c", sql], check=True, stdout=subprocess.DEVNULL)
             data = path.read_bytes()
-            (FIXTURES / f"{name}.duckdb.gz").write_bytes(gzip.compress(data, mtime=0))
+            (args.output_dir / f"{name}.duckdb.gz").write_bytes(gzip.compress(data, mtime=0))
             table = "temperatures_double" if name in HISTORICAL else "t"
-            codecs = json.loads(subprocess.check_output(["duckdb", str(path), "-readonly", "-json", "-c", f"SELECT column_name, segment_type, compression, sum(count) AS n FROM pragma_storage_info('{table}') GROUP BY ALL ORDER BY ALL"], text=True))
+            codecs = json.loads(subprocess.check_output([str(binary), str(path), "-readonly", "-json", "-c", f"SELECT column_name, segment_type, compression, sum(count) AS n FROM pragma_storage_info('{table}') GROUP BY ALL ORDER BY ALL"], text=True))
             expected_codec = {"alp": "ALP", "alp_float": "ALP", "alprd": "ALPRD", "chimp": "Chimp", "patas": "Patas", "dates_scalar": "Uncompressed", "dates_bitpacking": "BitPacking", "dates_rle": "RLE"}.get(name)
             if expected_codec:
                 assert any(row["compression"] == expected_codec and (not name.startswith("dates_") or row["segment_type"] == "DATE") for row in codecs), f"fixture must actually contain {expected_codec} segments of the expected type"
-            metadata = {"writer": version, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "observed_compression": codecs, "observed_table": table}
+            metadata = {"writer": version, "reference_identity": identity, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "observed_compression": codecs, "observed_table": table}
             if name in HISTORICAL:
                 metadata.update({"writer": "historical DuckDB artifact; original writer revision unrecorded", "reference_reader": version, "source": str(HISTORICAL[name].relative_to(ROOT.parent)), "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT.parent/"duckdb", text=True).strip(), "query": "SELECT temperature::DOUBLE AS value FROM temperatures_double UNION ALL SELECT temperature::DOUBLE AS value FROM temperatures_float"})
             else:

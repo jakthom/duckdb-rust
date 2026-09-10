@@ -1,6 +1,10 @@
 use super::{DataType, Encoder, Error, Result, Value, type_id};
 
-pub(super) fn write(output: &mut Encoder, value: &Value, data_type: &DataType) -> Result<()> {
+pub(in crate::storage::duckdb) fn write(
+    output: &mut Encoder,
+    value: &Value,
+    data_type: &DataType,
+) -> Result<()> {
     output.property(100, 7); // ParsedExpressionClass::CONSTANT
     output.property(101, 75); // ExpressionType::VALUE_CONSTANT
     output.field(200);

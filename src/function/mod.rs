@@ -1,6 +1,8 @@
 mod aggregate;
+pub mod grouped;
 pub mod operator;
 mod scalar;
+mod settings;
 
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
@@ -21,6 +23,19 @@ pub enum ArgumentEvaluation {
     FirstNonNull,
 }
 
+/// Language-owned argument metadata for contextual function binding. A
+/// constant request may evaluate only a closed expression without effects,
+/// through the selected evaluator, and must validate its logical result.
+/// Requests are explicit so ordinary functions preserve lazy/error behavior.
+pub trait ScalarBindArguments {
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    fn data_type(&self, index: usize) -> Result<DataType>;
+    fn constant(&self, index: usize) -> Result<Value>;
+}
+
 pub trait ScalarFunction: Debug + Send + Sync {
     fn name(&self) -> &str;
     fn effects(&self) -> FunctionEffects {
@@ -28,6 +43,17 @@ pub trait ScalarFunction: Debug + Send + Sync {
     }
     fn argument_evaluation(&self) -> ArgumentEvaluation {
         ArgumentEvaluation::Eager
+    }
+    /// Pure statement-local specialization. None retains this adapter. A
+    /// returned adapter owns all retained state and uses the ordinary signature,
+    /// evaluation, NULL/error and output-validation contracts. It cannot borrow
+    /// the binding context or publish effects during construction.
+    fn bind(
+        &self,
+        _arguments: &dyn ScalarBindArguments,
+        _query: &QueryContext,
+    ) -> Result<Option<Arc<dyn ScalarFunction>>> {
+        Ok(None)
     }
     fn return_type(
         &self,
@@ -75,6 +101,16 @@ pub trait AggregateFunction: Debug + Send + Sync {
         arguments: &[DataType],
         types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Box<dyn AggregateState>>;
+    /// Optional pure grouped updates. Returning None retains ordered scalar
+    /// states; callers must not infer this capability from a function's name.
+    /// Construction has no effects. See GroupedAggregateState's full contract.
+    fn create_grouped_state(
+        &self,
+        _arguments: &[DataType],
+        _types: &crate::common::type_registry::TypeRegistry,
+    ) -> Result<Option<Box<dyn grouped::GroupedAggregateState>>> {
+        Ok(None)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -88,6 +124,7 @@ impl FunctionRegistry {
         let mut registry = Self::default();
         scalar::register(&mut registry);
         aggregate::register(&mut registry);
+        settings::register(&mut registry);
         registry
     }
     pub fn register_scalar(&mut self, function: Arc<dyn ScalarFunction>) -> Result<()> {
@@ -110,7 +147,9 @@ impl FunctionRegistry {
         self.scalars
             .get(&name.to_ascii_lowercase())
             .cloned()
-            .ok_or_else(|| Error::Catalog(format!("scalar function {name} does not exist")))
+            .ok_or_else(|| {
+                Error::Catalog(format!("Scalar Function with name {name} does not exist!"))
+            })
     }
     pub fn aggregate(&self, name: &str) -> Option<Arc<dyn AggregateFunction>> {
         self.aggregates.get(&name.to_ascii_lowercase()).cloned()

@@ -4,8 +4,28 @@ impl State<'_, '_> {
     pub(super) fn statement(&mut self, statement: &ast::Statement) -> Result<BoundStatement> {
         use ast::Statement as S;
         match statement {
+            S::Set(ast::Set::SingleAssignment {
+                scope,
+                hivevar: false,
+                variable,
+                values,
+            }) if values.len() == 1 => {
+                let value = match &values[0] {
+                    ast::Expr::Identifier(id)
+                        if id.quote_style.is_none() && id.value.eq_ignore_ascii_case("default") =>
+                    {
+                        None
+                    }
+                    expression => Some(expression),
+                };
+                self.setting(variable, *scope, value)
+            }
+            S::Reset(ast::ResetStatement {
+                reset: ast::Reset::ConfigurationParameter(name),
+            }) => self.setting(name, None, None),
             S::Query(query) => Ok(BoundStatement::Query(self.query(query)?)),
             S::CreateTable(table) => self.create(table),
+            S::AlterTable(table) => self.alter(table),
             S::CreateSchema {
                 schema_name: ast::SchemaName::Simple(name),
                 if_not_exists,

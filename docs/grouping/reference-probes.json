@@ -1,0 +1,168 @@
+{
+  "release": {
+    "identity": {
+      "target": "release",
+      "required_version": "1.5.5",
+      "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+      "reported_source_id": "d8cdaa33fd",
+      "version": "v1.5.5 (Variegata) d8cdaa33fd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+      "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+    },
+    "trials": [
+      {
+        "sql": "SELECT 1 FROM (VALUES(1))t(a) WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1",
+        "optimizer_disabled": false,
+        "returncode": 0,
+        "stdout": "[]\n",
+        "stderr": ""
+      },
+      {
+        "sql": "SELECT EXISTS(SELECT 1 FROM (VALUES(1))t(a) WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1) AS e",
+        "optimizer_disabled": false,
+        "returncode": 0,
+        "stdout": "[{\"e\":false}]\n",
+        "stderr": ""
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY GROUPING SETS(ROLLUP(DISTINCT a))",
+        "optimizer_disabled": false,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "Parser Error: syntax error at or near \"DISTINCT\"\n\nLINE 1: ...ELECT a FROM (VALUES(1))t(a) GROUP BY GROUPING SETS(ROLLUP(DISTINCT a))\n                                                                      ^\n"
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP(ROLLUP(a))",
+        "optimizer_disabled": false,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "Catalog Error: Scalar Function with name rollup does not exist!\nDid you mean \"round\"?\n\nLINE 1: SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP(ROLLUP(a))\n                                                      ^\n"
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP()",
+        "optimizer_disabled": false,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "Parser Error: syntax error at or near \")\"\n\nLINE 1: SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP()\n                                                      ^\n"
+      },
+      {
+        "sql": "SELECT 1 FROM (VALUES(1))t(a) WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1",
+        "optimizer_disabled": true,
+        "returncode": 0,
+        "stdout": "[]\n[]\n",
+        "stderr": ""
+      },
+      {
+        "sql": "SELECT EXISTS(SELECT 1 FROM (VALUES(1))t(a) WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1) AS e",
+        "optimizer_disabled": true,
+        "returncode": 0,
+        "stdout": "[]\n[{\"e\":false}]\n",
+        "stderr": ""
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY GROUPING SETS(ROLLUP(DISTINCT a))",
+        "optimizer_disabled": true,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "Parser Error: syntax error at or near \"DISTINCT\"\n\nLINE 1: ...; SELECT a FROM (VALUES(1))t(a) GROUP BY GROUPING SETS(ROLLUP(DISTINCT a))\n                                                                         ^\n"
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP(ROLLUP(a))",
+        "optimizer_disabled": true,
+        "returncode": 1,
+        "stdout": "[]\n",
+        "stderr": "Catalog Error: Scalar Function with name rollup does not exist!\nDid you mean \"round\"?\n"
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP()",
+        "optimizer_disabled": true,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "Parser Error: syntax error at or near \")\"\n\nLINE 1: ...e_optimizer; SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP()\n                                                                      ^\n"
+      }
+    ]
+  },
+  "development": {
+    "identity": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "trials": [
+      {
+        "sql": "SELECT 1 FROM (VALUES(1))t(a) WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1",
+        "optimizer_disabled": false,
+        "returncode": 0,
+        "stdout": "[]\n",
+        "stderr": ""
+      },
+      {
+        "sql": "SELECT EXISTS(SELECT 1 FROM (VALUES(1))t(a) WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1) AS e",
+        "optimizer_disabled": false,
+        "returncode": 0,
+        "stdout": "[{\"e\":false}]\n",
+        "stderr": ""
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY GROUPING SETS(ROLLUP(DISTINCT a))",
+        "optimizer_disabled": false,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "Catalog Error: Scalar Function with name rollup does not exist!\nDid you mean \"round\"?\n\nLINE 1: SELECT a FROM (VALUES(1))t(a) GROUP BY GROUPING SETS(ROLLUP(DISTINCT a))\n                                                             ^^^^^^^^^^^^^^^^^^\n"
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP(ROLLUP(a))",
+        "optimizer_disabled": false,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "Catalog Error: Scalar Function with name rollup does not exist!\nDid you mean \"round\"?\n\nLINE 1: SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP(ROLLUP(a))\n                                                      ^^^^^^^^^\n"
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP()",
+        "optimizer_disabled": false,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "Parser Error: CUBE or ROLLUP column list cannot be empty\n"
+      },
+      {
+        "sql": "SELECT 1 FROM (VALUES(1))t(a) WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1",
+        "optimizer_disabled": true,
+        "returncode": 0,
+        "stdout": "[]\n[]\n",
+        "stderr": ""
+      },
+      {
+        "sql": "SELECT EXISTS(SELECT 1 FROM (VALUES(1))t(a) WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1) AS e",
+        "optimizer_disabled": true,
+        "returncode": 0,
+        "stdout": "[]\n[{\"e\":false}]\n",
+        "stderr": ""
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY GROUPING SETS(ROLLUP(DISTINCT a))",
+        "optimizer_disabled": true,
+        "returncode": 1,
+        "stdout": "[]\n",
+        "stderr": "Catalog Error: Scalar Function with name rollup does not exist!\nDid you mean \"round\"?\n"
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP(ROLLUP(a))",
+        "optimizer_disabled": true,
+        "returncode": 1,
+        "stdout": "[]\n",
+        "stderr": "Catalog Error: Scalar Function with name rollup does not exist!\nDid you mean \"round\"?\n"
+      },
+      {
+        "sql": "SELECT a FROM (VALUES(1))t(a) GROUP BY ROLLUP()",
+        "optimizer_disabled": true,
+        "returncode": 1,
+        "stdout": "[]\n",
+        "stderr": "Parser Error: CUBE or ROLLUP column list cannot be empty\n"
+      }
+    ]
+  }
+}

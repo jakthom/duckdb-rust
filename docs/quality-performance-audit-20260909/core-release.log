@@ -1,0 +1,5 @@
+Reference (release): v1.5.5 (Variegata) d8cdaa33fd
+Executable: /Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb
+SHA-256: 145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9
+    Finished `release` profile [optimized] target(s) in 0.06s
+{"passed": true, "regressions": [], "error": null, "report": "docs/quality-performance-audit-20260909/core-release.json"}

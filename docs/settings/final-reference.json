@@ -1,0 +1,6275 @@
+{
+  "recorded_at": "2026-09-10T00:30:51.802641+00:00",
+  "rust_binary_sha256": "79b173fd52ac89e1a841629a0eb893704707e14e427743056ad4665a63695fb2",
+  "rust_build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--release",
+    "--bin",
+    "duckdb-rust-test-worker"
+  ],
+  "rust_source_verified": true,
+  "working_tree_source_sha256": "5b3b03601e8f33702d1012f9f94d73c056042189e7f7f44d2e656518e1320d6d",
+  "reference_worker_source_sha256": "01e0c8e5e1fc87b429873086fc48251b2c3af2f200cb609ed6ab1900e461c44b",
+  "harness_sha256": {
+    "session_reference.py": "8be6e4567e78b9d08bf8b6a017c060cbcf472040b0e0ac12db072c2440239bd8",
+    "sqllogic.py": "b957b7a1657b4c6e2bdcc7d9acd84398f3fde029fec11b9c14cd13fc56f04efb",
+    "run_upstream.py": "04f80fb3055e317bc237a1821a6c6dbbb855c6df5a68215b6907a9161403735c",
+    "reference_version.py": "26761d73bb7ccca1c464e41ee90f5418aa0a9c7cfb73c3fedfe03e8b51439b4c"
+  },
+  "targets": [
+    {
+      "target": "release",
+      "corpora": [
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/settings.test",
+          "sha256": "6371d530fcbf26973a1e09db5eec5db4a78db306082e55f91705533094c396bf",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "query",
+                  "TT"
+                ],
+                "sql": "SELECT current_setting('default_order'), current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 15,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order='nulls_first'",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 18,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 25,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 32,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 39,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET null_order=sqlite",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 42,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('NULL_ORDER')",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 47,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 54,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_order='descending'",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 57,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY 1",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 64,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 71,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=postgres",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 74,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 81,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 88,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET SESSION default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 91,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 96,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 99,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET GLOBAL default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 102,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 107,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 110,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting(lower('DEFAULT_NULL_ORDER'))",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 115,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "BEGIN",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 118,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 121,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 26,
+                "line": 124,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 27,
+                "line": 129,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=lower('NULLS_FIRST')",
+                "passed": true
+              },
+              {
+                "ordinal": 28,
+                "line": 132,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_null_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 29,
+                "line": 137,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 30,
+                "line": 142,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 31,
+                "line": 147,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_null_order=NULL",
+                "passed": true
+              },
+              {
+                "ordinal": 32,
+                "line": 152,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT current_setting('')",
+                "passed": true
+              },
+              {
+                "ordinal": 33,
+                "line": 157,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT current_setting(i) FROM (VALUES ('default_order')) t(i)",
+                "passed": true
+              },
+              {
+                "ordinal": 34,
+                "line": 160,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET nonexistent_configuration=1",
+                "passed": true
+              },
+              {
+                "ordinal": 35,
+                "line": 163,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET GLOBAL default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 36,
+                "line": 166,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 37,
+                "line": 169,
+                "directive": [
+                  "query",
+                  "TT"
+                ],
+                "sql": "SELECT current_setting('default_order'), current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 38,
+                "line": 174,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 2 i UNION ALL SELECT NULL UNION ALL SELECT 1 ORDER BY 1",
+                "passed": true
+              },
+              {
+                "ordinal": 39,
+                "line": 181,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 40,
+                "line": 184,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT i,count(*) FROM (VALUES (2),(NULL),(1)) t(i) GROUP BY ROLLUP(i) ORDER BY i, grouping(i)",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "query",
+                  "TT"
+                ],
+                "sql": "SELECT current_setting('default_order'), current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 15,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order='nulls_first'",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 18,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 25,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 32,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 39,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET null_order=sqlite",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 42,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('NULL_ORDER')",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 47,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 54,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_order='descending'",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 57,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY 1",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 64,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 71,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=postgres",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 74,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 81,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 88,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET SESSION default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 91,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 96,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 99,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET GLOBAL default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 102,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 107,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 110,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting(lower('DEFAULT_NULL_ORDER'))",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 115,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "BEGIN",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 118,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 121,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 26,
+                "line": 124,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 27,
+                "line": 129,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=lower('NULLS_FIRST')",
+                "passed": true
+              },
+              {
+                "ordinal": 28,
+                "line": 132,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_null_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 29,
+                "line": 137,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 30,
+                "line": 142,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 31,
+                "line": 147,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_null_order=NULL",
+                "passed": true
+              },
+              {
+                "ordinal": 32,
+                "line": 152,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT current_setting('')",
+                "passed": false,
+                "error": {
+                  "type": "AssertionError",
+                  "message": "wrong error: Parser Error: Key name for current_setting needs to be neither NULL nor empty"
+                }
+              },
+              {
+                "ordinal": 33,
+                "line": 157,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT current_setting(i) FROM (VALUES ('default_order')) t(i)",
+                "passed": true
+              },
+              {
+                "ordinal": 34,
+                "line": 160,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET nonexistent_configuration=1",
+                "passed": true
+              },
+              {
+                "ordinal": 35,
+                "line": 163,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET GLOBAL default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 36,
+                "line": 166,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 37,
+                "line": 169,
+                "directive": [
+                  "query",
+                  "TT"
+                ],
+                "sql": "SELECT current_setting('default_order'), current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 38,
+                "line": 174,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 2 i UNION ALL SELECT NULL UNION ALL SELECT 1 ORDER BY 1",
+                "passed": true
+              },
+              {
+                "ordinal": 39,
+                "line": 181,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 40,
+                "line": 184,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT i,count(*) FROM (VALUES (2),(NULL),(1)) t(i) GROUP BY ROLLUP(i) ORDER BY i, grouping(i)",
+                "passed": true
+              }
+            ]
+          },
+          "passed": false,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "d8cdaa33fd",
+            "version": "v1.5.5"
+          }
+        },
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/settings_sessions.test",
+          "sha256": "8015f73caaa81ab4aa8718ed123323fe292a7ffa0f112c47c370b0a6476ebe22",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 13,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "SET default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 16,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 21,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "SET SESSION default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 24,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 29,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 34,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "BEGIN; SET GLOBAL default_null_order=last; ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 37,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 42,
+                "directive": [
+                  "query",
+                  "T",
+                  "c"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 47,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "c"
+                ],
+                "sql": "SET GLOBAL default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 50,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 55,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "RESET SESSION default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 58,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 63,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "BEGIN; SET SESSION default_null_order=first; ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 66,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "RESET GLOBAL default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 69,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 74,
+                "directive": [
+                  "query",
+                  "T",
+                  "d"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 79,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "SET SESSION default_null_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 82,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 87,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "CREATE TABLE t(i INTEGER); BEGIN; INSERT INTO t VALUES (1)",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 90,
+                "directive": [
+                  "statement",
+                  "error",
+                  "a"
+                ],
+                "sql": "SET default_null_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 95,
+                "directive": [
+                  "query",
+                  "I",
+                  "a"
+                ],
+                "sql": "SELECT count(*) FROM t",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 100,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "COMMIT",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 103,
+                "directive": [
+                  "query",
+                  "I",
+                  "b"
+                ],
+                "sql": "SELECT i FROM t",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 13,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "SET default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 16,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 21,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "SET SESSION default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 24,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 29,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 34,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "BEGIN; SET GLOBAL default_null_order=last; ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 37,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 42,
+                "directive": [
+                  "query",
+                  "T",
+                  "c"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 47,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "c"
+                ],
+                "sql": "SET GLOBAL default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 50,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 55,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "RESET SESSION default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 58,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 63,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "BEGIN; SET SESSION default_null_order=first; ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 66,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "RESET GLOBAL default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 69,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 74,
+                "directive": [
+                  "query",
+                  "T",
+                  "d"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 79,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "SET SESSION default_null_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 82,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 87,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "CREATE TABLE t(i INTEGER); BEGIN; INSERT INTO t VALUES (1)",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 90,
+                "directive": [
+                  "statement",
+                  "error",
+                  "a"
+                ],
+                "sql": "SET default_null_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 95,
+                "directive": [
+                  "query",
+                  "I",
+                  "a"
+                ],
+                "sql": "SELECT count(*) FROM t",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 100,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "COMMIT",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 103,
+                "directive": [
+                  "query",
+                  "I",
+                  "b"
+                ],
+                "sql": "SELECT i FROM t",
+                "passed": true
+              }
+            ]
+          },
+          "passed": true,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "d8cdaa33fd",
+            "version": "v1.5.5"
+          }
+        },
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/grouping.test",
+          "sha256": "cee8ab5c6c89f14d5db8b5708be392e03962212622a8ddcedaabd9b4d6fbbddd",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE sales(a INTEGER, b INTEGER, v INTEGER)",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 6,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "INSERT INTO sales VALUES (1,10,2),(1,10,3),(1,NULL,5),(2,10,NULL),(NULL,10,7)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 9,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),(b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 23,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b)",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 35,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP((a,b))",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 44,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b)",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 58,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a), ROLLUP(b)",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 72,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a),(a),(),(b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 86,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS (ROLLUP(a),CUBE(b),GROUPING SETS((a,b),()))",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 102,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY a,CUBE(b)",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 113,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b,a)",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 129,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 141,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT sales.a,sales.b,count(*),sum(v),grouping_id(sales.a,b) FROM sales GROUP BY CUBE(a,sales.b)",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 155,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a AS x,b AS y,count(*),sum(v),grouping(x,y) FROM sales GROUP BY CUBE(x,y)",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 169,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales WHERE false GROUP BY GROUPING SETS ((a,b),(),(),(a))",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 175,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*) FROM sales WHERE false GROUP BY GROUPING SETS ((),())",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 181,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT 7 FROM sales WHERE false GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 186,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT 7 FROM sales WHERE false GROUP BY (a)",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 191,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*) FROM sales WHERE false GROUP BY (a)",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 196,
+                "directive": [
+                  "query",
+                  "II",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*),sum(v) FROM sales GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 201,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY (),a,()",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 208,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY a HAVING grouping(a)=0",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 215,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b) HAVING grouping(a,b)=3",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 220,
+                "directive": [
+                  "query",
+                  "II",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*),grouping(a,a,a) FROM sales GROUP BY GROUPING SETS ((a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 228,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1)",
+                "passed": true
+              },
+              {
+                "ordinal": 26,
+                "line": 233,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY a)",
+                "passed": true
+              },
+              {
+                "ordinal": 27,
+                "line": 238,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(DISTINCT v) FILTER (WHERE v>2),sum(v) FILTER (WHERE false),grouping(a) FROM sales GROUP BY GROUPING SETS ((a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 28,
+                "line": 246,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales",
+                "passed": true
+              },
+              {
+                "ordinal": 29,
+                "line": 249,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 30,
+                "line": 252,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(v) FROM sales GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 31,
+                "line": 255,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT a FROM sales GROUP BY GROUPING SETS ((b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 32,
+                "line": 258,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales WHERE GROUPING(a)=0 GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 33,
+                "line": 261,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT SUM(GROUPING(a)) FROM sales GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 34,
+                "line": 264,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT a FROM sales GROUP BY SUM(v)",
+                "passed": true
+              },
+              {
+                "ordinal": 35,
+                "line": 267,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT grouping(DISTINCT a) FROM sales GROUP BY a",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE sales(a INTEGER, b INTEGER, v INTEGER)",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 6,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "INSERT INTO sales VALUES (1,10,2),(1,10,3),(1,NULL,5),(2,10,NULL),(NULL,10,7)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 9,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),(b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 23,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b)",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 35,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP((a,b))",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 44,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b)",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 58,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a), ROLLUP(b)",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 72,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a),(a),(),(b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 86,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS (ROLLUP(a),CUBE(b),GROUPING SETS((a,b),()))",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 102,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY a,CUBE(b)",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 113,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b,a)",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 129,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 141,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT sales.a,sales.b,count(*),sum(v),grouping_id(sales.a,b) FROM sales GROUP BY CUBE(a,sales.b)",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 155,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a AS x,b AS y,count(*),sum(v),grouping(x,y) FROM sales GROUP BY CUBE(x,y)",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 169,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales WHERE false GROUP BY GROUPING SETS ((a,b),(),(),(a))",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 175,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*) FROM sales WHERE false GROUP BY GROUPING SETS ((),())",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 181,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT 7 FROM sales WHERE false GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 186,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT 7 FROM sales WHERE false GROUP BY (a)",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 191,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*) FROM sales WHERE false GROUP BY (a)",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 196,
+                "directive": [
+                  "query",
+                  "II",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*),sum(v) FROM sales GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 201,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY (),a,()",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 208,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY a HAVING grouping(a)=0",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 215,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b) HAVING grouping(a,b)=3",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 220,
+                "directive": [
+                  "query",
+                  "II",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*),grouping(a,a,a) FROM sales GROUP BY GROUPING SETS ((a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 228,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1)",
+                "passed": false,
+                "error": {
+                  "type": "AssertionError",
+                  "message": "expected ['1'], got ['0'] (1 values)"
+                }
+              },
+              {
+                "ordinal": 26,
+                "line": 233,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY a)",
+                "passed": true
+              },
+              {
+                "ordinal": 27,
+                "line": 238,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(DISTINCT v) FILTER (WHERE v>2),sum(v) FILTER (WHERE false),grouping(a) FROM sales GROUP BY GROUPING SETS ((a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 28,
+                "line": 246,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales",
+                "passed": true
+              },
+              {
+                "ordinal": 29,
+                "line": 249,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 30,
+                "line": 252,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(v) FROM sales GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 31,
+                "line": 255,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT a FROM sales GROUP BY GROUPING SETS ((b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 32,
+                "line": 258,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales WHERE GROUPING(a)=0 GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 33,
+                "line": 261,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT SUM(GROUPING(a)) FROM sales GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 34,
+                "line": 264,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT a FROM sales GROUP BY SUM(v)",
+                "passed": true
+              },
+              {
+                "ordinal": 35,
+                "line": 267,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT grouping(DISTINCT a) FROM sales GROUP BY a",
+                "passed": true
+              }
+            ]
+          },
+          "passed": false,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "d8cdaa33fd",
+            "version": "v1.5.5"
+          }
+        },
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/ordering.test",
+          "sha256": "d123df7e7aee882ea44b37e4a01363707d2f7dc97502cd6a6e42fc51678c7e59",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET GLOBAL default_order='asc'; SET GLOBAL default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 6,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE ordered_values(a INTEGER, b INTEGER); INSERT INTO ordered_values VALUES (2,1),(1,2),(1,1),(NULL,2),(2,NULL),(NULL,NULL),(1,1)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 9,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 20,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL DESC NULLS FIRST",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 31,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT b,a FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 39,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT DISTINCT * FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 49,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT a AS same,b AS same FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 57,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT x.* FROM ordered_values x WHERE a=1 ORDER BY ALL DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 64,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT 2,1 UNION ALL SELECT 1,2 UNION ALL SELECT 1,1 ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 71,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "VALUES (2,1),(1,2),(1,1) ORDER BY ALL DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 78,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL LIMIT 2 OFFSET 2",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 84,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_order='desc'",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 87,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT i,-i FROM range(3) t(i) ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 94,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order='nulls_first_on_asc_last_on_desc'",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 97,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT DISTINCT a FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 104,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT DISTINCT a FROM ordered_values ORDER BY ALL ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 111,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET SESSION default_order",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 114,
+                "directive": [
+                  "query",
+                  "III"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM ordered_values GROUP BY ROLLUP(a) ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 122,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 1 WHERE false ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 126,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET GLOBAL default_order; RESET GLOBAL default_null_order",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET GLOBAL default_order='asc'; SET GLOBAL default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 6,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE ordered_values(a INTEGER, b INTEGER); INSERT INTO ordered_values VALUES (2,1),(1,2),(1,1),(NULL,2),(2,NULL),(NULL,NULL),(1,1)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 9,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 20,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL DESC NULLS FIRST",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 31,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT b,a FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 39,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT DISTINCT * FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 49,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT a AS same,b AS same FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 57,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT x.* FROM ordered_values x WHERE a=1 ORDER BY ALL DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 64,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT 2,1 UNION ALL SELECT 1,2 UNION ALL SELECT 1,1 ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 71,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "VALUES (2,1),(1,2),(1,1) ORDER BY ALL DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 78,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL LIMIT 2 OFFSET 2",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 84,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_order='desc'",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 87,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT i,-i FROM range(3) t(i) ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 94,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order='nulls_first_on_asc_last_on_desc'",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 97,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT DISTINCT a FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 104,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT DISTINCT a FROM ordered_values ORDER BY ALL ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 111,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET SESSION default_order",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 114,
+                "directive": [
+                  "query",
+                  "III"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM ordered_values GROUP BY ROLLUP(a) ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 122,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 1 WHERE false ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 126,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET GLOBAL default_order; RESET GLOBAL default_null_order",
+                "passed": true
+              }
+            ]
+          },
+          "passed": true,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "d8cdaa33fd",
+            "version": "v1.5.5"
+          }
+        }
+      ],
+      "passed": false,
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb-v1.5.5/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/target/session-reference-release"
+      ],
+      "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+      "cpp_worker_sha256": "6ce9e80e5ddd891b36de23816d6d6417e62165156770d1c425df32b7cfa57df5"
+    },
+    {
+      "target": "development",
+      "corpora": [
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/settings.test",
+          "sha256": "6371d530fcbf26973a1e09db5eec5db4a78db306082e55f91705533094c396bf",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "query",
+                  "TT"
+                ],
+                "sql": "SELECT current_setting('default_order'), current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 15,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order='nulls_first'",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 18,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 25,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 32,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 39,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET null_order=sqlite",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 42,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('NULL_ORDER')",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 47,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 54,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_order='descending'",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 57,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY 1",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 64,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 71,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=postgres",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 74,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 81,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 88,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET SESSION default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 91,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 96,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 99,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET GLOBAL default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 102,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 107,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 110,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting(lower('DEFAULT_NULL_ORDER'))",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 115,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "BEGIN",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 118,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 121,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 26,
+                "line": 124,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 27,
+                "line": 129,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=lower('NULLS_FIRST')",
+                "passed": true
+              },
+              {
+                "ordinal": 28,
+                "line": 132,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_null_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 29,
+                "line": 137,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 30,
+                "line": 142,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 31,
+                "line": 147,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_null_order=NULL",
+                "passed": true
+              },
+              {
+                "ordinal": 32,
+                "line": 152,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT current_setting('')",
+                "passed": true
+              },
+              {
+                "ordinal": 33,
+                "line": 157,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT current_setting(i) FROM (VALUES ('default_order')) t(i)",
+                "passed": true
+              },
+              {
+                "ordinal": 34,
+                "line": 160,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET nonexistent_configuration=1",
+                "passed": true
+              },
+              {
+                "ordinal": 35,
+                "line": 163,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET GLOBAL default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 36,
+                "line": 166,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 37,
+                "line": 169,
+                "directive": [
+                  "query",
+                  "TT"
+                ],
+                "sql": "SELECT current_setting('default_order'), current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 38,
+                "line": 174,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 2 i UNION ALL SELECT NULL UNION ALL SELECT 1 ORDER BY 1",
+                "passed": true
+              },
+              {
+                "ordinal": 39,
+                "line": 181,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 40,
+                "line": 184,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT i,count(*) FROM (VALUES (2),(NULL),(1)) t(i) GROUP BY ROLLUP(i) ORDER BY i, grouping(i)",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "query",
+                  "TT"
+                ],
+                "sql": "SELECT current_setting('default_order'), current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 15,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order='nulls_first'",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 18,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 25,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 32,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i NULLS LAST",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 39,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET null_order=sqlite",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 42,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('NULL_ORDER')",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 47,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 54,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_order='descending'",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 57,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY 1",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 64,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 71,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=postgres",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 74,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 81,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 88,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET SESSION default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 91,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 96,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 99,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET GLOBAL default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 102,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 107,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 110,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting(lower('DEFAULT_NULL_ORDER'))",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 115,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "BEGIN",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 118,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 121,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 26,
+                "line": 124,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 27,
+                "line": 129,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=lower('NULLS_FIRST')",
+                "passed": true
+              },
+              {
+                "ordinal": 28,
+                "line": 132,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_null_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 29,
+                "line": 137,
+                "directive": [
+                  "query",
+                  "T"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 30,
+                "line": 142,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 31,
+                "line": 147,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET default_null_order=NULL",
+                "passed": true
+              },
+              {
+                "ordinal": 32,
+                "line": 152,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT current_setting('')",
+                "passed": true
+              },
+              {
+                "ordinal": 33,
+                "line": 157,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT current_setting(i) FROM (VALUES ('default_order')) t(i)",
+                "passed": true
+              },
+              {
+                "ordinal": 34,
+                "line": 160,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SET nonexistent_configuration=1",
+                "passed": true
+              },
+              {
+                "ordinal": 35,
+                "line": 163,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET GLOBAL default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 36,
+                "line": 166,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 37,
+                "line": 169,
+                "directive": [
+                  "query",
+                  "TT"
+                ],
+                "sql": "SELECT current_setting('default_order'), current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 38,
+                "line": 174,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 2 i UNION ALL SELECT NULL UNION ALL SELECT 1 ORDER BY 1",
+                "passed": true
+              },
+              {
+                "ordinal": 39,
+                "line": 181,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 40,
+                "line": 184,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT i,count(*) FROM (VALUES (2),(NULL),(1)) t(i) GROUP BY ROLLUP(i) ORDER BY i, grouping(i)",
+                "passed": true
+              }
+            ]
+          },
+          "passed": true,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "99063af2bd",
+            "version": "v2.0.0-dev84019"
+          }
+        },
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/settings_sessions.test",
+          "sha256": "8015f73caaa81ab4aa8718ed123323fe292a7ffa0f112c47c370b0a6476ebe22",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 13,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "SET default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 16,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 21,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "SET SESSION default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 24,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 29,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 34,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "BEGIN; SET GLOBAL default_null_order=last; ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 37,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 42,
+                "directive": [
+                  "query",
+                  "T",
+                  "c"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 47,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "c"
+                ],
+                "sql": "SET GLOBAL default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 50,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 55,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "RESET SESSION default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 58,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 63,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "BEGIN; SET SESSION default_null_order=first; ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 66,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "RESET GLOBAL default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 69,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 74,
+                "directive": [
+                  "query",
+                  "T",
+                  "d"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 79,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "SET SESSION default_null_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 82,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 87,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "CREATE TABLE t(i INTEGER); BEGIN; INSERT INTO t VALUES (1)",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 90,
+                "directive": [
+                  "statement",
+                  "error",
+                  "a"
+                ],
+                "sql": "SET default_null_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 95,
+                "directive": [
+                  "query",
+                  "I",
+                  "a"
+                ],
+                "sql": "SELECT count(*) FROM t",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 100,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "COMMIT",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 103,
+                "directive": [
+                  "query",
+                  "I",
+                  "b"
+                ],
+                "sql": "SELECT i FROM t",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 8,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 13,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "SET default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 16,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 21,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "SET SESSION default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 24,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 29,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 34,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "BEGIN; SET GLOBAL default_null_order=last; ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 37,
+                "directive": [
+                  "query",
+                  "T",
+                  "a"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 42,
+                "directive": [
+                  "query",
+                  "T",
+                  "c"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 47,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "c"
+                ],
+                "sql": "SET GLOBAL default_null_order=first",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 50,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 55,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "RESET SESSION default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 58,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 63,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "BEGIN; SET SESSION default_null_order=first; ROLLBACK",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 66,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "RESET GLOBAL default_null_order",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 69,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 74,
+                "directive": [
+                  "query",
+                  "T",
+                  "d"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 79,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "b"
+                ],
+                "sql": "SET SESSION default_null_order=DEFAULT",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 82,
+                "directive": [
+                  "query",
+                  "T",
+                  "b"
+                ],
+                "sql": "SELECT current_setting('default_null_order')",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 87,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "CREATE TABLE t(i INTEGER); BEGIN; INSERT INTO t VALUES (1)",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 90,
+                "directive": [
+                  "statement",
+                  "error",
+                  "a"
+                ],
+                "sql": "SET default_null_order='invalid'",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 95,
+                "directive": [
+                  "query",
+                  "I",
+                  "a"
+                ],
+                "sql": "SELECT count(*) FROM t",
+                "passed": false,
+                "error": {
+                  "type": "AssertionError",
+                  "message": "TransactionContext Error: Current transaction is aborted (please ROLLBACK)"
+                }
+              },
+              {
+                "ordinal": 24,
+                "line": 100,
+                "directive": [
+                  "statement",
+                  "ok",
+                  "a"
+                ],
+                "sql": "COMMIT",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 103,
+                "directive": [
+                  "query",
+                  "I",
+                  "b"
+                ],
+                "sql": "SELECT i FROM t",
+                "passed": false,
+                "error": {
+                  "type": "AssertionError",
+                  "message": "expected ['1'], got [] (0 values)"
+                }
+              }
+            ]
+          },
+          "passed": false,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "99063af2bd",
+            "version": "v2.0.0-dev84019"
+          }
+        },
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/grouping.test",
+          "sha256": "cee8ab5c6c89f14d5db8b5708be392e03962212622a8ddcedaabd9b4d6fbbddd",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE sales(a INTEGER, b INTEGER, v INTEGER)",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 6,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "INSERT INTO sales VALUES (1,10,2),(1,10,3),(1,NULL,5),(2,10,NULL),(NULL,10,7)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 9,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),(b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 23,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b)",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 35,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP((a,b))",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 44,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b)",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 58,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a), ROLLUP(b)",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 72,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a),(a),(),(b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 86,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS (ROLLUP(a),CUBE(b),GROUPING SETS((a,b),()))",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 102,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY a,CUBE(b)",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 113,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b,a)",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 129,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 141,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT sales.a,sales.b,count(*),sum(v),grouping_id(sales.a,b) FROM sales GROUP BY CUBE(a,sales.b)",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 155,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a AS x,b AS y,count(*),sum(v),grouping(x,y) FROM sales GROUP BY CUBE(x,y)",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 169,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales WHERE false GROUP BY GROUPING SETS ((a,b),(),(),(a))",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 175,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*) FROM sales WHERE false GROUP BY GROUPING SETS ((),())",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 181,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT 7 FROM sales WHERE false GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 186,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT 7 FROM sales WHERE false GROUP BY (a)",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 191,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*) FROM sales WHERE false GROUP BY (a)",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 196,
+                "directive": [
+                  "query",
+                  "II",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*),sum(v) FROM sales GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 201,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY (),a,()",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 208,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY a HAVING grouping(a)=0",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 215,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b) HAVING grouping(a,b)=3",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 220,
+                "directive": [
+                  "query",
+                  "II",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*),grouping(a,a,a) FROM sales GROUP BY GROUPING SETS ((a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 228,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1)",
+                "passed": true
+              },
+              {
+                "ordinal": 26,
+                "line": 233,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY a)",
+                "passed": true
+              },
+              {
+                "ordinal": 27,
+                "line": 238,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(DISTINCT v) FILTER (WHERE v>2),sum(v) FILTER (WHERE false),grouping(a) FROM sales GROUP BY GROUPING SETS ((a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 28,
+                "line": 246,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales",
+                "passed": true
+              },
+              {
+                "ordinal": 29,
+                "line": 249,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 30,
+                "line": 252,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(v) FROM sales GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 31,
+                "line": 255,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT a FROM sales GROUP BY GROUPING SETS ((b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 32,
+                "line": 258,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales WHERE GROUPING(a)=0 GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 33,
+                "line": 261,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT SUM(GROUPING(a)) FROM sales GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 34,
+                "line": 264,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT a FROM sales GROUP BY SUM(v)",
+                "passed": true
+              },
+              {
+                "ordinal": 35,
+                "line": 267,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT grouping(DISTINCT a) FROM sales GROUP BY a",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE sales(a INTEGER, b INTEGER, v INTEGER)",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 6,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "INSERT INTO sales VALUES (1,10,2),(1,10,3),(1,NULL,5),(2,10,NULL),(NULL,10,7)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 9,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),(b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 23,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b)",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 35,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP((a,b))",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 44,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b)",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 58,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a), ROLLUP(b)",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 72,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a),(a),(),(b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 86,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS (ROLLUP(a),CUBE(b),GROUPING SETS((a,b),()))",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 102,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY a,CUBE(b)",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 113,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b,a)",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 129,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 141,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT sales.a,sales.b,count(*),sum(v),grouping_id(sales.a,b) FROM sales GROUP BY CUBE(a,sales.b)",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 155,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a AS x,b AS y,count(*),sum(v),grouping(x,y) FROM sales GROUP BY CUBE(x,y)",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 169,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales WHERE false GROUP BY GROUPING SETS ((a,b),(),(),(a))",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 175,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*) FROM sales WHERE false GROUP BY GROUPING SETS ((),())",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 181,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT 7 FROM sales WHERE false GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 186,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT 7 FROM sales WHERE false GROUP BY (a)",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 191,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*) FROM sales WHERE false GROUP BY (a)",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 196,
+                "directive": [
+                  "query",
+                  "II",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*),sum(v) FROM sales GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 21,
+                "line": 201,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY (),a,()",
+                "passed": true
+              },
+              {
+                "ordinal": 22,
+                "line": 208,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY a HAVING grouping(a)=0",
+                "passed": true
+              },
+              {
+                "ordinal": 23,
+                "line": 215,
+                "directive": [
+                  "query",
+                  "IIIII",
+                  "rowsort"
+                ],
+                "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b) HAVING grouping(a,b)=3",
+                "passed": true
+              },
+              {
+                "ordinal": 24,
+                "line": 220,
+                "directive": [
+                  "query",
+                  "II",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(*),grouping(a,a,a) FROM sales GROUP BY GROUPING SETS ((a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 25,
+                "line": 228,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1)",
+                "passed": false,
+                "error": {
+                  "type": "AssertionError",
+                  "message": "expected ['1'], got ['0'] (1 values)"
+                }
+              },
+              {
+                "ordinal": 26,
+                "line": 233,
+                "directive": [
+                  "query",
+                  "I",
+                  "rowsort"
+                ],
+                "sql": "SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY a)",
+                "passed": true
+              },
+              {
+                "ordinal": 27,
+                "line": 238,
+                "directive": [
+                  "query",
+                  "III",
+                  "rowsort"
+                ],
+                "sql": "SELECT count(DISTINCT v) FILTER (WHERE v>2),sum(v) FILTER (WHERE false),grouping(a) FROM sales GROUP BY GROUPING SETS ((a),())",
+                "passed": true
+              },
+              {
+                "ordinal": 28,
+                "line": 246,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales",
+                "passed": true
+              },
+              {
+                "ordinal": 29,
+                "line": 249,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales GROUP BY ()",
+                "passed": true
+              },
+              {
+                "ordinal": 30,
+                "line": 252,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(v) FROM sales GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 31,
+                "line": 255,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT a FROM sales GROUP BY GROUPING SETS ((b),())",
+                "passed": true
+              },
+              {
+                "ordinal": 32,
+                "line": 258,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT GROUPING(a) FROM sales WHERE GROUPING(a)=0 GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 33,
+                "line": 261,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT SUM(GROUPING(a)) FROM sales GROUP BY a",
+                "passed": true
+              },
+              {
+                "ordinal": 34,
+                "line": 264,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT a FROM sales GROUP BY SUM(v)",
+                "passed": true
+              },
+              {
+                "ordinal": 35,
+                "line": 267,
+                "directive": [
+                  "statement",
+                  "error"
+                ],
+                "sql": "SELECT grouping(DISTINCT a) FROM sales GROUP BY a",
+                "passed": true
+              }
+            ]
+          },
+          "passed": false,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "99063af2bd",
+            "version": "v2.0.0-dev84019"
+          }
+        },
+        {
+          "path": "/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/ordering.test",
+          "sha256": "d123df7e7aee882ea44b37e4a01363707d2f7dc97502cd6a6e42fc51678c7e59",
+          "engines": {
+            "rust": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET GLOBAL default_order='asc'; SET GLOBAL default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 6,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE ordered_values(a INTEGER, b INTEGER); INSERT INTO ordered_values VALUES (2,1),(1,2),(1,1),(NULL,2),(2,NULL),(NULL,NULL),(1,1)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 9,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 20,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL DESC NULLS FIRST",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 31,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT b,a FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 39,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT DISTINCT * FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 49,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT a AS same,b AS same FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 57,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT x.* FROM ordered_values x WHERE a=1 ORDER BY ALL DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 64,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT 2,1 UNION ALL SELECT 1,2 UNION ALL SELECT 1,1 ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 71,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "VALUES (2,1),(1,2),(1,1) ORDER BY ALL DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 78,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL LIMIT 2 OFFSET 2",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 84,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_order='desc'",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 87,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT i,-i FROM range(3) t(i) ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 94,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order='nulls_first_on_asc_last_on_desc'",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 97,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT DISTINCT a FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 104,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT DISTINCT a FROM ordered_values ORDER BY ALL ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 111,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET SESSION default_order",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 114,
+                "directive": [
+                  "query",
+                  "III"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM ordered_values GROUP BY ROLLUP(a) ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 122,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 1 WHERE false ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 126,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET GLOBAL default_order; RESET GLOBAL default_null_order",
+                "passed": true
+              }
+            ],
+            "cpp": [
+              {
+                "ordinal": 1,
+                "line": 3,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET GLOBAL default_order='asc'; SET GLOBAL default_null_order=last",
+                "passed": true
+              },
+              {
+                "ordinal": 2,
+                "line": 6,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "CREATE TABLE ordered_values(a INTEGER, b INTEGER); INSERT INTO ordered_values VALUES (2,1),(1,2),(1,1),(NULL,2),(2,NULL),(NULL,NULL),(1,1)",
+                "passed": true
+              },
+              {
+                "ordinal": 3,
+                "line": 9,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 4,
+                "line": 20,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL DESC NULLS FIRST",
+                "passed": true
+              },
+              {
+                "ordinal": 5,
+                "line": 31,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT b,a FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 6,
+                "line": 39,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT DISTINCT * FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 7,
+                "line": 49,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT a AS same,b AS same FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 8,
+                "line": 57,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT x.* FROM ordered_values x WHERE a=1 ORDER BY ALL DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 9,
+                "line": 64,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT 2,1 UNION ALL SELECT 1,2 UNION ALL SELECT 1,1 ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 10,
+                "line": 71,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "VALUES (2,1),(1,2),(1,1) ORDER BY ALL DESC",
+                "passed": true
+              },
+              {
+                "ordinal": 11,
+                "line": 78,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT * FROM ordered_values ORDER BY ALL LIMIT 2 OFFSET 2",
+                "passed": true
+              },
+              {
+                "ordinal": 12,
+                "line": 84,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_order='desc'",
+                "passed": true
+              },
+              {
+                "ordinal": 13,
+                "line": 87,
+                "directive": [
+                  "query",
+                  "II"
+                ],
+                "sql": "SELECT i,-i FROM range(3) t(i) ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 14,
+                "line": 94,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "SET SESSION default_null_order='nulls_first_on_asc_last_on_desc'",
+                "passed": true
+              },
+              {
+                "ordinal": 15,
+                "line": 97,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT DISTINCT a FROM ordered_values ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 16,
+                "line": 104,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT DISTINCT a FROM ordered_values ORDER BY ALL ASC",
+                "passed": true
+              },
+              {
+                "ordinal": 17,
+                "line": 111,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET SESSION default_order",
+                "passed": true
+              },
+              {
+                "ordinal": 18,
+                "line": 114,
+                "directive": [
+                  "query",
+                  "III"
+                ],
+                "sql": "SELECT a,count(*),grouping(a) FROM ordered_values GROUP BY ROLLUP(a) ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 19,
+                "line": 122,
+                "directive": [
+                  "query",
+                  "I"
+                ],
+                "sql": "SELECT 1 WHERE false ORDER BY ALL",
+                "passed": true
+              },
+              {
+                "ordinal": 20,
+                "line": 126,
+                "directive": [
+                  "statement",
+                  "ok"
+                ],
+                "sql": "RESET GLOBAL default_order; RESET GLOBAL default_null_order",
+                "passed": true
+              }
+            ]
+          },
+          "passed": true,
+          "rust_adapters": [
+            [
+              "transactions",
+              "optimistic-snapshot"
+            ],
+            [
+              "catalog",
+              "snapshot-catalog"
+            ],
+            [
+              "storage",
+              "snapshot-table"
+            ],
+            [
+              "indexes",
+              "hash-equality"
+            ],
+            [
+              "types",
+              "gregorian-date"
+            ],
+            [
+              "types",
+              "primitive-types"
+            ],
+            [
+              "durability",
+              "memory"
+            ],
+            [
+              "casts",
+              "gregorian-date-cast"
+            ],
+            [
+              "casts",
+              "primitive-cast"
+            ],
+            [
+              "casts",
+              "structural-cast"
+            ],
+            [
+              "operators",
+              "checked-numeric-arithmetic"
+            ],
+            [
+              "operators",
+              "gregorian-date-arithmetic"
+            ],
+            [
+              "operators",
+              "like-greedy"
+            ],
+            [
+              "operators",
+              "string-concatenate"
+            ],
+            [
+              "physical_planner",
+              "native-physical"
+            ],
+            [
+              "scan_filter",
+              "fused-scan-filter"
+            ],
+            [
+              "recursion",
+              "streaming-recursion"
+            ],
+            [
+              "aggregation",
+              "hash-aggregation"
+            ],
+            [
+              "sorting",
+              "integer-radix-sort"
+            ],
+            [
+              "join_algorithm",
+              "hash"
+            ],
+            [
+              "join_algorithm",
+              "nested-loop"
+            ],
+            [
+              "optimizer",
+              "pipeline"
+            ],
+            [
+              "optimizer_pass",
+              "simplify-expressions"
+            ],
+            [
+              "optimizer_pass",
+              "key-lookup"
+            ],
+            [
+              "optimizer_pass",
+              "decorrelate-exists"
+            ],
+            [
+              "parser",
+              "sqlparser-duckdb"
+            ],
+            [
+              "binder",
+              "sql-binder"
+            ],
+            [
+              "executor",
+              "pull"
+            ],
+            [
+              "expressions",
+              "batched-expression"
+            ],
+            [
+              "subqueries",
+              "streaming-subqueries"
+            ],
+            [
+              "scheduler",
+              "inline"
+            ],
+            [
+              "configuration",
+              "snapshot-configuration"
+            ]
+          ],
+          "worker_identity": {
+            "ready": true,
+            "source_id": "99063af2bd",
+            "version": "v2.0.0-dev84019"
+          }
+        }
+      ],
+      "passed": false,
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "compile_command": [
+        "c++",
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-I/Users/jacobthomas/code/ddb/duckdb/src/include",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/test/runner/reference.cpp",
+        "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src/libduckdb.dylib",
+        "-Wl,-rpath,/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/src",
+        "-o",
+        "/Users/jacobthomas/code/ddb/duckdb-rust/target/session-reference-development"
+      ],
+      "cpp_library_sha256": "74b604b07e2c7d0f3d1e60afcbcfc388390f51d016d079f75aced1e6c1637240",
+      "cpp_worker_sha256": "c6873c56ce1297b0724753bd7f69b0824a337c8fda73a5f021ecd3135f078401"
+    }
+  ],
+  "passed": false,
+  "complete_test_parity": false,
+  "complete_compatibility": false,
+  "scope": "Persistent in-memory sessions with unchanged local SQL assertions. Named connections share a database. Each corpus starts with a fresh database. Errors, unsupported cases and partial runs remain failures. No performance or full diagnostic/native-file parity claim.",
+  "source_unchanged": true,
+  "rust_binary_unchanged": true
+}

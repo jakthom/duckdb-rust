@@ -1,0 +1,571 @@
+{
+  "recorded_at": "2026-09-09T21:06:33.506829+00:00",
+  "rust_binary_sha256": "9690672c683083df96c17e21b63a76da9561362b43805f0b35c5879be0423405",
+  "corpus": "test/sql/grouping.test",
+  "corpus_sha256": "cee8ab5c6c89f14d5db8b5708be392e03962212622a8ddcedaabd9b4d6fbbddd",
+  "scope": "Unchanged local grouping SQL values and success/failure assertions, plus independent zero-argument GROUPING syntax outcomes. CLI startup/setup are not performance measurements. Exact diagnostics, complete upstream assertions and full compatibility remain open.",
+  "targets": [
+    {
+      "target": "release",
+      "records": [
+        {
+          "ordinal": 0,
+          "line": 3,
+          "directive": [
+            "statement",
+            "ok"
+          ],
+          "sql": "CREATE TABLE sales(a INTEGER, b INTEGER, v INTEGER)",
+          "passed": true
+        },
+        {
+          "ordinal": 1,
+          "line": 6,
+          "directive": [
+            "statement",
+            "ok"
+          ],
+          "sql": "INSERT INTO sales VALUES (1,10,2),(1,10,3),(1,NULL,5),(2,10,NULL),(NULL,10,7)",
+          "passed": true
+        },
+        {
+          "ordinal": 2,
+          "line": 9,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),(b),())",
+          "passed": true
+        },
+        {
+          "ordinal": 3,
+          "line": 23,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b)",
+          "passed": true
+        },
+        {
+          "ordinal": 4,
+          "line": 35,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP((a,b))",
+          "passed": true
+        },
+        {
+          "ordinal": 5,
+          "line": 44,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b)",
+          "passed": true
+        },
+        {
+          "ordinal": 6,
+          "line": 58,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a), ROLLUP(b)",
+          "passed": true
+        },
+        {
+          "ordinal": 7,
+          "line": 72,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a),(a),(),(b),())",
+          "passed": true
+        },
+        {
+          "ordinal": 8,
+          "line": 86,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS (ROLLUP(a),CUBE(b),GROUPING SETS((a,b),()))",
+          "passed": true
+        },
+        {
+          "ordinal": 9,
+          "line": 102,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY a,CUBE(b)",
+          "passed": true
+        },
+        {
+          "ordinal": 10,
+          "line": 113,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b,a)",
+          "passed": true
+        },
+        {
+          "ordinal": 11,
+          "line": 129,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),())",
+          "passed": true
+        },
+        {
+          "ordinal": 12,
+          "line": 141,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT sales.a,sales.b,count(*),sum(v),grouping_id(sales.a,b) FROM sales GROUP BY CUBE(a,sales.b)",
+          "passed": true
+        },
+        {
+          "ordinal": 13,
+          "line": 155,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a AS x,b AS y,count(*),sum(v),grouping(x,y) FROM sales GROUP BY CUBE(x,y)",
+          "passed": true
+        },
+        {
+          "ordinal": 14,
+          "line": 169,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales WHERE false GROUP BY GROUPING SETS ((a,b),(),(),(a))",
+          "passed": true
+        },
+        {
+          "ordinal": 15,
+          "line": 175,
+          "directive": [
+            "query",
+            "I",
+            "rowsort"
+          ],
+          "sql": "SELECT count(*) FROM sales WHERE false GROUP BY GROUPING SETS ((),())",
+          "passed": true
+        },
+        {
+          "ordinal": 16,
+          "line": 181,
+          "directive": [
+            "query",
+            "I",
+            "rowsort"
+          ],
+          "sql": "SELECT 7 FROM sales WHERE false GROUP BY ()",
+          "passed": true
+        },
+        {
+          "ordinal": 17,
+          "line": 186,
+          "directive": [
+            "query",
+            "I",
+            "rowsort"
+          ],
+          "sql": "SELECT 7 FROM sales WHERE false GROUP BY (a)",
+          "passed": true
+        },
+        {
+          "ordinal": 18,
+          "line": 191,
+          "directive": [
+            "query",
+            "I",
+            "rowsort"
+          ],
+          "sql": "SELECT count(*) FROM sales WHERE false GROUP BY (a)",
+          "passed": true
+        },
+        {
+          "ordinal": 19,
+          "line": 196,
+          "directive": [
+            "query",
+            "II",
+            "rowsort"
+          ],
+          "sql": "SELECT count(*),sum(v) FROM sales GROUP BY ()",
+          "passed": true
+        },
+        {
+          "ordinal": 20,
+          "line": 201,
+          "directive": [
+            "query",
+            "III",
+            "rowsort"
+          ],
+          "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY (),a,()",
+          "passed": true
+        },
+        {
+          "ordinal": 21,
+          "line": 208,
+          "directive": [
+            "query",
+            "III",
+            "rowsort"
+          ],
+          "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY a HAVING grouping(a)=0",
+          "passed": true
+        },
+        {
+          "ordinal": 22,
+          "line": 215,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b) HAVING grouping(a,b)=3",
+          "passed": true
+        },
+        {
+          "ordinal": 23,
+          "line": 220,
+          "directive": [
+            "query",
+            "II",
+            "rowsort"
+          ],
+          "sql": "SELECT count(*),grouping(a,a,a) FROM sales GROUP BY GROUPING SETS ((a),())",
+          "passed": true
+        }
+      ],
+      "common_corpus_passed": false,
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "passed": false,
+      "error": "(PosixPath('/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/grouping.test'), 228, 'SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1)', ['0'], ['1'])"
+    },
+    {
+      "target": "development",
+      "records": [
+        {
+          "ordinal": 0,
+          "line": 3,
+          "directive": [
+            "statement",
+            "ok"
+          ],
+          "sql": "CREATE TABLE sales(a INTEGER, b INTEGER, v INTEGER)",
+          "passed": true
+        },
+        {
+          "ordinal": 1,
+          "line": 6,
+          "directive": [
+            "statement",
+            "ok"
+          ],
+          "sql": "INSERT INTO sales VALUES (1,10,2),(1,10,3),(1,NULL,5),(2,10,NULL),(NULL,10,7)",
+          "passed": true
+        },
+        {
+          "ordinal": 2,
+          "line": 9,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),(b),())",
+          "passed": true
+        },
+        {
+          "ordinal": 3,
+          "line": 23,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b)",
+          "passed": true
+        },
+        {
+          "ordinal": 4,
+          "line": 35,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP((a,b))",
+          "passed": true
+        },
+        {
+          "ordinal": 5,
+          "line": 44,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b)",
+          "passed": true
+        },
+        {
+          "ordinal": 6,
+          "line": 58,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a), ROLLUP(b)",
+          "passed": true
+        },
+        {
+          "ordinal": 7,
+          "line": 72,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a),(a),(),(b),())",
+          "passed": true
+        },
+        {
+          "ordinal": 8,
+          "line": 86,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS (ROLLUP(a),CUBE(b),GROUPING SETS((a,b),()))",
+          "passed": true
+        },
+        {
+          "ordinal": 9,
+          "line": 102,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY a,CUBE(b)",
+          "passed": true
+        },
+        {
+          "ordinal": 10,
+          "line": 113,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b,a)",
+          "passed": true
+        },
+        {
+          "ordinal": 11,
+          "line": 129,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),())",
+          "passed": true
+        },
+        {
+          "ordinal": 12,
+          "line": 141,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT sales.a,sales.b,count(*),sum(v),grouping_id(sales.a,b) FROM sales GROUP BY CUBE(a,sales.b)",
+          "passed": true
+        },
+        {
+          "ordinal": 13,
+          "line": 155,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a AS x,b AS y,count(*),sum(v),grouping(x,y) FROM sales GROUP BY CUBE(x,y)",
+          "passed": true
+        },
+        {
+          "ordinal": 14,
+          "line": 169,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales WHERE false GROUP BY GROUPING SETS ((a,b),(),(),(a))",
+          "passed": true
+        },
+        {
+          "ordinal": 15,
+          "line": 175,
+          "directive": [
+            "query",
+            "I",
+            "rowsort"
+          ],
+          "sql": "SELECT count(*) FROM sales WHERE false GROUP BY GROUPING SETS ((),())",
+          "passed": true
+        },
+        {
+          "ordinal": 16,
+          "line": 181,
+          "directive": [
+            "query",
+            "I",
+            "rowsort"
+          ],
+          "sql": "SELECT 7 FROM sales WHERE false GROUP BY ()",
+          "passed": true
+        },
+        {
+          "ordinal": 17,
+          "line": 186,
+          "directive": [
+            "query",
+            "I",
+            "rowsort"
+          ],
+          "sql": "SELECT 7 FROM sales WHERE false GROUP BY (a)",
+          "passed": true
+        },
+        {
+          "ordinal": 18,
+          "line": 191,
+          "directive": [
+            "query",
+            "I",
+            "rowsort"
+          ],
+          "sql": "SELECT count(*) FROM sales WHERE false GROUP BY (a)",
+          "passed": true
+        },
+        {
+          "ordinal": 19,
+          "line": 196,
+          "directive": [
+            "query",
+            "II",
+            "rowsort"
+          ],
+          "sql": "SELECT count(*),sum(v) FROM sales GROUP BY ()",
+          "passed": true
+        },
+        {
+          "ordinal": 20,
+          "line": 201,
+          "directive": [
+            "query",
+            "III",
+            "rowsort"
+          ],
+          "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY (),a,()",
+          "passed": true
+        },
+        {
+          "ordinal": 21,
+          "line": 208,
+          "directive": [
+            "query",
+            "III",
+            "rowsort"
+          ],
+          "sql": "SELECT a,count(*),grouping(a) FROM sales GROUP BY a HAVING grouping(a)=0",
+          "passed": true
+        },
+        {
+          "ordinal": 22,
+          "line": 215,
+          "directive": [
+            "query",
+            "IIIII",
+            "rowsort"
+          ],
+          "sql": "SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b) HAVING grouping(a,b)=3",
+          "passed": true
+        },
+        {
+          "ordinal": 23,
+          "line": 220,
+          "directive": [
+            "query",
+            "II",
+            "rowsort"
+          ],
+          "sql": "SELECT count(*),grouping(a,a,a) FROM sales GROUP BY GROUPING SETS ((a),())",
+          "passed": true
+        }
+      ],
+      "common_corpus_passed": false,
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "passed": false,
+      "error": "(PosixPath('/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/grouping.test'), 228, 'SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1)', ['0'], ['1'])"
+    }
+  ],
+  "common_corpus_passed": false,
+  "passed": false,
+  "complete_test_parity": false,
+  "complete_compatibility": false
+}

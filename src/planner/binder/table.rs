@@ -137,10 +137,15 @@ impl State<'_, '_> {
         } else {
             self.expr(&order.expr, fields, grouping)?
         };
+        let (descending, nulls_first) = self.context.query.settings().ordering(
+            order.options.asc,
+            order.options.nulls_first,
+            self.context.query,
+        )?;
         Ok(OrderExpr {
             expression,
-            descending: order.options.asc == Some(false),
-            nulls_first: order.options.nulls_first.unwrap_or(false),
+            descending,
+            nulls_first,
         })
     }
 }

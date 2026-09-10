@@ -3,6 +3,8 @@ use std::sync::Arc;
 use super::{AggregateFunction, AggregateState, FunctionRegistry};
 use crate::common::{DataType, Error, Result, Value};
 
+mod groups;
+
 #[derive(Debug)]
 struct Builtin(&'static str);
 
@@ -58,6 +60,14 @@ impl AggregateFunction for Builtin {
             value: Value::Null,
             seen: false,
         }))
+    }
+    fn create_grouped_state(
+        &self,
+        args: &[DataType],
+        types: &crate::common::type_registry::TypeRegistry,
+    ) -> Result<Option<Box<dyn super::grouped::GroupedAggregateState>>> {
+        self.return_type(args, types)?;
+        Ok(groups::create(self.0, args))
     }
 }
 
@@ -204,13 +214,15 @@ impl State {
         }
         for block in values.chunks(1024) {
             context.check()?;
-            let part: i128 = block
-                .iter()
-                .map(|value| match value {
-                    Value::Integer(value) => (*value as i64) as i128,
-                    _ => unreachable!("validated non-NULL narrow integer column"),
-                })
-                .sum();
+            let integer = |value: &Value| match value {
+                Value::Integer(value) => *value as i64,
+                _ => unreachable!("validated non-NULL narrow integer column"),
+            };
+            // Keep the hot loop in a machine-width accumulator. A block that
+            // exceeds that width is recomputed in i128; the prefix range proof
+            // above makes both paths exact, including near HUGEINT bounds.
+            let part = sum_narrow(block, integer)
+                .unwrap_or_else(|| block.iter().map(|value| i128::from(integer(value))).sum());
             sum += part;
         }
         if !values.is_empty() {
@@ -282,4 +294,22 @@ impl State {
         }
         context.check()
     }
+}
+
+/// Independent machine-width lanes avoid a carry dependency across every row.
+/// Failure requests the wide kernel; it is not a SQL overflow. The caller must
+/// separately prove that every logical prefix fits the SQL accumulator.
+fn sum_narrow(values: &[Value], integer: impl Fn(&Value) -> i64) -> Option<i128> {
+    let mut lanes = [0_i64; 4];
+    let mut blocks = values.chunks_exact(4);
+    for block in &mut blocks {
+        for (lane, value) in lanes.iter_mut().zip(block) {
+            *lane = lane.checked_add(integer(value))?;
+        }
+    }
+    let mut sum: i128 = lanes.into_iter().map(i128::from).sum();
+    for value in blocks.remainder() {
+        sum += i128::from(integer(value));
+    }
+    Some(sum)
 }

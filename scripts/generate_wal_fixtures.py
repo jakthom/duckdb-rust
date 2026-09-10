@@ -10,8 +10,8 @@ import subprocess
 import tempfile
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / 'test/data/wal'
+from reference_version import TARGETS, require_reference
+
 CASES = {
     'mutations': (
         """CREATE TABLE t(i INTEGER PRIMARY KEY, s VARCHAR, d DATE, n BIGINT, b BOOLEAN);
@@ -83,16 +83,19 @@ def send_ready(process, sql):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--duckdb', default='/opt/homebrew/bin/duckdb')
+    parser.add_argument('--target', choices=TARGETS, default='release')
+    parser.add_argument('--duckdb', type=Path)
+    parser.add_argument('--output-dir', type=Path, required=True)
     args = parser.parse_args()
-    FIXTURES.mkdir(parents=True, exist_ok=True)
-    manifest = {'writer': subprocess.check_output([args.duckdb, '--version'], text=True).strip(), 'cases': {}}
+    args.duckdb, identity = require_reference(args.duckdb, target=args.target)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {'writer': identity['version'], 'reference_identity': identity, 'cases': {}}
     for name, (setup, transactions, query) in CASES.items():
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'fixture.duckdb'
-            # Exercise v65 storage separately from the default v64 files.
-            # This v1.3 reference still emits the legacy v2 header without
-            # a database identifier; tagged headers need separate verification.
+            # Exercise requested v1.3 storage separately from the producer's
+            # default. The selected binary, not this option, determines its WAL
+            # header encoding; the manifest records the actual producer.
             process = subprocess.Popen([args.duckdb, ':memory:' if name == 'version65' else str(path), '-json'],
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
@@ -129,11 +132,11 @@ def main():
                 assert path.read_bytes() == checkpoint and log_path.read_bytes() == log[:end]
             log_path.write_bytes(log)
             for suffix, data in [('.duckdb', checkpoint), ('.wal', log)]:
-                (FIXTURES / (name + suffix + '.gz')).write_bytes(gzip.compress(data, mtime=0))
+                (args.output_dir / (name + suffix + '.gz')).write_bytes(gzip.compress(data, mtime=0))
             manifest['cases'][name] = {'setup': setup, 'transactions': transactions, 'query': query,
                 'checkpoint_sha256': digest(checkpoint), 'wal_sha256': digest(log), 'states': states}
             print(f'{name}: {len(checkpoint)} checkpoint bytes, {len(log)} WAL bytes')
-    (FIXTURES / 'manifest.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
+    (args.output_dir / 'manifest.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
 
 
 if __name__ == '__main__':

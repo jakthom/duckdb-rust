@@ -16,6 +16,10 @@ pub enum TransactionChange {
     DropSchema(String),
     CreateTable(TableDefinition),
     DropTable(TableName),
+    AlterTable {
+        table: TableName,
+        alteration: crate::catalog::TableAlteration,
+    },
     Insert {
         table: TableName,
         rows: Vec<Row>,

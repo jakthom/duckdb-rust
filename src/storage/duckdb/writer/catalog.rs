@@ -13,19 +13,7 @@ pub(in crate::storage::duckdb) fn table_definition(
     output.field(201);
     output.property(100, table.columns.len() as u64);
     for column in &table.columns {
-        output.field(100);
-        output.string(&column.name)?;
-        output.field(101);
-        output.property(100, type_id(&column.data_type)?);
-        output.end();
-        if !column.default.is_null() {
-            output.field(102);
-            output.boolean(true);
-            constant::write(output, &column.default, &column.data_type)?;
-        }
-        output.property(103, 0);
-        output.property(104, 0);
-        output.end();
+        column_definition(output, column)?;
     }
     output.end();
     let constraints: Vec<_> = table
@@ -55,6 +43,26 @@ pub(in crate::storage::duckdb) fn table_definition(
             output.end();
         }
     }
+    output.end();
+    Ok(())
+}
+
+pub(in crate::storage::duckdb) fn column_definition(
+    output: &mut Encoder,
+    column: &crate::catalog::ColumnDefinition,
+) -> Result<()> {
+    output.field(100);
+    output.string(&column.name)?;
+    output.field(101);
+    output.property(100, type_id(&column.data_type)?);
+    output.end();
+    if !column.default.is_null() {
+        output.field(102);
+        output.boolean(true);
+        constant::write(output, &column.default, &column.data_type)?;
+    }
+    output.property(103, 0);
+    output.property(104, 0);
     output.end();
     Ok(())
 }

@@ -1,0 +1,333 @@
+   Compiling duckdb-rust v0.1.0 (/Users/jacobthomas/code/ddb/duckdb-rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.11s
+     Running unittests src/lib.rs (target/debug/deps/duckdb_rust-cb22200dc465d6ce)
+
+running 1 test
+test execution::operator::scan::tests::rejected_scan_rows_still_require_valid_width_physical_and_logical_types ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests tools/shell/main.rs (target/debug/deps/duckdb_rust-eacddcd1495da539)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests benchmark/main.rs (target/debug/deps/duckdb_rust_benchmark-9b52a918fe871a4c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests benchmark/native.rs (target/debug/deps/duckdb_rust_measure-2d949f4434ac5b03)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests test/runner/worker.rs (target/debug/deps/duckdb_rust_test_worker-de35d976a66c5978)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests test/runner/main.rs (target/debug/deps/sqllogictest-7b10d74e51746b08)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running test/component/adversarial.rs (target/debug/deps/adversarial-fdbd53eb51ad4e85)
+
+running 4 tests
+test ownership::repeated_error_and_result_lifetimes_release_registered_adapters ... ok
+test generated::generated_predicate_partitions_match_an_independent_row_model_across_adapters ... ok
+test generated::paired_sql_and_checkpoint_mutations_return_results_or_checked_errors ... ok
+test faults::every_observed_io_position_handles_once_and_persistent_failures ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.64s
+
+     Running test/component/alter.rs (target/debug/deps/alter-4d5033e864a56cbf)
+
+running 7 tests
+test catalog_alter_is_atomic_preserves_ids_and_retained_snapshots ... ok
+test alter_rollback_prepared_rebinding_and_writer_conflicts ... ok
+test new_not_null_constraints_check_committed_and_transaction_local_rows ... ok
+test independent_duckdb_alter_wal_replays_with_both_index_adapters ... ok
+test alter_sql_contracts_across_indexes_optimizers_and_delivery ... ok
+test alter_with_prior_and_later_mutations_survives_wal_recovery_and_checkpoint ... ok
+test incomplete_alter_wal_never_exposes_a_partial_catalog_or_rows ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.26s
+
+     Running test/component/casts.rs (target/debug/deps/casts-0d60d1e67a020c2f)
+
+running 8 tests
+test registry_replacement_ownership_and_try_cast_errors_are_checked ... ok
+test structural_registration_handles_null_and_is_atomic_on_conflict ... ok
+test cast_modes_and_numeric_boundaries_are_explicit ... ok
+test representation_boundaries_never_perform_hidden_casts ... ok
+test bound_plans_validate_retained_cast_signatures ... ok
+test casts_preserve_concurrent_ownership_and_statement_cancellation ... ok
+test integer_adapters_share_valid_invalid_and_extreme_input_contracts ... ok
+test adapters_are_used_by_sql_defaults_mutations_indexes_and_both_formats ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running test/component/checkpointing.rs (target/debug/deps/checkpointing-a051f6669b504bac)
+
+running 9 tests
+test checkpoint_child ... ok
+test checkpoint_layouts_preserve_duplicate_rows_nan_bits_and_reject_aliases ... ok
+test checkpoint_syntax_session_and_cancellation_contracts ... ok
+test invalid_format_layout_fails_before_io_and_keeps_the_session_usable ... ok
+test checkpoint_retires_a_header_only_log_after_rejected_first_append ... ok
+test policies_control_real_checkpoint_publication ... ok
+test checkpoints_preserve_live_ids_readers_and_pending_writers_across_policies ... ok
+test interrupted_checkpoint_publication_does_not_commit_the_incoming_transaction ... ok
+test process_exits_during_manual_and_automatic_checkpoints_preserve_acknowledged_work ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.05s
+
+     Running test/compatibility.rs (target/debug/deps/compatibility-a9bda9586a98dbe6)
+
+running 14 tests
+test exact_scalar_values_and_types_survive_checkpoint_read ... ok
+test a_damaged_unused_header_does_not_hide_a_valid_checkpoint ... ok
+test compressed_strings_match_every_logical_value ... ok
+test independent_duckdb_files_are_read_without_native_dependencies ... ok
+test unsupported_publication_preserves_the_original_database ... ok
+test existing_literal_defaults_are_evaluated_after_publication_and_reopen ... ok
+test truncated_corrupt_locked_and_unrecovered_files_are_rejected ... ok
+test rust_updates_existing_duckdb_checkpoints_and_reopens ... ok
+test checkpoint_deletions_preserve_committed_visibility ... ok
+test independent_rowgroups_and_empty_schemas_are_preserved ... ok
+test persisted_unique_and_primary_keys_survive_mutation_and_restart ... ok
+test historical_chimp_and_patas_files_keep_both_tables_and_values ... ok
+test alp_floating_values_survive_groups_exceptions_and_publication ... ok
+test alp_and_alprd_preserve_both_floating_widths_and_ieee_extrema ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.25s
+
+     Running test/component/compression.rs (target/debug/deps/compression-94cab26d8e4319f6)
+
+running 11 tests
+test registry_validates_selection_resource_limits_cancellation_and_foreign_output ... ok
+test floating::chimp_rejects_float_width_bits_that_belong_only_to_double ... ok
+test floating::legacy_xor_codecs_preserve_bits_references_and_unaligned_group_boundaries ... ok
+test floating::alprd_covers_every_cut_width_dictionary_size_and_exception_index ... ok
+test shared_decoders_keep_concurrent_requests_independent ... ok
+test floating::alp_single_precision_uses_its_own_rounding_and_exception_width ... ok
+test malformed_native_segments_are_rejected_without_panics_or_partial_output ... ok
+test floating::floating_decoders_reject_truncated_or_invalid_references_and_metadata ... ok
+test alp_retains_exception_bits_and_decimal_scaling_in_partial_groups ... ok
+test replacing_a_decoder_changes_file_composition_without_changing_query_callers ... ok
+test both_bitpacking_adapters_obey_integer_and_date_width_wrap_and_tail_contracts ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.52s
+
+     Running test/contracts.rs (target/debug/deps/contracts-76f95c36953d0e63)
+
+running 17 tests
+test private_checkpoint_detects_valid_json_with_changed_values ... ok
+test column_projection_preserves_shared_values_shape_and_lifetimes ... ok
+test composition_rejects_unused_transaction_bundle_selections ... ok
+test snapshot_api_mutations_are_atomic ... ok
+test prepared_statements_rebind_catalog_and_parameters ... ok
+test ordinary_function_registration_and_capability_rejection ... ok
+test expressions_preserve_nulls_errors_and_short_circuiting ... ok
+test timeouts_and_resource_limits_release_transactions ... ok
+test snapshot_isolation_and_write_conflicts ... ok
+test shared_plan_boundary_rejects_invalid_types_and_identities ... ok
+test failed_commit_never_publishes_and_uncertain_commit_blocks_use ... ok
+test vectors_own_values_and_validate_shape ... ok
+test values_ctes_set_operations_and_hidden_sort_keys ... ok
+test transactional_ddl_constraints_and_abandonment ... ok
+test relational_contract_across_compositions ... ok
+test persistence_adapters_share_transaction_contract ... ok
+test format_adapters_preserve_values_types_and_catalog_identity ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.68s
+
+     Running test/component/dates.rs (target/debug/deps/dates-9e3c2801157fa5d5)
+
+running 7 tests
+test date_literals_defaults_and_try_cast_honor_selected_adapters ... ok
+test literals_casts_invalid_dates_and_lazy_errors_use_date_semantics ... ok
+test date_queries_share_keys_comparisons_and_null_rules_across_join_adapters ... ok
+test native_validity_cannot_promote_a_reserved_date_slot_to_a_value ... ok
+test calendar_covers_gregorian_cycles_bce_and_physical_boundaries ... ok
+test date_defaults_indexes_and_mutations_survive_both_snapshot_formats ... ok
+test independent_date_checkpoints_decode_through_both_bitpacking_adapters ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+     Running test/component/execution.rs (target/debug/deps/execution-2699e8b248f6ffad)
+
+running 28 tests
+test batches::typed_integer_columns_establish_physical_validity_and_stop_on_errors ... ok
+test batches::contiguous_views_preserve_nested_selection_nulls_and_empty_cardinality ... ok
+test batches::scan_representations_preserve_identities_selection_and_owned_values ... ok
+test batches::aggregate_batches_match_scalar_updates_for_nulls_encodings_empty_input_and_overflow ... ok
+test batches::materialized_row_collections_own_values_and_preserve_zero_width_rows ... ok
+test expressions::integer_batch_kernels_match_scalar_width_null_selection_and_overflow_semantics ... ok
+test batch_errors_and_cancellation_follow_the_transaction_contract ... ok
+test batches::registered_aggregate_adapters_receive_the_same_batch_contract ... ok
+test expressions::rejected_filter_rows_do_not_hide_invalid_expression_batches ... ok
+test expressions::type_batch_boundaries_reject_invalid_null_results_and_cancel ... ok
+test evaluation_failure_never_reports_a_partial_result_as_success ... ok
+test joins::hash_semi_join_builds_once_streams_demand_and_retains_owned_chunks ... ok
+test joins::hash_semi_join_checks_build_schema_limits_cancellation_and_empty_outer ... ok
+test expressions::predicate_selection_rejects_duplicate_reordered_and_out_of_bounds_rows ... ok
+test operator_boundary_rejects_invalid_adapters_and_fuses_errors ... ok
+test expressions::operator_replacement_controls_batch_proofs_and_cannot_bypass_null_validation ... ok
+test limit_and_consumer_stop_bound_actual_upstream_evaluation ... ok
+test separate_streams_have_independent_progress_and_per_call_demand ... ok
+test table_scan_boundary_rejects_empty_and_oversized_batches ... ok
+test scheduler_must_run_each_statement_exactly_once_before_commit ... ok
+test scan_filter_strategies_preserve_demand_errors_and_owned_results ... ok
+test table_scan_visibility_and_owned_chunks_survive_other_writers ... ok
+test expressions::expression_adapters_preserve_lazy_branches_first_errors_and_effect_counts ... ok
+test executor_adapters_preserve_complete_relational_results_across_batches ... ok
+test batches::published_columns_preserve_holes_writes_restart_and_retained_batches ... ok
+test streamed_results_and_aggregation_do_not_require_full_input_materialization ... ok
+test batches::integer_sum_batches_preserve_wide_prefixes_and_vector_views ... ok
+test joins::membership_joins_match_nested_loops_across_domains_and_batch_sizes ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running test/component/floating.rs (target/debug/deps/floating-8d026da27411b79c)
+
+running 3 tests
+test float_has_single_precision_casts_operations_and_result_types ... ok
+test float_extrema_and_sampled_bits_survive_both_checkpoint_formats ... ok
+test float_indexes_keep_nan_zero_and_mutation_semantics_across_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running test/component/grouping.rs (target/debug/deps/grouping-ad169669fa8194f3)
+
+running 9 tests
+test columns::group_destinations_validate_shape_counts_cancellation_and_resources ... ok
+test grouping_evaluates_inputs_once_and_isolates_distinct_and_filter_states ... ok
+test columns::grouped_functions_replace_storage_without_changing_sql_and_reject_bad_adapters ... ok
+test grouping_prepared_queries_keep_snapshot_visibility_and_atomic_mutations ... ok
+test columns::grouped_count_handles_nullable_strings_and_cancelled_empty_states ... ok
+test grouping_boundaries_reject_invalid_ordinals_masks_expansion_and_resources ... ok
+test domains::integer_grouping_matches_an_independent_cube_across_dense_sparse_and_null_domains ... ok
+test columns::grouped_integer_states_match_scalar_states_for_encodings_widths_and_empty_groups ... ok
+test grouping_algorithms_share_the_sql_contract_across_compositions ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running test/component/indexes.rs (target/debug/deps/indexes-f1de42ff2ba66610)
+
+running 5 tests
+test failed_index_replacement_keeps_the_previous_rows_and_keys ... ok
+test index_adapters_share_key_identity_ownership_and_resource_contracts ... ok
+test snapshot_indexes_publish_atomically_with_rows ... ok
+test a_point_lookup_does_not_materialize_the_table ... ok
+test planner_selects_indexes_through_contracts_across_restart_and_rollback ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+
+     Running test/component/logging.rs (target/debug/deps/logging-18a2c68b7c3c1a82)
+
+running 7 tests
+test logging_child ... ok
+test incompatible_logging_compositions_fail_before_file_changes ... ok
+test point_commits_append_small_logs_without_rewriting_checkpoint_or_prior_records ... ok
+test logged_values_preserve_float_bits_nul_strings_and_atomic_tails ... ok
+test logging_and_checkpoint_adapters_share_transaction_contracts ... ok
+test process_interruption_during_log_initialization_append_and_rollback_is_recoverable ... ok
+test logging_errors_restore_commits_or_poison_uncertain_writers ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.03s
+
+     Running test/component/operators.rs (target/debug/deps/operators-f42a3523e4c06577)
+
+running 8 tests
+test effects_and_failed_folding_preserve_required_evaluation ... ok
+test date_operators_cover_extrema_infinities_offsets_and_prepared_parameters ... ok
+test extension_operators_use_existing_sql_callers_and_logical_validation ... ok
+test registry_checks_missing_ambiguous_invalid_and_retained_bindings ... ok
+test numeric_overloads_preserve_literal_widths_division_and_overflow ... ok
+test bad_results_remain_errors_and_like_work_is_cancellable ... ok
+test like_adapters_obey_the_same_unicode_wildcard_and_null_contracts ... ok
+test date_arithmetic_and_like_selection_survive_both_formats_and_optimizers ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running test/component/optimizer.rs (target/debug/deps/optimizer-efa1b9e95548728d)
+
+running 5 tests
+test validated_plans_reject_invalid_changes_context_transfer_and_cancellation ... ok
+test folding_retains_declared_types_selected_casts_and_float_bits ... ok
+test invalid_pass_output_never_reaches_later_passes_or_execution ... ok
+test failed_folding_preserves_lazy_errors_and_query_cancellation ... ok
+test optimizer_compositions_preserve_relational_and_short_circuit_results ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running test/component/recovery.rs (target/debug/deps/recovery-5973556cf3fc9982)
+
+running 14 tests
+test publication::publication_child ... ok
+test composition_and_sidecars_reject_unsupported_publication_states ... ok
+test publication::tagged_bridge_identity_accepts_only_the_published_successor_generation ... ok
+test recovery_target_defers_constraints_and_preserves_atomicity_with_both_indexes ... ok
+test serialized_vectors_preserve_selection_nulls_sequences_and_reject_bad_shapes ... ok
+test publication::stale_recovery_plans_and_direct_checkpoint_writes_cannot_discard_a_log ... ok
+test corrupt_or_incompatible_logs_fail_without_returning_partial_state ... ok
+test publication::successor_root_collision_is_resolved_without_losing_metadata_chains ... ok
+test interrupted_reference_logs_recover_through_selected_adapters_and_keep_files_unchanged ... ok
+test publication::native_checkpoint_markers_select_replay_or_retirement ... ok
+test publication::bridge_logs_recover_both_checkpoint_generations_and_retire_completed_work ... ok
+test publication::io_failures_at_each_publication_boundary_preserve_commits_and_allow_retry ... ok
+test publication::process_interruption_at_every_publication_boundary_remains_recoverable ... ok
+test every_framed_tail_truncation_exposes_only_complete_transactions has been running for over 60 seconds
+test every_framed_tail_truncation_exposes_only_complete_transactions ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 64.65s
+
+     Running test/component/recursive.rs (target/debug/deps/recursive-05805bd4772411a1)
+
+running 6 tests
+test recursive_plan_bindings_are_validated_before_execution ... ok
+test recursive_resource_limits_bound_retained_state_and_failures_abort_writes ... ok
+test prepared_recursive_queries_rebind_and_preserve_snapshot_visibility ... ok
+test recursive_limit_cancellation_and_owned_results ... ok
+test recursive_reachability_matches_independent_transitive_closure ... ok
+test recursive_algorithms_share_scope_iteration_and_union_contracts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running test/component/settings.rs (target/debug/deps/settings-9ecda813c59c3fb6)
+
+running 6 tests
+test contracts::configuration_providers_share_typed_registration_snapshot_and_failure_contracts ... ok
+test contracts::scheduler_failures_never_publish_nontransactional_settings ... ok
+test contracts::contextual_functions_retain_typed_settings_across_batches_and_other_writers ... ok
+test contracts::configuration_and_contextual_functions_reject_invalid_adapter_values ... ok
+test global_session_and_prepared_views_preserve_scope_and_transaction_lifetimes ... ok
+test ordering_configuration_runs_through_both_providers_and_execution_compositions ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running test/sql.rs (target/debug/deps/sql-3e439489c214fb0a)
+
+running 1 test
+test sql_logic_corpus ... FAILED
+
+failures:
+
+---- sql_logic_corpus stdout ----
+Error: Execution("/Users/jacobthomas/code/ddb/duckdb-rust/test/sql/settings_sessions.test:3: unsupported test directive \"query T a\"; it was not skipped\nSELECT current_setting('default_null_order')")
+
+
+failures:
+    sql_logic_corpus
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--test sql`

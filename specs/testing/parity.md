@@ -9,6 +9,16 @@ supporting code. Faster cases cannot compensate for slower cases. Work added to
 remove a measured regression is within scope; unrelated performance improvement
 work is not the objective.
 
+The user additionally requires both pinned source references: **DuckDB v1.5.5**
+at `d8cdaa33fda8df955cc76ef58a280f68f4cd43fa` for release compatibility, and the
+development checkout above for the rewrite's additional upstream baseline.
+Resolve and print the executable, exact version and hash before each campaign;
+reject a version or revision that differs from the explicitly selected target.
+Run SQL/file compatibility and strict performance checks separately against
+each. Passing one reference cannot compensate for failing the other. Existing
+v1.3.0 fixtures/reports are historical coverage. Preserve the original source/test
+inventory and all prior performance provenance. See the [build runbook](../../docs/reference-builds.md).
+
 ## Correctness
 
 Retain every upstream test, harness, configuration, generator and fixture.

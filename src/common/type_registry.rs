@@ -24,6 +24,29 @@ pub enum ValueValidation {
     Logical,
 }
 
+/// Equality-key capabilities selected by the type adapter, not inferred by a
+/// consumer from a physical type or the adapter's concrete implementation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyRepresentation {
+    /// Use `write_key`, including its normalization and failure behavior.
+    CanonicalBytes,
+    /// Non-NULL keys are the integer payload itself. Equality must be exactly
+    /// integer identity and key generation must be total after validation.
+    /// Only physical integer types can advertise this capability. Consumers
+    /// still validate logical invariants and handle NULLs themselves.
+    Integer,
+}
+
+/// Ordering capabilities are independent of equality-key representation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OrderingRepresentation {
+    /// Retain the adapter's comparison and failure behavior.
+    Comparison,
+    /// Non-NULL comparison is exactly signed integer ordering and is total
+    /// after logical validation. Consumers own NULL placement and direction.
+    SignedInteger,
+}
+
 /// Immutable, pure type semantics, safe for concurrent use. Implementations
 /// validate parameters and non-NULL physical values, return a total ordering,
 /// and produce canonical keys: equal values have identical keys and unequal
@@ -36,6 +59,12 @@ pub enum ValueValidation {
 /// Replacement preserves the meaning of serialized metadata and
 /// payloads. Missing families/unsupported parameters fail before use.
 pub trait TypeAdapter: Debug + Send + Sync {
+    fn ordering_representation(&self, _data_type: &DataType) -> OrderingRepresentation {
+        OrderingRepresentation::Comparison
+    }
+    fn key_representation(&self, _data_type: &DataType) -> KeyRepresentation {
+        KeyRepresentation::CanonicalBytes
+    }
     fn value_validation(&self) -> ValueValidation {
         ValueValidation::Logical
     }
@@ -89,9 +118,17 @@ pub struct BoundType {
     data_type: DataType,
     adapter: Arc<dyn TypeAdapter>,
     validation: ValueValidation,
+    key_representation: KeyRepresentation,
+    ordering_representation: OrderingRepresentation,
 }
 
 impl BoundType {
+    pub fn ordering_representation(&self) -> OrderingRepresentation {
+        self.ordering_representation
+    }
+    pub fn key_representation(&self) -> KeyRepresentation {
+        self.key_representation
+    }
     pub fn requires_logical_validation(&self) -> bool {
         self.validation == ValueValidation::Logical
     }
@@ -186,9 +223,25 @@ impl TypeRegistry {
             })?;
         self.validate_children(data_type)?;
         adapter.validate_type(data_type)?;
+        let key_representation = adapter.key_representation(data_type);
+        if key_representation == KeyRepresentation::Integer && !data_type.is_integer() {
+            return Err(Error::Bind(
+                "integer equality keys require a physical integer type".into(),
+            ));
+        }
+        let ordering_representation = adapter.ordering_representation(data_type);
+        if ordering_representation == OrderingRepresentation::SignedInteger
+            && !data_type.is_integer()
+        {
+            return Err(Error::Bind(
+                "signed integer ordering requires a physical integer type".into(),
+            ));
+        }
         Ok(BoundType {
             data_type: data_type.clone(),
             validation: adapter.value_validation(),
+            key_representation,
+            ordering_representation,
             adapter,
         })
     }
@@ -317,6 +370,20 @@ pub fn builtin_types() -> Arc<TypeRegistry> {
 #[derive(Debug)]
 pub struct PrimitiveTypes;
 impl TypeAdapter for PrimitiveTypes {
+    fn ordering_representation(&self, data_type: &DataType) -> OrderingRepresentation {
+        if data_type.is_integer() {
+            OrderingRepresentation::SignedInteger
+        } else {
+            OrderingRepresentation::Comparison
+        }
+    }
+    fn key_representation(&self, data_type: &DataType) -> KeyRepresentation {
+        if data_type.is_integer() {
+            KeyRepresentation::Integer
+        } else {
+            KeyRepresentation::CanonicalBytes
+        }
+    }
     fn value_validation(&self) -> ValueValidation {
         ValueValidation::Physical
     }

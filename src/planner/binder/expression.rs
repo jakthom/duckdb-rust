@@ -44,7 +44,9 @@ impl State<'_, '_> {
                     .context
                     .functions
                     .aggregate(&f.name.to_string())
-                    .is_some() =>
+                    .is_some()
+                    || f.name.to_string().eq_ignore_ascii_case("grouping")
+                    || f.name.to_string().eq_ignore_ascii_case("grouping_id") =>
             {
                 true
             }
@@ -90,17 +92,19 @@ impl State<'_, '_> {
     ) -> Result<BoundExpr> {
         self.context.query.check()?;
         if let Some(grouping) = grouping
-            && let Some((index, (_, bound))) = grouping
-                .groups
-                .iter()
-                .enumerate()
-                .find(|(_, (e, _))| e == expr)
+            && let Some(index) = grouping.index(expr, fields)
         {
-            return Ok(BoundExpr::column(index, bound.data_type.clone()));
+            return Ok(BoundExpr::column(
+                index,
+                grouping.groups[index].1.data_type.clone(),
+            ));
         }
         let recurse = |e: &ast::Expr| self.expr(e, fields, grouping);
         match expr {
             ast::Expr::Value(value) if matches!(&value.value, ast::Value::Placeholder(_)) => {
+                if !self.parameters_allowed {
+                    return Err(unsupported("SET statements cannot have parameters"));
+                }
                 let ast::Value::Placeholder(name) = &value.value else {
                     unreachable!()
                 };
@@ -259,12 +263,16 @@ impl State<'_, '_> {
                     return Err(unsupported("window or ordered function"));
                 }
                 let name = function.name.to_string();
+                if name.eq_ignore_ascii_case("grouping") || name.eq_ignore_ascii_case("grouping_id")
+                {
+                    return self.grouping_function(expr, function, fields, grouping);
+                }
                 if let Some(aggregate) = self.context.functions.aggregate(&name) {
                     let grouping = grouping.ok_or_else(|| {
                         Error::Bind(format!("aggregate {name} is not allowed here"))
                     })?;
                     if let Some((index, (_, aggregate))) = grouping
-                        .aggregates
+                        .outputs
                         .borrow()
                         .iter()
                         .enumerate()
@@ -272,7 +280,7 @@ impl State<'_, '_> {
                     {
                         return Ok(BoundExpr::column(
                             grouping.groups.len() + index,
-                            aggregate.data_type.clone(),
+                            aggregate.data_type().clone(),
                         ));
                     }
                     let arguments = function_arguments(function)?
@@ -304,16 +312,16 @@ impl State<'_, '_> {
                     if outer && !local {
                         return Err(unsupported("aggregate binding to an outer query scope"));
                     }
-                    let index = grouping.groups.len() + grouping.aggregates.borrow().len();
-                    grouping.aggregates.borrow_mut().push((
+                    let index = grouping.groups.len() + grouping.outputs.borrow().len();
+                    grouping.outputs.borrow_mut().push((
                         expr.clone(),
-                        AggregateExpr {
+                        AggregateOutput::Function(AggregateExpr {
                             function: aggregate,
                             arguments,
                             distinct,
                             filter,
                             data_type: data_type.clone(),
-                        },
+                        }),
                     ));
                     Ok(BoundExpr::column(index, data_type))
                 } else {
@@ -325,6 +333,15 @@ impl State<'_, '_> {
                         .iter()
                         .map(&recurse)
                         .collect::<Result<Vec<_>>>()?;
+                    let function_impl = function_impl
+                        .bind(
+                            &FunctionArguments {
+                                arguments: &arguments,
+                                context: self.context,
+                            },
+                            self.context.query,
+                        )?
+                        .unwrap_or(function_impl);
                     let data_type = function_impl.return_type(
                         &arguments
                             .iter()
@@ -484,6 +501,49 @@ impl State<'_, '_> {
             ),
             _ => Err(unsupported(expr)),
         }
+    }
+}
+
+struct FunctionArguments<'a, 'b> {
+    arguments: &'a [BoundExpr],
+    context: &'a BindContext<'b>,
+}
+impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
+    fn len(&self) -> usize {
+        self.arguments.len()
+    }
+    fn data_type(&self, index: usize) -> Result<DataType> {
+        self.arguments
+            .get(index)
+            .map(|a| a.data_type.clone())
+            .ok_or_else(|| Error::Bind("function argument outside signature".into()))
+    }
+    fn constant(&self, index: usize) -> Result<Value> {
+        let expression = self
+            .arguments
+            .get(index)
+            .ok_or_else(|| Error::Bind("function argument outside signature".into()))?;
+        if !constant_expression(expression) {
+            return Err(Error::Bind(
+                "function requires a constant argument without effects".into(),
+            ));
+        }
+        let value =
+            self.context
+                .expressions
+                .evaluate(expression, &Vec::new(), self.context.query)?;
+        self.context
+            .query
+            .types()
+            .bind(&expression.data_type)?
+            .validate(&value, self.context.query)
+            .map_err(|error| match error {
+                Error::Conversion(_) => {
+                    Error::Internal("constant evaluator returned an invalid logical value".into())
+                }
+                other => other,
+            })?;
+        Ok(value)
     }
 }
 

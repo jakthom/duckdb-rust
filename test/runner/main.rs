@@ -10,8 +10,7 @@ fn main() -> std::process::ExitCode {
     let mut passed = 0;
     for path in paths {
         let path = std::path::PathBuf::from(path);
-        let result = duckdb_rust::Database::memory()
-            .and_then(|db| runner::run_file(&mut db.connect(), &path));
+        let result = duckdb_rust::Database::memory().and_then(|db| runner::run_file(&db, &path));
         match result {
             Ok(count) => {
                 passed += count;

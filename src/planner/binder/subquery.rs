@@ -18,7 +18,7 @@ impl State<'_, '_> {
         if let Some(index) = resolve_optional(fields, parts)? {
             if grouping.is_some() {
                 return Err(Error::Bind(format!(
-                    "{} must appear in GROUP BY or an aggregate",
+                    "column \"{}\" must appear in the GROUP BY clause or must be part of an aggregate function.",
                     parts.join(".")
                 )));
             }
@@ -68,6 +68,7 @@ impl State<'_, '_> {
         });
         let mut nested = State {
             context: self.context,
+            parameters_allowed: self.parameters_allowed,
             ctes: self.ctes.clone(),
             outer,
         };
@@ -136,14 +137,16 @@ fn existence(plan: LogicalPlan) -> LogicalPlan {
                 },
             }
         }
-        PlanNode::Aggregate { input, groups, .. } => LogicalPlan {
-            schema: plan.schema[..groups.len()].to_vec(),
-            node: PlanNode::Aggregate {
-                input,
-                groups,
-                aggregates: vec![],
-            },
-        },
+        PlanNode::Aggregate {
+            input,
+            mut aggregation,
+        } => {
+            aggregation.outputs.clear();
+            LogicalPlan {
+                schema: plan.schema[..aggregation.groups.len()].to_vec(),
+                node: PlanNode::Aggregate { input, aggregation },
+            }
+        }
         _ => plan,
     }
 }

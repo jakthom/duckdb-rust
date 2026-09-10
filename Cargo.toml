@@ -37,6 +37,10 @@ name = "sql"
 path = "test/sql.rs"
 
 [[test]]
+name = "settings"
+path = "test/component/settings.rs"
+
+[[test]]
 name = "compatibility"
 path = "test/compatibility.rs"
 
@@ -91,6 +95,18 @@ path = "test/component/checkpointing.rs"
 [[test]]
 name = "subqueries"
 path = "test/component/subqueries.rs"
+
+[[test]]
+name = "recursive"
+path = "test/component/recursive.rs"
+
+[[test]]
+name = "grouping"
+path = "test/component/grouping.rs"
+
+[[test]]
+name = "alter"
+path = "test/component/alter.rs"
 
 [[test]]
 name = "adversarial"

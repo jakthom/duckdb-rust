@@ -1,0 +1,5 @@
+Reference (development): v2.0.0-dev84019 (Development Version) 99063af2bd
+Executable: /Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb
+SHA-256: e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2
+    Finished `release` profile [optimized] target(s) in 0.02s
+{"passed": true, "regressions": [], "error": null, "report": "docs/settings/final-grouping-development.json"}

@@ -1,0 +1,2 @@
+    Finished `release` profile [optimized] target(s) in 0.02s
+{"outcomes": {"passed": 5, "failed": 2, "unsupported": 1}, "full_suite_passed": false, "report": "docs/settings/upstream-grouping-final.json"}

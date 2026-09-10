@@ -24,10 +24,13 @@ mod batches;
 mod expressions;
 #[path = "execution/joins.rs"]
 mod joins;
+#[path = "execution/sorting.rs"]
+mod sorting;
 
 fn ints(values: &[i128]) -> Row {
     values.iter().copied().map(Value::Integer).collect()
 }
+
 fn executors() -> Vec<Arc<dyn Executor>> {
     vec![Arc::new(PullExecutor), Arc::new(MaterializingExecutor)]
 }
@@ -408,6 +411,7 @@ fn separate_streams_have_independent_progress_and_per_call_demand() -> Result<()
         subquery_plans: &duckdb_rust::execution::subquery::PreparedSubqueries::new(&planner),
         subqueries: &duckdb_rust::execution::subquery::StreamingSubqueries,
         outer: None,
+        recursive: None,
         query: &query,
     };
     let plan = NativePhysicalPlanner::default().plan(&LogicalPlan {
@@ -480,6 +484,7 @@ fn operator_boundary_rejects_invalid_adapters_and_fuses_errors() -> Result<()> {
         subquery_plans: &duckdb_rust::execution::subquery::PreparedSubqueries::new(&planner),
         subqueries: &duckdb_rust::execution::subquery::StreamingSubqueries,
         outer: None,
+        recursive: None,
         query: &query,
     };
     for kind in 0..3 {

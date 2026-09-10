@@ -14,6 +14,7 @@ impl Services {
             subquery_plans,
             subqueries: self.subqueries.as_ref(),
             outer: None,
+            recursive: None,
         }
     }
     fn optimize(
@@ -88,6 +89,16 @@ impl Services {
         query.check()?;
         statement.validate(transaction.catalog(), query)?;
         match statement {
+            BoundStatement::Configure(_) => Err(Error::Internal(
+                "configuration requires the session runtime".into(),
+            )),
+            BoundStatement::Noop => Ok(QueryResult::command(0)),
+            BoundStatement::AlterTable { table, alteration } => {
+                transaction
+                    .catalog_mut()?
+                    .alter_table(&table, &alteration, query)?;
+                Ok(QueryResult::command(0))
+            }
             BoundStatement::Query(plan) => self.query(plan, transaction, query),
             BoundStatement::CreateSchema {
                 name,

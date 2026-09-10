@@ -58,28 +58,22 @@ impl OperatorFunction for NumericArithmetic {
             let magnitude = divisor.unsigned_abs();
             let remainder_mask = (signature.operator == Modulo && magnitude.is_power_of_two())
                 .then_some(magnitude - 1);
-            let apply = |value: &Value| match value {
-                Value::Null => None,
-                Value::Integer(value) => {
-                    let value = *value as i64;
-                    Some(if let Some(mask) = remainder_mask {
-                        // Remainder keeps the numerator's sign. Unsigned
-                        // magnitude also handles the signed minimum exactly.
-                        let remainder = (value.unsigned_abs() & mask) as i64;
-                        if value < 0 { -remainder } else { remainder }
-                    } else if signature.operator == Modulo {
-                        value % divisor
-                    } else {
-                        value / divisor
-                    })
-                }
-                _ => unreachable!("validated integer vector"),
-            };
             let column = &arguments.columns()[0];
-            if let Some(flat) = column.flat_values() {
-                return narrow_column(&signature.result, flat.iter(), apply, query);
+            if let Some(mask) = remainder_mask {
+                return map_integer_column(column, &signature.result, query, |value| {
+                    // Remainder keeps the numerator's sign. Unsigned
+                    // magnitude also handles the signed minimum exactly.
+                    let remainder = (value.unsigned_abs() & mask) as i64;
+                    if value < 0 { -remainder } else { remainder }
+                });
+            } else if signature.operator == Modulo {
+                return map_integer_column(column, &signature.result, query, |value| {
+                    value % divisor
+                });
             } else {
-                return narrow_column(&signature.result, column.values(), apply, query);
+                return map_integer_column(column, &signature.result, query, |value| {
+                    value / divisor
+                });
             }
         }
         evaluate_operator_rows(self, signature, arguments, query)
@@ -163,6 +157,28 @@ impl OperatorFunction for NumericArithmetic {
     }
 }
 
+/// Choose the arithmetic kernel once per column, retaining scalar NULL and
+/// signed remainder rules without redispatching the operator for every value.
+#[inline]
+fn map_integer_column(
+    column: &crate::common::vector::Vector,
+    data_type: &DataType,
+    query: &QueryContext,
+    operation: impl Fn(i64) -> i64,
+) -> Result<crate::common::vector::Vector> {
+    let apply = |value: &Value| match value {
+        Value::Null => None,
+        Value::Integer(value) => Some(operation(*value as i64)),
+        _ => unreachable!("validated integer vector"),
+    };
+    if let Some(values) = column.flat_values() {
+        narrow_column(data_type, values.iter(), apply, query)
+    } else {
+        narrow_column(data_type, column.values(), apply, query)
+    }
+}
+
+#[inline]
 fn narrow_column<'a>(
     data_type: &DataType,
     values: impl Iterator<Item = &'a Value>,

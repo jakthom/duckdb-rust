@@ -1,0 +1,6 @@
+Reference (release): v1.5.5 (Variegata) d8cdaa33fd
+Executable: /Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb
+SHA-256: 145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9
+   Compiling duckdb-rust v0.1.0 (/Users/jacobthomas/code/ddb/duckdb-rust)
+    Finished `release` profile [optimized] target(s) in 43.54s
+{"passed": false, "regressions": ["aggregate"], "error": null, "report": "docs/aggregation-exists-candidate-release.json"}

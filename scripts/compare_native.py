@@ -10,13 +10,14 @@ import statistics
 import subprocess
 import tempfile
 
-from upstream_suite import REVISION, ROOT, digest
+from upstream_suite import ROOT, digest
+from reference_version import TARGETS, require_checkout, require_reference
 
 
 class Worker:
-    def __init__(self, binary, setup, query):
+    def __init__(self, binary, setup, query, phases=()):
         self.errors = tempfile.TemporaryFile(mode="w+t")
-        self.process = subprocess.Popen([str(binary), str(setup), str(query)], stdin=subprocess.PIPE,
+        self.process = subprocess.Popen([str(binary), str(setup), str(query), *map(str, phases)], stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=self.errors, text=True, bufsize=1)
         self.events = selectors.DefaultSelector()
         self.events.register(self.process.stdout, selectors.EVENT_READ)
@@ -72,24 +73,27 @@ def compare(cpp, rust, expected):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cpp-source", type=Path, default=ROOT.parent / "duckdb")
-    parser.add_argument("--cpp-build", type=Path, default=ROOT.parent / "duckdb/build/engine-walkthrough")
+    parser.add_argument("--target", choices=TARGETS, default="development")
+    parser.add_argument("--cpp-source", type=Path)
+    parser.add_argument("--cpp-build", type=Path)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--iterations", type=int, default=9)
+    parser.add_argument("--workloads", type=Path, default=ROOT / "benchmark/native_workloads.json")
     args = parser.parse_args()
     if args.report.exists():
         raise FileExistsError("preserve prior evidence: choose a new report path")
     if args.iterations < 9 or args.iterations % 2 == 0:
         raise ValueError("use an odd sample count of at least nine")
-    source, build = args.cpp_source.resolve(), args.cpp_build.resolve()
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
-    if revision != REVISION or subprocess.check_output(["git", "diff", "HEAD", "--"], cwd=source):
-        raise ValueError("C++ source must be the unchanged pinned checkout")
+    target = TARGETS[args.target]
+    source = (args.cpp_source or target.source).resolve()
+    build = (args.cpp_build or target.build).resolve()
+    revision = require_checkout(source, args.target)
+    _, reference_identity = require_reference(build / target.binary.name, target=args.target)
     cache = (build / "CMakeCache.txt").read_text()
     if "CMAKE_BUILD_TYPE:STRING=Release\n" not in cache:
         raise ValueError("C++ baseline must use a release build")
     library = build / "src" / ("libduckdb.dylib" if platform.system() == "Darwin" else "libduckdb.so")
-    cpp = ROOT / "target/reference-measure"
+    cpp = ROOT / f"target/reference-measure-{args.target}"
     cpp.parent.mkdir(exist_ok=True)
     compile_command = ["c++", "-std=c++17", "-O3", "-DNDEBUG", "-I" + str(source / "src/include"),
                        str(ROOT / "benchmark/reference.cpp"), str(library), "-Wl,-rpath," + str(library.parent), "-o", str(cpp)]
@@ -99,9 +103,10 @@ def main():
     source_hash = hashlib.sha256()
     for path in sorted([ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "benchmark/native.rs"]):
         source_hash.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
-    workloads_path = ROOT / "benchmark/native_workloads.json"
+    workloads_path = args.workloads.resolve(strict=True)
     workloads = json.loads(workloads_path.read_text())
     report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "baseline": "pinned-cpp-duckdb",
+              "reference_identity": reference_identity,
               "max_ratio": 1.0, "iterations": args.iterations, "warmups": 3,
               "order": "paired, alternating engine order", "cpp_revision": revision,
               "cpp_library_sha256": digest(library), "cpp_worker_sha256": digest(cpp),
@@ -110,10 +115,10 @@ def main():
               "compiler": subprocess.check_output(["c++", "--version"], text=True).strip(),
               "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
               "rust_source_sha256": source_hash.hexdigest(), "rust_binary_sha256": digest(rust),
-              "workloads_sha256": digest(workloads_path), "platform": platform.platform(),
+              "workloads_path": str(workloads_path), "workloads_sha256": digest(workloads_path), "platform": platform.platform(),
               "machine": platform.machine(), "workloads": [], "passed": False,
               "complete_performance_parity": False,
-              "scope": "Warm in-memory prepared-query execution and complete result validation in embedded APIs, serial C++ and Rust. Setup/preparation/process startup precede timing. This measures these cases only; it does not cover cold I/O, commit latency, concurrency, other APIs/tooling or all C++ workloads. Every ratio above 1 fails; noise is not treated as acceptance or compensated by speedups."}
+              "scope": "Serial in-memory embedded APIs against pinned C++. Query cases time execution and complete result validation. DDL cases reset state before every sample and verify effects after timing; their timing includes execution, result consumption and any required prepared-statement rebind. Setup, initial preparation, process startup and DDL reset/effect checks are untimed. Cold I/O, durable commits, concurrency, other APIs/tooling and full workloads remain unmeasured. Every ratio above 1 fails."}
     try:
         with tempfile.TemporaryDirectory(prefix="ddb-native-measure-") as temporary:
             temporary = Path(temporary)
@@ -122,10 +127,18 @@ def main():
             query = temporary / "query.sql"
             for case in workloads["workloads"]:
                 query.write_text(case["sql"])
+                phases = []
+                if ("reset" in case) != ("verify" in case):
+                    raise ValueError("DDL cases require both reset and effect verification")
+                if "reset" in case:
+                    for phase in ["reset", "verify"]:
+                        path = temporary / f"{phase}.sql"
+                        path.write_text(case[phase])
+                        phases.append(path)
                 workers, samples = [], [[], []]
                 try:
-                    workers.append(Worker(cpp, setup, query))
-                    workers.append(Worker(rust, setup, query))
+                    workers.append(Worker(cpp, setup, query, phases))
+                    workers.append(Worker(rust, setup, query, phases))
                     source_id = workers[0].metadata["source_id"]
                     if len(source_id) < 10 or not revision.startswith(source_id):
                         raise ValueError("C++ library reports a different source revision")

@@ -123,6 +123,10 @@ struct SnapshotTransaction {
     generation: u64,
     snapshot: Snapshot,
     dirty: bool,
+    // Catalog changes applied to the starting rows, without uncommitted DML.
+    // New constraints must also hold for committed versions still visible to
+    // other readers and native recovery's catalog phase.
+    catalog_basis: Snapshot,
     journal: Option<Vec<TransactionChange>>,
 }
 
@@ -168,6 +172,7 @@ impl TransactionManager for SnapshotTransactions {
             durability: self.durability.clone(),
             generation: state.generation,
             snapshot: state.snapshot.clone(),
+            catalog_basis: state.snapshot.clone(),
             dirty: false,
             journal: self.durability.requires_journal().then(Vec::new),
         }))

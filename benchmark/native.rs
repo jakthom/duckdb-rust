@@ -5,12 +5,22 @@ use std::time::Instant;
 
 fn main() -> Result<()> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    if arguments.len() != 2 {
-        return Err(Error::Parse("expected setup and query file paths".into()));
+    if !matches!(arguments.len(), 2 | 4) {
+        return Err(Error::Parse(
+            "expected setup/query and optional reset/verification paths".into(),
+        ));
     }
     let database = Database::memory()?;
     let mut connection = database.connect();
     connection.execute(&std::fs::read_to_string(&arguments[0])?)?;
+    let phases = if arguments.len() == 4 {
+        let reset = std::fs::read_to_string(&arguments[2])?;
+        let verify = std::fs::read_to_string(&arguments[3])?;
+        connection.execute(&reset)?;
+        Some((reset, verify))
+    } else {
+        None
+    };
     let statement = connection.prepare(&std::fs::read_to_string(&arguments[1])?)?;
     println!(
         "{}",
@@ -20,6 +30,9 @@ fn main() -> Result<()> {
     for request in io::stdin().lock().lines() {
         if request? != "sample" {
             return Err(Error::Parse("expected sample request".into()));
+        }
+        if let Some((reset, _)) = &phases {
+            connection.execute(reset)?;
         }
         let start = Instant::now();
         let result = connection.execute_prepared(&statement, &[])?;
@@ -32,9 +45,28 @@ fn main() -> Result<()> {
             }
         }
         let elapsed_ns = start.elapsed().as_nanos();
+        let mut rows = result.rows.len();
+        if let Some((_, verify)) = &phases {
+            if rows != 0 {
+                return Err(Error::Execution(
+                    "DDL measurement unexpectedly returned rows".into(),
+                ));
+            }
+            // Verify the mutation's effect after timing. Every sample starts
+            // from the declared reset state, so repeated ALTERs are real work.
+            let result = connection.query(verify)?;
+            rows = result.rows.len();
+            for row in &result.rows {
+                for value in row {
+                    sum = sum
+                        .checked_add(value.as_i128()?)
+                        .ok_or_else(|| Error::Execution("checksum overflow".into()))?;
+                }
+            }
+        }
         println!(
             "{}",
-            serde_json::json!({"elapsed_ns":elapsed_ns,"rows":result.rows.len(),"sum":sum.to_string()})
+            serde_json::json!({"elapsed_ns":elapsed_ns,"rows":rows,"sum":sum.to_string()})
         );
         io::stdout().flush()?;
     }

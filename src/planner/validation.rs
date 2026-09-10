@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use super::{
     BoundExpr, BoundStatement, ExprKind, LogicalPlan, PlanNode, Schema,
+    aggregation::AggregateOutput,
     expression::{BinaryOp, SubqueryKind, UnaryOp},
     logical::JoinKind,
 };
@@ -16,6 +17,7 @@ struct ValidationScope<'a> {
     catalog: &'a dyn Catalog,
     query: &'a QueryContext,
     outer: &'a [Vec<DataType>],
+    recursive: &'a [(super::RecursiveId, Vec<DataType>)],
 }
 
 fn require(condition: bool, message: &str) -> Result<()> {
@@ -46,6 +48,7 @@ impl BoundStatement {
                 catalog,
                 query,
                 outer: &[],
+                recursive: &[],
             },
             0,
         )
@@ -54,7 +57,19 @@ impl BoundStatement {
         depth(level)?;
         let (catalog, query) = (scope.catalog, scope.query);
         match self {
+            Self::Configure(change) => change.validate(query.settings().registry(), query),
             Self::Query(plan) => plan.validate_at(scope, level + 1),
+            Self::AlterTable { table, alteration } => {
+                if let Some(definition) = alteration.definition(&catalog.table(table)?)? {
+                    for column in &definition.columns {
+                        query
+                            .types()
+                            .bind(&column.data_type)?
+                            .validate(&column.default, query)?;
+                    }
+                }
+                Ok(())
+            }
             Self::CreateTable {
                 definition, source, ..
             } => {
@@ -141,7 +156,8 @@ impl BoundStatement {
                 Ok(())
             }
             Self::Explain(statement) => statement.validate_at(scope, level + 1),
-            Self::CreateSchema { .. }
+            Self::Noop
+            | Self::CreateSchema { .. }
             | Self::DropSchema { .. }
             | Self::DropTable { .. }
             | Self::Begin
@@ -159,6 +175,7 @@ impl LogicalPlan {
                 catalog,
                 query,
                 outer: &[],
+                recursive: &[],
             },
             0,
         )
@@ -177,6 +194,30 @@ impl LogicalPlan {
             Ok(values.iter().map(|e| e.data_type.clone()).collect())
         };
         let expected = match &self.node {
+            PlanNode::RecursiveInput(id) => scope
+                .recursive
+                .iter()
+                .rev()
+                .find(|(bound, _)| bound == id)
+                .map(|(_, types)| types.clone())
+                .ok_or_else(|| Error::Bind("recursive relation outside its scope".into()))?,
+            PlanNode::Recursive { id, seed, step, .. } => {
+                seed.validate_at(scope, level + 1)?;
+                let mut recursive = scope.recursive.to_vec();
+                recursive.push((id.clone(), types(&seed.schema)));
+                step.validate_at(
+                    &ValidationScope {
+                        recursive: &recursive,
+                        ..*scope
+                    },
+                    level + 1,
+                )?;
+                require(
+                    types(&seed.schema) == types(&step.schema),
+                    "recursive input types",
+                )?;
+                types(&seed.schema)
+            }
             PlanNode::Values(rows) => {
                 for row in rows {
                     require(expressions(row, &[])? == output, "VALUES types or width")?;
@@ -246,15 +287,17 @@ impl LogicalPlan {
                     both
                 }
             }
-            PlanNode::Aggregate {
-                input,
-                groups,
-                aggregates,
-            } => {
+            PlanNode::Aggregate { input, aggregation } => {
                 input.validate_at(scope, level + 1)?;
                 let input = types(&input.schema);
+                let groups = &aggregation.groups;
+                aggregation.validate_metadata(query)?;
                 let mut output = expressions(groups, &input)?;
-                for aggregate in aggregates {
+                for expression in &aggregation.outputs {
+                    let AggregateOutput::Function(aggregate) = expression else {
+                        output.push(DataType::BigInt);
+                        continue;
+                    };
                     let args = expressions(&aggregate.arguments, &input)?;
                     require(
                         aggregate.function.return_type(&args, query.types())?

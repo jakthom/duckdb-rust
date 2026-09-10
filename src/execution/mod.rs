@@ -27,6 +27,7 @@ pub struct ExecutionContext<'a> {
     pub subquery_plans: &'a subquery::PreparedSubqueries<'a>,
     pub subqueries: &'a dyn subquery::SubqueryExecutor,
     pub outer: Option<&'a OuterRow<'a>>,
+    pub recursive: Option<&'a operator::recursive::RecursiveFrame<'a>>,
 }
 
 /// A borrowed lexical row frame. Nested evaluation completes before its input

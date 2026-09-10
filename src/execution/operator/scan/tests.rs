@@ -40,6 +40,7 @@ fn rejected_scan_rows_still_require_valid_width_physical_and_logical_types() -> 
         subquery_plans: &prepared,
         subqueries: &StreamingSubqueries,
         outer: None,
+        recursive: None,
     };
     let predicate = BoundExpr {
         kind: ExprKind::Literal(Value::Boolean(false)),

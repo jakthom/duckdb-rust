@@ -1,4 +1,6 @@
 //! Incremental access retains the statement's row identities and visibility.
+use std::sync::Arc;
+
 use super::RowId;
 use crate::{
     common::{DataType, Error, Result, Row, type_registry::BoundType, vector::DataChunk},
@@ -14,12 +16,26 @@ enum BatchData {
     Single {
         id: RowId,
         row: Row,
-        types: std::sync::Arc<[DataType]>,
+        types: Arc<[DataType]>,
     },
     Columns {
-        row_ids: Vec<RowId>,
+        row_ids: RowIdentities,
         data: DataChunk,
     },
+}
+
+enum RowIdentities {
+    Owned(Vec<RowId>),
+    Shared { ids: Arc<[RowId]>, offset: usize },
+}
+
+impl RowIdentities {
+    fn get(&self, index: usize) -> RowId {
+        match self {
+            Self::Owned(ids) => ids[index],
+            Self::Shared { ids, offset } => ids[offset + index],
+        }
+    }
 }
 
 impl ScanBatch {
@@ -29,9 +45,25 @@ impl ScanBatch {
                 "scan identities differ from batch cardinality".into(),
             ));
         }
-        Ok(Self(BatchData::Columns { row_ids, data }))
+        Ok(Self(BatchData::Columns {
+            row_ids: RowIdentities::Owned(row_ids),
+            data,
+        }))
     }
-    pub fn single(id: RowId, row: Row, types: std::sync::Arc<[DataType]>) -> Result<Self> {
+    /// Retain the identity range paired with these columns, without copying
+    /// IDs on every batch. Bounds are checked before publication; the batch
+    /// owns both buffers and remains valid after the source snapshot is dropped
+    /// or replaced. Identity values need not be contiguous or start at zero.
+    pub fn shared(ids: Arc<[RowId]>, offset: usize, data: DataChunk) -> Result<Self> {
+        if offset > ids.len() || data.len() > ids.len() - offset {
+            return Err(Error::Internal("scan identity view out of bounds".into()));
+        }
+        Ok(Self(BatchData::Columns {
+            row_ids: RowIdentities::Shared { ids, offset },
+            data,
+        }))
+    }
+    pub fn single(id: RowId, row: Row, types: Arc<[DataType]>) -> Result<Self> {
         if row.len() != types.len()
             || row
                 .iter()
@@ -140,7 +172,7 @@ impl ScanBatch {
                 let mut row = Vec::with_capacity(data.columns().len());
                 data.read_row(index, &mut row)
                     .expect("validated scan cardinality");
-                (row_ids[index], row)
+                (row_ids.get(index), row)
             }
         })
     }
@@ -173,9 +205,9 @@ pub fn next_batch(
 }
 
 pub(crate) struct SnapshotScan<'a> {
-    pub ids: &'a [RowId],
+    pub ids: &'a Arc<[RowId]>,
     pub data: &'a DataChunk,
-    pub types: std::sync::Arc<[DataType]>,
+    pub types: Arc<[DataType]>,
     pub position: usize,
     pub finished: bool,
 }
@@ -198,10 +230,10 @@ impl TableScan for SnapshotScan<'_> {
                 self.position += 1;
                 return ScanBatch::single(id, row, self.types.clone()).map(Some);
             }
-            let ids = self.ids[self.position..self.position + count].to_vec();
             let data = self.data.slice(self.position, count)?;
+            let batch = ScanBatch::shared(self.ids.clone(), self.position, data)?;
             self.position += count;
-            ScanBatch::new(ids, data).map(Some)
+            Ok(Some(batch))
         })();
         if !matches!(result, Ok(Some(_))) {
             self.finished = true;

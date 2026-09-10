@@ -1,0 +1,207 @@
+{
+  "recorded_at": "2026-09-10T00:10:23.397801+00:00",
+  "base_commit": "4ca04d9335a4d212d1d8dda381e8fd438cd2c612",
+  "native_source_sha256": "0a1501343aede7b8af12f9922411d5eddd061a14a4b28a3200e6c8629fe18e93",
+  "source_tests_harnesses_sha256": "7e9907df6d2d7d9ddfb98fedaa1c9bcbf6bbdf75c2e46080692ab93b75134d37",
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.358,
+      "log": "docs/quality-performance-audit-20260909-2009/format.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 8.231,
+      "log": "docs/quality-performance-audit-20260909-2009/clippy.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 115.81,
+      "log": "docs/quality-performance-audit-20260909-2009/debug-tests.log",
+      "test_totals": {
+        "passed": 199,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--release",
+        "--test",
+        "execution",
+        "--test",
+        "grouping",
+        "--test",
+        "recursive",
+        "--test",
+        "alter",
+        "--test",
+        "indexes",
+        "--test",
+        "sql",
+        "--test",
+        "settings",
+        "--test",
+        "types"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 108.278,
+      "log": "docs/quality-performance-audit-20260909-2009/release-tests.log",
+      "test_totals": {
+        "passed": 77,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.139,
+      "log": "docs/quality-performance-audit-20260909-2009/python-tests.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "release",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/native_workloads.json",
+        "--report",
+        "docs/quality-performance-audit-20260909-2009/core-release.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.348,
+      "log": "docs/quality-performance-audit-20260909-2009/core-release.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "release",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/grouping_workloads.json",
+        "--report",
+        "docs/quality-performance-audit-20260909-2009/grouping-release.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 3.011,
+      "log": "docs/quality-performance-audit-20260909-2009/grouping-release.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "release",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/ordering_workloads.json",
+        "--report",
+        "docs/quality-performance-audit-20260909-2009/ordering-release.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 3.074,
+      "log": "docs/quality-performance-audit-20260909-2009/ordering-release.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "development",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/native_workloads.json",
+        "--report",
+        "docs/quality-performance-audit-20260909-2009/core-development.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 3.772,
+      "log": "docs/quality-performance-audit-20260909-2009/core-development.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "development",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/grouping_workloads.json",
+        "--report",
+        "docs/quality-performance-audit-20260909-2009/grouping-development.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.516,
+      "log": "docs/quality-performance-audit-20260909-2009/grouping-development.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "development",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/ordering_workloads.json",
+        "--report",
+        "docs/quality-performance-audit-20260909-2009/ordering-development.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.743,
+      "log": "docs/quality-performance-audit-20260909-2009/ordering-development.log"
+    }
+  ],
+  "complete_test_parity": false,
+  "complete_compatibility": false,
+  "complete_performance_parity": false,
+  "full_goal_achieved": false,
+  "source_unchanged": true,
+  "native_binary_sha256": "7acc4cd658c05e2dbe7840990a235e62d16dcc7878beab5d079fa9b068d9a92f",
+  "completed_at": "2026-09-10T00:14:37.731654+00:00"
+}

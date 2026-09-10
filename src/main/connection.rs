@@ -24,6 +24,7 @@ pub struct Connection {
     pub(super) session: Session,
     pub(super) interrupt: InterruptHandle,
     pub(super) timeout: Option<Duration>,
+    pub(super) configuration: Box<dyn settings::ConfigurationSession>,
 }
 
 impl Connection {
@@ -77,13 +78,15 @@ impl Connection {
     }
     fn context(&self) -> Result<QueryContext> {
         self.interrupt.reset();
-        QueryContext::new(
+        let context = QueryContext::new(
             self.interrupt.clone(),
             self.timeout,
             self.services.batch_size,
             self.services.max_intermediate_rows,
-        )
-        .map(|context| context.with_types(self.services.transactions.types()))
+        )?;
+        let context = context.with_types(self.services.transactions.types());
+        let settings = self.configuration.snapshot(&context)?;
+        Ok(context.with_settings(settings))
     }
     fn execute_statement(
         &mut self,
@@ -110,6 +113,9 @@ impl Connection {
             context,
         } = work;
         match statement {
+            BoundStatement::Configure(change) => {
+                self.configure(change, transaction, explicit, context)
+            }
             BoundStatement::Checkpoint => {
                 if explicit {
                     self.session = Session::Active(transaction);
@@ -152,6 +158,50 @@ impl Connection {
                     services.execute(statement, transaction, context)
                 },
             ),
+        }
+    }
+
+    fn configure(
+        &mut self,
+        change: settings::SettingChange,
+        transaction: Box<dyn Transaction>,
+        explicit: bool,
+        context: QueryContext,
+    ) -> Result<QueryResult> {
+        // Validate under the selected scheduler, then publish only after it
+        // successfully executed the task exactly once. Configuration is not
+        // rolled back with SQL data and must not leak through scheduler failure.
+        let mut pending = Some(change);
+        let mut validated = None;
+        let result = self
+            .services
+            .scheduler
+            .run(&context, &mut || {
+                let change = pending.take().ok_or_else(|| {
+                    Error::Internal("scheduler executed a task more than once".into())
+                })?;
+                change.validate(context.settings().registry(), &context)?;
+                validated = Some(change);
+                Ok(())
+            })
+            .and_then(|()| {
+                let change = validated
+                    .ok_or_else(|| Error::Internal("scheduler did not execute the task".into()))?;
+                self.configuration.apply(&change, &context)
+            });
+        match result {
+            Ok(()) => {
+                if explicit {
+                    self.session = Session::Active(transaction);
+                }
+                Ok(QueryResult::command(0))
+            }
+            Err(error) => {
+                if explicit {
+                    self.session = Session::Failed;
+                }
+                Err(error)
+            }
         }
     }
 
@@ -294,6 +344,9 @@ impl Connection {
             ));
         }
         let transaction = self.services.transactions.begin()?;
+        if let BoundStatement::Configure(change) = statement {
+            return self.configure(change, transaction, false, self.context()?);
+        }
         self.run(
             BoundWork {
                 statement,

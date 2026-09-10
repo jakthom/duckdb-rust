@@ -1,0 +1,100 @@
+   Compiling duckdb-rust v0.1.0 (/Users/jacobthomas/code/ddb/duckdb-rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.34s
+     Running test/component/execution.rs (target/debug/deps/execution-2699e8b248f6ffad)
+
+running 38 tests
+test batches::typed_integer_columns_establish_physical_validity_and_stop_on_errors ... ok
+test batches::contiguous_views_preserve_nested_selection_nulls_and_empty_cardinality ... ok
+test batches::scan_representations_preserve_identities_selection_and_owned_values ... ok
+test batches::aggregate_batches_match_scalar_updates_for_nulls_encodings_empty_input_and_overflow ... ok
+test batches::materialized_row_collections_own_values_and_preserve_zero_width_rows ... ok
+test expressions::integer_batch_kernels_match_scalar_width_null_selection_and_overflow_semantics ... ok
+test batch_errors_and_cancellation_follow_the_transaction_contract ... ok
+test expressions::rejected_filter_rows_do_not_hide_invalid_expression_batches ... ok
+test batches::registered_aggregate_adapters_receive_the_same_batch_contract ... ok
+test expressions::type_batch_boundaries_reject_invalid_null_results_and_cancel ... ok
+test joins::hash_semi_join_builds_once_streams_demand_and_retains_owned_chunks ... ok
+test joins::hash_semi_join_checks_build_schema_limits_cancellation_and_empty_outer ... ok
+test operator_boundary_rejects_invalid_adapters_and_fuses_errors ... ok
+test expressions::predicate_selection_rejects_duplicate_reordered_and_out_of_bounds_rows ... ok
+test expressions::operator_replacement_controls_batch_proofs_and_cannot_bypass_null_validation ... ok
+test separate_streams_have_independent_progress_and_per_call_demand ... ok
+test sorting::effects::radix_sort_rejects_malformed_expression_batch_shapes ... ok
+test evaluation_failure_never_reports_a_partial_result_as_success ... ok
+test sorting::keys::integer_ordering_capability_rejects_other_physical_types ... ok
+test sorting::keys::integer_ordering_does_not_bypass_logical_validation ... ok
+test scheduler_must_run_each_statement_exactly_once_before_commit ... ok
+test limit_and_consumer_stop_bound_actual_upstream_evaluation ... ok
+test sorting::keys::ordering_capability_is_independent_of_integer_equality_and_preserves_failures ... ok
+test scan_filter_strategies_preserve_demand_errors_and_owned_results ... ok
+test sorting::sorting_respects_resource_limits_cancellation_and_result_ownership ... ok
+test sorting::sorting_validates_keys_even_when_no_comparisons_are_needed ... ok
+test sorting::effects::sorting_and_projection_keep_row_effect_order_first_errors_and_owned_results ... ok
+test table_scan_boundary_rejects_empty_and_oversized_batches ... ok
+test table_scan_visibility_and_owned_chunks_survive_other_writers ... ok
+test expressions::expression_adapters_preserve_lazy_branches_first_errors_and_effect_counts ... ok
+test executor_adapters_preserve_complete_relational_results_across_batches ... ok
+test batches::published_columns_preserve_holes_writes_restart_and_retained_batches ... ok
+test sorting::sorting_preserves_stable_lexicographic_order_for_widths_nulls_and_encodings ... ok
+test batches::integer_sum_batches_preserve_wide_prefixes_and_vector_views ... ok
+test streamed_results_and_aggregation_do_not_require_full_input_materialization ... ok
+test joins::membership_joins_match_nested_loops_across_domains_and_batch_sizes ... ok
+test sorting::sorting_algorithms_share_sql_ordering_across_compositions ... ok
+test sorting::order_all_preserves_complete_row_order_across_many_input_batches ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running test/component/grouping.rs (target/debug/deps/grouping-ad169669fa8194f3)
+
+running 9 tests
+test columns::group_destinations_validate_shape_counts_cancellation_and_resources ... ok
+test grouping_evaluates_inputs_once_and_isolates_distinct_and_filter_states ... ok
+test grouping_prepared_queries_keep_snapshot_visibility_and_atomic_mutations ... ok
+test columns::grouped_functions_replace_storage_without_changing_sql_and_reject_bad_adapters ... ok
+test columns::grouped_count_handles_nullable_strings_and_cancelled_empty_states ... ok
+test grouping_boundaries_reject_invalid_ordinals_masks_expansion_and_resources ... ok
+test domains::integer_grouping_matches_an_independent_cube_across_dense_sparse_and_null_domains ... ok
+test columns::grouped_integer_states_match_scalar_states_for_encodings_widths_and_empty_groups ... ok
+test grouping_algorithms_share_the_sql_contract_across_compositions ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running test/component/settings.rs (target/debug/deps/settings-9ecda813c59c3fb6)
+
+running 8 tests
+test contracts::configuration_providers_share_typed_registration_snapshot_and_failure_contracts ... ok
+test values::noncanonical_setting_changes_fail_before_publication ... ok
+test contracts::contextual_functions_retain_typed_settings_across_batches_and_other_writers ... ok
+test contracts::configuration_and_contextual_functions_reject_invalid_adapter_values ... ok
+test contracts::scheduler_failures_never_publish_nontransactional_settings ... ok
+test global_session_and_prepared_views_preserve_scope_and_transaction_lifetimes ... ok
+test values::floating_settings_preserve_nan_payloads_signed_zero_and_null_across_publication ... ok
+test ordering_configuration_runs_through_both_providers_and_execution_compositions ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+     Running test/sql.rs (target/debug/deps/sql-3e439489c214fb0a)
+
+running 3 tests
+test sql_harness_keeps_named_transactions_and_default_session_independent ... ok
+test sql_harness_rejects_wrong_results_errors_and_unavailable_capabilities ... ok
+test sql_logic_corpus ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running test/component/types.rs (target/debug/deps/types-1a30fdac66d99010)
+
+running 10 tests
+test registered_metadata_preserves_the_primitive_value_footprint ... ok
+test keys::column_keys_match_scalar_keys_and_validate_before_visiting ... ok
+test keys::key_writer_preserves_prefixes_on_partial_failure_cancellation_and_size_errors ... ok
+test registered_adapters_share_comparison_keys_parameters_and_ownership ... ok
+test type_metadata_limits_and_retained_index_semantics_are_checked ... ok
+test malformed_function_and_operator_values_never_escape_or_become_try_cast_nulls ... ok
+test keys::integer_grouping_respects_the_registered_key_representation ... ok
+test keys::integer_membership_uses_the_selected_key_capability_and_keeps_byte_key_failures ... ok
+test missing_registration_and_unsupported_native_encoding_preserve_files ... ok
+test registered_values_work_through_sql_relational_operators_and_private_restart ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+

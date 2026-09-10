@@ -1,9 +1,12 @@
 """Tests of the test oracles: deliberate wrong results must be detected."""
 import unittest
+from pathlib import Path
+import tempfile
 
 from compare_native import compare
 from run_upstream import REQUIRED_SCOPES, summarize
 from sqllogic import Record, Runner, Unsupported, check_query, hash_values, parse
+from sql_reference import verify_corpus
 
 
 class RecordingEngine:
@@ -85,6 +88,51 @@ class LogicTests(unittest.TestCase):
         self.assertEqual([r["sql"] for r in engine.requests], ["SELECT 7,7", "SELECT 8,8"])
         with self.assertRaises(Unsupported):
             runner.run(parse("set variable TEST_DIR elsewhere\n"))
+
+
+class ReferenceCorpusTests(unittest.TestCase):
+    def verify(self, source, command):
+        with tempfile.TemporaryDirectory() as directory:
+            corpus = Path(directory) / "corpus.test"
+            corpus.write_text(source)
+            return verify_corpus(corpus, [("rust", "a"), ("cpp", "b")], command)
+
+    def test_both_engines_must_satisfy_values_cardinality_and_width(self):
+        source = "query I\nSELECT 7\n----\n7\n"
+        calls = []
+        def command(engine, path, sql, **options):
+            calls.append((engine, path))
+            return [{"c0": 7}]
+        self.assertEqual(len(self.verify(source, command)), 1)
+        self.assertEqual(calls, [("rust", "a"), ("cpp", "b")])
+        for wrong in [[], [{"c0": 8}], [{"c0": 7}, {"c0": 7}], [{"c0": 7, "extra": 8}]]:
+            with self.assertRaises(AssertionError):
+                self.verify(source, lambda engine, *args, **kwargs: [{"c0": 7}] if engine == "rust" else wrong)
+
+    def test_tabs_hash_marks_and_null_values_are_preserved(self):
+        self.verify("query T\nSELECT '#a'\n----\n#a\n", lambda *args, **kwargs: [{"c0": "#a"}])
+        self.verify("query T\nSELECT 'a\tb'\n----\na\tb\n", lambda *args, **kwargs: [{"c0": "a\tb"}])
+        self.verify("query TI\nSELECT NULL,1\n----\nNULL\t1\n", lambda *args, **kwargs: [{"c0": None, "c1": 1}])
+
+    def test_missing_errors_and_unsupported_controls_fail(self):
+        with self.assertRaises(AssertionError):
+            self.verify("statement error\nSELECT missing\n", lambda *args, **kwargs: "")
+        for source in ["require parquet\n", "query I custom_mode\nSELECT 7\n----\n7\n"]:
+            with self.assertRaises(AssertionError):
+                self.verify(source, lambda *args, **kwargs: [{"c0": 7}])
+
+    def test_continuation_records_failures_and_still_fails_the_corpus(self):
+        with tempfile.TemporaryDirectory() as directory:
+            corpus = Path(directory) / "corpus.test"
+            corpus.write_text("query I\nSELECT 1\n----\n1\n\nquery I\nSELECT 7\n----\n7\n")
+            for fail_fast, statuses in [(True, [False]), (False, [False, True])]:
+                outcomes = []
+                with self.assertRaises(AssertionError):
+                    verify_corpus(corpus, [("cpp", "a")],
+                                  lambda *args, **kwargs: [{"c0": 7}],
+                                  outcomes, fail_fast=fail_fast)
+                self.assertEqual([r["passed"] for r in outcomes], statuses)
+                self.assertIn("cpp", outcomes[0]["error"]["message"])
 
 
 class RegressionGateTests(unittest.TestCase):

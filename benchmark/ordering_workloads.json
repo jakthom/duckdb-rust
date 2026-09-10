@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE t AS SELECT i FROM range(50000) t(i)",
+  "workloads": [
+    {"name":"order_all","sql":"SELECT i%64 AS k,i FROM t ORDER BY ALL DESC","rows":50000,"sum":"1251549616"}
+  ]
+}

@@ -2,6 +2,7 @@ mod client_context;
 mod connection;
 mod database;
 mod result;
+pub mod settings;
 
 use connection::Session;
 pub use connection::{Connection, PreparedStatement};
@@ -45,6 +46,7 @@ struct Services {
     expressions: Arc<dyn ExpressionEvaluator>,
     subqueries: Arc<dyn SubqueryExecutor>,
     scheduler: Arc<dyn Scheduler>,
+    configuration: Arc<dyn settings::Configuration>,
     functions: FunctionRegistry,
     casts: CastRegistry,
     operators: OperatorRegistry,

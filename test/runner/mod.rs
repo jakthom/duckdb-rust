@@ -1,8 +1,12 @@
-use duckdb_rust::{Connection, Error, Result};
-use std::path::Path;
+use duckdb_rust::{Database, Error, Result};
+use std::{collections::BTreeMap, path::Path};
 
-pub fn run_file(connection: &mut Connection, path: &Path) -> Result<usize> {
+/// Each file owns its default and named sessions over the selected database.
+/// A named session persists across records; transactions and settings never
+/// transfer between sessions. All connections use the database's composition.
+pub fn run_file(database: &Database, path: &Path) -> Result<usize> {
     let source = std::fs::read_to_string(path)?;
+    let mut connections = BTreeMap::new();
     let lines: Vec<_> = source.lines().collect();
     let mut position = 0;
     let mut records = 0;
@@ -34,12 +38,21 @@ pub fn run_file(connection: &mut Connection, path: &Path) -> Result<usize> {
         let fail = |message: String| {
             Error::Execution(format!("{}:{location}: {message}\n{sql}", path.display()))
         };
+        let name = match directive.as_slice() {
+            ["statement", "ok" | "error", name] => *name,
+            ["query", _, name] if !matches!(*name, "nosort" | "rowsort" | "valuesort") => *name,
+            _ => "",
+        };
+        let connection = connections
+            .entry(name.to_string())
+            .or_insert_with(|| database.connect());
         match directive.as_slice() {
-            ["statement", "ok"] => {
+            ["statement", "ok"] | ["statement", "ok", _] => {
                 connection.execute(&sql).map_err(|e| fail(e.to_string()))?;
             }
-            ["statement", "error"] => {
+            ["statement", "error"] | ["statement", "error", _] => {
                 let error = match connection.execute(&sql) {
+                    Err(e @ Error::Unsupported(_)) => return Err(fail(e.to_string())),
                     Err(e) => e.to_string(),
                     Ok(_) => return Err(fail("expected an error".into())),
                 };
@@ -49,10 +62,7 @@ pub fn run_file(connection: &mut Connection, path: &Path) -> Result<usize> {
                     )));
                 }
             }
-            ["query", types]
-            | ["query", types, "nosort"]
-            | ["query", types, "rowsort"]
-            | ["query", types, "valuesort"] => {
+            ["query", types] | ["query", types, _] => {
                 let result = connection.query(&sql).map_err(|e| fail(e.to_string()))?;
                 if result.columns.len() != types.len() {
                     return Err(fail(format!(

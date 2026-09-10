@@ -15,6 +15,24 @@ impl Catalog for SnapshotTransaction {
 }
 
 impl CatalogMut for SnapshotTransaction {
+    fn alter_table(
+        &mut self,
+        name: &TableName,
+        alteration: &crate::catalog::TableAlteration,
+        context: &QueryContext,
+    ) -> Result<bool> {
+        let mut basis = self.catalog_basis.clone();
+        basis.alter_table(name, alteration, context)?;
+        let changed = self.snapshot.alter_table(name, alteration, context)?;
+        if changed {
+            self.catalog_basis = basis;
+            self.record(TransactionChange::AlterTable {
+                table: name.clone(),
+                alteration: alteration.clone(),
+            });
+        }
+        Ok(changed)
+    }
     fn create_schema(&mut self, name: &str, if_not_exists: bool) -> Result<()> {
         let record = self.journal.is_some()
             && !self
@@ -22,6 +40,7 @@ impl CatalogMut for SnapshotTransaction {
                 .schemas()?
                 .contains(&name.to_ascii_lowercase());
         self.snapshot.create_schema(name, if_not_exists)?;
+        self.catalog_basis.create_schema(name, if_not_exists)?;
         if record {
             self.record(TransactionChange::CreateSchema(name.to_ascii_lowercase()));
         }
@@ -34,6 +53,7 @@ impl CatalogMut for SnapshotTransaction {
                 .schemas()?
                 .contains(&name.to_ascii_lowercase());
         self.snapshot.drop_schema(name, if_exists)?;
+        self.catalog_basis.drop_schema(name, if_exists)?;
         if record {
             self.record(TransactionChange::DropSchema(name.to_ascii_lowercase()));
         }
@@ -42,7 +62,9 @@ impl CatalogMut for SnapshotTransaction {
     fn create_table(&mut self, definition: TableDefinition, if_not_exists: bool) -> Result<()> {
         let record = (self.journal.is_some() && self.snapshot.table(&definition.name).is_err())
             .then(|| TransactionChange::CreateTable(definition.clone()));
-        self.snapshot.create_table(definition, if_not_exists)?;
+        self.snapshot
+            .create_table(definition.clone(), if_not_exists)?;
+        self.catalog_basis.create_table(definition, if_not_exists)?;
         if let Some(change) = record {
             self.record(change);
         }
@@ -51,6 +73,7 @@ impl CatalogMut for SnapshotTransaction {
     fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()> {
         let record = self.journal.is_some() && self.snapshot.table(name).is_ok();
         self.snapshot.drop_table(name, if_exists)?;
+        self.catalog_basis.drop_table(name, if_exists)?;
         if record {
             self.record(TransactionChange::DropTable(name.clone()));
         }

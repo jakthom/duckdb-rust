@@ -1,0 +1,163 @@
+# Table metadata, stored values and constraints evolve in the same transaction.
+statement ok
+CREATE TABLE t(id INTEGER PRIMARY KEY, v VARCHAR DEFAULT 'initial')
+
+statement ok
+INSERT INTO t(id) VALUES(1),(2)
+
+statement ok
+DELETE FROM t WHERE id=1
+
+statement ok
+ALTER TABLE t ADD COLUMN n SMALLINT DEFAULT 7
+
+query ITI
+SELECT * FROM t
+----
+2	initial	7
+
+statement ok
+ALTER TABLE t ALTER COLUMN n SET DEFAULT 9
+
+statement ok
+INSERT INTO t(id) VALUES(3)
+
+query II
+SELECT id,n FROM t ORDER BY id
+----
+2	7
+3	9
+
+statement ok
+ALTER TABLE t RENAME COLUMN v TO label
+
+statement ok
+ALTER TABLE t RENAME TO renamed
+
+statement error
+SELECT * FROM t
+----
+
+statement error
+SELECT v FROM renamed
+----
+
+statement ok
+ALTER TABLE renamed ALTER COLUMN n SET NOT NULL
+
+statement error
+INSERT INTO renamed VALUES(4,'invalid',NULL)
+----
+
+statement error
+ALTER TABLE renamed ALTER COLUMN id DROP NOT NULL
+----
+
+statement ok
+ALTER TABLE renamed ALTER COLUMN n DROP NOT NULL
+
+statement ok
+ALTER TABLE renamed ALTER COLUMN n DROP DEFAULT
+
+statement ok
+INSERT INTO renamed(id) VALUES(4)
+
+query II
+SELECT id,n FROM renamed ORDER BY id
+----
+2	7
+3	9
+4	NULL
+
+statement error
+ALTER TABLE renamed ALTER COLUMN n SET NOT NULL
+----
+
+statement ok
+UPDATE renamed SET n=10 WHERE n IS NULL
+
+statement ok
+ALTER TABLE renamed ALTER COLUMN n SET NOT NULL
+
+statement ok
+ALTER TABLE renamed DROP COLUMN label
+
+query II
+SELECT * FROM renamed ORDER BY id
+----
+2	7
+3	9
+4	10
+
+statement error
+ALTER TABLE renamed DROP COLUMN id
+----
+
+statement error
+ALTER TABLE renamed RENAME COLUMN n TO id
+----
+
+statement error
+ALTER TABLE renamed ADD COLUMN n BIGINT
+----
+
+statement ok
+ALTER TABLE renamed ADD COLUMN IF NOT EXISTS n BIGINT DEFAULT 500
+
+statement ok
+INSERT INTO renamed VALUES(5,11)
+
+statement ok
+ALTER TABLE renamed DROP COLUMN IF EXISTS absent
+
+statement ok
+ALTER TABLE IF EXISTS absent ADD COLUMN v BIGINT
+
+statement ok
+ALTER TABLE renamed ADD COLUMN d DATE DEFAULT DATE '2000-02-29'
+
+query IT
+SELECT id,d FROM renamed ORDER BY id
+----
+2	2000-02-29
+3	2000-02-29
+4	2000-02-29
+5	2000-02-29
+
+statement ok
+ALTER TABLE renamed DROP COLUMN d
+
+statement ok
+ALTER TABLE renamed DROP COLUMN n
+
+statement error
+ALTER TABLE renamed DROP COLUMN id
+----
+
+query I
+SELECT id FROM renamed ORDER BY id
+----
+2
+3
+4
+5
+
+statement ok
+CREATE TABLE collision(x INTEGER)
+
+statement error
+ALTER TABLE renamed RENAME TO collision
+----
+
+statement error
+ALTER TABLE renamed ADD COLUMN a INT, ADD COLUMN b INT
+----
+
+statement error
+ALTER TABLE renamed ADD COLUMN a INT NOT NULL
+----
+
+query I
+SELECT count(*) FROM renamed
+----
+4

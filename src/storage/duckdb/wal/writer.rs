@@ -176,6 +176,42 @@ impl LogSession for Session {
                     pending.remove(name);
                     output.push(named(2, name)?)?;
                 }
+                TransactionChange::AlterTable { table, alteration } => {
+                    let mut state = next
+                        .tables
+                        .remove(table)
+                        .ok_or_else(|| invalid("missing altered table"))?;
+                    let Some(definition) = alteration.definition(&state.definition)? else {
+                        return Err(invalid("no-op alteration in journal"));
+                    };
+                    if next.tables.contains_key(&definition.name) {
+                        return Err(invalid("altered table collision"));
+                    }
+                    if let Some(mut changes) = pending.remove(table) {
+                        // Native undo entries retain a table version. Emit DML
+                        // only after its final catalog version, and never delete
+                        // a staged insertion. Constraint validation also checks
+                        // the transaction's committed catalog basis.
+                        for row in changes.rows.values_mut() {
+                            context.check()?;
+                            match alteration {
+                                crate::catalog::TableAlteration::AddColumn { column, .. } => {
+                                    row.push(column.default.clone())
+                                }
+                                crate::catalog::TableAlteration::DropColumn { column, .. } => {
+                                    row.remove(state.definition.column_index(column)?);
+                                }
+                                _ => {}
+                            }
+                        }
+                        pending.insert(definition.name.clone(), changes);
+                    }
+                    let mut entry = record(20);
+                    super::alter::write(&mut entry, &state.definition, alteration)?;
+                    output.push(entry)?;
+                    state.definition = definition;
+                    next.tables.insert(state.definition.name.clone(), state);
+                }
                 TransactionChange::Insert { table, rows } => {
                     let state = next
                         .tables

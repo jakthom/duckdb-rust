@@ -74,6 +74,55 @@ impl Serialize for RowView<'_> {
 }
 
 impl Rows {
+    pub fn add_column(
+        &mut self,
+        data_type: &DataType,
+        value: &Value,
+        context: &QueryContext,
+    ) -> Result<()> {
+        context.check()?;
+        match self {
+            Self::Writable(rows) => {
+                for row in rows.values_mut() {
+                    context.check()?;
+                    row.push(value.clone());
+                }
+            }
+            Self::Published { data, types, .. } => {
+                let mut columns = data.columns().to_vec();
+                columns.push(Vector::constant(
+                    data_type.clone(),
+                    value.clone(),
+                    data.len(),
+                )?);
+                *data = DataChunk::new(columns, data.len())?;
+                let mut next = types.to_vec();
+                next.push(data_type.clone());
+                *types = next.into();
+            }
+        }
+        Ok(())
+    }
+    pub fn drop_column(&mut self, column: usize, context: &QueryContext) -> Result<()> {
+        context.check()?;
+        match self {
+            Self::Writable(rows) => {
+                for row in rows.values_mut() {
+                    context.check()?;
+                    row.remove(column);
+                }
+            }
+            Self::Published { data, types, .. } => {
+                let mut columns = data.columns().to_vec();
+                columns.remove(column);
+                *data = DataChunk::new(columns, data.len())?;
+                let mut next = types.to_vec();
+                next.remove(column);
+                *types = next.into();
+            }
+        }
+        Ok(())
+    }
     pub fn len(&self) -> usize {
         match self {
             Self::Writable(rows) => rows.len(),

@@ -1,12 +1,170 @@
 use super::*;
 use duckdb_rust::{
-    common::type_registry::{KeyWriter, PrimitiveTypes, ValueValidation},
+    common::type_registry::{KeyRepresentation, KeyWriter, PrimitiveTypes, ValueValidation},
     parallel::InterruptHandle,
 };
 
 struct PartialKey {
     mode: usize,
     interrupt: InterruptHandle,
+}
+
+#[derive(Debug)]
+struct DecimalIntegerKeys {
+    representation: KeyRepresentation,
+    writes: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl TypeAdapter for DecimalIntegerKeys {
+    fn name(&self) -> &'static str {
+        "decimal-integer-keys"
+    }
+    fn key_representation(&self, _: &DataType) -> KeyRepresentation {
+        self.representation
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        PrimitiveTypes.validate_type(data_type)
+    }
+    fn validate_value(&self, t: &DataType, v: &Value, q: &QueryContext) -> Result<()> {
+        PrimitiveTypes.validate_value(t, v, q)
+    }
+    fn common_type(&self, a: &DataType, b: &DataType) -> Result<Option<DataType>> {
+        PrimitiveTypes.common_type(a, b)
+    }
+    fn compare(&self, t: &DataType, a: &Value, b: &Value, q: &QueryContext) -> Result<Ordering> {
+        PrimitiveTypes.compare(t, a, b, q)
+    }
+    fn write_key(
+        &self,
+        _: &DataType,
+        v: &Value,
+        out: &mut KeyWriter<'_>,
+        q: &QueryContext,
+    ) -> Result<()> {
+        q.check()?;
+        self.writes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        out.extend_from_slice(v.as_i128()?.to_string().as_bytes())
+    }
+}
+
+#[test]
+fn integer_grouping_respects_the_registered_key_representation() -> Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    for representation in [
+        KeyRepresentation::CanonicalBytes,
+        KeyRepresentation::Integer,
+    ] {
+        let writes = Arc::new(AtomicUsize::new(0));
+        let mut types = TypeRegistry::builtins();
+        types.replace(
+            DataType::BigInt.family(),
+            Arc::new(DecimalIntegerKeys {
+                representation,
+                writes: writes.clone(),
+            }),
+        )?;
+        let db = DatabaseBuilder::new()
+            .types(Arc::new(types))
+            .batch_size(3)
+            .build()?;
+        let mut c = db.connect();
+        c.execute("CREATE TABLE t(i BIGINT); INSERT INTO t VALUES(1),(1),(2),(NULL)")?;
+        writes.store(0, AtomicOrdering::Relaxed);
+        assert_eq!(c.query("SELECT i,count(*),grouping(i) FROM t GROUP BY ROLLUP(i) ORDER BY grouping(i),i NULLS FIRST")?.rows, vec![
+            vec![Value::Null,Value::Integer(1),Value::Integer(0)],
+            vec![Value::Integer(1),Value::Integer(2),Value::Integer(0)],
+            vec![Value::Integer(2),Value::Integer(1),Value::Integer(0)],
+            vec![Value::Null,Value::Integer(4),Value::Integer(1)],
+        ]);
+        assert_eq!(
+            writes.load(AtomicOrdering::Relaxed) == 0,
+            representation == KeyRepresentation::Integer
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn integer_membership_uses_the_selected_key_capability_and_keeps_byte_key_failures() -> Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    for representation in [
+        KeyRepresentation::CanonicalBytes,
+        KeyRepresentation::Integer,
+    ] {
+        let writes = Arc::new(AtomicUsize::new(0));
+        let adapter = Arc::new(DecimalIntegerKeys {
+            representation,
+            writes: writes.clone(),
+        });
+        let mut types = TypeRegistry::builtins();
+        let retained = types.bind(&DataType::BigInt)?;
+        types.replace(DataType::BigInt.family(), adapter.clone())?;
+        assert_eq!(retained.key_representation(), KeyRepresentation::Integer);
+        assert_eq!(
+            types.bind(&DataType::BigInt)?.key_representation(),
+            representation
+        );
+        let db = DatabaseBuilder::new()
+            .types(Arc::new(types))
+            .batch_size(3)
+            .build()?;
+        let mut c = db.connect();
+        c.execute("CREATE TABLE l(i BIGINT); CREATE TABLE r(i BIGINT); INSERT INTO l VALUES (-1),(0),(1),(1),(2),(NULL); INSERT INTO r VALUES (1),(1),(2),(NULL)")?;
+        writes.store(0, AtomicOrdering::Relaxed);
+        assert_eq!(
+            c.query("SELECT i FROM l WHERE EXISTS(SELECT 1 FROM r WHERE r.i=l.i)")?
+                .rows,
+            vec![
+                vec![Value::Integer(1)],
+                vec![Value::Integer(1)],
+                vec![Value::Integer(2)]
+            ]
+        );
+        assert_eq!(
+            c.query("SELECT i FROM l WHERE NOT EXISTS(SELECT 1 FROM r WHERE r.i=l.i)")?
+                .rows,
+            vec![
+                vec![Value::Integer(-1)],
+                vec![Value::Integer(0)],
+                vec![Value::Null]
+            ]
+        );
+        assert_eq!(
+            writes.load(AtomicOrdering::Relaxed) > 0,
+            representation == KeyRepresentation::CanonicalBytes
+        );
+
+        if representation == KeyRepresentation::Integer {
+            let mut invalid = TypeRegistry::builtins();
+            invalid.replace(DataType::Varchar.family(), adapter)?;
+            assert!(matches!(
+                invalid.bind(&DataType::Varchar),
+                Err(Error::Bind(_))
+            ));
+        }
+    }
+    // The default representation must keep an adapter's errors; a physically
+    // integer column alone is not permission to bypass its key implementation.
+    let mut types = TypeRegistry::builtins();
+    types.replace(
+        DataType::BigInt.family(),
+        Arc::new(PartialKey {
+            mode: 0,
+            interrupt: InterruptHandle::default(),
+        }),
+    )?;
+    let db = DatabaseBuilder::new().types(Arc::new(types)).build()?;
+    let mut c = db.connect();
+    c.execute("CREATE TABLE l(i BIGINT); CREATE TABLE r(i BIGINT); INSERT INTO l VALUES (1),(2); INSERT INTO r VALUES (1)")?;
+    let result = c.query("SELECT i FROM l WHERE EXISTS(SELECT 1 FROM r WHERE r.i=l.i)");
+    assert!(
+        matches!(
+            &result, Err(Error::Execution(message)) if message == "failure after writing"
+        ),
+        "{result:?}"
+    );
+    Ok(())
 }
 impl std::fmt::Debug for PartialKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

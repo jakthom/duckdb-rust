@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE t AS SELECT i FROM range(50000) t(i)",
+  "workloads": [
+    {"name":"grouped_sum","sql":"SELECT sum(i),count(*),grouping(i%64) FROM t GROUP BY i%64","rows":64,"sum":"1250025000"},
+    {"name":"rollup_sum","sql":"SELECT sum(i),count(*),grouping(i%64) FROM t GROUP BY ROLLUP(i%64)","rows":65,"sum":"2500050001"},
+    {"name":"cube_sum","sql":"SELECT sum(i),count(*),grouping(i%64,i%8) FROM t GROUP BY CUBE(i%64,i%8)","rows":137,"sum":"5000100083"}
+  ]
+}

@@ -1,0 +1,145 @@
+{
+  "recorded_at": "2026-09-09T20:29:41.220331+00:00",
+  "scope": "Aggregation and correlated EXISTS regression repair; the original twelve serial in-memory performance cases remain unchanged.",
+  "passed": true,
+  "complete_test_parity": false,
+  "complete_performance_parity": false,
+  "complete_compatibility": false,
+  "checks": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "log": "tests.log",
+      "log_sha256": "380148018bb7170ff82d02e397093a687710faeda03fccca8b18c769b8c6942e",
+      "passed_tests": 178,
+      "failed_tests": 0,
+      "ignored_tests": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--release",
+        "--test",
+        "execution",
+        "--test",
+        "types",
+        "--test",
+        "subqueries"
+      ],
+      "exit_code": 0,
+      "log": "release-tests.log",
+      "log_sha256": "dccb7742ddb537d8a648f646691c1dee50e3371cf905de4b344be3701f6b40b9",
+      "passed_tests": 51,
+      "failed_tests": 0,
+      "ignored_tests": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "clippy.log",
+      "log_sha256": "57b6c914fea785af8c3929e2df62a7fa06ffd4fa43e0d45649dd945a538679dc"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "comparisons": [
+    {
+      "target": "release",
+      "report": "release-performance.json",
+      "report_sha256": "146015992ff5fe365cae4ae3e085bd3ea60c3f3bfe5290fe640766a0fd3fa4d0",
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "rust_source_sha256": "8e01f4ae4178f279532b4a744973e2b3771f8d96eebc09491dcccb7423df83e0",
+      "rust_binary_sha256": "1657c63837977064f603a3f0b8776ffaa51520e658ffe91a8ae7e7992873f4fb",
+      "workloads_sha256": "127c0713b266b9db233aec4d1f908e6166fd05fddc032670181cde37fda976fb",
+      "passed": true,
+      "passed_workloads": 12,
+      "max_ratio": 1.0,
+      "iterations": 21
+    },
+    {
+      "target": "development",
+      "report": "development-performance.json",
+      "report_sha256": "1a88ae90301100a3842a73bcc7d9af94021e15eccf3648921dee6dca2939bd9f",
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "rust_source_sha256": "8e01f4ae4178f279532b4a744973e2b3771f8d96eebc09491dcccb7423df83e0",
+      "rust_binary_sha256": "1657c63837977064f603a3f0b8776ffaa51520e658ffe91a8ae7e7992873f4fb",
+      "workloads_sha256": "127c0713b266b9db233aec4d1f908e6166fd05fddc032670181cde37fda976fb",
+      "passed": true,
+      "passed_workloads": 12,
+      "max_ratio": 1.0,
+      "iterations": 21
+    }
+  ],
+  "artifact_sha256": {
+    "README.md": "2024334b1e5a2301c62c22843072e8e3c22f3e7921a7a3513ee2fab6c3a657bb",
+    "aggregate-profile.txt": "26d193261c68f164e8aba3d774e8037e216cfe5a2ed878f6580db5772421bb47",
+    "before-release.json": "d9b6dae69cbc73018e392d38132bf51a8ea22b5b1ad06c760eeb8fbe190d469e",
+    "before-release.log": "3368404cd871ab406e00d1474945f27a4d51709250f3b7a5958f6618a9209beb",
+    "clippy.log": "57b6c914fea785af8c3929e2df62a7fa06ffd4fa43e0d45649dd945a538679dc",
+    "development-performance.json": "1a88ae90301100a3842a73bcc7d9af94021e15eccf3648921dee6dca2939bd9f",
+    "development-performance.log": "f1f712824a73028063ea1f54e36cfd2dfa5f95227680b35b2c876ac79bd1236b",
+    "development-plan.txt": "7ccdd42f6232937cb122224ba3fdecd4b90684e11ad2a4d905fd7415b92e01ed",
+    "membership-release.json": "13aa24a4dec2edee628ba56f34cebd99e7a8ac631ac26710c0a5cc405f320006",
+    "membership-release.log": "db98b67b683f5c576e7eda449b0dd0c83232c268a8a7535255444276048019bd",
+    "partial-sums-release.json": "d280b095c40f083fc531a77d8730245e87de4866674f5e4675106679455b56ac",
+    "partial-sums-release.log": "69d31ded004261dab8295318f418559b8aa4f4e56eee7ba9be1014c1f19f2753",
+    "release-performance.json": "146015992ff5fe365cae4ae3e085bd3ea60c3f3bfe5290fe640766a0fd3fa4d0",
+    "release-performance.log": "38f1a18eeccda0aa760fae495118e9a4eb2dfb1abcee63849f0cec998d513c32",
+    "release-plan.txt": "cea330eb9b285854d2d6d2de73def63c84722dd319cf2b787bc85b8951ff6210",
+    "release-tests.log": "dccb7742ddb537d8a648f646691c1dee50e3371cf905de4b344be3701f6b40b9",
+    "tests.log": "380148018bb7170ff82d02e397093a687710faeda03fccca8b18c769b8c6942e"
+  },
+  "changed_test_source_sha256": {
+    "test/component/execution/batches.rs": "6668898724eff2c352f91bac7cbc9367b072fc6c4747e47ba82e23da3dd5267a",
+    "test/component/execution/joins.rs": "6faaa400667d39c5d9d9540772c4fad4b94dbc68683b6c288ffee5dbaa954408",
+    "test/component/types/keys.rs": "97c3127b37048ea06b1677c17c3f988d4258465828dd16722d2a40dfd2a14022"
+  },
+  "history_note": "Before, membership, and partial-sums reports were moved unchanged into this directory after completion. Their logs retain the original --report paths. The CPU profile uses the membership-stage binary."
+}

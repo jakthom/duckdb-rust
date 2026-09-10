@@ -79,6 +79,29 @@ impl RecordState {
                 self.selected = Some(table);
                 None
             }
+            20 => {
+                let (table, mut alteration) = super::alter::read(reader)?;
+                let before = self
+                    .tables
+                    .get(&table)
+                    .ok_or_else(|| corrupt("WAL alters missing table"))?;
+                if let crate::catalog::TableAlteration::SetDefault { column, value } =
+                    &mut alteration
+                {
+                    *value = value.cast(&before.columns[before.column_index(column)?].data_type)?;
+                }
+                if let Some(definition) = alteration.definition(before)? {
+                    if definition.name != table && self.tables.contains_key(&definition.name) {
+                        return Err(corrupt("WAL altered table collision"));
+                    }
+                    if self.selected.as_ref() == Some(&table) {
+                        self.selected = Some(definition.name.clone());
+                    }
+                    self.tables.remove(&table);
+                    self.tables.insert(definition.name.clone(), definition);
+                }
+                Some(Change::AlterTable { table, alteration })
+            }
             26..=28 => {
                 let table = self
                     .selected

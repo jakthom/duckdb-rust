@@ -52,20 +52,22 @@ fn main() -> Result<()> {
 
 `Connection::query_batches` and `execute_prepared_batches` consume owned chunks through a callback and return schema/completion metadata. Return `StreamControl::Stop` to finish early. The normal query API still collects an owned result. See [examples/streaming.rs](examples/streaming.rs).
 
-`DatabaseBuilder` selects transaction management, indexes, durability, parsing, binding, optimization, physical planning, expression evaluation, execution, scheduling, casts, operators, types, and function registration. The selected transaction bundle owns type semantics. Bound cast expressions retain the selected conversion adapter; vector and table boundaries require explicitly typed values. Checkpoint formats, segment decoders and file publication have separate contracts. `--adapters` prints the selected implementations. See [examples/embedding.rs](examples/embedding.rs), [operator replacement](examples/operators.rs), and the [architecture](docs/architecture.md).
+`DatabaseBuilder` selects transaction management, indexes, durability, parsing, binding, optimization, physical planning, expression evaluation, execution, scheduling, configuration, casts, operators, types, and function registration. The selected transaction bundle owns type semantics. Bound cast expressions retain the selected conversion adapter; vector and table boundaries require explicitly typed values. Checkpoint formats, segment decoders and file publication have separate contracts. `--adapters` prints the selected implementations. See [examples/embedding.rs](examples/embedding.rs), [operator replacement](examples/operators.rs), and the [architecture](docs/architecture.md).
 
 ## Current capabilities
 
 - Schemas, tables, literal defaults, `NOT NULL`, primary and unique keys; transactional `CREATE`, `DROP`, `INSERT`, `UPDATE`, and `DELETE`.
-- Projection, filtering, inner/outer/semi/anti joins with `ON`, aggregation, `GROUP BY`, `HAVING`, sorting, limits, distinct, unions, nonrecursive CTEs, and `range`/`generate_series`.
+- Transactional table/column renames, add/drop column, literal default changes and SET/DROP NOT NULL, including native ALTER WAL records. Type changes, broader ALTER forms and full catalog/concurrency semantics remain open.
+- Projection, filtering, inner/outer/semi/anti joins with `ON`, aggregation, `GROUP BY`, `GROUPING SETS`/`ROLLUP`/`CUBE`, `GROUPING`/`GROUPING_ID`, `HAVING`, sorting, limits, distinct, unions, ordinary and recursive CTEs using UNION/UNION ALL, and `range`/`generate_series`. [Full SQL and catalog parity remains open](docs/sql-catalog-parity.md).
 - Scalar, `EXISTS` and `IN` subqueries, including lexical correlations, nested CTE references and transactional mutations. Scalar cardinality and NULL membership follow explicit checked contracts; [subquery limits](docs/architecture.md#subqueries) remain.
+- Typed settings with global/session `SET` and `RESET`, registered `current_setting`, default direction/NULL ordering and `ORDER BY ALL`. Two configuration providers share conformance tests; [reference differences and remaining settings work](docs/settings/README.md) remain explicit.
 - Booleans, signed 8/16/32/64/128-bit integers, 32-bit FLOAT and 64-bit DOUBLE, UTF-8 strings, Gregorian `DATE` values (including BCE and infinities), and SQL NULLs.
 - Registered operator overloads with explicit coercions, checked arithmetic, date offsets/differences, integer division, and interchangeable LIKE algorithms.
 - Registered logical types with parameterized metadata, selected comparison/key behavior, explicit casts and private-format persistence; [an opt-in ASCII example](examples/registered_type.rs) demonstrates replacement.
 - Incremental scans, filters, projections, limits, distinct and unions; batch aggregation; selectable pull and eager executors.
 - Explicit commit/rollback, isolated snapshots, optimistic writer conflicts, prepared statements, cancellation, deadlines, and intermediate row limits.
 - Hash and B-tree equality indexes with composite and nullable keys; independently selected optimizer passes use eligible indexes for SELECT queries.
-- Read-only and writable recovery of supported DuckDB v2 WAL records: committed schema/table changes, inserts, updates, deletes, and incomplete transaction tails. Read-only opens preserve both files; writable opens publish the recovered checkpoint and retire the log, including after interrupted recovery.
+- Read-only and writable recovery of supported DuckDB v2 WAL records: committed schema/table creation, deletion and supported table alterations, inserts, updates, deletes, and incomplete transaction tails. Read-only opens preserve both files; writable opens publish the recovered checkpoint and retire the log, including after interrupted recovery.
 - Selectable native WAL durability with ordered transaction journals, row-ID translation, atomic log initialization, durable append rollback, and explicit uncertain outcomes.
 - Automatic and explicit checkpoints through independently selected size/count policies; validated physical row mappings preserve live transaction identities across compaction.
 - Native DuckDB checkpoint decoding for uncompressed, constant, RLE, bitpacking, dictionary, FSST, ALP, ALP-RD, Chimp, and Patas data, including overflow strings and committed deletion masks. Native checkpoint writing uses uncompressed columns, validity masks, literal defaults, and ART primary/unique indexes.
@@ -83,15 +85,27 @@ python3 -m unittest discover -s scripts -p 'test_*.py' -v
 python3 scripts/upstream_suite.py
 ```
 
-The full upstream and C++ performance campaigns are separate, currently failing
-acceptance gates. Their [runbook and recorded gaps](docs/testing-parity.md) retain
-failures and unsupported cases; ordinary Cargo success does not imply full parity.
+The full upstream acceptance gate is failing, and full C++ performance parity
+remains unproven. The [latest sixteen-workload comparisons](docs/settings/README.md)
+pass against both pinned C++ references. The [runbook and recorded gaps](docs/testing-parity.md)
+retain failures and unsupported cases; ordinary Cargo success does not imply full parity.
 
-Checked-in fixtures include databases generated by DuckDB v1.3.0 and historical Chimp/Patas databases from the source tree. Normal Cargo tests need no DuckDB executable. To verify values and file mutations in both engines, install an independent DuckDB CLI and run:
+Compatibility checks default to a source build of **DuckDB v1.5.5**. An explicit
+`development` target checks the pinned `duckdb/` checkout separately. The harness
+prints the resolved executable, verifies its exact version/revision before SQL,
+and records its SHA-256. See the [two-reference build runbook](docs/reference-builds.md).
+Checked-in v1.3.0 and Chimp/Patas files remain historical fixtures; their earlier
+passing reports do not establish v1.5.5 compatibility. Normal Cargo tests need
+no DuckDB executable. To verify values and file mutations in both engines, run:
 
 ```sh
 cargo build --release --bin duckdb-rust
-python3 scripts/verify_reference.py
+python3 scripts/check_references.py --output-dir target/reference-campaign
 ```
+
+The [first campaign against both source builds](docs/references-source-builds/summary.json)
+retains the original aggregation and correlated EXISTS regressions, subsequently
+addressed in the linked performance work. Both compatibility targets still have
+recorded gaps. Earlier v1.3.0 results do not override these failures.
 
 [Fixture provenance](test/data/duckdb/manifest.json), [verification scope](docs/verification.md), [engineering specifications](specs/README.md), and [rewrite principles](specs/rewrite-principles.md).

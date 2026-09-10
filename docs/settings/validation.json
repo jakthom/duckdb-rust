@@ -1,0 +1,218 @@
+{
+  "recorded_at": "2026-09-09T23:38:37.829840+00:00",
+  "base_commit": "4ca04d9335a4d212d1d8dda381e8fd438cd2c612",
+  "native_source_sha256": "5cad85f016958b8126824d586d0cb0053476d0d757613a0158075036cebb8754",
+  "source_and_tests_sha256": "30832726348c6c8b974e7c90dcea9a02b9b004b436b50a13998b6e30ca7dc729",
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.372,
+      "log": "docs/settings/format.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 7.797,
+      "log": "docs/settings/clippy.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 116.726,
+      "log": "docs/settings/debug-tests.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--release",
+        "--bin",
+        "duckdb-rust",
+        "--bin",
+        "duckdb-rust-test-worker",
+        "--bin",
+        "duckdb-rust-measure"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 20.735,
+      "log": "docs/settings/build.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--release",
+        "--test",
+        "settings",
+        "--test",
+        "grouping",
+        "--test",
+        "sql",
+        "--test",
+        "execution",
+        "--test",
+        "types"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 51.726,
+      "log": "docs/settings/release-tests.log"
+    },
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 5.269,
+      "log": "docs/settings/python-tests.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/run_upstream.py",
+        "--jobs",
+        "4",
+        "--timeout",
+        "30",
+        "--path-prefix",
+        "test/sql/aggregate/grouping_sets/",
+        "--report",
+        "docs/settings/upstream-grouping-final.json"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 10.683,
+      "log": "docs/settings/upstream-grouping-final.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/run_upstream.py",
+        "--jobs",
+        "4",
+        "--timeout",
+        "30",
+        "--path-prefix",
+        "test/sql/order/",
+        "--report",
+        "docs/settings/upstream-order-final.json"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 8.571,
+      "log": "docs/settings/upstream-order-final.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "release",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/native_workloads.json",
+        "--report",
+        "docs/settings/performance-core-release.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.205,
+      "log": "docs/settings/performance-core-release.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "release",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/grouping_workloads.json",
+        "--report",
+        "docs/settings/performance-grouping-release.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.99,
+      "log": "docs/settings/performance-grouping-release.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "development",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/native_workloads.json",
+        "--report",
+        "docs/settings/performance-core-development.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 3.694,
+      "log": "docs/settings/performance-core-development.log"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/compare_native.py",
+        "--target",
+        "development",
+        "--iterations",
+        "21",
+        "--workloads",
+        "benchmark/grouping_workloads.json",
+        "--report",
+        "docs/settings/performance-grouping-development.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.67,
+      "log": "docs/settings/performance-grouping-development.log"
+    }
+  ],
+  "complete_test_parity": false,
+  "complete_compatibility": false,
+  "complete_performance_parity": false,
+  "full_goal_achieved": false,
+  "debug_tests": {
+    "passed": 196,
+    "failed": 0,
+    "ignored": 0
+  },
+  "release_tests": {
+    "passed": 56,
+    "failed": 0,
+    "ignored": 0
+  },
+  "source_unchanged": true,
+  "native_binary_sha256": "a4d1fcf23949f09c4b53178aac2f99ea3d9afd11460bce4e8a5567bf1e7e55d6",
+  "completed_at": "2026-09-09T23:42:33.314567+00:00"
+}

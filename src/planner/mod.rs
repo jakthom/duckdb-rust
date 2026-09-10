@@ -1,11 +1,14 @@
+pub mod aggregation;
 mod binder;
 pub mod expression;
 pub mod logical;
+mod recursive;
 mod validation;
 
 pub use binder::SqlBinder;
 pub use expression::{BoundExpr, ExprKind};
 pub use logical::{BoundStatement, Field, LogicalPlan, PlanNode, Schema};
+pub use recursive::RecursiveId;
 
 use crate::{
     catalog::Catalog,

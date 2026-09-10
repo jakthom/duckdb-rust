@@ -15,10 +15,14 @@ import subprocess
 import tempfile
 import time
 
+from reference_version import TARGETS, require_reference
+
 import wal_reference
 import logging_reference
 import checkpoint_reference
 import subquery_reference
+import recursive_reference
+import alter_reference
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,6 +32,9 @@ class Engine:
     binary: Path
     rust: bool
     arguments: tuple = ()
+    # The 1.3 shell needs engine-side JSON encoding to preserve embedded NULs.
+    # Newer SQL-only reference builds can use their native JSON renderer.
+    serialize_json_rows: bool = True
 
 
 def command(engine, path, sql, *, json_output=False, readonly=False):
@@ -36,7 +43,8 @@ def command(engine, path, sql, *, json_output=False, readonly=False):
         args.append("--json" if engine.rust else "-json")
     if readonly:
         args.append("--read-only" if engine.rust else "-readonly")
-    if json_output and not engine.rust:
+    encode_rows = not engine.rust and engine.serialize_json_rows
+    if json_output and encode_rows:
         # DuckDB v1.3's shell truncates VARCHAR JSON fields at embedded NULs.
         # Serialize each row in the engine before passing it through the shell.
         sql = f"SELECT CAST(to_json(reference_row) AS VARCHAR) AS encoded_row FROM ({sql}) AS reference_row"
@@ -47,30 +55,55 @@ def command(engine, path, sql, *, json_output=False, readonly=False):
         return result.stdout
     # The reference shell emits no bytes for a successful empty result.
     rows = json.loads(result.stdout) if result.stdout.strip() else []
-    return rows if engine.rust else [json.loads(row["encoded_row"], parse_constant={"NaN": "NaN", "Infinity": "inf", "-Infinity": "-inf"}.__getitem__) for row in rows]
+    return [json.loads(row["encoded_row"], parse_constant={"NaN": "NaN", "Infinity": "inf", "-Infinity": "-inf"}.__getitem__) for row in rows] if encode_rows else rows
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rust", type=Path, default=ROOT / "target/release/duckdb-rust")
-    parser.add_argument("--duckdb", type=Path, default=Path("duckdb"))
+    parser.add_argument("--target", choices=TARGETS, default="release")
+    parser.add_argument("--duckdb", type=Path, help="Override the selected target's executable; version and revision must still match")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
+    if args.report and args.report.exists():
+        raise FileExistsError("preserve prior evidence: choose a new report path")
+    reference_path, reference_identity = require_reference(args.duckdb, target=args.target)
     sources = hashlib.sha256()
     for path in sorted([ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), *(ROOT / "tools").rglob("*.rs")]):
         sources.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
     report = {
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "source_sha256": sources.hexdigest(),
-        "reference": subprocess.check_output([str(args.duckdb), "--version"], text=True).strip(),
+        "reference": reference_identity["version"],
+        "reference_identity": reference_identity,
         "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
         "platform": platform.platform(),
         "rust_binary_sha256": hashlib.sha256(args.rust.read_bytes()).hexdigest(),
         "checks": [],
     }
     rust = Engine(args.rust, True)
-    reference = Engine(args.duckdb, False)
+    reference = Engine(reference_path, False, serialize_json_rows=TARGETS[args.target].serialize_json_rows)
     start = time.monotonic()
+    try:
+        verify(rust, reference, report)
+        report["result"] = "passed"
+        report["campaign_completed"] = True
+    except Exception as error:
+        report["result"] = "failed"
+        report["campaign_completed"] = False
+        report["error"] = {"type": type(error).__name__, "message": str(error)}
+    report["complete_compatibility_parity"] = False
+    report["scope"] = "Existing file/query campaign for the supported subset. Checks after an error are unexecuted obligations. No full compatibility claim."
+    report["elapsed_seconds"] = round(time.monotonic() - start, 3)
+    output = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(output)
+    print(output, end="")
+    raise SystemExit(0 if report["campaign_completed"] else 1)
+
+
+def verify(rust, reference, report):
     with tempfile.TemporaryDirectory(prefix="duckdb-rust-reference-") as directory:
         directory = Path(directory)
         manifest = json.loads((ROOT / "test/data/duckdb/manifest.json").read_text())
@@ -119,7 +152,7 @@ def main():
                 assert command(rust, path, "SELECT * FROM t", json_output=True) == expected * 3
                 assert command(reference, path, "SELECT * FROM t", json_output=True) == expected * 3
             report["checks"].append(f"{name}: all values equal, Rust publication, DuckDB publication")
-        report["file_adapters"] = json.loads(subprocess.check_output([str(args.rust), str(path), "--read-only", "--adapters"], text=True))
+        report["file_adapters"] = json.loads(subprocess.check_output([str(rust.binary), str(path), "--read-only", "--adapters"], text=True))
         wal_manifest = json.loads((ROOT / "test/data/wal/manifest.json").read_text())
         for name, metadata in wal_manifest["cases"].items():
             path = directory / f"wal-{name}.duckdb"
@@ -153,6 +186,10 @@ def main():
         report["checks"].append("Online checkpoints: both scheduling policies, explicit checkpoints, continued native writes and 26 manual/automatic interruption outcomes")
         report["subqueries"] = subquery_reference.verify(rust, reference, command, directory)
         report["checks"].append("Subqueries: shared SQL corpus, both consumption adapters, checkpoint/WAL durability and continued writes in both engines")
+        report["recursive"] = recursive_reference.verify(rust, reference, command, directory)
+        report["checks"].append("Recursive CTEs: shared SQL corpus, checkpoint/WAL durability, native reads and continued writes in both engines")
+        report["alter"] = alter_reference.verify(rust, reference, command, directory)
+        report["checks"].append("Table ALTER: checkpoint/WAL publication, native metadata records and continued writes in both engines")
         path = directory / "rust-rowgroups.duckdb"
         command(rust, path, "CREATE TABLE t AS SELECT range AS i, CASE WHEN range%11=0 THEN NULL ELSE 'row-' || range END AS text FROM range(125000)")
         sql = "SELECT count(*) AS n, sum(i) AS s, count(text) AS valid, sum(length(text)) AS chars FROM t"
@@ -297,12 +334,6 @@ def main():
         command(reference, path, "DELETE FROM prefixes WHERE k='aaa'; INSERT INTO prefixes VALUES ('replacement'); CHECKPOINT")
         assert command(reference, path, sql, json_output=True) == command(rust, path, sql, json_output=True)
         report["checks"].append("ART traversal: reference index scan, empty root, NaN/zero/extrema uniqueness, deep prefixes and 20 KiB keys")
-    report["elapsed_seconds"] = round(time.monotonic() - start, 3)
-    report["result"] = "passed"
-    output = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
-    if args.report:
-        args.report.write_text(output)
-    print(output, end="")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,16 @@
 # Verification scope
 
+Current reference selection is documented in the [two-reference runbook](reference-builds.md).
+The v1.5.5 source build is the default compatibility oracle; the pinned development
+checkout has a separate campaign. The
+[latest performance comparisons](settings/README.md) pass all sixteen
+measured cases against both targets, including ORDER BY ALL, grouped SUM, ROLLUP and CUBE.
+Grouping SQL still has independent reference differences and unsupported
+upstream files. The [earlier combined report](references-source-builds/summary.json)
+retains unresolved file/ALTER compatibility failures and its original failed
+measurements. Historical v1.3.0 results below retain their original scope and
+cannot establish current release compatibility.
+
 **Current acceptance is full C++ test parity and zero performance regressions
 against C++ DuckDB. Neither is achieved.** See [the parity report](testing-parity.md)
 and [the accepted requirement](../specs/testing/parity.md). The 1.25 budgets and
@@ -11,6 +22,35 @@ The checks here concern this Rust implementation. The source-system testing spec
 ## Automated checks
 
 `cargo test --all-targets` runs the contract suite, native file compatibility cases, and the supported SQLLogicTest corpus. It requires no installed DuckDB engine. Interface tests vary adapters through `DatabaseBuilder` and the ordinary public contracts.
+
+Configuration contracts run the settings, named-session and `ORDER BY ALL`
+corpora across two providers, two optimizers, two expression evaluators, two
+executors and three batch sizes. They also verify typed custom registrations,
+retained statement views, prepared rebinding, cancellation and failed scheduler
+publication. The [persistent reference campaign](settings/README.md) preserves
+connection lifetimes and records exact source, worker and adapter identities:
+
+```sh
+python3 scripts/session_reference.py \
+  --corpus test/sql/ordering.test --corpus test/sql/settings.test \
+  --corpus test/sql/settings_sessions.test --corpus test/sql/grouping.test \
+  --report target/session-reference-report.json
+```
+
+Sorting contracts select comparison merge sorting and integer radix sorting
+through `NativePhysicalPlanner::with_sorting`, then run the same ordering corpus
+across 48 optimizer/evaluator/executor/batch configurations. Independent checks
+cover all signed integer widths, full-range offsets, NULL placement, stable ties,
+flat/dictionary/constant encodings, empty and singleton inputs, custom comparison
+and logical validation, malformed evaluator results, effects, first errors,
+cancellation and row limits. Fallback checks preserve string/Boolean ordering
+and exact floating bits. Both algorithms check the complete order of the
+50,000-row measurement query; checksum validation alone is not an ordering oracle.
+See [settings and sorting evidence](settings/README.md).
+
+Choose a new report path for each run. The combined campaign remains failing
+because of recorded reference differences; passing ordering records do not
+establish complete settings or grouping compatibility.
 
 The batch regression tests compare scalar and column evaluation across optimizer
 selections and batch sizes 1, 3 and 2048. They cover all signed integer widths,

@@ -1,0 +1,190 @@
+# Ordering configuration persists within the database/session, not in files.
+
+query TT
+SELECT current_setting('default_order'), current_setting('default_null_order')
+----
+ASCENDING	NULLS_LAST
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i
+----
+1
+2
+NULL
+
+statement ok
+SET default_null_order='nulls_first'
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i
+----
+NULL
+1
+2
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC
+----
+NULL
+2
+1
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i NULLS LAST
+----
+1
+2
+NULL
+
+statement ok
+SET null_order=sqlite
+
+query T
+SELECT current_setting('NULL_ORDER')
+----
+NULLS_FIRST_ON_ASC_LAST_ON_DESC
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i DESC
+----
+2
+1
+NULL
+
+statement ok
+SET default_order='descending'
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY 1
+----
+2
+1
+NULL
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC
+----
+NULL
+1
+2
+
+statement ok
+SET SESSION default_null_order=postgres
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i
+----
+NULL
+2
+1
+
+query I
+SELECT i FROM (VALUES (2),(NULL),(1)) t(i) ORDER BY i ASC
+----
+1
+2
+NULL
+
+statement ok
+RESET SESSION default_null_order
+
+query T
+SELECT current_setting('default_null_order')
+----
+NULLS_FIRST_ON_ASC_LAST_ON_DESC
+
+statement ok
+SET SESSION default_null_order=last
+
+statement ok
+SET GLOBAL default_null_order=first
+
+query T
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+statement ok
+SET SESSION default_null_order=DEFAULT
+
+query T
+SELECT current_setting(lower('DEFAULT_NULL_ORDER'))
+----
+NULLS_FIRST
+
+statement ok
+BEGIN
+
+statement ok
+SET default_null_order=last
+
+statement ok
+ROLLBACK
+
+query T
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+statement ok
+SET default_null_order=lower('NULLS_FIRST')
+
+statement error
+SET default_null_order='invalid'
+----
+Unrecognized parameter for option NULL_ORDER
+
+query T
+SELECT current_setting('default_null_order')
+----
+NULLS_FIRST
+
+statement error
+SET default_order='invalid'
+----
+Unrecognized parameter for option DEFAULT_ORDER
+
+statement error
+SET default_null_order=NULL
+----
+Unrecognized parameter for option NULL_ORDER
+
+statement error
+SELECT current_setting('')
+----
+Key name for current_setting must not be empty
+
+statement error
+SELECT current_setting(i) FROM (VALUES ('default_order')) t(i)
+
+statement error
+SET nonexistent_configuration=1
+
+statement ok
+RESET GLOBAL default_null_order
+
+statement ok
+SET default_order=DEFAULT
+
+query TT
+SELECT current_setting('default_order'), current_setting('default_null_order')
+----
+ASCENDING	NULLS_LAST
+
+query I
+SELECT 2 i UNION ALL SELECT NULL UNION ALL SELECT 1 ORDER BY 1
+----
+1
+2
+NULL
+
+statement ok
+SET default_null_order=first
+
+query II
+SELECT i,count(*) FROM (VALUES (2),(NULL),(1)) t(i) GROUP BY ROLLUP(i) ORDER BY i, grouping(i)
+----
+NULL	1
+NULL	3
+1	1
+2	1

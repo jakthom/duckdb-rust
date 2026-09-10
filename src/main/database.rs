@@ -13,6 +13,7 @@ pub struct DatabaseBuilder {
     expressions: Arc<dyn ExpressionEvaluator>,
     subqueries: Arc<dyn SubqueryExecutor>,
     scheduler: Arc<dyn Scheduler>,
+    configuration: Arc<dyn settings::Configuration>,
     functions: FunctionRegistry,
     casts: CastRegistry,
     operators: OperatorRegistry,
@@ -35,6 +36,7 @@ impl Default for DatabaseBuilder {
             expressions: Arc::new(BatchedEvaluator),
             subqueries: Arc::new(StreamingSubqueries),
             scheduler: Arc::new(InlineScheduler),
+            configuration: Arc::new(settings::SnapshotConfiguration::default()),
             functions: FunctionRegistry::builtins(),
             casts: CastRegistry::builtins(),
             operators: OperatorRegistry::builtins(),
@@ -93,6 +95,10 @@ impl DatabaseBuilder {
         self.scheduler = adapter;
         self
     }
+    pub fn configuration(mut self, adapter: Arc<dyn settings::Configuration>) -> Self {
+        self.configuration = adapter;
+        self
+    }
     pub fn types(mut self, types: Arc<crate::common::type_registry::TypeRegistry>) -> Self {
         self.types = Some(types);
         self
@@ -140,6 +146,9 @@ impl DatabaseBuilder {
                     .unwrap_or_else(crate::common::type_registry::builtin_types),
             )?),
         };
+        let query = QueryContext::background().with_types(transactions.types());
+        let settings = self.configuration.connect().snapshot(&query)?;
+        settings.ordering(None, None, &query)?;
         Ok(Database {
             services: Arc::new(Services {
                 transactions,
@@ -151,6 +160,7 @@ impl DatabaseBuilder {
                 expressions: self.expressions,
                 subqueries: self.subqueries,
                 scheduler: self.scheduler,
+                configuration: self.configuration,
                 functions: self.functions,
                 casts: self.casts,
                 operators: self.operators,
@@ -220,6 +230,7 @@ impl Database {
             session: Session::Idle,
             interrupt: InterruptHandle::default(),
             timeout: None,
+            configuration: self.services.configuration.connect(),
         }
     }
     pub fn adapters(&self) -> Vec<(&'static str, &'static str)> {
@@ -236,6 +247,7 @@ impl Database {
             ("expressions", s.expressions.name()),
             ("subqueries", s.subqueries.name()),
             ("scheduler", s.scheduler.name()),
+            ("configuration", s.configuration.name()),
         ]);
         adapters
     }

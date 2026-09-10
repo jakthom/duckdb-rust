@@ -3,9 +3,10 @@ use std::{collections::HashSet, fmt::Debug, sync::Arc};
 use super::{
     ExecutionContext,
     operator::{
-        aggregate::aggregate,
+        aggregate::{AggregationAlgorithm, HashAggregation},
         join::{HashJoin, JoinAlgorithm, JoinPlan, NestedLoopJoin},
-        order::sort,
+        order::{RadixSort, SortAlgorithm},
+        recursive::{RecursiveAlgorithm, RecursivePlan, StreamingRecursion},
     },
     stream::{self, Stream},
     subquery::PreparedExpression,
@@ -15,7 +16,8 @@ use crate::{
     common::{Result, Row, Value, vector::DataChunk},
     planner::{
         BoundExpr, ExprKind, LogicalPlan, PlanNode, Schema,
-        logical::{AggregateExpr, JoinKind, OrderExpr},
+        aggregation::Aggregation,
+        logical::{JoinKind, OrderExpr},
     },
 };
 
@@ -45,6 +47,9 @@ pub trait PhysicalPlanner: Send + Sync {
 pub struct NativePhysicalPlanner {
     joins: Vec<Arc<dyn JoinAlgorithm>>,
     scan_filters: ScanFilterStrategy,
+    recursion: Arc<dyn RecursiveAlgorithm>,
+    aggregation: Arc<dyn AggregationAlgorithm>,
+    sorting: Arc<dyn SortAlgorithm>,
 }
 
 /// Both strategies retain scan demand, validation and predicate ordering.
@@ -69,6 +74,9 @@ impl Default for NativePhysicalPlanner {
         Self {
             joins: vec![Arc::new(HashJoin), Arc::new(NestedLoopJoin)],
             scan_filters: ScanFilterStrategy::default(),
+            recursion: Arc::new(StreamingRecursion),
+            aggregation: Arc::new(HashAggregation),
+            sorting: Arc::new(RadixSort),
         }
     }
 }
@@ -84,6 +92,18 @@ impl NativePhysicalPlanner {
         self.scan_filters = strategy;
         self
     }
+    pub fn with_recursion(mut self, algorithm: Arc<dyn RecursiveAlgorithm>) -> Self {
+        self.recursion = algorithm;
+        self
+    }
+    pub fn with_aggregation(mut self, algorithm: Arc<dyn AggregationAlgorithm>) -> Self {
+        self.aggregation = algorithm;
+        self
+    }
+    pub fn with_sorting(mut self, algorithm: Arc<dyn SortAlgorithm>) -> Self {
+        self.sorting = algorithm;
+        self
+    }
 }
 
 #[derive(Debug)]
@@ -97,6 +117,14 @@ struct Operator {
 enum Node {
     Values(Vec<Vec<BoundExpr>>),
     Scan(TableName),
+    RecursiveInput(crate::planner::RecursiveId),
+    Recursive {
+        id: crate::planner::RecursiveId,
+        seed: Arc<dyn PhysicalOperator>,
+        step: Arc<dyn PhysicalOperator>,
+        all: bool,
+        algorithm: Arc<dyn RecursiveAlgorithm>,
+    },
     FilteredScan(TableName, BoundExpr),
     KeyLookup {
         table: TableName,
@@ -118,12 +146,16 @@ enum Node {
         condition: BoundExpr,
         algorithm: Arc<dyn JoinAlgorithm>,
     },
-    Aggregate(
-        Arc<dyn PhysicalOperator>,
-        Vec<BoundExpr>,
-        Vec<AggregateExpr>,
-    ),
-    Sort(Arc<dyn PhysicalOperator>, Vec<OrderExpr>),
+    Aggregate {
+        input: Arc<dyn PhysicalOperator>,
+        aggregation: Aggregation,
+        algorithm: Arc<dyn AggregationAlgorithm>,
+    },
+    Sort {
+        input: Arc<dyn PhysicalOperator>,
+        order: Vec<OrderExpr>,
+        algorithm: Arc<dyn SortAlgorithm>,
+    },
     Limit(Arc<dyn PhysicalOperator>, Option<usize>, usize),
     Distinct(Arc<dyn PhysicalOperator>),
     Union(Arc<dyn PhysicalOperator>, Arc<dyn PhysicalOperator>, bool),
@@ -137,6 +169,9 @@ impl PhysicalPlanner for NativePhysicalPlanner {
         let mut adapters = vec![
             ("physical_planner", self.name()),
             ("scan_filter", self.scan_filters.name()),
+            ("recursion", self.recursion.name()),
+            ("aggregation", self.aggregation.name()),
+            ("sorting", self.sorting.name()),
         ];
         adapters.extend(
             self.joins
@@ -147,6 +182,19 @@ impl PhysicalPlanner for NativePhysicalPlanner {
     }
     fn plan(&self, logical: &LogicalPlan) -> Result<Arc<dyn PhysicalOperator>> {
         let node = match &logical.node {
+            PlanNode::RecursiveInput(id) => Node::RecursiveInput(id.clone()),
+            PlanNode::Recursive {
+                id,
+                seed,
+                step,
+                all,
+            } => Node::Recursive {
+                id: id.clone(),
+                seed: self.plan(seed)?,
+                step: self.plan(step)?,
+                all: *all,
+                algorithm: self.recursion.clone(),
+            },
             PlanNode::Values(rows) => Node::Values(rows.clone()),
             PlanNode::Scan(table) => Node::Scan(table.clone()),
             PlanNode::KeyLookup {
@@ -209,12 +257,16 @@ impl PhysicalPlanner for NativePhysicalPlanner {
                     algorithm,
                 }
             }
-            PlanNode::Aggregate {
-                input,
-                groups,
-                aggregates,
-            } => Node::Aggregate(self.plan(input)?, groups.clone(), aggregates.clone()),
-            PlanNode::Sort { input, order } => Node::Sort(self.plan(input)?, order.clone()),
+            PlanNode::Aggregate { input, aggregation } => Node::Aggregate {
+                input: self.plan(input)?,
+                aggregation: aggregation.clone(),
+                algorithm: self.aggregation.clone(),
+            },
+            PlanNode::Sort { input, order } => Node::Sort {
+                input: self.plan(input)?,
+                order: order.clone(),
+                algorithm: self.sorting.clone(),
+            },
             PlanNode::Limit {
                 input,
                 limit,
@@ -228,7 +280,10 @@ impl PhysicalPlanner for NativePhysicalPlanner {
         Ok(Arc::new(Operator {
             schema: logical.schema.clone(),
             delivery: match &node {
-                Node::Join { .. } | Node::Aggregate(..) | Node::Sort(..) => DeliveryMode::Blocking,
+                Node::Recursive { algorithm, .. } => algorithm.delivery(),
+                Node::Join { .. } | Node::Aggregate { .. } | Node::Sort { .. } => {
+                    DeliveryMode::Blocking
+                }
                 _ => DeliveryMode::Incremental,
             },
             node,
@@ -247,6 +302,47 @@ impl PhysicalOperator for Operator {
         context.query.check()?;
         let schema = &self.schema;
         Ok(match &self.node {
+            Node::Recursive {
+                id,
+                seed,
+                step,
+                all,
+                algorithm,
+            } => algorithm.open(
+                RecursivePlan {
+                    id,
+                    seed: seed.as_ref(),
+                    step: step.as_ref(),
+                    all: *all,
+                    schema,
+                },
+                context,
+            )?,
+            Node::RecursiveInput(id) => {
+                let data = context
+                    .recursive
+                    .ok_or_else(|| {
+                        crate::Error::Internal("recursive input outside execution scope".into())
+                    })?
+                    .lookup(id)?;
+                if !data
+                    .schema
+                    .iter()
+                    .map(|f| &f.data_type)
+                    .eq(schema.iter().map(|f| &f.data_type))
+                {
+                    return Err(crate::Error::Internal(
+                        "recursive binding schema mismatch".into(),
+                    ));
+                }
+                let mut position = 0usize;
+                stream::from_fn(move |max_rows| {
+                    let end = position.saturating_add(max_rows).min(data.rows.len());
+                    let batch = stream::chunk(schema, &data.rows[position..end])?;
+                    position = end;
+                    Ok(batch)
+                })
+            }
             Node::Values(values) => {
                 let mut values = values
                     .iter()
@@ -343,6 +439,7 @@ impl PhysicalOperator for Operator {
                 }
             }
             Node::Projection(input, expressions) => {
+                let batch_safe = expressions.iter().all(BoundExpr::is_pure_and_total);
                 let expressions = expressions
                     .iter()
                     .map(PreparedExpression::new)
@@ -352,6 +449,13 @@ impl PhysicalOperator for Operator {
                     let Some(batch) = input.next(max_rows)? else {
                         return Ok(None);
                     };
+                    if batch_safe {
+                        let columns = expressions
+                            .iter()
+                            .map(|expression| expression.evaluate_batch(&batch, context))
+                            .collect::<Result<_>>()?;
+                        return DataChunk::new(columns, batch.len()).map(Some);
+                    }
                     let rows = batch
                         .rows()
                         .map(|row| {
@@ -445,18 +549,21 @@ impl PhysicalOperator for Operator {
                 },
                 context,
             )?,
-            Node::Aggregate(input, groups, aggregates) => {
-                stream::deferred(schema, context, move || {
-                    let mut input = stream::open(input.as_ref(), context)?;
-                    aggregate(input.as_mut(), groups, aggregates, context)
-                })
-            }
-            Node::Sort(input, order) => stream::deferred(schema, context, move || {
-                sort(
-                    stream::collect(input.as_ref(), context)?.rows,
-                    order,
-                    context,
-                )
+            Node::Aggregate {
+                input,
+                aggregation,
+                algorithm,
+            } => stream::deferred(schema, context, move || {
+                let mut input = stream::open(input.as_ref(), context)?;
+                algorithm.aggregate(input.as_mut(), aggregation, context)
+            }),
+            Node::Sort {
+                input,
+                order,
+                algorithm,
+            } => stream::deferred(schema, context, move || {
+                let mut input = stream::open(input.as_ref(), context)?;
+                algorithm.sort(input.as_mut(), order, context)
             }),
         })
     }

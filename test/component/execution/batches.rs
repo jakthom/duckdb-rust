@@ -240,9 +240,17 @@ fn scan_representations_preserve_identities_selection_and_owned_values() -> Resu
     let columns = DataChunk::from_rows(&types, std::slice::from_ref(&row))?;
     assert!(ScanBatch::new(vec![], columns.clone()).is_err());
     assert!(ScanBatch::single(41, vec![Value::Null], types.clone()).is_err());
+    let mut ids: Arc<[_]> = vec![11, 41, 99].into();
+    assert!(ScanBatch::shared(ids.clone(), 3, columns.clone()).is_err());
+    assert!(ScanBatch::shared(ids.clone(), usize::MAX, columns.clone()).is_err());
+    let shared = ScanBatch::shared(ids.clone(), 1, columns.clone())?;
+    assert_eq!(Arc::strong_count(&ids), 2);
+    Arc::make_mut(&mut ids)[1] = 100;
+    drop(ids);
     for batch in [
         ScanBatch::single(41, row.clone(), types.clone())?,
         ScanBatch::new(vec![41], columns)?,
+        shared,
     ] {
         batch.validate(&bound, &context)?;
         assert_eq!(batch.rows().collect::<Vec<_>>(), vec![(41, row.clone())]);
@@ -335,6 +343,77 @@ fn aggregate_batches_match_scalar_updates_for_nulls_encodings_empty_input_and_ov
         match expected {
             Some(value) => assert_eq!(actual?, Value::Integer(value)),
             None => assert!(matches!(actual, Err(Error::Execution(_)))),
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn integer_sum_batches_preserve_wide_prefixes_and_vector_views() -> Result<()> {
+    let functions = FunctionRegistry::builtins();
+    let sum = functions.aggregate("sum").unwrap();
+    let query = QueryContext::background();
+    for data_type in [
+        DataType::TinyInt,
+        DataType::SmallInt,
+        DataType::Integer,
+        DataType::BigInt,
+        DataType::HugeInt,
+    ] {
+        let bits = data_type.integer_bits().unwrap();
+        let maximum = i128::MAX >> (128 - bits);
+        let minimum = -maximum - 1;
+        // Same-sign extrema overflow a machine-width partial sum. Alternating
+        // signs and boundaries across 1024 rows also exercise carry/cancellation.
+        let values: Vec<_> = (0..4099)
+            .map(|i| {
+                Value::Integer(match i % 7 {
+                    0 | 1 => maximum,
+                    2 | 3 => minimum,
+                    _ => (i % 113) as i128 - 56,
+                })
+            })
+            .collect();
+        let flat = Vector::flat(data_type.clone(), values.clone())?;
+        let mut nullable = values;
+        for i in (0..nullable.len()).step_by(5) {
+            nullable[i] = Value::Null;
+        }
+        let selected = Arc::new(flat.clone()).select(vec![4098, 0, 1, 2, 3, 3, 4, 9])?;
+        for column in [
+            flat.clone(),
+            flat.slice(3, 4093)?,
+            selected,
+            Vector::flat(data_type.clone(), nullable)?,
+            Vector::constant(data_type.clone(), Value::Integer(maximum), 1025)?,
+            Vector::constant(data_type.clone(), Value::Null, 1025)?,
+            flat.slice(0, 0)?,
+        ] {
+            for batch_size in [1, 7, 1024, 1025, 2048] {
+                let mut scalar =
+                    sum.create_state(std::slice::from_ref(&data_type), query.types())?;
+                let mut batched =
+                    sum.create_state(std::slice::from_ref(&data_type), query.types())?;
+                let expected = column
+                    .values()
+                    .try_for_each(|value| scalar.update(std::slice::from_ref(value), &query))
+                    .and_then(|_| scalar.finish());
+                let actual = (0..column.len())
+                    .step_by(batch_size)
+                    .try_for_each(|offset| {
+                        let count = batch_size.min(column.len() - offset);
+                        batched.update_batch(
+                            &DataChunk::new(vec![column.slice(offset, count)?], count)?,
+                            &query,
+                        )
+                    })
+                    .and_then(|_| batched.finish());
+                assert_eq!(
+                    format!("{actual:?}"),
+                    format!("{expected:?}"),
+                    "{data_type:?}, batch size {batch_size}"
+                );
+            }
         }
     }
     Ok(())

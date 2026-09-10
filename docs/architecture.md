@@ -8,7 +8,7 @@ This describes the implementation, separately from the accepted [rewrite princip
 
 | Boundary | Contract and implementation | Replacement evidence |
 | --- | --- | --- |
-| Catalog | `Catalog` / `CatalogMut`; transaction-local schemas and `TableDefinition` | Snapshot implementation only |
+| Catalog | `Catalog` / `CatalogMut`; transaction-local schemas, `TableDefinition` and atomic owned `TableAlteration` operations | Snapshot implementation only; ALTER shares transaction, index, checkpoint and WAL callers |
 | Access methods | `TableStorage` / `TableStorageMut`; stable row identities, incremental `TableScan`, positional fetch, mutations, capability discovery | Snapshot implementation; direct indexed equality and ordered positional fetch |
 | Indexes | `IndexFactory` / `KeyIndex`; owned immutable equality indexes, typed keys, unique constraints, row IDs, cancellation | Hash and B-tree implementations run the same contracts and restart matrix |
 | Transactions | `TransactionManager` / `Transaction`; catalog and data share visibility and publication | Optimistic snapshot implementation only |
@@ -25,11 +25,15 @@ This describes the implementation, separately from the accepted [rewrite princip
 | Optimization | `Optimizer`; owned `ValidatedPlan` transformation | Identity and configurable pass pipeline; expression simplification, index selection and conservative EXISTS decorrelation, with validation after each pass; no cost model |
 | Physical planning | `PhysicalPlanner` / `PhysicalOperator` | Native compiler only; immutable shared plans open independent `BatchStream` state; delivery modes are visible in EXPLAIN |
 | Join algorithms | `JoinAlgorithm`; supported predicates, independent cursors and SQL join semantics | Hash and nested-loop algorithms share contracts; hash semi/anti joins stream probes over a bounded build |
+| Aggregation algorithms | `AggregationAlgorithm`; bound groups, grouping sets, aggregate functions and grouping masks over one input stream | Hash and ordered grouping indexes share SQL, effect, resource and snapshot contracts; physical selection is explicit |
+| Sorting algorithms | `SortAlgorithm`; consume one validated stream, evaluate typed keys once and return owned ordered rows | Stable comparison merge sort and integer radix sort share SQL, type, effect, encoding, cancellation and row-limit contracts; physical selection is explicit |
 | Casts | `CastFunction` / `CastRegistry` / `BoundCast`; exact source/target/mode selection, retained adapters, checked physical values and errors | Standard-library and checked-digit integer parsers share conformance and SQL/storage paths |
 | Scalar operators | `OperatorRegistry` / `OperatorFunction` / `BoundOperator`; overload selection, explicit casts, retained effects and checked results | Numeric/date arithmetic and concatenation; dynamic-programming and greedy LIKE implementations share contracts and SQL callers |
 | Expressions | `ExpressionEvaluator` / `EvaluationContext`; typed scalar and batch results, explicit outer rows and relational dependencies, NULL/error and evaluation behavior | Scalar and batched evaluators share SQL, replacement, overflow, lazy-branch and effect tests; resource-only contexts reject nested query execution |
 | Subquery execution | `SubqueryExecutor`; scalar cardinality, existence and typed membership over fresh physical streams | Streaming and materializing adapters share SQL, scope, type, mutation, cancellation and independent file checks |
-| Functions | `ScalarFunction`, `AggregateFunction`, aggregate states; registration and signatures | Ordinary registration used by built-ins and test function; no binary extension loader |
+| Recursive execution | `RecursiveAlgorithm`, `RecursivePlan`, `RecursiveFrame`; lexical iteration input, UNION equality and fixed-point evaluation | Streaming and materializing algorithms share scope/type/SQL contracts; full CTE parity remains open in [SQL/catalog tracking](sql-catalog-parity.md) |
+| Functions | `ScalarFunction`, `ScalarBindArguments`, `AggregateFunction`, aggregate states; registration, signatures and optional contextual specialization | Ordinary registration used by built-ins, typed `current_setting` and replacement functions; no binary extension loader |
+| Configuration | `Setting`, `SettingRegistry`, `Configuration` / `ConfigurationSession`; typed registration, global/session scope, immutable statement views and atomic updates | Snapshot and locked providers share scope, type, ownership, cancellation and scheduler-failure contracts |
 | Execution | `Executor` / `ResultSink`; demand, owned chunks, early stop and completion | Pull and eager materialization adapters run the same complete-result contracts |
 | Scheduling | `Scheduler`; execute the supplied task exactly once or return an error | Inline scheduler only |
 | Resources | `QueryContext`; cancellation, deadline, batch configuration, row count limits | Row accounting only; no byte allocator, spill, buffer pool or scheduler fairness |
@@ -80,6 +84,101 @@ The local file adapter canonicalizes paths, acquires nonblocking OS locks, and r
 
 Ordinary publication writes a uniquely named sibling file, syncs it, renames it atomically, retains the lock on the new inode, and syncs the parent directory. Existing file permission bits are preserved. Direct replacement rejects an active WAL so it cannot discard unrecovered commits. Failed temporary-file creation never removes a preexisting file. Ordinary errors clean up owned temporary files; abrupt process exit can leave unreferenced temporary files. The local adapter has been exercised on macOS; other operating systems are not claimed verified.
 
+## Sorting and projection
+
+`NativePhysicalPlanner::with_sorting` selects an ordinary `SortAlgorithm` adapter.
+Both implementations consume the same validated input stream, evaluate each key
+once per row, retain payload/key association and return owned rows. NULL placement
+is independent of direction; ties retain input order. This stable-tie contract is
+stronger than SQL's ordering guarantee for unresolved ties. It does not establish
+an upstream insertion-order configuration or parallel ordering implementation.
+
+`ComparisonSort` uses fallible stable merge sorting over a row permutation.
+Every key passes its retained type validator before sorting, including singleton
+inputs that need no comparisons. Comparator failures propagate directly without
+turning errors into an inconsistent infallible comparator.
+
+`RadixSort` retains input chunks, typed integer key columns and row addresses.
+It performs stable counting passes over integer offsets and a separate NULL
+category, then gathers owned output rows. Offsets cover the full signed 128-bit
+domain without signed subtraction overflow. Each key requires both a pure/total
+expression proof and its type adapter's `OrderingRepresentation::SignedInteger`
+capability. Other signatures use comparison sorting. Equality capabilities do
+not imply ordering capabilities; an integer type may retain a custom comparator
+while advertising native integer equality. Bound types retain both selections.
+
+Pure, total projections use the selected expression evaluator's checked batch
+interface. Expressions without that proof retain row evaluation, preserving
+observable effects and data-error order. Scalar and batch result boundaries
+retain type, cardinality and cancellation checks.
+
+Sorting currently blocks and materializes its result. Cancellation is checked
+during input, key construction, radix passes, comparisons and output gathering;
+retained cardinality obeys the query row limit. Byte accounting, bounded Top-N,
+spill, sorted runs and parallel output remain unfinished. The
+[shared sorting contracts and measured scope](settings/README.md) do not imply
+full sorting or resource parity.
+
+## Configuration and contextual functions
+
+`DatabaseBuilder::configuration` selects the provider. Its instance defines the
+global setting domain; the default builder creates a fresh provider, while
+explicitly sharing one provider shares that domain. Each connection owns a
+configuration session. Every statement retains an immutable `SettingsSnapshot`
+with its global generation, session overrides and registered defaults. Global
+changes become visible to other sessions on their next statement. Session
+overrides survive transaction rollback and disappear on RESET or disconnect.
+Resetting a session override reveals the current global value.
+
+`SettingRegistry` validates names, aliases, declared types, scopes and defaults.
+Ordinary registered `Setting` adapters normalize values without effects. Binding
+uses the selected cast and expression adapters, then produces an owned
+`SettingChange` tied to that registry. Publication validates the change and
+cancellation before changing state. Failed normalization, incompatible registries
+or scheduler failure cannot publish a partial configuration change. The runtime
+publishes only after the scheduler successfully executes its task exactly once.
+Configuration changes are separate from transactional catalog/data publication.
+
+`SnapshotConfiguration` retains shared immutable global maps and copies on write;
+`LockedConfiguration` copies a mutex-protected map when taking a statement view.
+Both preserve retained views and use the same registration and session contracts.
+`default_order`, `default_null_order` and its `null_order` alias are registered
+built-ins. SELECT and set-operation ordering resolve defaults through the same
+snapshot. `ORDER BY ALL` expands to output ordinals after wildcard expansion,
+so it never reevaluates projected values to produce sort keys.
+
+`ScalarFunction::bind` can request typed, constant arguments through the
+language-owned `ScalarBindArguments` interface. Only explicitly requested closed,
+effect-free expressions are evaluated, using the selected evaluator and logical
+type validation. Ordinary functions retain their existing lazy/error behavior.
+`current_setting` uses this interface to capture a typed value and return type;
+there is no function-name branch in its callers. Prepared statements rebind the
+value for each execution. [Settings verification](settings/README.md) records
+the supported behavior and differences between the two C++ references.
+
+## Table alteration
+
+`CatalogMut::alter_table` publishes metadata and affected rows atomically in its
+transaction. `TableAlteration` carries names, typed literal defaults and the
+operation, independently of parser ASTs or physical operators. Renames,
+add/drop column, literal default changes and SET/DROP NOT NULL are implemented.
+Unknown adapters reject before effects. No general ALTER or dependency parity
+is implied; the [SQL/catalog worklist](sql-catalog-parity.md#table-alteration)
+records the remaining forms and independent reference discrepancies.
+
+Published column vectors and indexes survive metadata-only changes. Added
+columns use constant vectors and removed columns retain the other vectors.
+The existing native restriction on indexed-column ordinals is checked before
+changes. Row identities, old snapshots and owned query results remain usable.
+The transaction bundle retains a catalog basis over its starting rows for
+constraint validation; normal DML affects only its current snapshot. Both
+versions apply catalog changes and disappear on rollback.
+
+Native WAL records express these operations directly. Pending DML follows the
+final table version, with row shapes and names translated in transaction order.
+Validity updates are settled before schema changes during recovery. Whole-WAL
+prefix tests verify that no partial ALTER transaction becomes visible.
+
 ## WAL recovery
 
 `FileCheckpoint::with_recovery` composes a `Recovery` adapter with a checkpoint
@@ -100,11 +199,12 @@ published; a different root requires replay. Root offsets zero and eight are
 accepted, including the native metadata writer's explicit eight-byte offset.
 Multiple markers or data after the marker's flush are rejected.
 
-Supported records create/drop schemas and tables, select a table, insert rows,
-delete physical row IDs, and update primitive columns and their validity. The
+Supported records create/drop schemas and tables, apply supported table
+alterations, select a table, insert rows, delete physical row IDs, and update
+primitive columns and their validity. The
 shared native catalog decoder preserves supported typed defaults and constraints.
 Serialized chunks support flat, constant, dictionary and integer sequence
-vectors. Nested column types, bulk block appends, index/ALTER/view/sequence/macro
+vectors. Nested column types, bulk block appends, index/view/sequence/macro
 records, encrypted or unframed logs, and concurrent checkpoint reconciliation
 remain unsupported. Headers with database identifiers and checkpoint iterations
 are checked. A tagged log may lag the checkpoint by one generation only when its
@@ -343,7 +443,10 @@ Physical operators open independent local streams. Each next call specifies a ma
 (the default) or `Separate`, recorded in adapter metadata. Fusion applies only
 to a filter directly above a logical table scan. `TableScan` delivers an owned
 `ScanBatch` of stable row identities and values. Single-row requests retain a
-row representation; bulk requests share views of the published columns.
+row representation; bulk requests share views of the published columns and
+row identities. `ScanBatch::shared` validates an identity range and retains its
+backing allocation, so later writes or cursor destruction cannot invalidate it.
+Adapters can also supply owned identity vectors through `ScanBatch::new`.
 Conversions occur when execution requests columns or collection requests rows.
 Fusion validates input schema and
 logical payloads before evaluating predicates; physical types are checked by
@@ -351,6 +454,50 @@ vector construction. Selected columns retain the input storage. It
 retains the separate operators' input demand, ordering, cancellation and terminal
 errors; it does not prefetch beyond demand or require a concrete storage adapter.
 Other input shapes retain the ordinary filter operator.
+
+`Aggregation` carries canonical group ordinals, an ordered list of grouping
+sets, and function or GROUPING outputs. Repeated sets remain independent;
+repeated ordinals within a set collapse. Missing group values become NULL,
+while GROUPING bits describe set membership independently of stored NULLs.
+Each empty set emits a row even for empty input. Frontends and optimizers use
+the same metadata and expression validation before physical planning.
+
+`NativePhysicalPlanner::with_aggregation` selects an `AggregationAlgorithm`.
+`HashAggregation` uses hashed canonical keys and an optional integer column
+algorithm; `OrderedAggregation` uses an ordered index with the same type-adapter
+key semantics. Both consume the input
+once and retain independent aggregate and DISTINCT state per set and group.
+Grouping expressions and each function's arguments/filter are evaluated once
+per input row. FILTER controls updates, not group existence. Updates retain
+input order; output order is unspecified. Cancellation or failure discards
+state before output publication. The row budget bounds retained groups and
+each DISTINCT set; byte accounting, parallel combination and spill remain open.
+The SQL binder expands GROUPING SETS, ROLLUP and CUBE with bounded nesting and
+set counts. A dialect extension produces nested grouping AST nodes through the
+parser interface, without rewriting SQL text. See the [grouping evidence](grouping/README.md).
+
+`AggregateFunction::create_grouped_state` optionally supplies an independently
+owned `GroupedAggregateState` with contiguous group ordinals, checked growth,
+column updates and one owned result per group. The default declines before
+input is consumed. Opting in promises total updates without effects for
+logically validated arguments and at most `usize::MAX` updates per group;
+the adapter must enforce that count before relying on it. Work may interleave
+differently between groups and functions while retaining each group's input
+order. This permits contiguous state arrays without requiring the executor to
+identify concrete functions. A replacement backed by ordinary scalar aggregate
+states runs the same interface and SQL callers in the conformance tests.
+
+The integer column algorithm requires total expressions, at most two keys per
+set, explicit integer key capabilities from the selected type adapters, and
+opt-in functions without DISTINCT/FILTER. Other signatures retain the ordered
+row driver. Each set owns a bounded adaptive integer index, with a sparse map
+for keys outside the initial dense domain. Argument and key columns are
+evaluated once per input batch. `GroupSelection` retains validated destinations
+in input order and an optional bounded histogram; functions can count without
+permuting argument rows. Constant destinations use the existing global SUM
+kernel. Signed SUM inputs through 64 bits fit every i128 prefix under the
+checked update-count bound. NULLs, empty states, overflow rejection for broader
+inputs, cancellation and output validation remain explicit contracts.
 
 `AggregateState::update_batch` accepts argument columns with explicit cardinality,
 including zero-column input for count(*). The default adapter retains scalar
@@ -361,16 +508,34 @@ Failed states are discarded, and each adapter must preserve NULLs, overflow and
 cancellation. These changes address measured C++ regressions; acceptance still
 depends on the recorded comparisons.
 
+The integer SUM kernel uses independent checked 64-bit partial accumulators for
+flat, non-NULL narrow integers. A partial overflow requests a 128-bit block
+reduction; it is not a SQL error. A conservative bound on every accumulator
+prefix is checked before using either reduction. HUGEINT inputs, nullable or
+selected encodings, and states near the 128-bit boundary keep ordered checked
+updates. Cancellation is checked between bounded blocks. No table statistics or
+query results are cached by this kernel.
+
 `JoinAlgorithm::open` accepts a validated `JoinPlan` and opens an independent
 cursor. Its default collects both inputs and invokes the materialized algorithm.
 `HashJoin` accepts equality between pure, total expressions local to each input.
-For semi/anti joins it builds canonical right-side keys once and probes left
+For semi/anti joins it builds right-side equality keys once and probes left
 batches through the selected expression evaluator. It retains duplicates and
 order on the left, excludes NULL equality matches, and does not open the right
 input until the first left batch exists. Build cardinality is checked; owned
 selected chunks survive cursor destruction. The retained equality type owns key
 semantics. Other hash joins and the nested-loop adapter retain explicit
 materialization. Join build work remains visible as blocking delivery in EXPLAIN.
+
+`TypeAdapter::key_representation` defaults to canonical bytes. An adapter may
+explicitly promise total integer-identity keys after logical validation;
+`BoundType` retains this capability and rejects incompatible physical types at
+binding. The semi/anti membership builder uses a compact bitmap for bounded,
+dense integer domains, with typed hashing for sparse or wide domains. Bitmaps
+are limited to 128 KiB and eight bytes per distinct key. Other adapters retain
+their canonical byte keys, normalization, validation, and errors. Build state
+is sealed before probing and owned by one cursor; no concrete adapter downcast
+or query-result cache is involved.
 
 Aggregation consumes batches into group states, and sorting collects its input.
 No spilling is implemented. The default pull executor drives chunks into an

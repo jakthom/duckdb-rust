@@ -4,12 +4,12 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
+from reference_version import TARGETS, require_reference
 import subprocess
 import tempfile
 
 from generate_wal_fixtures import reference, send_ready
 
-ROOT = Path(__file__).resolve().parents[1]
 SETUP = """SET force_compression='uncompressed';
 CREATE TABLE t(i INTEGER PRIMARY KEY, s VARCHAR);
 INSERT INTO t VALUES(1,'old'),(2,'two'); CHECKPOINT;"""
@@ -19,11 +19,14 @@ QUERY = 'SELECT * FROM t ORDER BY i'
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--duckdb', default='/opt/homebrew/bin/duckdb')
+    parser.add_argument('--target', choices=TARGETS, default='release')
+    parser.add_argument('--duckdb', type=Path)
+    parser.add_argument('--output-dir', type=Path, required=True)
     args = parser.parse_args()
-    destination = ROOT/'test/data/wal/checkpoints'
+    args.duckdb, identity = require_reference(args.duckdb, target=args.target)
+    destination = args.output_dir
     destination.mkdir(parents=True, exist_ok=True)
-    manifest = {'writer': subprocess.check_output([args.duckdb, '--version'], text=True).strip(), 'cases': {}}
+    manifest = {'writer': identity['version'], 'reference_identity': identity, 'cases': {}}
     for abort in ['BEFORE_HEADER', 'BEFORE_TRUNCATE']:
         name = abort.lower()
         with tempfile.TemporaryDirectory() as directory:

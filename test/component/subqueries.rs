@@ -61,7 +61,7 @@ fn subquery_adapters_share_sql_scope_null_cardinality_and_mutation_contracts() -
                                 ))
                                 .build()?;
                             assert!(db.adapters().contains(&("subqueries", subqueries.name())));
-                            assert!(runner::run_file(&mut db.connect(), &corpus)? >= 30);
+                            assert!(runner::run_file(&db, &corpus)? >= 30);
                         }
                     }
                 }

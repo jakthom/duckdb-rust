@@ -60,6 +60,10 @@ impl RecoveryTarget for Snapshot {
                     next.drop_table(name, false)?;
                     validity.retain(|(table, _, _), _| table != name);
                 }
+                RecoveredChange::AlterTable { table, alteration } => {
+                    apply_validity(&mut next, std::mem::take(&mut validity), context)?;
+                    next.alter_table(table, alteration, context)?;
+                }
                 RecoveredChange::Insert { table, rows } => {
                     let table = next.recovery_table(table)?;
                     context.check_rows(table.rows.len().saturating_add(rows.len()))?;
@@ -122,21 +126,30 @@ impl RecoveryTarget for Snapshot {
                 }
             }
         }
-        for ((table, column, id), valid) in validity {
-            context.check()?;
-            if let Some(row) = next.recovery_table(&table)?.rows.get_mut(&id) {
-                if !valid {
-                    row[column] = crate::common::Value::Null;
-                } else if row[column].is_null() {
-                    return Err(Error::Corrupt(
-                        "WAL makes a NULL slot valid without a value".into(),
-                    ));
-                }
-            }
-        }
+        apply_validity(&mut next, validity, context)?;
         // Rebuild derived state only after the entire durable transaction.
         next = next.with_indexes(self.indexes.clone(), context)?;
         *self = next;
         Ok(())
     }
+}
+
+fn apply_validity(
+    next: &mut Snapshot,
+    validity: BTreeMap<(TableName, usize, RowId), bool>,
+    context: &QueryContext,
+) -> Result<()> {
+    for ((table, column, id), valid) in validity {
+        context.check()?;
+        if let Some(row) = next.recovery_table(&table)?.rows.get_mut(&id) {
+            if !valid {
+                row[column] = crate::common::Value::Null;
+            } else if row[column].is_null() {
+                return Err(Error::Corrupt(
+                    "WAL makes a NULL slot valid without a value".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }

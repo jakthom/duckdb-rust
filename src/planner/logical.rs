@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use super::BoundExpr;
+use super::{
+    BoundExpr, RecursiveId,
+    aggregation::{AggregateOutput, Aggregation},
+};
 use crate::{
     catalog::{TableDefinition, TableName},
     common::{DataType, Result, Row},
@@ -42,11 +45,18 @@ impl LogicalPlan {
             | PlanNode::Sort { input, .. }
             | PlanNode::Limit { input, .. }
             | PlanNode::Distinct(input) => visit(input),
-            PlanNode::Join { left, right, .. } | PlanNode::Union { left, right, .. } => {
+            PlanNode::Join { left, right, .. }
+            | PlanNode::Union { left, right, .. }
+            | PlanNode::Recursive {
+                seed: left,
+                step: right,
+                ..
+            } => {
                 visit(left);
                 visit(right);
             }
             PlanNode::Values(_)
+            | PlanNode::RecursiveInput(_)
             | PlanNode::Scan(_)
             | PlanNode::KeyLookup { .. }
             | PlanNode::Range { .. } => (),
@@ -69,13 +79,11 @@ impl LogicalPlan {
                 }
             }
             PlanNode::Join { condition, .. } => visit(condition),
-            PlanNode::Aggregate {
-                groups, aggregates, ..
-            } => {
-                for expr in groups {
+            PlanNode::Aggregate { aggregation, .. } => {
+                for expr in &aggregation.groups {
                     visit(expr);
                 }
-                for aggregate in aggregates {
+                for aggregate in aggregation.functions() {
                     for expr in &aggregate.arguments {
                         visit(expr);
                     }
@@ -90,6 +98,8 @@ impl LogicalPlan {
                 }
             }
             PlanNode::Scan(_)
+            | PlanNode::RecursiveInput(_)
+            | PlanNode::Recursive { .. }
             | PlanNode::KeyLookup { .. }
             | PlanNode::Range { .. }
             | PlanNode::Limit { .. }
@@ -133,24 +143,25 @@ impl LogicalPlan {
             },
             PlanNode::Aggregate {
                 input,
-                groups,
-                aggregates,
-            } => PlanNode::Aggregate {
-                input,
-                groups: groups.into_iter().map(&mut map).collect::<Result<_>>()?,
-                aggregates: aggregates
+                mut aggregation,
+            } => {
+                aggregation.groups = aggregation
+                    .groups
                     .into_iter()
-                    .map(|mut aggregate| {
+                    .map(&mut map)
+                    .collect::<Result<_>>()?;
+                for output in &mut aggregation.outputs {
+                    if let AggregateOutput::Function(aggregate) = output {
                         aggregate.arguments = aggregate
                             .arguments
-                            .into_iter()
+                            .drain(..)
                             .map(&mut map)
                             .collect::<Result<_>>()?;
-                        aggregate.filter = aggregate.filter.map(&mut map).transpose()?;
-                        Ok(aggregate)
-                    })
-                    .collect::<Result<_>>()?,
-            },
+                        aggregate.filter = aggregate.filter.take().map(&mut map).transpose()?;
+                    }
+                }
+                PlanNode::Aggregate { input, aggregation }
+            }
             PlanNode::Sort { input, order } => PlanNode::Sort {
                 input,
                 order: order
@@ -162,6 +173,8 @@ impl LogicalPlan {
                     .collect::<Result<_>>()?,
             },
             node @ (PlanNode::Scan(_)
+            | PlanNode::RecursiveInput(_)
+            | PlanNode::Recursive { .. }
             | PlanNode::KeyLookup { .. }
             | PlanNode::Range { .. }
             | PlanNode::Limit { .. }
@@ -193,14 +206,9 @@ impl LogicalPlan {
                 kind,
                 condition,
             },
-            PlanNode::Aggregate {
-                input,
-                groups,
-                aggregates,
-            } => PlanNode::Aggregate {
+            PlanNode::Aggregate { input, aggregation } => PlanNode::Aggregate {
                 input: Box::new(map(*input)?),
-                groups,
-                aggregates,
+                aggregation,
             },
             PlanNode::Sort { input, order } => PlanNode::Sort {
                 input: Box::new(map(*input)?),
@@ -221,7 +229,19 @@ impl LogicalPlan {
                 right: Box::new(map(*right)?),
                 all,
             },
+            PlanNode::Recursive {
+                id,
+                seed,
+                step,
+                all,
+            } => PlanNode::Recursive {
+                id,
+                seed: Box::new(map(*seed)?),
+                step: Box::new(map(*step)?),
+                all,
+            },
             node @ (PlanNode::Values(_)
+            | PlanNode::RecursiveInput(_)
             | PlanNode::Scan(_)
             | PlanNode::KeyLookup { .. }
             | PlanNode::Range { .. }) => node,
@@ -263,6 +283,17 @@ pub struct OrderExpr {
 pub enum PlanNode {
     Values(Vec<Vec<BoundExpr>>),
     Scan(TableName),
+    /// Reads the previous iteration in the nearest enclosing matching binding.
+    RecursiveInput(RecursiveId),
+    /// Seed rows followed by fixed-point iterations. UNION removes duplicates
+    /// across all generations; UNION ALL preserves them. The step sees only
+    /// the previous generation, and has the seed's explicitly coerced types.
+    Recursive {
+        id: RecursiveId,
+        seed: Box<LogicalPlan>,
+        step: Box<LogicalPlan>,
+        all: bool,
+    },
     /// Exact typed equality through an advertised transaction-visible index.
     /// The result has the full table schema; NULL keys produce no matches.
     KeyLookup {
@@ -291,8 +322,7 @@ pub enum PlanNode {
     },
     Aggregate {
         input: Box<LogicalPlan>,
-        groups: Vec<BoundExpr>,
-        aggregates: Vec<AggregateExpr>,
+        aggregation: Aggregation,
     },
     Sort {
         input: Box<LogicalPlan>,
@@ -313,6 +343,8 @@ pub enum PlanNode {
 
 #[derive(Clone, Debug)]
 pub enum BoundStatement {
+    Noop,
+    Configure(crate::main::settings::SettingChange),
     Checkpoint,
     Query(LogicalPlan),
     CreateSchema {
@@ -331,6 +363,10 @@ pub enum BoundStatement {
     DropTable {
         names: Vec<TableName>,
         if_exists: bool,
+    },
+    AlterTable {
+        table: TableName,
+        alteration: crate::catalog::TableAlteration,
     },
     Insert {
         table: TableName,
