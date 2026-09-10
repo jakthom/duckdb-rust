@@ -51,6 +51,33 @@ ERROR_CASES += [('SELECT 1.0%0.0', 'Invalid Input Error'),
                 ("SELECT 'a'::DECIMAL(5,2)", 'Conversion Error'),
                 ('SELECT 256::UTINYINT', 'Conversion Error')]
 
+# Integral-direction overloads span every decimal storage transition. Values
+# stay textual and exact; no Python floating-point conversion builds decimals.
+for width in (1, 4, 5, 9, 10, 18, 19, 38):
+    for scale in range(width + 1):
+        magnitude = '9' * width
+        if scale:
+            magnitude = (magnitude[:-scale] or '0') + '.' + magnitude[-scale:]
+        kind = f'DECIMAL({width},{scale})'
+        SQL.append(f"SELECT x::VARCHAR,ceil(x)::VARCHAR,ceiling(x)::VARCHAR,floor(x)::VARCHAR,sign(x),typeof(ceil(x)),typeof(floor(x)),typeof(sign(x)) FROM (VALUES ('-{magnitude}'::{kind}),('0'::{kind}),('{magnitude}'::{kind}),(NULL::{kind})) t(x) ORDER BY x")
+for kind in ('TINYINT','SMALLINT','INTEGER','BIGINT','HUGEINT','UTINYINT','USMALLINT','UINTEGER','UBIGINT','UHUGEINT','BIGNUM'):
+    SQL.append(f"SELECT ceil(x)::VARCHAR,floor(x)::VARCHAR,sign(x),typeof(ceil(x)),typeof(floor(x)),typeof(sign(x)) FROM (VALUES (0::{kind}),(1::{kind}),(NULL::{kind})) t(x) ORDER BY x")
+for kind in ('FLOAT','DOUBLE'):
+    values = ','.join(f"('{value}'::{kind})" for value in ('-inf','-1.25','-1.0','-0.25','-0.0','0.0','0.25','1.0','1.25','inf','nan'))
+    SQL.append(f"SELECT x::VARCHAR,ceil(x)::VARCHAR,floor(x)::VARCHAR,sign(x),typeof(ceil(x)) FROM (VALUES {values}) t(x) ORDER BY x")
+SQL += [
+    "SELECT typeof(ceil(NULL)),typeof(floor(NULL)),typeof(sign(NULL)),ceil(NULL),sign(NULL)",
+    "SELECT sign('-170141183460469231731687303715884105728'::HUGEINT),sign('340282366920938463463374607431768211455'::UHUGEINT),sign('0.00000000000000000000000000000000000001'::DECIMAL(38,38))",
+    "SELECT [ceil(1.25::FLOAT),floor(-1.25::FLOAT),NULL]::VARCHAR,concat(ceil(1.25::DOUBLE)),{'x':floor(-1.25::DECIMAL(38,2))}::VARCHAR",
+    "SELECT sign(x),count(*),sum(ceil(x))::VARCHAR FROM (VALUES (-1.25::DECIMAL(8,2)),(-0.01),(0),(0.01),(1.25),(NULL)) t(x) GROUP BY sign(x) ORDER BY sign(x)",
+    "SELECT a.x::VARCHAR,ceil(a.x)::VARCHAR FROM (VALUES (-1.25::DECIMAL(8,2)),(1.25),(NULL)) a(x) JOIN (VALUES (-2::DECIMAL(8,0)),(1),(NULL)) b(y) ON floor(a.x)=b.y ORDER BY a.x",
+    "SELECT ceil(x)::VARCHAR,lag(floor(x)) OVER(ORDER BY x)::VARCHAR,sum(sign(x)) OVER(ORDER BY x ROWS UNBOUNDED PRECEDING) FROM (VALUES (-1.25::DECIMAL(8,2)),(0),(1.25),(NULL)) t(x) ORDER BY x",
+]
+for name in ('ceil','ceiling','floor','sign'):
+    ERROR_CASES += [(f'SELECT {name}({argument})','Binder Error') for argument in
+                    ("'1.25'", "'1.25'::VARCHAR", 'TRUE', "'1.25'::ENUM('1.25')", '[1]', "DATE '2024-01-01'", '', '1,2')]
+ERROR_CASES += [("SELECT floor(TIMESTAMP '2024-01-01' TO DAY)", 'Parser Error')]
+
 
 def equivalent(a, b, expected_error=None):
     if expected_error:
@@ -79,7 +106,7 @@ def equivalent(a, b, expected_error=None):
 def persistence(rust, cpp, directory):
     outcomes = []
     definition = "CREATE TABLE t(k DECIMAL(38,3) PRIMARY KEY, a UTINYINT DEFAULT 255, b USMALLINT DEFAULT 65535, c UINTEGER DEFAULT 4294967295, d UBIGINT DEFAULT 18446744073709551615, e UHUGEINT DEFAULT '340282366920938463463374607431768211455'); INSERT INTO t(k) VALUES (1.125),(-99999999999999999999999999999999999.999)"
-    query = "SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e FROM t ORDER BY k"
+    query = "SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e,ceil(k)::VARCHAR AS ceiling_value,floor(k)::VARCHAR AS floor_value,sign(k) AS sign_value FROM t ORDER BY k"
     for label, producer in [('cpp', cpp), ('rust-checkpoint', rust), ('rust-wal', Engine(rust.binary, True, ('--durability', 'wal')))]:
         result = {'producer': label, 'passed': False}
         outcomes.append(result)
@@ -94,12 +121,12 @@ def persistence(rust, cpp, directory):
             actual = command(rust, path, query, json_output=True, readonly=True)
             if actual != expected:
                 raise AssertionError({'cpp': expected, 'rust': actual})
-            command(rust, path, "UPDATE t SET k=2.25 WHERE k=1.125; INSERT INTO t(k) VALUES (3.375)")
+            command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET k=ceil(k)+0.25 WHERE k=1.125; INSERT INTO t(k) VALUES (3.375)")
             expected = command(cpp, path, query, json_output=True, readonly=True)
             actual = command(rust, path, query, json_output=True, readonly=True)
             if actual != expected or len(actual) != 3:
                 raise AssertionError({'cpp': expected, 'rust': actual})
-            command(cpp, path, "UPDATE t SET k=4.5 WHERE k=2.25; CHECKPOINT")
+            command(cpp, path, "UPDATE t SET k=floor(k)+2.5 WHERE k=2.25; CHECKPOINT")
             expected = command(cpp, path, query, json_output=True, readonly=True)
             actual = command(rust, path, query, json_output=True, readonly=True)
             if actual != expected:

@@ -46,3 +46,26 @@ the lead's maintained integrated Kani checkpoint are pending. This commit is an
 integrable internal step, not a declaration that the substantial stage is done.
 No performance acceptance measurements are claimed. Precision-aware
 `round`/`trunc` and `round_even`/`roundbankers` remain the next numeric work.
+
+The first [paired campaign](numeric-direction-reference-initial.json) built
+production binaries in 1m43s on unchanged integrated source. Development matches
+218/226 SQL cases and release 190/226. The eight development mismatches are
+existing DECIMAL(w,w)-to-VARCHAR formatting: Rust includes a major zero (`0.9`),
+where both references omit it (`.9`). All direction-function values/types match
+within those failing queries. Independent CLI probes confirm the discrepancy,
+including zero, signs, concat and list child rendering. The source is
+`DecimalToString::FormatDecimal` in
+`src/include/duckdb/common/types/cast_helpers.hpp`: the major component is emitted
+only when width exceeds scale. This is a real selected-cast correctness gap,
+not numeric tolerance or an assertion to normalize away. Its repair and exact
+rerun follow; the initial failures are retained.
+
+All three native producer paths (C++, Rust checkpoint and Rust WAL) pass both
+pins, including typed defaults, selected direction expressions, primary-key
+updates, rollback and cross-engine checkpoint/reopen. The initial
+[unchanged upstream floor/ceil file](upstream-numeric-direction.json) passes all
+16 records. Its wrapper exits 1 because a selected file is not whole-suite
+parity. After merging the integration lead's source, numeric 31, casts 12 and
+binary scalar 8 tests pass. The paired report remains unsuccessful until the
+eight development formatting mismatches are repaired; the remaining 28
+release-only mismatches are retained earlier numeric/version divergences.
