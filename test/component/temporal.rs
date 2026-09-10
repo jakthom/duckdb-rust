@@ -64,3 +64,25 @@ fn temporal_literals_keep_type_precision_nulls_and_canonical_comparison() -> Res
     }
     Ok(())
 }
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn interval_index_rejection_preserves_the_catalog_and_other_key_operators()
+-> duckdb_rust::Result<()> {
+    use duckdb_rust::{Database, Error, Value};
+    let database = Database::memory()?;
+    let mut connection = database.connect();
+    for constraint in ["PRIMARY KEY", "UNIQUE"] {
+        assert!(matches!(
+            connection.execute(&format!("CREATE TABLE invalid(i INTERVAL {constraint})")),
+            Err(Error::InvalidType(_))
+        ));
+    }
+    connection.execute("CREATE TABLE invalid(i INTERVAL); INSERT INTO invalid VALUES (INTERVAL '1 month'),(INTERVAL '30 days')")?;
+    assert_eq!(
+        connection
+            .query("SELECT count(DISTINCT i) FROM invalid")?
+            .rows,
+        vec![vec![Value::Integer(1)]]
+    );
+    Ok(())
+}

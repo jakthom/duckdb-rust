@@ -28,6 +28,8 @@ pub enum Error {
     OutOfRange(String),
     #[error("Invalid Input Error: {0}")]
     InvalidInput(String),
+    #[error("Invalid type Error: {0}")]
+    InvalidType(String),
     #[error("Interrupted")]
     Interrupted,
     #[error("Resource limit exceeded: {0}")]

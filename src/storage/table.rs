@@ -226,6 +226,14 @@ fn validate_definition(
                 "primary key columns must be NOT NULL".into(),
             ));
         }
+        for &index in &key.columns {
+            let data_type = &definition.columns[index].data_type;
+            if !types.bind(data_type)?.supports_index() {
+                return Err(Error::InvalidType(format!(
+                    "Invalid Type [{data_type}]: Invalid type for index key."
+                )));
+            }
+        }
     }
     if definition.unique_keys.iter().filter(|k| k.primary).count() > 1 {
         return Err(Error::Catalog("multiple primary keys".into()));

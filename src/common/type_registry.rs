@@ -124,6 +124,12 @@ pub enum OrderingRepresentation {
 /// Replacement preserves the meaning of serialized metadata and
 /// payloads. Missing families/unsupported parameters fail before use.
 pub trait TypeAdapter: Debug + Send + Sync {
+    /// SQL index admissibility is separate from comparison/canonical-key
+    /// support: INTERVAL and nested values can group/join but have no native
+    /// DuckDB index key. Retained adapters own this policy for their family.
+    fn supports_index(&self, _data_type: &DataType) -> bool {
+        true
+    }
     /// Resolve and retain child adapters from this composition once at bind
     /// time. None keeps the registered adapter. The replacement must implement
     /// the same family and pass all ordinary metadata/capability checks. Row
@@ -242,6 +248,9 @@ pub struct BoundType {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundType {
+    pub fn supports_index(&self) -> bool {
+        self.adapter.supports_index(&self.data_type)
+    }
     pub fn ordering_representation(&self) -> OrderingRepresentation {
         self.ordering_representation
     }

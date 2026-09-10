@@ -11,6 +11,9 @@ pub struct TemporalType;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for TemporalType {
+    fn supports_index(&self, data_type: &DataType) -> bool {
+        *data_type != DataType::Interval
+    }
     fn name(&self) -> &'static str {
         "calendar-temporal"
     }
