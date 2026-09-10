@@ -532,3 +532,17 @@ memory, cold I/O, durability, concurrency, new-family workloads or full parity.
 Focused numeric 28, execution 51, grouping 9, BIGNUM three and reduction units
 two pass with check/clippy. The final full workspace/upstream/Kani refresh is
 running before publication; the last pushed source remains `ae0cd51`.
+
+The [concurrent final-source upstream refresh](value-expression-upstream-checkpoint5-c.json)
+records all 5,638 identities on `88e9094`: 420 passed, 2,090 failed,
+3,110 unsupported, 15 timeouts and three incomplete; 19,235 passed records.
+Three prior full passes now hit the unchanged three-second deadline:
+`insert_from_many_grouping_sets.test` (9/10),
+`insert_from_many_groups.test_slow` (13/14), and
+`large_string_null_update.test_slow` (5/7). The already-incomplete complex-group
+insert and unaligned-update files also have shorter prefixes (1 versus 2,
+and 5 versus 6). No new result assertion mismatch is recorded. These losses
+are not waived: this campaign ran alongside workspace/proof work, and a single
+controlled full-suite rerun is planned after all heavy jobs are idle. It will
+retain the same assertions, all file identities, deadline and worker count.
+The current follow-up remains unpushed pending that investigation and Kani.

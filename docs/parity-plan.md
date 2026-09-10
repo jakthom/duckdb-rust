@@ -29,7 +29,9 @@ The later fifth checkpoint reaches 423 passing files and 19,240 successful
 records, with no lost full-file pass. Three full timing trials and a fourth
 numeric-only trial retain the decimal aggregation failure; the fifth trial
 repairs it and passes all 34 faster-reference workloads on `88e9094`. Final
-workspace/upstream/Kani validation is running before publication. These later
+workspace/Kani validation is running before publication. The concurrent final
+upstream run records 420 passes / 19,235 records with three prior full passes
+timing out; a controlled full-suite run is planned to investigate them. These later
 results do not inherit the earlier performance pass.
 Full value/function/native parity remains open. The preceding increment added unsigned and
 decimal types and coercion; its

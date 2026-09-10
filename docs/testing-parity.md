@@ -16,9 +16,13 @@ correctness, performance or native-file parity.
 
 The latest [value-and-expression checkpoint](value-expression-progress.md)
 integrates BIGNUM, BIT, temporal boundary repairs, recursive WAL recovery and
-typed concat/combination binding. Its latest fifth-checkpoint refresh executes
-all 5,638 files: 423 pass, with 19,240 successful records including failed-file
-prefixes. No checkpoint-three full-file pass is lost. The initial shorter
+typed concat/combination binding. The fifth-checkpoint refresh before the final
+reducer executes all 5,638 files: 423 pass, with 19,240 successful records
+including failed-file prefixes; no checkpoint-three full-file pass is lost.
+The final reducer's concurrent refresh records 420 passes / 19,235 records,
+with three prior full passes now timing out. A controlled full-suite run is
+planned after heavy jobs finish; these losses remain under investigation.
+The initial shorter
 constant-column timeout prefix does not reproduce against the last pushed source
 in paired diagnosis; a later join deadline also loses no previous prefix in
 three alternating source pairs. Timeouts and the 512 MiB writer limit remain
