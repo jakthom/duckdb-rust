@@ -22,10 +22,11 @@ prefixes. No checkpoint-three full-file pass is lost. The initial shorter
 constant-column timeout prefix does not reproduce against the last pushed source
 in paired diagnosis; a later join deadline also loses no previous prefix in
 three alternating source pairs. Timeouts and the 512 MiB writer limit remain
-gaps. Three full timing trials pass 33/34 faster-reference workloads, and a
-fourth numeric-only trial still fails decimal total aggregation. That gap is
-being repaired before pushing. The preceding 34/34 checkpoint-three timing
-matrix is historical, not evidence that this later source passes. All failures
+gaps. Three full timing trials and a fourth numeric-only trial retain the
+decimal aggregation failure. The fifth trial on `88e9094` repairs it and passes
+all 34 faster-reference workloads; the final workspace/upstream/Kani refresh
+is running before publication. The preceding checkpoint-three timing matrix
+remains historical and separate. All failures
 remain retained; new-family workloads and the rest of the parity matrix remain
 open.
 

@@ -4,8 +4,9 @@ The [accepted milestone](../specs/value-expression-milestone.md) remains active.
 The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
-Latest source checkpoint: `b1cb75c`; the fifth-checkpoint section below tracks
-its combined validation. Earlier sections retain historical results and limits.
+Latest source checkpoint: `88e9094`; the fifth-checkpoint section below tracks
+the passing 34-workload timing repair and pending final correctness refresh.
+Earlier sections retain historical results and limits.
 
 ## First integrated checkpoint, 2026-09-10
 
@@ -506,3 +507,28 @@ still fails decimal total: 49,083/51,291 ns against release 50,750 ns, maximum
 ratio 1.010660. Only the eight numeric cases were rerun in this trial (seven
 pass); the remaining 26 were not repeated for this failed candidate. No new
 full-suite/Kani completion is claimed for this ongoing reduction experiment.
+
+The fifth [numeric trial](value-expression-performance-checkpoint5-e-numeric-fastest.json)
+on `88e9094` uses four checked arithmetic lanes with the retained column-level
+selection and completed-block widening. Decimal total passes with Rust medians
+46,917/48,125 ns against the faster release median of 50,458 ns (maximum ratio
+0.953764). No validation, overflow bound or cancellation check was removed, no
+unsafe code or persistent coefficient cache was added, and earlier failures
+remain retained. The smaller checked loop is a measured improvement; a specific
+CPU scheduling explanation has not been independently established.
+
+The same quiet campaign completes all 34 unchanged workload identities, each
+with three warmups and 21 paired samples against both pins. All pass the strict
+faster-reference gate, with one identical Rust source fingerprint across the
+ten reports. Maximum ratios by suite are numeric 0.953764,
+[native](value-expression-performance-checkpoint5-e-native-fastest.json) 0.964852,
+[grouping](value-expression-performance-checkpoint5-e-grouping-fastest.json) 0.933296,
+[ordering](value-expression-performance-checkpoint5-e-ordering-fastest.json) 0.696011,
+and [relational](value-expression-performance-checkpoint5-e-relational-fastest.json)
+0.926531. Implementation workers paused builds/proofs/reference probes during
+measurement; ordinary user applications remained running. This closes the
+recorded decimal timing gap for this source/configuration, not unmeasured CPU,
+memory, cold I/O, durability, concurrency, new-family workloads or full parity.
+Focused numeric 28, execution 51, grouping 9, BIGNUM three and reduction units
+two pass with check/clippy. The final full workspace/upstream/Kani refresh is
+running before publication; the last pushed source remains `ae0cd51`.

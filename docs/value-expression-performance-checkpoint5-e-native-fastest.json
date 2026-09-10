@@ -1,0 +1,303 @@
+{
+  "workloads": [
+    {
+      "name": "scan",
+      "selected_reference": "release",
+      "baseline_median_ns": 869417,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 869417,
+          "rust_median_ns": 146666,
+          "rust_over_cpp": 0.16869465400377495,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 898625,
+          "rust_median_ns": 150792,
+          "rust_over_cpp": 0.16780303241062736,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.16869465400377495,
+        "development": 0.17344036290985798
+      },
+      "passed": true
+    },
+    {
+      "name": "filter",
+      "selected_reference": "release",
+      "baseline_median_ns": 535500,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 535500,
+          "rust_median_ns": 428709,
+          "rust_over_cpp": 0.8005770308123249,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 695667,
+          "rust_median_ns": 448708,
+          "rust_over_cpp": 0.6450040033521786,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.8005770308123249,
+        "development": 0.8379234360410831
+      },
+      "passed": true
+    },
+    {
+      "name": "aggregate",
+      "selected_reference": "release",
+      "baseline_median_ns": 52833,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 52833,
+          "rust_median_ns": 39209,
+          "rust_over_cpp": 0.7421308651789601,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 134333,
+          "rust_median_ns": 38958,
+          "rust_over_cpp": 0.2900106451877052,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.7421308651789601,
+        "development": 0.737380046561808
+      },
+      "passed": true
+    },
+    {
+      "name": "point",
+      "selected_reference": "release",
+      "baseline_median_ns": 26250,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 26250,
+          "rust_median_ns": 15500,
+          "rust_over_cpp": 0.5904761904761905,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 127208,
+          "rust_median_ns": 16083,
+          "rust_over_cpp": 0.12643072762719326,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.5904761904761905,
+        "development": 0.6126857142857143
+      },
+      "passed": true
+    },
+    {
+      "name": "limit",
+      "selected_reference": "release",
+      "baseline_median_ns": 160625,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 160625,
+          "rust_median_ns": 10667,
+          "rust_over_cpp": 0.06640933852140078,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 4579458,
+          "rust_median_ns": 14625,
+          "rust_over_cpp": 0.003193609374733866,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.06640933852140078,
+        "development": 0.09105058365758754
+      },
+      "passed": true
+    },
+    {
+      "name": "correlated_exists",
+      "selected_reference": "release",
+      "baseline_median_ns": 1806875,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 1806875,
+          "rust_median_ns": 354959,
+          "rust_over_cpp": 0.19644911795226566,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 2123334,
+          "rust_median_ns": 353167,
+          "rust_over_cpp": 0.16632663537625264,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.19644911795226566,
+        "development": 0.19545735039778622
+      },
+      "passed": true
+    },
+    {
+      "name": "recursive_linear",
+      "selected_reference": "development",
+      "baseline_median_ns": 2585416,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 8640875,
+          "rust_median_ns": 1524917,
+          "rust_over_cpp": 0.17647715075151532,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 2585416,
+          "rust_median_ns": 1496875,
+          "rust_over_cpp": 0.5789687230217497,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.5898149466082054,
+        "development": 0.5789687230217497
+      },
+      "passed": true
+    },
+    {
+      "name": "recursive_cycle",
+      "selected_reference": "development",
+      "baseline_median_ns": 943916,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 2168083,
+          "rust_median_ns": 353917,
+          "rust_over_cpp": 0.1632395992219855,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 943916,
+          "rust_median_ns": 368625,
+          "rust_over_cpp": 0.3905273350594756,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.37494544006034436,
+        "development": 0.3905273350594756
+      },
+      "passed": true
+    },
+    {
+      "name": "recursive_correlated",
+      "selected_reference": "development",
+      "baseline_median_ns": 286875,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 341000,
+          "rust_median_ns": 276792,
+          "rust_over_cpp": 0.8117067448680352,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 286875,
+          "rust_median_ns": 270875,
+          "rust_over_cpp": 0.9442265795206972,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.9648522875816994,
+        "development": 0.9442265795206972
+      },
+      "passed": true
+    },
+    {
+      "name": "alter_add_column",
+      "selected_reference": "release",
+      "baseline_median_ns": 102541,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 102541,
+          "rust_median_ns": 5959,
+          "rust_over_cpp": 0.05811334002984172,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 154958,
+          "rust_median_ns": 6458,
+          "rust_over_cpp": 0.04167580892887105,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.05811334002984172,
+        "development": 0.06297968617431077
+      },
+      "passed": true
+    },
+    {
+      "name": "alter_drop_column",
+      "selected_reference": "release",
+      "baseline_median_ns": 39333,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 39333,
+          "rust_median_ns": 4333,
+          "rust_over_cpp": 0.11016195052500445,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 83750,
+          "rust_median_ns": 4625,
+          "rust_over_cpp": 0.05522388059701493,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.11016195052500445,
+        "development": 0.11758574225205298
+      },
+      "passed": true
+    },
+    {
+      "name": "alter_rename_table",
+      "selected_reference": "release",
+      "baseline_median_ns": 37584,
+      "campaign_medians": {
+        "release": {
+          "cpp_median_ns": 37584,
+          "rust_median_ns": 4500,
+          "rust_over_cpp": 0.11973180076628352,
+          "passed": true
+        },
+        "development": {
+          "cpp_median_ns": 78083,
+          "rust_median_ns": 4458,
+          "rust_over_cpp": 0.05709309324692955,
+          "passed": true
+        }
+      },
+      "rust_over_fastest": {
+        "release": 0.11973180076628352,
+        "development": 0.11861430395913154
+      },
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "max_ratio": 1.0,
+  "complete_performance_parity": false,
+  "scope": "Same workload/source/binary/host/configuration identities across two separately paired campaigns. Each workload selects the smaller C++ median and gates both retained Rust medians against it. All original samples and failed runs remain in the input reports. This is scoped latency evidence; CPU, memory, I/O, concurrency and other unmeasured costs remain open.",
+  "recorded_at": "2026-09-10T21:25:56.699343+00:00",
+  "inputs": {
+    "docs/value-expression-performance-checkpoint5-e-native-release.json": "863539e9bbbbd2804edc1297e4c2fb4d53f5a31b13fe2dd600f722f7d5edd0f6",
+    "docs/value-expression-performance-checkpoint5-e-native-development.json": "df0e07e251fa3a21ce4280e53634e524018868c4e983d6d04bd223d8dee0e04a",
+    "benchmark/native_workloads.json": "127c0713b266b9db233aec4d1f908e6166fd05fddc032670181cde37fda976fb"
+  },
+  "script_sha256": "a6e33d210f67138553400b7bfd0643c9f87bf85dca38d4d8f85cdc78689b16c8"
+}
