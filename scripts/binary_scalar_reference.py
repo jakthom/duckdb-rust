@@ -1,4 +1,4 @@
-"""Typed BLOB/UUID SQL and native checkpoint/WAL interoperability, both pinned C++ references."""
+"""Typed BLOB/UUID/Base64 SQL and native interchange, both pinned C++ references."""
 import argparse
 from datetime import datetime, timezone
 import json
@@ -46,11 +46,42 @@ ERRORS = [
     ("SELECT 'a'::VARBINARY(3)", "Binder Error"),
 ]
 
+# Preserve the preceding binary cases while expanding the selected catalog.
+SQL += [
+    "SELECT base64('a'),to_base64(''),typeof(base64(NULL)),typeof(from_base64(NULL)),from_base64(NULL)",
+    "SELECT base64(encode('üäabcdef')),hex(from_base64('QQ=='::ENUM('QQ=='))),hex(from_base64('AAAA'))",
+    "SELECT hex(from_base64('AA=B')),hex(from_base64('AB=C')),hex(from_base64('AR==')),hex(from_base64('AAB=')),hex(from_base64('AAAAAA=A'))",
+    "SELECT CASE WHEN false THEN from_base64('bad') ELSE from_base64('QQ==') END",
+    "SELECT base64(b),hex(from_base64(s)) FROM (VALUES ('A'::BLOB,'QQ=='),(''::BLOB,''),(NULL,NULL),('abc'::BLOB,'YWJj')) t(b,s)",
+    "SELECT base64(a.b),count(*) FROM (VALUES (from_base64('AA==')),(from_base64('AP8=')),(NULL)) a(b) JOIN (VALUES (from_base64('AP8=')),(from_base64('AA=='))) b(b) ON a.b=b.b GROUP BY a.b ORDER BY a.b",
+    "SELECT base64(b),base64(lag(b) OVER(ORDER BY b)),first_value(base64(b)) OVER(ORDER BY b) FROM (VALUES (from_base64('AA==')),(from_base64('AP8=')),(from_base64('AAE='))) t(b) ORDER BY b",
+    "SELECT base64(n[1]),hex(n[2]),n::VARCHAR FROM (SELECT [from_base64('AA=='),from_base64('AP8='),NULL] AS n)",
+]
+for size in list(range(66)) + [127,128,255,256,257,1024,2049]:
+    literal = bytes(index % 256 for index in range(size)).hex()
+    SQL.append(f"SELECT base64(unhex('{literal}')),to_base64(unhex('{literal}')),hex(from_base64(base64(unhex('{literal}'))))")
+alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+padding_inputs = ["A" + char + "==" for char in alphabet] + ["AA" + char + "=" for char in alphabet] + ["AA=" + char for char in alphabet]
+for start in range(0, len(padding_inputs), 32):
+    values = ",".join("('" + value + "')" for value in padding_inputs[start:start+32])
+    SQL.append(f"SELECT s,hex(from_base64(s)) FROM (VALUES {values}) t(s) ORDER BY s")
+ERRORS += [(sql, "Binder Error") for sql in [
+    "SELECT base64('a'::VARCHAR)", "SELECT base64(1)", "SELECT base64('a'::ENUM('a'))",
+    "SELECT from_base64('QQ=='::BLOB)", "SELECT base64()", "SELECT from_base64('QQ==','QQ==')",
+    "SELECT base64(s) FROM (VALUES ('a')) t(s)",
+]]
+ERRORS += [("SELECT from_base64('" + value + "')", "Conversion Error") for value in [
+    "a", "ab", "abc", "é", "üab", "AAAA\n", "AAAA=====", "=AAA", "A=AA", "AA==AAAA",
+    "AAA=AAAA", "AA=!", "AA-_", "AAA\n", "    ",
+]]
+ERRORS += [("SELECT TRY_CAST(from_base64('bad') AS VARCHAR)", "Conversion Error"),
+           (r"SELECT from_base64('AAA'||decode('\x00'::BLOB))", "Conversion Error")]
+
 
 def persistence(rust, cpp, directory):
     results = []
-    definition = r"CREATE TABLE t(k UUID PRIMARY KEY DEFAULT '00000000000000000000000000000000', b BLOB UNIQUE DEFAULT '\x00\xFF', d DECIMAL(38,3) DEFAULT 1.125); INSERT INTO t DEFAULT VALUES; INSERT INTO t VALUES ('ffffffffffffffffffffffffffffffff','\x00\x01\xFF',2.250),('80000000000000000000000000000000','',NULL)"
-    query = "SELECT k::VARCHAR AS k,b::VARCHAR AS b,d::VARCHAR AS d,typeof(k) AS kt,typeof(b) AS bt FROM t ORDER BY k"
+    definition = r"CREATE TABLE t(k UUID PRIMARY KEY DEFAULT '00000000000000000000000000000000', b BLOB UNIQUE DEFAULT from_base64('AP8='), d DECIMAL(38,3) DEFAULT 1.125); INSERT INTO t DEFAULT VALUES; INSERT INTO t VALUES ('ffffffffffffffffffffffffffffffff',from_base64('AAH/'),2.250),('80000000000000000000000000000000',from_base64(''),NULL)"
+    query = "SELECT k::VARCHAR AS k,b::VARCHAR AS b,base64(b) AS encoded,hex(from_base64(base64(b))) AS decoded,d::VARCHAR AS d,typeof(k) AS kt,typeof(b) AS bt FROM t ORDER BY k"
     for label, producer in [("cpp", cpp), ("rust-checkpoint", rust), ("rust-wal", Engine(rust.binary, True, ("--durability", "wal")))]:
         result = {"producer": label, "passed": False}
         results.append(result)
@@ -65,7 +96,7 @@ def persistence(rust, cpp, directory):
             actual = command(rust, path, query, json_output=True, readonly=True)
             if expected != actual:
                 raise AssertionError({"cpp": expected, "rust": actual})
-            command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET b='updated'::BLOB WHERE k='00000000000000000000000000000000'::UUID")
+            command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET b=from_base64('dXBkYXRlZA==') WHERE k='00000000000000000000000000000000'::UUID")
             expected = command(cpp, path, query, json_output=True, readonly=True)
             actual = command(rust, path, query, json_output=True, readonly=True)
             if expected != actual or len(actual) != 3:
@@ -75,7 +106,12 @@ def persistence(rust, cpp, directory):
             actual = command(rust, path, query, json_output=True, readonly=True)
             if expected != actual or len(actual) != 2:
                 raise AssertionError({"cpp": expected, "rust": actual})
-            result.update(passed=True, final_rows=actual)
+            lookup = "SELECT k::VARCHAR AS k,base64(b) AS b FROM t WHERE b=from_base64('dXBkYXRlZA==')"
+            cpp_lookup = command(cpp, path, lookup, json_output=True, readonly=True)
+            rust_lookup = command(rust, path, lookup, json_output=True, readonly=True)
+            if cpp_lookup != rust_lookup or len(rust_lookup) != 1:
+                raise AssertionError({"cpp_lookup":cpp_lookup,"rust_lookup":rust_lookup})
+            result.update(passed=True, final_rows=actual, indexed_lookup=rust_lookup)
         except Exception as error:
             result["error"] = str(error)
     return results
@@ -95,7 +131,7 @@ def main():
     report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "source_sha256": before,
               "build_command": build, "rust_worker_sha256": digest(worker), "rust_cli_sha256": digest(rust.binary),
               "script_sha256": digest(Path(__file__)), "targets": [], "full_parity": False,
-              "scope": "Selected typed BLOB/UUID SQL, error categories, and native checkpoint/WAL/default/index/mutation round trips. Development is authoritative; no full scalar, diagnostic, performance or engine parity claim."}
+              "scope": "Selected typed BLOB/UUID/Base64 SQL, exact binary text and padding outcomes, error categories, and native checkpoint/WAL/default/index/mutation round trips. Development is authoritative; no full scalar, diagnostic, performance or engine parity claim."}
     for target, selected in TARGETS.items():
         trial = {"target": target, "sql": [], "persistence": [], "passed": False}
         report["targets"].append(trial)

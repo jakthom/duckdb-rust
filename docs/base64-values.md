@@ -53,8 +53,26 @@ This was a test-lifetime error, not a relaxed database ownership contract.
 
 The expanded `scripts/binary_scalar_reference.py` retains all preceding
 BLOB/UUID queries and adds Base64 cases, padding observations, native defaults,
-cross-engine mutation/reopen and indexed decoded-key lookup. Its independent
-paired run is pending the lead's benchmark quiet period; no prior report is
-overwritten or counted as refreshed. Exhaustive tracing compilation/reproduction
-and the maintained integrated Kani run/investigation remain pending for this
-new increment. No performance acceptance measurement is claimed.
+cross-engine mutation/reopen and indexed decoded-key lookup. The initial
+[paired campaign](binary-scalar-reference-base64.json) built uninstrumented
+release binaries in 1m39s and retained unchanged source and both pinned binary
+identities. All 111 added Base64 cases match both pins, including 192 padding
+inputs within six batched queries. Development matches 136/136 SQL cases;
+release matches 134/136, retaining its two earlier UUID/UHUGEINT and
+constant-NULL concatenation metadata disagreements.
+
+Native Rust checkpoint and WAL producer paths pass on both pins, with exact
+post-mutation/reopen values and indexed decoded-key lookup. The C++ producer
+path fails on both: the stored `DEFAULT from_base64('AP8=')` is a parsed FUNCTION
+expression (class 9, kind 140), which the constant-only native default reader
+rejects. Thus native interchange is **2/3**, not complete, and the campaign exits
+1. The [wire inventory](native-function-default-inventory.md) identifies the
+shared retained-expression/binding dependency. No function is executed through
+hidden builtins during decoding, and the failing report is not overwritten.
+
+The full workspace/all-target test suite passes, with the two pre-existing
+external-CLI analytics tests ignored. Exhaustive tracing compilation passes in
+43 seconds and deletes its temporary telemetry. A focused Base64 execution
+trace, selected upstream file run, and the maintained integrated Kani
+run/investigation remain pending for this increment. No performance acceptance
+measurement is claimed.
