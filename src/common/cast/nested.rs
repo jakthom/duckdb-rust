@@ -1,5 +1,6 @@
 use super::*;
 use crate::common::{NestedPayload, NestedType, NestedValue};
+mod text;
 mod union;
 mod variant;
 
@@ -80,8 +81,11 @@ impl CastFunction for NestedCast {
         casts: &CastRegistry,
         types: &super::super::type_registry::TypeRegistry,
     ) -> Result<Option<Arc<dyn CastFunction>>> {
-        if spec.source == spec.target || spec.target == DataType::Varchar {
+        if spec.source == spec.target {
             return Ok(None);
+        }
+        if spec.target == DataType::Varchar {
+            return text::NestedTextCast::bind(spec, casts, types).map(Some);
         }
         let (DataType::Nested(a), DataType::Nested(b)) = (&spec.source, &spec.target) else {
             return Err(Error::Bind("nested cast metadata".into()));
@@ -131,8 +135,7 @@ impl CastFunction for NestedCast {
             return Ok(value.clone());
         }
         if spec.target == DataType::Varchar {
-            crate::common::temporal::check_cast_text_renderable(value, &mut || query.check())?;
-            return Ok(Value::Varchar(value.to_string()));
+            return Err(Error::Internal("nested text cast was not bound".into()).into());
         }
         let Value::Nested(value) = value else {
             return Err(Error::Conversion("expected nested cast input".into()).into());

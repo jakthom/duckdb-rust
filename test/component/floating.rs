@@ -14,6 +14,9 @@ use duckdb_rust::{
 };
 use std::sync::Arc;
 
+#[path = "floating_text.rs"]
+mod text;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn float_has_single_precision_casts_operations_and_result_types() -> Result<()> {
