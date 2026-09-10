@@ -79,6 +79,7 @@ fn constant(expression: &BoundExpr, context: &QueryContext) -> Option<Value> {
         ExprKind::Literal(value) | ExprKind::Parameter(value) => value
             .fits_type(&expression.data_type)
             .then(|| value.clone()),
+        ExprKind::Case(branches, otherwise) if branches.is_empty() => constant(otherwise, context),
         ExprKind::Cast(inner, cast, try_cast) => {
             let value = constant(inner, context)?;
             if *try_cast {

@@ -41,6 +41,27 @@ fn optimize(expression: BoundExpr, query: &QueryContext) -> Result<BoundExpr> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn binding_provenance_does_not_prevent_late_constant_simplification() -> Result<()> {
+    let query = QueryContext::background();
+    for expression in [
+        BoundExpr::parameter(Value::Boolean(true)),
+        BoundExpr {
+            data_type: DataType::Boolean,
+            kind: ExprKind::Case(vec![], Box::new(BoundExpr::literal(Value::Boolean(true)))),
+        },
+    ] {
+        let expression = optimize(expression, &query)?;
+        assert_eq!(expression.data_type, DataType::Boolean);
+        assert!(matches!(
+            expression.kind,
+            ExprKind::Literal(Value::Boolean(true))
+        ));
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn folding_retains_declared_types_selected_casts_and_float_bits() -> Result<()> {
     let mut registry = CastRegistry::builtins();
     registry.replace(

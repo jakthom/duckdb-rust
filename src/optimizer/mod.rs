@@ -136,14 +136,11 @@ impl OptimizerPass for RemoveTrueFilters {
     }
     fn rewrite(&self, plan: LogicalPlan, _: &OptimizerContext<'_>) -> Result<LogicalPlan> {
         let node = match plan.node {
-            PlanNode::Filter {
-                input,
-                predicate:
-                    BoundExpr {
-                        kind: ExprKind::Literal(Value::Boolean(true)),
-                        ..
-                    },
-            } => input.node,
+            PlanNode::Filter { input, predicate }
+                if matches!(predicate.constant_value(), Some(Value::Boolean(true))) =>
+            {
+                input.node
+            }
             node => node,
         };
         Ok(LogicalPlan {

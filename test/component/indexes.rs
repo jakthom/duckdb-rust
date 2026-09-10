@@ -307,6 +307,16 @@ fn planner_selects_indexes_through_contracts_across_restart_and_rollback() -> Re
                         lookups.load(Ordering::Relaxed) - before,
                         usize::from(number != 0)
                     );
+                    let before = lookups.load(Ordering::Relaxed);
+                    assert_eq!(
+                        c.query("SELECT id FROM t WHERE id=CASE WHEN true THEN 1 ELSE 2 END")?
+                            .rows,
+                        vec![ints(&[1])]
+                    );
+                    assert_eq!(
+                        lookups.load(Ordering::Relaxed) - before,
+                        usize::from(number != 0)
+                    );
                     assert!(
                         c.query("SELECT id FROM t WHERE id=1 AND id=2")?
                             .rows

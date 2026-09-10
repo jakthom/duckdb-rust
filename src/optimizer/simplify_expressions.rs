@@ -27,6 +27,14 @@ impl OptimizerPass for SimplifyExpressions {
 fn fold(expression: BoundExpr, query: &QueryContext) -> Result<BoundExpr> {
     query.check()?;
     let mut expression = expression.map_children(|child| fold(child, query))?;
+    // Contextual overload binding has finished. Execution constants may now
+    // share the ordinary literal optimizations without changing selected types
+    // or adapters. Early CASE pruning already removed unreachable dependencies.
+    expression.kind = match expression.kind {
+        ExprKind::Parameter(value) => ExprKind::Literal(value),
+        ExprKind::Case(branches, otherwise) if branches.is_empty() => otherwise.kind,
+        kind => kind,
+    };
     if let ExprKind::Cast(inner, cast, _) = &expression.kind
         && let Some(value) = inner.constant_value()
         && let Ok(value) = cast.apply(value, query)
