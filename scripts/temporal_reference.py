@@ -228,6 +228,8 @@ RENDER_SQL = [
 SQL += RENDER_SQL
 BOUNDARY_DEFINITION = "CREATE TABLE clock_boundaries(id INTEGER PRIMARY KEY,n TIME_NS UNIQUE,u TIME,z TIMETZ,child STRUCT(n TIME_NS,z TIMETZ),items TIME_NS[]); INSERT INTO clock_boundaries SELECT id,v,v::TIME,(v::TIME)::TIMETZ,{'n':v,'z':(v::TIME)::TIMETZ},[v,NULL] FROM (VALUES(1,TIME_NS '24:00:00'),(2,TIME_NS '24:00:00.000000001'),(3,TIME_NS '24:00:00.000000999'),(4,make_time(23,59,60.49999999999999)::TIME_NS)) t(id,v)"
 BOUNDARY_QUERY = "SELECT id,n::VARCHAR AS n,u::VARCHAR AS u,z::VARCHAR AS z,child::VARCHAR AS child,items::VARCHAR AS items,(DATE '2000-01-01'+u)::VARCHAR AS shifted FROM clock_boundaries ORDER BY id"
+DATE_DEFINITION = "CREATE TABLE calendar_dates(k DATE UNIQUE,d DATE DEFAULT DATE '2000-01-01 12:34:56',p STRUCT(d DATE)); INSERT INTO calendar_dates(k,p) VALUES (DATE '5881580-07-10 24:00:00',CAST({'d':'5881580-07-10'}::VARIANT AS STRUCT(d DATE))),(DATE '5877642-06-25 (BC) 24:00:00',CAST({'d':'5877642-06-25 (BC)'}::VARIANT AS STRUCT(d DATE))),(DATE '2000-01-01 12:34:56',CAST({'d':'2000-01-01'}::VARIANT AS STRUCT(d DATE)))"
+DATE_QUERY = "SELECT k::VARCHAR AS k,d::VARCHAR AS d,p::VARCHAR AS p FROM calendar_dates ORDER BY k"
 DEFINITION = "CREATE TABLE t(id INTEGER PRIMARY KEY,tm TIME DEFAULT TIME '12:00:00',ts TIMESTAMP_US DEFAULT TIMESTAMP_US 'epoch',s TIMESTAMP_S DEFAULT TIMESTAMP_S 'epoch',ms TIMESTAMP_MS DEFAULT TIMESTAMP_MS 'epoch',ns DATETIME(9) DEFAULT DATETIME(9) 'epoch',z TIMESTAMPTZ DEFAULT TIMESTAMPTZ 'epoch',tz TIMETZ DEFAULT TIMETZ '12:00:00+02',iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t(id) VALUES(1); INSERT INTO t VALUES (2,NULL,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-01 12:00:00.123',TIMESTAMP_NS '2000-01-01 12:00:00.123456789',TIMESTAMPTZ '2000-01-01 12:00:00+02',TIMETZ '00:00:00-05:30',INTERVAL '-1 month 30 days -00:00:00.000001')"
 DEFINITION += "; INSERT INTO t(id,ts) VALUES (3,TIMESTAMP '290309-12-22 (BC) 00:00:00'),(4,TIMESTAMP '294247-01-10 04:00:54.775806')"
 QUERY = "SELECT id,tm::VARCHAR AS tm,ts::VARCHAR AS ts,s::VARCHAR AS s,ms::VARCHAR AS ms,ns::VARCHAR AS ns,z::VARCHAR AS z,tz::VARCHAR AS tz,iv::VARCHAR AS iv,(ts+INTERVAL '0us')::VARCHAR AS calendar_roundtrip,nanosecond(ns) AS ns_part,timetz_byte_comparable(tz)::VARCHAR AS tz_key FROM t ORDER BY id"
@@ -309,7 +311,7 @@ def main():
                 trial['persistence'].append(case)
                 try:
                     path = Path(scratch) / (label+'.duckdb')
-                    command(producer, path, DEFINITION + ';' + BOUNDARY_DEFINITION)
+                    command(producer, path, DEFINITION + ';' + BOUNDARY_DEFINITION + ';' + DATE_DEFINITION)
                     case['checkpoint_sha256'] = digest(path)
                     wal = Path(str(path)+'.wal')
                     if wal.exists():
@@ -323,8 +325,14 @@ def main():
                     case['initial_clock_boundaries'] = {'cpp': expected_boundary, 'rust': actual_boundary}
                     if expected_boundary != actual_boundary:
                         raise AssertionError(case['initial_clock_boundaries'])
+                    expected_dates = command(cpp_cli, path, DATE_QUERY, json_output=True, readonly=True)
+                    actual_dates = command(rust, path, DATE_QUERY, json_output=True, readonly=True)
+                    case['initial_calendar_dates'] = {'cpp': expected_dates, 'rust': actual_dates}
+                    if expected_dates != actual_dates:
+                        raise AssertionError(case['initial_calendar_dates'])
                     command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET ts=TIMESTAMP '1970-01-02',iv=iv+INTERVAL '1 day' WHERE id=1")
                     command(rust, path, "BEGIN; DELETE FROM clock_boundaries; ROLLBACK; UPDATE clock_boundaries SET n=(n::TIME)::TIME_NS WHERE id=3")
+                    command(rust, path, "BEGIN; DELETE FROM calendar_dates; ROLLBACK; UPDATE calendar_dates SET k=DATE '2000-01-02 24:00:00',p=CAST({'d':'2000-01-02'}::VARIANT AS STRUCT(d DATE)) WHERE k=DATE '2000-01-01'")
                     expected = command(cpp_cli, path, QUERY, json_output=True, readonly=True)
                     actual_rows = command(rust, path, QUERY, json_output=True, readonly=True)
                     if expected != actual_rows:
@@ -334,6 +342,11 @@ def main():
                     case['final_clock_boundaries'] = {'cpp': expected_boundary, 'rust': actual_boundary}
                     if expected_boundary != actual_boundary:
                         raise AssertionError(case['final_clock_boundaries'])
+                    expected_dates = command(cpp_cli, path, DATE_QUERY, json_output=True, readonly=True)
+                    actual_dates = command(rust, path, DATE_QUERY, json_output=True, readonly=True)
+                    case['final_calendar_dates'] = {'cpp': expected_dates, 'rust': actual_dates}
+                    if expected_dates != actual_dates:
+                        raise AssertionError(case['final_calendar_dates'])
                     case.update(passed=True, final_rows=actual_rows)
                 except Exception as error:
                     case['error'] = str(error)

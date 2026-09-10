@@ -79,7 +79,7 @@ the unit's declared integer width, and its selected constructor. Tests replace
 date_part/trunc adapters to verify the syntax does not bypass registration.
 
 Checked clock/timestamp scanning shares the calendar-prefix parser while keeping
-ordinary DATE casts fully consuming. It handles one-/two-digit clock fields,
+calendar-only DATE APIs fully consuming. It handles one-/two-digit clock fields,
 optional final fields, exact fractional units, numeric offsets, timestamp-to-time
 fallback, and development's different standalone/timestamp suffix rules. Long
 calendar, whitespace, fractional and zone-name scans check cancellation without
@@ -104,11 +104,15 @@ nested TRY conversion with partial child NULLs.
 Source and independent development probes confirm that timestamp cast entry
 points ignore their strict argument. VARIANT timestamps therefore retain normal
 numeric-offset/Z/UTC handling and ignored named suffixes for naive timestamps;
-strict TIME policy must not leak into those casts. DATE is a separate open
-conversion path: development ordinary DATE accepts a validated timestamp suffix,
-whereas VARIANT DATE rejects that suffix and one-digit years. The current Rust
-DATE cast still lacks the ordinary suffix fallback and VARIANT short-year rule.
-The checked calendar-prefix/full-consumption APIs are not widened implicitly.
+strict TIME policy must not leak into those casts. DATE uses a separate
+conversion policy: ordinary DATE accepts a validated timestamp suffix, whereas
+VARIANT DATE rejects that suffix and one-digit years. The selected DateCast now
+implements both, preserving calendar-only Date::parse_checked/FromStr's full-
+consumption contract. Clock carry never changes the returned DATE. When the
+original DATE exceeds timestamp range, suffix validation retries with the core's
+placeholder calendar date without allocating/reparsing a replacement string.
+Calendar range validity is therefore not narrowed to timestamp range. Bounded
+format/range diagnostics and cooperative scanning remain part of each path.
 
 ## Evidence and regressions
 
@@ -140,6 +144,8 @@ do not establish diagnostic-category parity.
 | [Functions/keys/aliases initial](temporal-function-keys-reference-initial.json) | 749/750 | 679/750 | 0/3 expanded | 2/3 expanded |
 | [Functions/keys/aliases repair](temporal-function-keys-reference-repaired.json) | 750/750 | 680/750 | 3/3 expanded | 2/3 expanded |
 | [VARIANT clock context](temporal-variant-clock-reference.json) | 840/840 | 766/840 | 3/3 expanded | 2/3 expanded |
+| [DATE context initial](temporal-date-source-context-initial.json) | 864/884 | 783/884 | 3/3 expanded | 2/3 expanded |
+| [DATE context repair](temporal-date-source-context-repaired.json) | 884/884 | 803/884 | 3/3 + DATE | 2/3 + DATE |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -344,7 +350,7 @@ Release's four newly exercised differences are already development-authoritative
 semantic changes: ordinary naive named-zone fallback, TIME-to-TIME_NS casting,
 and ignored named-zone suffixes on naive timestamps. Previous reports and their
 failures remain unchanged. The DATE source-context gaps described above remain
-outside this passing clock subset.
+outside that passing clock subset and are addressed by the following DATE stage.
 
 The [unchanged VARIANT-clock upstream refresh](upstream-temporal-variant-clock.json)
 passes twelve of 26 files, fails nine and retains five ICU-dependent unsupported
@@ -353,6 +359,28 @@ passes. No earlier passing file or reached record prefix is lost. TIME_NS numeri
 format normalization, TIMETZ boolean normalization, timestamp AVG, unrelated SQL
 syntax/precision diagnostics and the other previously retained failures are not
 reclassified as passes by this repair.
+
+The DATE source-context initial trial preserves twenty mismatches in the newly
+added calendar cases. The repair closes all twenty without losing any previous
+case: development passes 884/884 SQL cases. It also expands native schemas with
+maximum/minimum DATEs parsed from timestamp text, strict-VARIANT nested DATE
+children, a DATE timestamp-text default, and subsequent rollback/update/reopen.
+All three development producers and both Rust producers read by release pass
+the expanded workflow. Release retains its unavailable TIME-to-TIME_NS producer
+and differing DATE text behavior; these are not removed from the reports.
+The independent producers exercise the original DATE range outside timestamp
+range, not only ordinary contemporary dates or isolated parser return values.
+
+The [unchanged DATE upstream refresh](upstream-temporal-date-source-context.json)
+retains all six previously passing files, with no shorter reached prefix against
+the lead's controlled checkpoint5-d. `date_parsing.test` advances from fifteen
+to 86 of 100 records. Its next record deliberately contains invalid
+`::DATE:VARCHAR` syntax and expects a Parser Error; Rust's permissive upstream
+parser produces an unsupported JSON-access AST instead. This is a rejection-
+category obligation, not permission to introduce single-colon casts. The other
+remaining file stops at 19 of 20 records on missing `DATE(x)` syntax; development
+lowers that call directly to a cast rather than resolving a scalar catalog alias.
+The resulting six passed / one failed / one unsupported report is retained as-is.
 
 ## Checkpoint validation
 
@@ -510,6 +538,21 @@ pinned Kani 0.67.0 passes all six maintained harnesses, with no failures
 (48.097, 0.868, 0.504, 2.177, 2.836 and 109.023 seconds). These retain their
 packing/key/index/window/byte-count scope; the new parser/context contract is
 not itself formally proven. No worker-local performance acceptance is claimed.
+
+The DATE-context stage passes nine DATE component tests, twenty-five temporal
+tests, twelve cast tests, three adjacent calendar tests and seven adjacent
+temporal tests. Both expression evaluators and index implementations carry the
+new conversion policy through prepared parameters, nested fields, grouping,
+joins, windows, defaults, invalid/duplicate writes, rollback, native WAL and
+checkpoint/reopen. The fully consuming public calendar API remains independently
+tested. Long calendar/fraction/zone/whitespace inputs retain cancellation across
+the placeholder-date retry. Full workspace tests and clippy pass; coverage has
+298 files, 2700 functions and 209 interfaces with no missing instrumentation.
+Traced all-target compilation passes in 55.30 seconds and removes temporary
+telemetry. Full `python3 scripts/verify_kani.py` with pinned Kani 0.67.0 passes
+all six maintained harnesses, with no failures (46.990, 0.832, 0.529, 2.519,
+2.698 and 100.533 seconds). These retain their packing/key/index/window/byte-count
+scope; no parser proof or performance acceptance follows from these checks.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
