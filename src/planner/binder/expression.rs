@@ -695,10 +695,15 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))
     }
     fn constant(&self, index: usize) -> Result<Value> {
-        self.evaluate_constant(self.closed_argument(index)?)
+        self.evaluate_constant(self.required_constant_argument(index)?)
+    }
+    fn constant_if_closed(&self, index: usize) -> Result<Option<Value>> {
+        self.closed_argument(index)?
+            .map(|expression| self.evaluate_constant(expression))
+            .transpose()
     }
     fn constant_as(&self, index: usize, target: &DataType, mode: CastMode) -> Result<Value> {
-        let expression = self.closed_argument(index)?;
+        let expression = self.required_constant_argument(index)?;
         let mode = super::coercion::scalar_argument_cast_mode(expression, target, mode);
         let expression = expression.clone().cast(
             target.clone(),
@@ -712,18 +717,18 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FunctionArguments<'_, '_> {
-    fn closed_argument(&self, index: usize) -> Result<&BoundExpr> {
+    fn required_constant_argument(&self, index: usize) -> Result<&BoundExpr> {
+        self.closed_argument(index)?.ok_or_else(|| {
+            Error::Bind("function requires a constant argument without effects".into())
+        })
+    }
+    fn closed_argument(&self, index: usize) -> Result<Option<&BoundExpr>> {
         self.context.query.check()?;
         let expression = self
             .arguments
             .get(index)
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))?;
-        if !constant_expression(expression) {
-            return Err(Error::Bind(
-                "function requires a constant argument without effects".into(),
-            ));
-        }
-        Ok(expression)
+        Ok(constant_expression(expression).then_some(expression))
     }
     fn evaluate_constant(&self, expression: &BoundExpr) -> Result<Value> {
         let value =

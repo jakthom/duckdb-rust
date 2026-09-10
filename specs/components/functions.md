@@ -80,3 +80,11 @@ requests explicitly return Unsupported; existing metadata and untyped constant
 requests remain separate capabilities. The ordinary scalar call path and typed
 constant path share one cast-mode selection helper so their policies cannot
 silently diverge.
+
+`constant_if_closed(index)` is a separate optional request. SQL returns None
+without evaluating row-dependent or effectful expressions, and Some(value) for
+closed/effect-free expressions evaluated and validated through selected services.
+It does not turn evaluation errors into None. Required and optional requests
+share the same dependency/effect classification. Other frontends validate the
+index then explicitly reject this capability if they cannot provide it. Known
+NULL values remain distinct from unavailable constants and from failed evaluation.

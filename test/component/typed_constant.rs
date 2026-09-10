@@ -116,9 +116,41 @@ impl ScalarFunction for EffectsProbe {
     }
 }
 
+#[derive(Debug)]
+struct OptionalProbe(Option<Value>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for OptionalProbe {
+    fn name(&self) -> &str {
+        "typed_optional"
+    }
+    fn bind(
+        &self,
+        arguments: &dyn ScalarBindArguments,
+        _: &QueryContext,
+    ) -> Result<Option<Arc<dyn ScalarFunction>>> {
+        let value = arguments
+            .constant_if_closed(0)?
+            .unwrap_or(Value::Integer(99));
+        Ok(Some(Arc::new(Self(Some(value)))))
+    }
+    fn argument_evaluation(&self) -> ArgumentEvaluation {
+        ArgumentEvaluation::TypeOnly
+    }
+    fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        Ok(DataType::TinyInt)
+    }
+    fn evaluate(&self, arguments: &[Value], _: &QueryContext) -> Result<Value> {
+        assert!(arguments.is_empty());
+        self.0
+            .clone()
+            .ok_or_else(|| Error::Internal("unbound optional constant".into()))
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn registry() -> Result<FunctionRegistry> {
     let mut functions = FunctionRegistry::builtins();
+    functions.register_scalar(Arc::new(OptionalProbe(None)))?;
     for (name, mode, index) in [
         ("typed_implicit", CastMode::Implicit, 0),
         ("typed_explicit", CastMode::Explicit, 0),
@@ -183,6 +215,18 @@ fn typed_constants_retain_selected_cast_modes_literals_parameters_and_failures()
                 assert!(matches!(c.query(sql), Err(Error::Bind(_))), "{sql}");
             }
             assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert_eq!(c.query("SELECT typed_optional(i),typed_optional(volatile_constant()),typed_optional(external_constant()),typed_optional(NULL::INTEGER),typed_optional('1'::TINYINT) FROM range(1) t(i)")?.rows, vec![vec![Value::Integer(99),Value::Integer(99),Value::Integer(99),Value::Null,Value::Integer(11)]]);
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert!(matches!(
+                c.query("SELECT typed_optional()"),
+                Err(Error::Bind(_))
+            ));
+            assert_eq!(
+                c.execute_params("SELECT typed_optional($1)", &[Value::Integer(7)])?
+                    .remove(0)
+                    .rows,
+                vec![vec![Value::Integer(7)]]
+            );
             let p = c.prepare("SELECT typed_explicit($1),typed_assignment($1)")?;
             assert_eq!(
                 c.execute_prepared(&p, &[Value::Varchar("parameter".into())])?
@@ -217,6 +261,23 @@ fn typed_constants_retain_selected_cast_modes_literals_parameters_and_failures()
                 c.query("SELECT typed_explicit('interrupted')"),
                 Err(Error::Interrupted)
             ));
+            for input in [
+                "resource",
+                "internal",
+                "invalid",
+                "wide",
+                "null",
+                "interrupted",
+            ] {
+                let error = c
+                    .query(&format!("SELECT typed_optional('{input}'::TINYINT)"))
+                    .unwrap_err();
+                assert!(match input {
+                    "resource" => matches!(error, Error::Resource(_)),
+                    "interrupted" => matches!(error, Error::Interrupted),
+                    _ => matches!(error, Error::Internal(_)),
+                });
+            }
             c.execute("CREATE TABLE t(k TINYINT PRIMARY KEY); INSERT INTO t VALUES (typed_explicit('ok'))")?;
             assert!(matches!(
                 c.execute("UPDATE t SET k=typed_explicit('resource')"),
@@ -277,6 +338,14 @@ impl ExpressionEvaluator for InvalidCastEvaluator {
 #[test]
 fn typed_constant_frontends_reject_missing_capability_and_invalid_evaluator_results() -> Result<()>
 {
+    assert!(matches!(
+        ExternalArguments.constant_if_closed(0),
+        Err(Error::Unsupported(_))
+    ));
+    assert!(matches!(
+        ExternalArguments.constant_if_closed(1),
+        Err(Error::Bind(_))
+    ));
     for mode in [CastMode::Implicit, CastMode::Explicit, CastMode::Assignment] {
         assert!(matches!(
             ExternalArguments.constant_as(0, &DataType::TinyInt, mode),
@@ -293,11 +362,16 @@ fn typed_constant_frontends_reject_missing_capability_and_invalid_evaluator_resu
             .expressions(Arc::new(InvalidCastEvaluator(resource)))
             .build()?
             .connect();
-        let error = c.query("SELECT typed_explicit(1)").unwrap_err();
-        if resource {
-            assert!(matches!(error, Error::Resource(_)));
-        } else {
-            assert!(matches!(error, Error::Internal(_)));
+        for sql in [
+            "SELECT typed_explicit(1)",
+            "SELECT typed_optional(1::TINYINT)",
+        ] {
+            let error = c.query(sql).unwrap_err();
+            if resource {
+                assert!(matches!(error, Error::Resource(_)));
+            } else {
+                assert!(matches!(error, Error::Internal(_)));
+            }
         }
     }
     Ok(())

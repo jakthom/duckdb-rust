@@ -56,6 +56,15 @@ pub trait ScalarBindArguments {
         self.data_type(index).map(|_| None)
     }
     fn constant(&self, index: usize) -> Result<Value>;
+    /// Optional closed/effect-free evaluation through the selected frontend.
+    /// None means the expression is not eligible, never an evaluation failure.
+    /// Unsupported frontends reject rather than guessing about dependencies.
+    fn constant_if_closed(&self, index: usize) -> Result<Option<Value>> {
+        self.data_type(index)?;
+        Err(Error::Unsupported(
+            "frontend does not support optional closed constants".into(),
+        ))
+    }
     /// Request a closed, effect-free argument converted through the frontend's
     /// selected cast registry and evaluator. SQL literal privileges apply only
     /// to an Implicit request; Explicit and Assignment retain their exact mode.

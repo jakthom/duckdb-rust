@@ -37,3 +37,17 @@ pass. Coverage is now 303 files, 2,767 functions and 212 interface methods,
 including the lead's two publication-state methods, with no omissions. The
 unchanged-source instrumentation compatibility pass completes in 56.03 seconds
 with no error returns, panics or open spans; temporary telemetry is deleted.
+
+A second isolated prerequisite adds `constant_if_closed`. Its SQL implementation
+shares required-constant classification, returns None without evaluating
+row-dependent or effectful inputs, and preserves selected evaluation and logical
+validation failures. Known NULL is Some(Null), not unavailable input. Default
+frontends explicitly reject the capability after index validation. Expanded
+contract tests cover selected cast/evaluator replacements, API parameters,
+missing indices, effects, invalid output and Resource/Internal/Interrupted
+propagation. A test initially failed to compile because the prepared-parameter
+API returns multiple statement results; its access was corrected. Both focused
+tests and all-target clippy then pass. The continuing rounding prototype is
+present only in the worker tree during these checks and is excluded from this
+prerequisite commit. Instrumentation compatibility will be refreshed with the
+combined numeric increment before substantial-stage completion.
