@@ -1,7 +1,22 @@
 //! Streaming core INTERVAL text semantics. Component overflow is checked in
 //! input order; later cancellation cannot repair a prior overflowing addition.
 use super::{MICROS_PER_DAY, TemporalValue, invalid};
-use crate::common::Result;
+use crate::common::{Error, Result};
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn malformed() -> Error {
+    invalid("Could not convert string to INTERVAL")
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn unknown_unit(unit: &str) -> Error {
+    // Bound diagnostic allocation independently of caller-controlled input.
+    let end = unit.len().min(128);
+    invalid(&format!(
+        "extract specifier {:?} not recognized",
+        &unit[..end]
+    ))
+}
 
 struct Scanner<'a, 'c> {
     text: &'a str,
@@ -34,11 +49,11 @@ impl Scanner<'_, '_> {
             value = value
                 .checked_mul(10)
                 .and_then(|n| n.checked_add(i64::from(digit - b'0')))
-                .ok_or_else(|| invalid("interval integer overflow"))?;
+                .ok_or_else(|| invalid("Could not convert string to INT64"))?;
             self.advance()?;
         }
         if self.pos == start {
-            return Err(invalid("interval requires an integer part"));
+            return Err(malformed());
         }
         Ok(value)
     }
@@ -71,15 +86,15 @@ impl Scanner<'_, '_> {
         let start = self.pos;
         while self.peek().is_some_and(|b| b.is_ascii_alphabetic()) {
             if self.pos - start >= 16 {
-                return Err(invalid("unknown interval unit"));
+                return Err(unknown_unit(&self.text[start..self.pos]));
             }
             self.advance()?;
         }
-        Ok(self.text[start..self.pos].to_ascii_lowercase())
+        Ok(self.text[start..self.pos].to_owned())
     }
     fn double_digit(&mut self) -> Result<i64> {
         let Some(first @ b'0'..=b'9') = self.peek() else {
-            return Err(invalid("invalid interval clock field"));
+            return Err(malformed());
         };
         self.advance()?;
         let mut number = i64::from(first - b'0');
@@ -88,13 +103,13 @@ impl Scanner<'_, '_> {
             self.advance()?;
         }
         if number >= 60 {
-            return Err(invalid("interval clock field outside range"));
+            return Err(malformed());
         }
         Ok(number)
     }
     fn clock(&mut self, hours: i64, hour_digits: usize) -> Result<i64> {
         if hour_digits > 9 {
-            return Err(invalid("interval clock allows at most nine hour digits"));
+            return Err(malformed());
         }
         self.advance()?; // colon
         let minutes = if self.peek().is_none() {
@@ -106,7 +121,7 @@ impl Scanner<'_, '_> {
             0
         } else {
             if self.peek() != Some(b':') {
-                return Err(invalid("invalid interval clock separator"));
+                return Err(malformed());
             }
             self.advance()?;
             if self.peek().is_none() {
@@ -142,7 +157,7 @@ struct Parts {
 fn addition(number: i64, multiplier: i64) -> Result<i64> {
     number
         .checked_mul(multiplier)
-        .ok_or_else(|| invalid("interval component multiplication overflow"))
+        .ok_or_else(|| invalid("interval value is out of range"))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -161,12 +176,13 @@ impl Parts {
             addition(number, multiplier)?,
             fractional(fraction, multiplier),
         ] {
-            let value =
-                i32::try_from(value).map_err(|_| invalid("interval month component range"))?;
+            let value = i32::try_from(value).map_err(|_| {
+                invalid(&format!("Type INT64 with value {value} can't be cast because the value is out of range for the destination type INT32"))
+            })?;
             self.months = self
                 .months
                 .checked_add(value)
-                .ok_or_else(|| invalid("interval months overflow"))?;
+                .ok_or_else(|| invalid("interval value is out of range"))?;
         }
         Ok(())
     }
@@ -175,12 +191,13 @@ impl Parts {
             addition(number, multiplier)?,
             fractional(fraction, multiplier),
         ] {
-            let value =
-                i32::try_from(value).map_err(|_| invalid("interval day component range"))?;
+            let value = i32::try_from(value).map_err(|_| {
+                invalid(&format!("Type INT64 with value {value} can't be cast because the value is out of range for the destination type INT32"))
+            })?;
             self.days = self
                 .days
                 .checked_add(value)
-                .ok_or_else(|| invalid("interval days overflow"))?;
+                .ok_or_else(|| invalid("interval value is out of range"))?;
         }
         Ok(())
     }
@@ -192,12 +209,12 @@ impl Parts {
             self.micros = self
                 .micros
                 .checked_add(value)
-                .ok_or_else(|| invalid("interval microseconds overflow"))?;
+                .ok_or_else(|| invalid("interval value is out of range"))?;
         }
         Ok(())
     }
     fn apply(&mut self, number: i64, fraction: f64, unit: &str) -> Result<()> {
-        match unit {
+        match unit.to_ascii_lowercase().as_str() {
             "year" | "yr" | "y" | "years" | "yrs" => self.months(number, 12, fraction),
             "decade" | "dec" | "decades" | "decs" => self.months(number, 120, fraction),
             "century" | "cent" | "centuries" | "c" => self.months(number, 1200, fraction),
@@ -237,22 +254,26 @@ impl Parts {
             "microsecond" | "microseconds" | "us" | "usec" | "usecs" | "usecond" | "useconds" => {
                 self.micros(number, 1, 0.0)
             }
-            _ => Err(invalid("unknown or unsupported interval unit")),
+            "epoch" | "dow" | "dayofweek" | "weekday" | "isodow" | "doy" | "dayofyear"
+            | "yearweek" | "isoyear" | "era" | "timezone" | "julian" | "jd" => Err(invalid(
+                &format!("extract specifier {unit:?} not supported for interval"),
+            )),
+            _ => Err(unknown_unit(unit)),
         }
     }
     fn negate(&mut self) -> Result<()> {
         self.months = self
             .months
             .checked_neg()
-            .ok_or_else(|| invalid("AGO months overflow"))?;
+            .ok_or_else(|| invalid("AGO interval value is out of range"))?;
         self.days = self
             .days
             .checked_neg()
-            .ok_or_else(|| invalid("AGO days overflow"))?;
+            .ok_or_else(|| invalid("AGO interval value is out of range"))?;
         self.micros = self
             .micros
             .checked_neg()
-            .ok_or_else(|| invalid("AGO microseconds overflow"))?;
+            .ok_or_else(|| invalid("AGO interval value is out of range"))?;
         Ok(())
     }
     fn value(self) -> TemporalValue {
@@ -283,12 +304,12 @@ pub(super) fn parse(text: &str, check: &mut dyn FnMut() -> Result<()>) -> Result
             break;
         }
         if matches!(scan.peek(), Some(b'a' | b'A')) {
-            if scan.unit()? != "ago" {
-                return Err(invalid("invalid interval AGO suffix"));
+            if !scan.unit()?.eq_ignore_ascii_case("ago") {
+                return Err(malformed());
             }
             scan.space()?;
             if scan.peek().is_some() {
-                return Err(invalid("AGO must be the final interval specifier"));
+                return Err(malformed());
             }
             parts.negate()?;
             break;
@@ -316,7 +337,7 @@ pub(super) fn parse(text: &str, check: &mut dyn FnMut() -> Result<()>) -> Result
             parts.micros(number, 1_000_000, fraction)?;
             scan.space()?;
             if scan.peek().is_some() {
-                return Err(invalid("unitless seconds must occupy the whole interval"));
+                return Err(malformed());
             }
             found = true;
             break;
@@ -326,7 +347,7 @@ pub(super) fn parse(text: &str, check: &mut dyn FnMut() -> Result<()>) -> Result
     }
     (scan.check)()?;
     if !found {
-        return Err(invalid("empty interval"));
+        return Err(malformed());
     }
     Ok(parts.value())
 }

@@ -193,19 +193,19 @@ impl State<'_, '_> {
                 // Development's parser uses DOUBLE, truncation, then the unit's
                 // declared integer width. Retain selected casts/functions here.
                 let (name, target) = match field.to_string().to_ascii_lowercase().as_str() {
-                    "year" => ("to_years", DataType::Integer),
-                    "month" => ("to_months", DataType::Integer),
-                    "day" => ("to_days", DataType::Integer),
-                    "week" => ("to_weeks", DataType::Integer),
-                    "quarter" => ("to_quarters", DataType::Integer),
-                    "decade" => ("to_decades", DataType::Integer),
-                    "century" => ("to_centuries", DataType::Integer),
-                    "millennium" => ("to_millennia", DataType::Integer),
-                    "hour" => ("to_hours", DataType::BigInt),
-                    "minute" => ("to_minutes", DataType::BigInt),
+                    "year" | "years" => ("to_years", DataType::Integer),
+                    "month" | "months" => ("to_months", DataType::Integer),
+                    "day" | "days" => ("to_days", DataType::Integer),
+                    "week" | "weeks" => ("to_weeks", DataType::Integer),
+                    "quarter" | "quarters" => ("to_quarters", DataType::Integer),
+                    "decade" | "decades" => ("to_decades", DataType::Integer),
+                    "century" | "centuries" => ("to_centuries", DataType::Integer),
+                    "millennium" | "millennia" => ("to_millennia", DataType::Integer),
+                    "hour" | "hours" => ("to_hours", DataType::BigInt),
+                    "minute" | "minutes" => ("to_minutes", DataType::BigInt),
                     "microsecond" | "microseconds" => ("to_microseconds", DataType::BigInt),
                     "millisecond" | "milliseconds" => ("to_milliseconds", DataType::Double),
-                    "second" => ("to_seconds", DataType::Double),
+                    "second" | "seconds" => ("to_seconds", DataType::Double),
                     _ => return Err(Error::Unsupported(format!("INTERVAL unit {field}"))),
                 };
                 let mut inner = explicit_cast(inner, DataType::Double)?;
@@ -215,6 +215,9 @@ impl State<'_, '_> {
                 }
                 self.scalar_call(name, vec![inner])
             }
+            ast::Expr::Interval(_) => Err(Error::Parse(
+                "INTERVAL precision and TO qualifiers are not supported".into(),
+            )),
             ast::Expr::TypedString(typed) => {
                 let literal =
                     BoundExpr::literal(self.literal(&ast::Expr::Value(typed.value.clone()))?);

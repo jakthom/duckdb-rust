@@ -738,3 +738,96 @@ fn interval_text_components_aliases_rounding_and_ordered_overflow_cross_native_m
     );
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn interval_plural_units_and_conversion_diagnostics_keep_prepared_cast_semantics() -> Result<()> {
+    for evaluator in [
+        Arc::new(ScalarEvaluator)
+            as Arc<dyn duckdb_rust::execution::expression_executor::ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut c = DatabaseBuilder::new()
+            .expressions(evaluator)
+            .build()?
+            .connect();
+        c.execute("CREATE TABLE spans(n INTEGER,i INTERVAL)")?;
+        for (unit, expected) in [
+            ("YEARS", "2 years"),
+            ("MONTHS", "2 months"),
+            ("DAYS", "2 days"),
+            ("HOURS", "02:00:00"),
+            ("MINUTES", "00:02:00"),
+            ("SECONDS", "00:00:02"),
+            ("MILLISECONDS", "00:00:00.002"),
+            ("MICROSECONDS", "00:00:00.000002"),
+            ("WEEKS", "14 days"),
+            ("QUARTERS", "6 months"),
+            ("DECADES", "20 years"),
+            ("CENTURIES", "200 years"),
+            ("MILLENNIA", "2000 years"),
+        ] {
+            let prepared =
+                c.prepare(&format!("INSERT INTO spans VALUES(2,INTERVAL ($1) {unit})"))?;
+            c.execute_prepared(&prepared, &[Value::Integer(2)])?;
+            assert_eq!(
+                c.query("SELECT i FROM spans")?.rows[0][0].to_string(),
+                expected,
+                "{unit}"
+            );
+            c.execute("DELETE FROM spans")?;
+        }
+        for (input, expected) in [
+            ("   ", "Could not convert string"),
+            ("AAAA", "Could not convert string"),
+            ("47.210 5", "Could not convert string"),
+            (
+                "3 DOOPIEDOOS",
+                "extract specifier \"DOOPIEDOOS\" not recognized",
+            ),
+            (
+                "3 years 2 doy",
+                "extract specifier \"doy\" not supported for interval",
+            ),
+            (
+                "3 yearweek",
+                "extract specifier \"yearweek\" not supported for interval",
+            ),
+            (
+                "2147483648 days",
+                "out of range for the destination type INT32",
+            ),
+            (
+                "9223372036854775807us 1us",
+                "interval value is out of range",
+            ),
+            (
+                "-2147483648months ago",
+                "AGO interval value is out of range",
+            ),
+        ] {
+            let cast = c.prepare("SELECT CAST($1 AS INTERVAL)")?;
+            let error = c
+                .execute_prepared(&cast, &[Value::Varchar(input.into())])
+                .unwrap_err();
+            assert!(error.to_string().contains(expected), "{input}: {error}");
+            let try_cast = c.prepare("SELECT TRY_CAST($1 AS INTERVAL)")?;
+            assert_eq!(
+                c.execute_prepared(&try_cast, &[Value::Varchar(input.into())])?
+                    .rows,
+                vec![vec![Value::Null]]
+            );
+        }
+        for qualifier in [
+            "YEARS TO MONTHS",
+            "DAYS TO HOURS",
+            "HOURS TO MINUTES",
+            "DECADES TO YEARS",
+        ] {
+            assert!(
+                matches!(c.query(&format!("SELECT INTERVAL '2 10' {qualifier}")), Err(duckdb_rust::Error::Parse(message)) if message.contains("not supported"))
+            );
+        }
+    }
+    Ok(())
+}

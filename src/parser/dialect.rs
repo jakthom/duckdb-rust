@@ -56,6 +56,9 @@ impl Dialect for RewriteDialect {
         supports_comma_separated_trim,
     );
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
+        if parser.parse_keyword(Keyword::INTERVAL) {
+            return Some(interval_literal(parser));
+        }
         if let Token::Word(word) = parser.peek_token().token
             && word.quote_style.is_none()
             && matches!(
@@ -81,6 +84,30 @@ impl Dialect for RewriteDialect {
         }
         Some(grouping_items(parser).map(Expr::GroupingSets))
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn interval_literal(parser: &mut Parser) -> Result<Expr, ParserError> {
+    let mut expression = parser.parse_interval()?;
+    if let Expr::Interval(interval) = &mut expression
+        && interval.leading_field.is_none()
+        && let Token::Word(word) = parser.peek_token().token
+        && word.quote_style.is_none()
+        && matches!(
+            word.value.to_ascii_lowercase().as_str(),
+            "quarters" | "decades" | "centuries" | "millennia"
+        )
+    {
+        interval.leading_field = Some(sqlparser::ast::DateTimeField::Custom(
+            parser.parse_identifier()?,
+        ));
+        if parser.parse_keyword(Keyword::TO) {
+            return Err(ParserError::ParserError(
+                "INTERVAL TO qualifiers are not supported".into(),
+            ));
+        }
+    }
+    Ok(expression)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
