@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use super::{CastFunction, CastMode, CastRegistry, CastSpec};
+use super::{
+    CastBehavior, CastFailure, CastFunction, CastMode, CastRegistry, CastResult, CastSpec,
+};
 use crate::{
     common::{BitString, DataType, Error, Result, Value},
     parallel::QueryContext,
@@ -21,6 +23,28 @@ impl CastFunction for BitCast {
     }
     fn is_total(&self, spec: &CastSpec) -> bool {
         spec.source == DataType::Null || spec.source == spec.target
+    }
+    fn cast_attempt(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        behavior: CastBehavior,
+        query: &QueryContext,
+    ) -> CastResult<Value> {
+        query.check()?;
+        if behavior == CastBehavior::Try
+            && spec.source == DataType::Blob
+            && spec.target == DataType::Bit
+            && matches!(value, Value::Blob(bytes) if bytes.is_empty())
+        {
+            // Pinned development's BLOB->BIT adapter throws from a cast marked
+            // infallible under TRY_CAST. Preserve that observed fatal contract
+            // locally; it must not change recovery for other conversion errors.
+            return Err(CastFailure::fatal(Error::Internal(
+                "Scalar function \"__cast\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Cannot cast empty BLOB to BIT".into(),
+            )));
+        }
+        self.cast(value, spec, query).map_err(CastFailure::from)
     }
     fn cast(&self, value: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
         query.check()?;

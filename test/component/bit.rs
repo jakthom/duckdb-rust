@@ -31,6 +31,81 @@ fn bit(text: &str) -> Value {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn empty_blob_bit_try_failures_remain_fatal_through_nested_parameters_and_mutations() -> Result<()>
+{
+    let interrupt = duckdb_rust::parallel::InterruptHandle::default();
+    let query = QueryContext::new(interrupt.clone(), None, 2, 1024)?;
+    let cast = CastRegistry::builtins().bind(
+        &DataType::Blob,
+        &DataType::Bit,
+        CastMode::Explicit,
+        &builtin_types(),
+    )?;
+    assert!(matches!(
+        cast.apply(&Value::Blob(vec![]), &query),
+        Err(Error::Conversion(_))
+    ));
+    assert!(matches!(
+        cast.apply_try(&Value::Blob(vec![]), &query),
+        Err(Error::Internal(_))
+    ));
+    assert_eq!(cast.apply_try(&Value::Null, &query)?, Value::Null);
+    assert_eq!(
+        cast.apply_try(&Value::Blob(vec![1]), &query)?,
+        bit("00000001")
+    );
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(duckdb_rust::optimizer::IdentityOptimizer)
+                as Arc<dyn duckdb_rust::optimizer::Optimizer>,
+            Arc::new(duckdb_rust::optimizer::PipelineOptimizer::default()),
+        ] {
+            let mut c = DatabaseBuilder::new()
+                .expressions(expressions.clone())
+                .optimizer(optimizer)
+                .batch_size(2)
+                .build()?
+                .connect();
+            for sql in [
+                "SELECT TRY_CAST(''::BLOB AS BIT)",
+                "SELECT TRY_CAST([''::BLOB] AS BIT[])",
+                "SELECT TRY_CAST({'b':''::BLOB} AS STRUCT(b BIT))",
+                "SELECT TRY_CAST(b AS BIT) FROM (VALUES (NULL::BLOB),('x'::BLOB),(''::BLOB)) t(b)",
+            ] {
+                let error = c.query(sql).unwrap_err();
+                assert!(matches!(error, Error::Internal(_)), "{sql}: {error}");
+                assert!(error.to_string().contains("Cannot cast empty BLOB to BIT"));
+            }
+            assert_eq!(c.query("SELECT TRY_CAST('x' AS BIT),TRY_CAST('000000000'::BIT AS TINYINT),TRY_CAST(NULL::BLOB AS BIT)")?.rows,vec![vec![Value::Null;3]]);
+            assert!(matches!(
+                c.execute_params("SELECT TRY_CAST($1 AS BIT)", &[Value::Blob(vec![])]),
+                Err(Error::Internal(_))
+            ));
+            c.execute("CREATE TABLE b(k INTEGER PRIMARY KEY,v BIT); INSERT INTO b VALUES (1,'001'); BEGIN")?;
+            assert!(matches!(
+                c.execute_params("UPDATE b SET v=TRY_CAST($1 AS BIT)", &[Value::Blob(vec![])]),
+                Err(Error::Internal(_))
+            ));
+            c.execute("ROLLBACK")?;
+            assert_eq!(
+                c.query("SELECT v FROM b WHERE k=1")?.rows,
+                vec![vec![bit("001")]]
+            );
+        }
+    }
+    interrupt.interrupt();
+    assert!(matches!(
+        cast.apply_try(&Value::Blob(vec![]), &query),
+        Err(Error::Interrupted)
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn packed_bit_lengths_native_padding_vectors_and_numeric_patterns_are_exact() -> Result<()> {
     assert!(std::mem::size_of::<Value>() <= 32);
     assert!(std::mem::size_of::<DataType>() <= 16);

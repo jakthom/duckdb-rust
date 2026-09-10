@@ -65,8 +65,8 @@ binary/library identities, typed results and failures. The production builds
 use `--release --no-default-features`; each took about 1m24s. Development still
 differs on signed type-modifier parsing, integer-literal-sensitive XOR binding,
 and its INTERNAL Error for `TRY_CAST(''::BLOB AS BIT)` (the selected reference
-cast throws despite being declared infallible). Rust currently returns NULL
-for that TRY_CAST; this is an open observable mismatch, not a passing result.
+cast throws despite being declared infallible). Rust returned NULL at that
+checkpoint; the cast-context follow-up below repairs that observable mismatch.
 Release additionally differs on empty VARCHAR casts, TRY_CAST narrowing errors,
 the byte-comparable function, and logical BIT sorting/minimum behavior.
 
@@ -97,14 +97,45 @@ performance comparisons before declaring the substantial stage complete.
 
 ## Continuing work and limits
 
+The [cast-context follow-up](bit-reference-cast-context.json) records development
+61/62 SQL, release 52/62 SQL, and all three native producer/mutation paths passing
+on both pins with unchanged source fingerprints. The only remaining development
+campaign mismatch is signed BITSTRING modifier grammar. XOR now uses the shared
+integer-literal provenance hook: fitting bare literals narrow to the other
+integral operand, while explicit INTEGER casts, CASE results and typed API
+parameters retain their declared type. BIT string literals bind to BIT.
+
+The selected BIT adapter now uses `CastBehavior::Try` to preserve development's
+fatal empty-BLOB error without changing generic TRY_CAST recovery. Strict
+empty-BLOB conversion still returns Conversion; invalid text and ordinary
+narrowing still produce NULL under TRY_CAST. The extra component test checks
+both evaluators/optimizers, nested LIST/STRUCT casts, prepared parameters,
+batch rows, failed updates followed by rollback, and cancellation precedence.
+This follows independently reproduced development behavior, including its
+infallible-cast diagnostic; it does not claim that the C++ behavior is desirable.
+
+Reference error cases compare categories only, with category-label case
+normalized (`INTERNAL Error` versus `Internal Error`). Raw complete diagnostics
+remain unchanged in the report. A Python harness test checks that normalization
+does not modify message bodies or successful VARCHAR results, and that wrong
+categories and unsupported results still fail. Exact diagnostic-string parity
+is not claimed. Release's three empty-BLOB TRY cases remain Conversion errors,
+not Internal errors, and stay recorded as disagreements.
+
+The follow-up passes normal workspace/all-target check/clippy, BIT (7), casts
+(11), numeric (27), nine selected Python oracle tests, coverage with no missing
+instrumentation, and exhaustive tracing compilation with telemetry removed.
+The merged baseline additionally passes nested (17). The lead recorded all six
+maintained Kani harnesses passing on combined `b43faaa`; this later cast-context
+change still belongs in the next combined run/investigation before declaring
+the stage complete. No new performance campaign was run.
+
 The remaining `bitstring_agg(value[, min, max])` requires retained aggregate
 bind constants and, for the unary form, upstream-equivalent child statistics.
 Deriving bounds from observed group rows would give different values and is not
 an acceptable substitute. That shared bind/statistics interface remains under
 coordination. Native string constant compression is still explicitly unsupported,
-as for VARCHAR/BLOB. Integer-literal-sensitive overload selection and signed
-type-modifier grammar belong to the shared lead work, including the distinction
-between a bare literal and an explicitly cast or CASE-produced INTEGER.
+as for VARCHAR/BLOB. Signed type-modifier grammar remains shared lead work.
 
 Full upstream mappings, boundary/error diagnostics, broader native compression,
 mixed-family coverage and controlled faster-reference performance measurements

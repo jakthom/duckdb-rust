@@ -22,7 +22,7 @@ SQL = [
     "SELECT (-1::TINYINT)::BIT,(-1::HUGEINT)::BIT,'340282366920938463463374607431768211455'::UHUGEINT::BIT,true::BIT",
     "SELECT '1'::BIT::TINYINT,'11111111'::BIT::TINYINT,'1111111'::BIT::TINYINT,'100000000'::BIT::SMALLINT,'1'::BIT::BOOLEAN",
     "SELECT (-1.5::FLOAT)::BIT,(-1.5::DOUBLE)::BIT,((-1.5::FLOAT)::BIT)::FLOAT,((-1.5::DOUBLE)::BIT)::DOUBLE",
-    r"SELECT '\x00\xFF'::BLOB::BIT,'001'::BIT::BLOB,TRY_CAST(''::BLOB AS BIT)",
+    r"SELECT '\x00\xFF'::BLOB::BIT,'001'::BIT::BLOB,TRY_CAST(NULL::BLOB AS BIT)",
     "SELECT TRY_CAST('x' AS BIT),TRY_CAST('2' AS BIT),TRY_CAST('000000000'::BIT AS TINYINT),TRY_CAST('1'::BIT AS UUID),TRY_CAST('1'::BIT AS DECIMAL(4,0))",
     "SELECT '001'::ENUM('001','1')::BIT,TRY_CAST('0'::BIT AS ENUM('1'))",
     "SELECT bitstring('101',5),bitstring('101'::BIT,5),bit_length('é'),bit_count('001'::BIT),get_bit('101'::BIT,1),set_bit('101'::BIT,1,1)",
@@ -54,6 +54,9 @@ ERRORS = [
     ("SELECT -1::TINYINT::BIT", "Binder Error"),
     ("SELECT '1'::BIT::ENUM('1')", "Conversion Error"),
     ("SELECT ''::BLOB::BIT", "Conversion Error"),
+    ("SELECT TRY_CAST(''::BLOB AS BIT)", "Internal Error"),
+    ("SELECT TRY_CAST([''::BLOB] AS BIT[])", "Internal Error"),
+    ("SELECT TRY_CAST({'b':''::BLOB} AS STRUCT(b BIT))", "Internal Error"),
     ("SELECT 'x'::BIT", "Conversion Error"),
     ("SELECT '2'::BIT", "Conversion Error"),
     ("SELECT '000000000'::BIT::TINYINT", "Conversion Error"),
@@ -75,6 +78,22 @@ ERRORS = [
     ("SELECT bit_count(1.0)", "Binder Error"),
     ("SELECT '1'::BIT + '1'::BIT", "Binder Error"),
 ]
+
+
+def canonical_error_category(result):
+    """Normalize only the error category label's case, preserving raw bodies."""
+    if result.get("ok") is not False:
+        return result
+    label, colon, body = result.get("message", "").partition(":")
+    return {**result, "message": label.casefold() + colon + body}
+
+
+def equivalent_bit(left, right, expected_error=None):
+    # Expected-error cases compare category only, not full diagnostic strings.
+    # Raw outcomes are retained in the report, including label capitalization.
+    if expected_error:
+        return equivalent(canonical_error_category(left), canonical_error_category(right), expected_error.casefold())
+    return equivalent(left, right)
 
 
 def persistence(rust, cpp, directory):
@@ -137,7 +156,7 @@ def main():
                     for sql,expected_error in [(sql,None) for sql in SQL]+ERRORS:
                         request = {"operation":"query","sql":sql}
                         a,b = actual.request(request),cpp.request(request)
-                        trial["sql"].append({"sql":sql,"expected_development_error":expected_error,"rust":a,"cpp":b,"passed":equivalent(a,b,expected_error)})
+                        trial["sql"].append({"sql":sql,"expected_development_error":expected_error,"rust":a,"cpp":b,"passed":equivalent_bit(a,b,expected_error)})
                 finally:
                     actual.close()
                     cpp.close()
