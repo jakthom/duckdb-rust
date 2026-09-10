@@ -117,6 +117,9 @@ pinned 2^81 text with 59,176 operations, zero error returns, panics or open span
 Its wrapper nevertheless exited 1: the final ARRAY test edits occurred during
 the trace build, violating the wrapper's unchanged-source guard. This is not
 reported as a passing frozen-source trace; temporary telemetry was deleted.
+The subsequent identical reproduction on unchanged commit `a8ccdb6` exits 0,
+again records 59,176 operations with zero errors, panics or open spans, and
+deletes its temporary telemetry. No instrumented duration is timing evidence.
 
 The lead owns the maintained Kani run and investigation on the combined code
 before declaring this substantial stage complete. No floating-text acceptance
