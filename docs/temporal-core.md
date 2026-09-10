@@ -146,6 +146,7 @@ do not establish diagnostic-category parity.
 | [VARIANT clock context](temporal-variant-clock-reference.json) | 840/840 | 766/840 | 3/3 expanded | 2/3 expanded |
 | [DATE context initial](temporal-date-source-context-initial.json) | 864/884 | 783/884 | 3/3 expanded | 2/3 expanded |
 | [DATE context repair](temporal-date-source-context-repaired.json) | 884/884 | 803/884 | 3/3 + DATE | 2/3 + DATE |
+| [DATE syntax](temporal-date-syntax-reference.json) | 917/918 | 834/918 | 3/3 + DATE calls | 2/3 + DATE calls |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -382,6 +383,41 @@ remaining file stops at 19 of 20 records on missing `DATE(x)` syntax; developmen
 lowers that call directly to a cast rather than resolving a scalar catalog alias.
 The resulting six passed / one failed / one unsupported report is retained as-is.
 
+The following DATE-syntax stage lowers non-window `DATE(x)` to the ordinary CAST
+AST before binding. Qualified and quoted final names follow development, as do
+discarded argument names, DISTINCT, argument ordering, FILTER, WITHIN GROUP and
+null treatment. OVER remains a function call. Arity errors retain the Parser
+category, while nested wildcard expressions retain the Binder category. A
+dialect infix hook rejects a single colon without changing double-colon casts,
+dictionary/named-argument colons or slice grammar. The new lookahead is linear
+in raw tokens, including long qualified names and intervening whitespace.
+
+The paired syntax report retains all 884 previous development cases and adds
+34 cases, of which 33 pass. Its sole development mismatch is the independently
+recorded nested-family `MAP {'d':DATE('2000-01-01')}` execution gap: the parser
+accepts the literal, but the binder still rejects its MAP AST. This is not a
+temporal cast success or an ignored regression; the nested owner has the exact
+witness. The first focused test also expected the final nanosecond before epoch
+to cast to the previous DATE. An independent development probe instead confirms
+the existing microsecond-rounding path returns 1970-01-01; the assertion was
+corrected to that observed result, without changing timestamp casts. Slice
+parsing tests do not claim implementation of the nested slice executor.
+
+Native DATE defaults now use call syntax; min/max/current dates, qualified calls,
+rollback and subsequent updates cross all three development producer paths and
+both readers. Release still lacks the TIME-to-TIME_NS producer conversion and
+differs from development on DATE WITHIN GROUP and null-treatment handling. Those
+trials remain in the report, not normalized to release behavior. Error-presence
+comparisons remain coarse in the paired driver; focused tests and the unchanged
+upstream suite carry exact diagnostic-category obligations.
+
+The [unchanged DATE-syntax upstream refresh](upstream-temporal-date-syntax.json)
+passes all eight selected DATE files. `date_parsing.test` advances from 86 to
+100 records and `test_date.test` from 19 to 20, preserving every other file and
+reached prefix. None are skipped or marked unsupported. The runner still returns
+its subset/non-full-suite status: this filtered DATE result is not a claim that
+the entire upstream SQL corpus passes.
+
 ## Checkpoint validation
 
 Routine checks pass: `cargo check`; ten temporal component tests plus DATE,
@@ -553,6 +589,19 @@ telemetry. Full `python3 scripts/verify_kani.py` with pinned Kani 0.67.0 passes
 all six maintained harnesses, with no failures (46.990, 0.832, 0.529, 2.519,
 2.698 and 100.533 seconds). These retain their packing/key/index/window/byte-count
 scope; no parser proof or performance acceptance follows from these checks.
+
+The DATE-syntax stage passes eleven DATE tests and the temporal, selected-adapter,
+nested, grouping and execution suites. After merging the lead's native-version,
+numeric-direction and exact-OBJECT increments, full workspace tests and all-target
+clippy pass; only the two preexisting external-CLI analytics tests are ignored.
+Coverage reports 304 files, 2747 functions and 211 interfaces with no missing
+instrumentation. The all-target traced check passes in 66.40 seconds and deletes
+temporary telemetry. Full `python3 scripts/verify_kani.py` with pinned Kani 0.67.0
+passes all six maintained harnesses, with no failures (47.494, 0.812, 0.492,
+2.237, 2.738 and 82.987 seconds). The packing/key/index/window/byte-count scope
+is unchanged and does not prove the DATE parser. The unchanged DATE upstream
+refresh passes all eight selected files; this stage does not claim temporal
+performance acceptance.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
