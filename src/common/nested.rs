@@ -5,6 +5,20 @@ use std::{fmt, sync::Arc};
 use serde::{Deserialize, Serialize};
 
 use super::{DataType, Error, Result, Value};
+mod keywords;
+
+struct ChildType<'a>(&'a DataType);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl fmt::Display for ChildType<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if *self.0 == DataType::Null {
+            write!(f, "\"NULL\"")
+        } else {
+            write!(f, "{}", self.0)
+        }
+    }
+}
 
 /// Resolve untyped NULL leaves at a table-storage boundary. Do not apply this
 /// during ordinary expression inference, where LIST(NULL) is observable.
@@ -155,9 +169,9 @@ impl NestedValue {
 impl fmt::Display for NestedType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::List(element) => write!(f, "{element}[]"),
-            Self::Array { element, length } => write!(f, "{element}[{length}]"),
-            Self::Map { key, value } => write!(f, "MAP({key}, {value})"),
+            Self::List(element) => write!(f, "{}[]", ChildType(element)),
+            Self::Array { element, length } => write!(f, "{}[{length}]", ChildType(element)),
+            Self::Map { key, value } => write!(f, "MAP({}, {})", ChildType(key), ChildType(value)),
             Self::Struct(fields) | Self::Union(fields) => {
                 write!(
                     f,
@@ -172,7 +186,12 @@ impl fmt::Display for NestedType {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "\"{}\" {ty}", name.replace('"', "\"\""))?;
+                    if keywords::requires_quotes(name) {
+                        write!(f, "\"{}\"", name.replace('"', "\"\""))?;
+                    } else {
+                        write!(f, "{name}")?;
+                    }
+                    write!(f, " {}", ChildType(ty))?;
                 }
                 write!(f, ")")
             }

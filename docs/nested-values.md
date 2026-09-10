@@ -109,6 +109,33 @@ substantial-checkpoint responsibility.
 
 ### Continuing type/expression work
 
-All six requested families remain in scope. UNION enum tags and broader member-coercion coverage; VARIANT dynamic semantics; TUPLE/unnamed rows; ordered list aggregation and remaining nested functions; slicing, lambdas and shape/coercion edge cases; formatting and mixed-family semantics need expansion. ARRAY/common-type, STRUCT field-union and composite overload ranking rules need broader reference coverage.
+The MAP accessor increment adds `map_extract_value`/subscripts, `map_extract`/
+`element_at`, `map_contains`, `map_keys`, `map_values`, `map_entries` and
+`cardinality`. Lookup template inference promotes the MAP key and lookup key
+together, so searching INTEGER key 1 with DECIMAL 1.1 does not round to a false
+match. The lead's literal-identity hook allows a string literal to adopt the key
+type while keeping VARCHAR columns subject to ordinary implicit coercion. A
+retained selected key adapter performs comparisons even when execution uses an
+unrelated registry without that extension family. All nested subscript syntax
+now binds through the selected scalar catalog; a replacement-catalog regression
+checks that syntax and direct function calls share the selected implementation.
+
+`union_tag` returns the ordered anonymous ENUM of declared member names,
+including the tag of an active NULL member. All integrated temporal families
+now register scalar-to-UNION injection. Type display follows development
+identifier quoting, using its 505-keyword presentation inventory, and preserves
+quoted NULL child types without quoting ordinary STRUCT/UNION field names.
+
+New SQL workloads use MAP(INTEGER, STRUCT(DECIMAL, TIMESTAMP, INTEGER[])) through
+lookup chains, prepared parameters, joins, DISTINCT, window partitions,
+rollback, indexed row mutation and native reopen. Ordinary check, nested tests
+(12), contract tests (22), the retained-key unit test and clippy pass. The focused
+accessor suite passed again after adding temporal UNION injection. Coverage
+reports 251 files, 2,172 functions, 202 interface methods and no missing
+attributes. Instrumentation check passed in 40.56 seconds with no reported
+errors, panics or open spans and deleted temporary telemetry. This is another
+internal increment, not completion of the function catalog or nested milestone.
+
+All six requested families remain in scope. Broader UNION member-coercion coverage; VARIANT dynamic semantics; TUPLE/unnamed rows; ordered list aggregation and remaining nested functions; slicing, lambdas and shape/coercion edge cases; value formatting and mixed-family semantics need expansion. ARRAY/common-type, STRUCT field-union and composite overload ranking rules need broader reference coverage.
 
 Native DuckDB nested WAL and non-NULL default codecs are not implemented yet. The private JSON round trip is not native compatibility evidence. Native default and ART encoding reject nested values explicitly, and native nested indexes must follow reference-supported behavior rather than a blanket assumption that every type is indexable. Further tests must include nested registry replacement, adversarial payload/resource cases, alternate execution/index compositions, mixed temporal/scalar families, independent C++ files, native rollback/recovery/reopen, upstream regressions and isolated faster-reference performance campaigns.

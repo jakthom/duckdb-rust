@@ -9,6 +9,7 @@ use crate::{
     parallel::QueryContext,
 };
 use std::sync::Arc;
+mod map;
 
 #[derive(Debug)]
 pub struct Constructor(pub DataType);
@@ -46,46 +47,6 @@ struct NestedFunction {
     name: &'static str,
     result: Option<DataType>,
     field: Option<usize>,
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(crate) fn accessor(
-    input: &DataType,
-    field: Option<&str>,
-) -> Result<(Arc<dyn ScalarFunction>, DataType)> {
-    let DataType::Nested(metadata) = input else {
-        return Err(Error::Bind(
-            "nested accessor requires a nested value".into(),
-        ));
-    };
-    let (name, result, index) = match (metadata.as_ref(), field) {
-        (NestedType::Struct(fields), Some(name)) => {
-            let index = fields
-                .iter()
-                .position(|(field, _)| field.eq_ignore_ascii_case(name))
-                .ok_or_else(|| Error::Bind(format!("STRUCT has no field {name}")))?;
-            ("struct_extract", fields[index].1.clone(), Some(index))
-        }
-        (NestedType::Union(fields), Some(name)) => {
-            let index = fields
-                .iter()
-                .position(|(field, _)| field.eq_ignore_ascii_case(name))
-                .ok_or_else(|| Error::Bind(format!("UNION has no member {name}")))?;
-            ("union_extract", fields[index].1.clone(), Some(index))
-        }
-        (NestedType::List(child) | NestedType::Array { element: child, .. }, None) => {
-            ("list_extract", child.clone(), None)
-        }
-        _ => return Err(Error::Bind("invalid nested accessor".into())),
-    };
-    Ok((
-        Arc::new(NestedFunction {
-            name,
-            result: Some(result.clone()),
-            field: index,
-        }),
-        result,
-    ))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -153,6 +114,15 @@ impl ScalarFunction for NestedFunction {
             return Ok(result.clone());
         }
         match self.name {
+            "union_tag" if arguments.len() == 1 => match &arguments[0] {
+                DataType::Nested(metadata) => match metadata.as_ref() {
+                    NestedType::Union(fields) => {
+                        DataType::enumeration(fields.iter().map(|(name, _)| name.clone()).collect())
+                    }
+                    _ => Err(Error::Bind("union_tag requires UNION".into())),
+                },
+                _ => Err(Error::Bind("union_tag requires UNION".into())),
+            },
             "list_value" => Ok(NestedType::List(
                 arguments.first().cloned().unwrap_or(DataType::Null),
             )
@@ -242,13 +212,16 @@ impl ScalarFunction for NestedFunction {
                     .cloned()
                     .ok_or_else(|| Error::Internal("struct field index".into()))
             }
-            "union_extract" => {
+            "union_extract" | "union_tag" => {
                 let Value::Nested(value) = &arguments[0] else {
                     return Err(Error::Internal("UNION argument".into()));
                 };
                 let NestedPayload::Union { tag, value } = &value.payload else {
                     return Err(Error::Internal("UNION payload".into()));
                 };
+                if self.name == "union_tag" {
+                    return Value::enumeration(result, *tag as u32);
+                }
                 Ok(if Some(*tag) == self.field {
                     value.clone()
                 } else {
@@ -289,6 +262,7 @@ impl ScalarFunction for NestedFunction {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
+    map::register(registry);
     for name in [
         "list_value",
         "array_value",
@@ -296,6 +270,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "array_extract",
         "struct_extract",
         "union_extract",
+        "union_tag",
         "map",
     ] {
         registry

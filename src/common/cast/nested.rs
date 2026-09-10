@@ -203,7 +203,14 @@ pub(super) fn register(registry: &mut CastRegistry) {
         "uuid",
         "enum",
         "time",
+        "time_ns",
+        "time_tz",
         "timestamp",
+        "timestamp_s",
+        "timestamp_ms",
+        "timestamp_ns",
+        "timestamp_tz",
+        "timestamp_tz_ns",
         "interval",
     ] {
         registry

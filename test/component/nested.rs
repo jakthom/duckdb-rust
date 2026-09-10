@@ -8,6 +8,8 @@ use duckdb_rust::{
 };
 use std::{cmp::Ordering, sync::Arc};
 
+#[path = "nested/accessors.rs"]
+mod accessors;
 #[path = "nested/native.rs"]
 mod native;
 

@@ -5,26 +5,19 @@ use std::sync::Arc;
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn nested_access(&self, value: BoundExpr, key: BoundExpr) -> Result<BoundExpr> {
-        let field = if let ExprKind::Literal(Value::Varchar(name)) = &key.kind {
-            Some(name.as_str())
-        } else {
-            None
+        let DataType::Nested(metadata) = &value.data_type else {
+            return Err(Error::Bind(
+                "nested accessor requires a nested value".into(),
+            ));
         };
-        let (function, data_type) = crate::function::nested::accessor(&value.data_type, field)?;
-        let key = if field.is_none() {
-            key.cast(
-                DataType::BigInt,
-                CastMode::Implicit,
-                self.context.casts,
-                self.context.query.types(),
-            )?
-        } else {
-            key
+        let name = match metadata.as_ref() {
+            NestedType::Map { .. } => "map_extract_value",
+            NestedType::List(_) | NestedType::Array { .. } => "list_extract",
+            NestedType::Struct(_) => "struct_extract",
+            NestedType::Union(_) => "union_extract",
+            _ => return Err(Error::Bind("invalid nested accessor".into())),
         };
-        Ok(BoundExpr {
-            data_type,
-            kind: ExprKind::Scalar(function, vec![value, key]),
-        })
+        self.scalar_call(name, vec![value, key])
     }
     pub(super) fn nested_constructor(
         &self,
