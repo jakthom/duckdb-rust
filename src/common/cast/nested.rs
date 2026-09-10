@@ -1,5 +1,6 @@
 use super::*;
 use crate::common::{NestedPayload, NestedType, NestedValue};
+mod union;
 
 #[derive(Debug, Default)]
 pub struct NestedCast {
@@ -169,8 +170,48 @@ pub(super) fn register(registry: &mut CastRegistry) {
             .expect("unique nested NULL cast");
         for target in families.into_iter().chain(["builtin.varchar"]) {
             registry
-                .register_family(source, target, Arc::new(NestedCast::default()))
+                .register_family(
+                    source,
+                    target,
+                    if target == "builtin.union" {
+                        Arc::new(union::UnionCast::default())
+                    } else {
+                        Arc::new(NestedCast::default())
+                    },
+                )
                 .expect("unique nested cast family");
         }
+    }
+    for source in [
+        "boolean",
+        "tinyint",
+        "smallint",
+        "integer",
+        "bigint",
+        "hugeint",
+        "utinyint",
+        "usmallint",
+        "uinteger",
+        "ubigint",
+        "uhugeint",
+        "decimal",
+        "float",
+        "double",
+        "varchar",
+        "date",
+        "blob",
+        "uuid",
+        "enum",
+        "time",
+        "timestamp",
+        "interval",
+    ] {
+        registry
+            .register_family(
+                &format!("builtin.{source}"),
+                "builtin.union",
+                Arc::new(union::UnionCast::default()),
+            )
+            .expect("unique scalar UNION cast");
     }
 }

@@ -1,4 +1,6 @@
-use super::{FunctionRegistry, ScalarBindArguments, ScalarFunction};
+use super::{
+    AggregateFunction, AggregateState, FunctionRegistry, ScalarBindArguments, ScalarFunction,
+};
 use crate::{
     common::{
         DataType, Error, NestedPayload, NestedType, NestedValue, Result, Value,
@@ -64,6 +66,13 @@ pub(crate) fn accessor(
                 .ok_or_else(|| Error::Bind(format!("STRUCT has no field {name}")))?;
             ("struct_extract", fields[index].1.clone(), Some(index))
         }
+        (NestedType::Union(fields), Some(name)) => {
+            let index = fields
+                .iter()
+                .position(|(field, _)| field.eq_ignore_ascii_case(name))
+                .ok_or_else(|| Error::Bind(format!("UNION has no member {name}")))?;
+            ("union_extract", fields[index].1.clone(), Some(index))
+        }
         (NestedType::List(child) | NestedType::Array { element: child, .. }, None) => {
             ("list_extract", child.clone(), None)
         }
@@ -92,14 +101,16 @@ impl ScalarFunction for NestedFunction {
         let types = (0..arguments.len())
             .map(|index| arguments.data_type(index))
             .collect::<Result<Vec<_>>>()?;
-        if self.name == "struct_extract" {
+        if self.name == "struct_extract" || self.name == "union_extract" {
             let [DataType::Nested(metadata), DataType::Varchar] = types.as_slice() else {
                 return Err(Error::Bind(
                     "struct_extract requires STRUCT and a constant field name".into(),
                 ));
             };
-            let NestedType::Struct(fields) = metadata.as_ref() else {
-                return Err(Error::Bind("struct_extract requires STRUCT".into()));
+            let fields = match (self.name, metadata.as_ref()) {
+                ("struct_extract", NestedType::Struct(fields))
+                | ("union_extract", NestedType::Union(fields)) => fields,
+                _ => return Err(Error::Bind("nested extraction has wrong family".into())),
             };
             let Value::Varchar(name) = arguments.constant(1)? else {
                 return Err(Error::Bind("STRUCT field must be a string".into()));
@@ -231,6 +242,19 @@ impl ScalarFunction for NestedFunction {
                     .cloned()
                     .ok_or_else(|| Error::Internal("struct field index".into()))
             }
+            "union_extract" => {
+                let Value::Nested(value) = &arguments[0] else {
+                    return Err(Error::Internal("UNION argument".into()));
+                };
+                let NestedPayload::Union { tag, value } = &value.payload else {
+                    return Err(Error::Internal("UNION payload".into()));
+                };
+                Ok(if Some(*tag) == self.field {
+                    value.clone()
+                } else {
+                    Value::Null
+                })
+            }
             "map" => {
                 let values = arguments
                     .iter()
@@ -271,6 +295,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "list_extract",
         "array_extract",
         "struct_extract",
+        "union_extract",
         "map",
     ] {
         registry
@@ -280,5 +305,68 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
                 field: None,
             }))
             .expect("unique nested function");
+    }
+    for name in ["list", "array_agg"] {
+        registry
+            .register_aggregate(Arc::new(CollectList(name)))
+            .expect("unique list aggregate");
+    }
+}
+
+#[derive(Debug)]
+struct CollectList(&'static str);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregateFunction for CollectList {
+    fn name(&self) -> &str {
+        self.0
+    }
+    fn return_type(&self, arguments: &[DataType], types: &TypeRegistry) -> Result<DataType> {
+        let [child] = arguments else {
+            return Err(Error::Bind("list aggregate requires one argument".into()));
+        };
+        types.bind(child)?;
+        Ok(NestedType::List(child.clone()).data_type())
+    }
+    fn create_state(
+        &self,
+        arguments: &[DataType],
+        types: &TypeRegistry,
+    ) -> Result<Box<dyn AggregateState>> {
+        Ok(Box::new(CollectedList {
+            data_type: self.return_type(arguments, types)?,
+            values: Vec::new(),
+        }))
+    }
+}
+
+struct CollectedList {
+    data_type: DataType,
+    values: Vec<Value>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregateState for CollectedList {
+    fn update(&mut self, arguments: &[Value], query: &QueryContext) -> Result<()> {
+        query.check_rows(
+            self.values
+                .len()
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("list aggregate cardinality overflow".into()))?,
+        )?;
+        let [value] = arguments else {
+            return Err(Error::Internal("list aggregate argument count".into()));
+        };
+        self.values
+            .try_reserve(1)
+            .map_err(|_| Error::Resource("list aggregate allocation failed".into()))?;
+        self.values.push(value.clone());
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<Value> {
+        if self.values.is_empty() {
+            return Ok(Value::Null);
+        }
+        NestedValue::value(self.data_type, NestedPayload::Sequence(self.values))
     }
 }

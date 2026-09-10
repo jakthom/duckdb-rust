@@ -12,6 +12,14 @@ use std::{cmp::Ordering, sync::Arc};
 #[test]
 fn nested_sql_constructors_casts_and_accessors() -> Result<()> {
     let mut c = Database::memory()?.connect();
+    for sql in [
+        "CREATE TABLE bad_list(k INTEGER[] PRIMARY KEY)",
+        "CREATE TABLE bad_struct(k STRUCT(a INTEGER) UNIQUE)",
+        "CREATE TABLE bad_map(k MAP(INTEGER,VARCHAR) PRIMARY KEY)",
+        "CREATE TABLE bad_union(k UNION(a INTEGER,b VARCHAR) UNIQUE)",
+    ] {
+        assert!(c.execute(sql).is_err(), "{sql}");
+    }
     assert_eq!(c.query("SELECT list_extract([1,NULL,3],-1), list_extract([1],0), list_extract([1],2), struct_extract({'a':12.50::DECIMAL(5,2),'b':[1,NULL]},'a')")?.rows, vec![vec![Value::Integer(3), Value::Null, Value::Null, Value::Decimal { value: 1250, width:5, scale:2 }]]);
     assert_eq!(c.query("SELECT list_extract([1,2]::BIGINT[],2), list_extract([1,2]::INTEGER[2],1), [1,NULL]=[1,NULL], [1,NULL]>[1,2], {'a':1,'b':NULL}>{'a':1,'b':2}, map([2,1],['a','b'])=map([1,2],['b','a'])")?.rows, vec![vec![Value::Integer(2), Value::Integer(1), Value::Boolean(true), Value::Boolean(true), Value::Boolean(true), Value::Boolean(false)]]);
     for sql in [
@@ -24,6 +32,33 @@ fn nested_sql_constructors_casts_and_accessors() -> Result<()> {
     ] {
         assert!(c.query(sql).is_err(), "{sql}");
     }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn union_members_and_list_aggregates_preserve_nested_nulls() -> Result<()> {
+    let mut c = Database::memory()?.connect();
+    assert_eq!(c.query("SELECT (NULL::INTEGER)::UNION(i INTEGER,s VARCHAR) IS NULL, NULL::UNION(i INTEGER,s VARCHAR) IS NULL, union_extract((NULL::INTEGER)::UNION(i INTEGER,s VARCHAR),'i')")?.rows,vec![vec![Value::Boolean(false),Value::Boolean(true),Value::Null]]);
+    c.execute("CREATE TABLE union_nulls(i INTEGER); INSERT INTO union_nulls VALUES (NULL),(1)")?;
+    assert_eq!(
+        c.query("SELECT i::UNION(i INTEGER,s VARCHAR) IS NULL FROM union_nulls")?
+            .rows,
+        vec![vec![Value::Boolean(false)], vec![Value::Boolean(false)]]
+    );
+    assert_eq!(c.query("SELECT union_extract(union_value(i:=1)::UNION(s VARCHAR,i BIGINT),'i'),union_extract(union_value(i:=1)::UNION(s VARCHAR,i BIGINT),'s'),union_value(i:=NULL) IS NULL,union_value(i:=NULL)::VARCHAR,union_extract(7::UNION(i INTEGER,s VARCHAR),'i')")?.rows,vec![vec![Value::Integer(1),Value::Null,Value::Boolean(false),Value::Varchar("NULL".into()),Value::Integer(7)]]);
+    assert!(c.query("SELECT 1::UNION(a INTEGER,b INTEGER)").is_err());
+    assert_eq!(c.query("SELECT list_extract(list(i),2),list_extract(array_agg(i),-1) FROM (VALUES (1),(NULL),(3))t(i)")?.rows,vec![vec![Value::Null,Value::Integer(3)]]);
+    assert_eq!(
+        c.query("SELECT list(i) FROM range(0)t(i)")?.rows,
+        vec![vec![Value::Null]]
+    );
+    assert_eq!(c.query("SELECT list_extract(list(i) OVER (ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW),-1) FROM range(3)t(i)")?.rows,vec![vec![Value::Integer(0)],vec![Value::Integer(1)],vec![Value::Integer(2)]]);
+    assert_eq!(
+        c.query("SELECT [1,2][2],{'a':[1,NULL]}.a[-1],s.a FROM (SELECT struct_pack(a:=9) s)t")?
+            .rows,
+        vec![vec![Value::Integer(2), Value::Null, Value::Integer(9)]]
+    );
     Ok(())
 }
 

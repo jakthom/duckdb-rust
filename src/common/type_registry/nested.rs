@@ -53,6 +53,9 @@ impl NestedTypes {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for NestedTypes {
+    fn supports_index(&self, _: &DataType) -> bool {
+        false
+    }
     fn name(&self) -> &'static str {
         "recursive-nested-types"
     }

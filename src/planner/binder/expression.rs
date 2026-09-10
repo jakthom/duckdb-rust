@@ -291,6 +291,58 @@ impl State<'_, '_> {
                     ));
                 }
                 let name = function.name.to_string();
+                if name.eq_ignore_ascii_case("struct_pack")
+                    || name.eq_ignore_ascii_case("union_value")
+                {
+                    let ast::FunctionArguments::List(list) = &function.args else {
+                        return Err(Error::Bind("nested constructor requires arguments".into()));
+                    };
+                    if list.duplicate_treatment.is_some()
+                        || !list.clauses.is_empty()
+                        || function.filter.is_some()
+                    {
+                        return Err(Error::Bind("invalid nested constructor modifiers".into()));
+                    }
+                    let mut names = Vec::new();
+                    let mut arguments = Vec::new();
+                    for argument in &list.args {
+                        let ast::FunctionArg::Named {
+                            name,
+                            arg: ast::FunctionArgExpr::Expr(value),
+                            ..
+                        } = argument
+                        else {
+                            return Err(Error::Bind(
+                                "nested constructor requires named arguments".into(),
+                            ));
+                        };
+                        names.push(name.value.clone());
+                        arguments.push(recurse(value)?);
+                    }
+                    if name.eq_ignore_ascii_case("union_value") {
+                        if arguments.len() != 1 {
+                            return Err(Error::Bind(
+                                "union_value requires one named argument".into(),
+                            ));
+                        }
+                        let data_type = crate::common::NestedType::Union(vec![(
+                            names.remove(0),
+                            arguments[0].data_type.clone(),
+                        )])
+                        .data_type();
+                        self.context.query.types().bind(&data_type)?;
+                        return Ok(BoundExpr {
+                            data_type: data_type.clone(),
+                            kind: ExprKind::Scalar(
+                                std::sync::Arc::new(crate::function::nested::Constructor(
+                                    data_type,
+                                )),
+                                arguments,
+                            ),
+                        });
+                    }
+                    return self.nested_constructor(arguments, Some(names));
+                }
                 if name.eq_ignore_ascii_case("grouping") || name.eq_ignore_ascii_case("grouping_id")
                 {
                     return self.grouping_function(expr, function, fields, grouping);
