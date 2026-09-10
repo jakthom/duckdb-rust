@@ -3,6 +3,14 @@
 //! inference. Equality has an additional type fallback ordering does not share.
 use super::*;
 
+#[derive(Clone, Copy)]
+pub(super) enum CombinationSequence {
+    /// Collection templates skip later NULLs and identical pseudo-types.
+    Collection,
+    /// CASE normalizes each pair, including equal literals and later NULLs.
+    Case,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn string_literal(value: &BoundExpr) -> bool {
     matches!(&value.kind, ExprKind::Literal(Value::Varchar(_)))
@@ -50,6 +58,64 @@ pub(super) fn scalar_argument_cast_mode(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
+    pub(super) fn ordered_combination_type<'b>(
+        &self,
+        arguments: impl IntoIterator<Item = &'b BoundExpr>,
+        context: CombinationSequence,
+    ) -> Result<DataType> {
+        self.context.query.check()?;
+        let mut arguments = arguments.into_iter();
+        let Some(first) = arguments.next() else {
+            return Ok(DataType::Null);
+        };
+        let types = self.context.query.types();
+        let mut child = first.data_type.clone();
+        let mut literal = string_literal(first);
+        let mut integer = integer_literal(first);
+        for argument in arguments {
+            self.context.query.check()?;
+            let other_literal = string_literal(argument);
+            let other_integer = integer_literal(argument);
+            if matches!(context, CombinationSequence::Collection) {
+                // These are collection-template rules, not generic CASE
+                // combination. CASE must normalize even equal pseudo-types.
+                if argument.data_type == DataType::Null
+                    || (literal && other_literal)
+                    || (integer.is_some()
+                        && integer == other_integer
+                        && child == argument.data_type)
+                {
+                    continue;
+                }
+            }
+            let inferred = types.try_common_type_with_integer_literals(
+                &child,
+                &argument.data_type,
+                integer,
+                other_integer,
+            )?;
+            child = if let Some(inferred) = inferred {
+                inferred
+            } else if literal {
+                argument.data_type.clone()
+            } else if other_literal && child != DataType::Null {
+                child
+            } else {
+                let context = match context {
+                    CombinationSequence::Case => "CASE expression",
+                    CombinationSequence::Collection => "sequence children",
+                };
+                return Err(Error::Bind(format!(
+                    "Cannot combine {context} of type {child} and {}",
+                    argument.data_type
+                )));
+            };
+            literal = false;
+            integer = None;
+        }
+        Ok(child)
+    }
+
     pub(super) fn combination_cast_mode(
         &self,
         source: &DataType,

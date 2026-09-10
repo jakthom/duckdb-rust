@@ -123,6 +123,49 @@ fn integer_literal_common_types_preserve_no_hint_rules_and_checked_boundaries() 
 }
 
 type Call = (DataType, DataType, Option<i128>, Option<i128>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn case_and_collection_inference_retain_selected_integer_literal_proposals() -> Result<()> {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut types = TypeRegistry::builtins();
+    for family in ["builtin.integer", "builtin.tinyint"] {
+        types.replace(
+            family,
+            Arc::new(Hinted {
+                target: DataType::SmallInt,
+                calls: calls.clone(),
+            }),
+        )?;
+    }
+    let mut c = DatabaseBuilder::new()
+        .types(Arc::new(types))
+        .build()?
+        .connect();
+    for sql in [
+        "SELECT typeof(CASE WHEN false THEN 2::TINYINT ELSE 7 END)",
+        "SELECT typeof([7,2::TINYINT])",
+    ] {
+        calls.lock().unwrap().clear();
+        let expected = if sql.contains('[') {
+            "SMALLINT[]"
+        } else {
+            "SMALLINT"
+        };
+        assert_eq!(
+            c.query(sql)?.rows,
+            vec![vec![Value::Varchar(expected.into())]]
+        );
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                (DataType::Integer, DataType::TinyInt, Some(7), None),
+                (DataType::TinyInt, DataType::Integer, None, Some(7))
+            ]
+        );
+    }
+    Ok(())
+}
 #[derive(Debug)]
 struct Hinted {
     target: DataType,

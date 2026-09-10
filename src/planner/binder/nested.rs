@@ -13,57 +13,6 @@ impl State<'_, '_> {
         let values = self.nested_constructor(values, None)?;
         self.scalar_call("map", vec![keys, values])
     }
-    fn sequence_type(&self, arguments: &[BoundExpr]) -> Result<DataType> {
-        let Some(first) = arguments.first() else {
-            return Ok(DataType::Null);
-        };
-        let types = self.context.query.types();
-        let mut child = first.data_type.clone();
-        let mut literal = super::coercion::string_literal(first);
-        let mut integer_literal = super::coercion::integer_literal(first);
-        // Template inference is ordered: subsequent untyped NULLs do not
-        // change an inferred type, but an initial NULL followed by a string
-        // normalizes to concrete VARCHAR and loses string-literal identity.
-        for argument in &arguments[1..] {
-            if argument.data_type == DataType::Null {
-                continue;
-            }
-            let other_literal = super::coercion::string_literal(argument);
-            let other_integer = super::coercion::integer_literal(argument);
-            if literal && other_literal {
-                continue;
-            }
-            // Equal integer pseudo-types retain the original literal identity;
-            // unlike STRING_LITERAL, that equality includes the literal value.
-            if integer_literal.is_some()
-                && integer_literal == other_integer
-                && child == argument.data_type
-            {
-                continue;
-            }
-            let inferred = types.try_common_type_with_integer_literals(
-                &child,
-                &argument.data_type,
-                integer_literal,
-                other_integer,
-            )?;
-            child = if let Some(inferred) = inferred {
-                inferred
-            } else if literal {
-                argument.data_type.clone()
-            } else if other_literal && child != DataType::Null {
-                child
-            } else {
-                return Err(Error::Bind(format!(
-                    "Cannot combine sequence children of type {child} and {}",
-                    argument.data_type
-                )));
-            };
-            literal = false;
-            integer_literal = None;
-        }
-        Ok(child)
-    }
     pub(super) fn nested_access(&self, value: BoundExpr, key: BoundExpr) -> Result<BoundExpr> {
         let DataType::Nested(metadata) = &value.data_type else {
             return Err(Error::Bind(
@@ -101,7 +50,10 @@ impl State<'_, '_> {
                 arguments,
             )
         } else {
-            let child = self.sequence_type(&arguments)?;
+            let child = self.ordered_combination_type(
+                &arguments,
+                super::coercion::CombinationSequence::Collection,
+            )?;
             let arguments = arguments
                 .into_iter()
                 .map(|argument| self.combination_cast(argument, &child))

@@ -9,6 +9,111 @@ use duckdb_rust::{
     optimizer::{Optimizer, PipelineOptimizer},
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn case_result_inference_visits_else_first_without_collection_shortcuts() -> Result<()> {
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            let mut c = DatabaseBuilder::new()
+                .expressions(evaluator.clone())
+                .optimizer(optimizer)
+                .batch_size(2)
+                .build()?
+                .connect();
+            for (expression, expected) in [
+                (
+                    "CASE WHEN false THEN abs('-128'::TINYINT) ELSE 1 END",
+                    "TINYINT",
+                ),
+                (
+                    "CASE WHEN false THEN abs('-32768'::SMALLINT) ELSE 1 END",
+                    "SMALLINT",
+                ),
+                (
+                    "CASE WHEN false THEN 0::TINYINT ELSE 1::INTEGER END",
+                    "INTEGER",
+                ),
+                ("CASE WHEN false THEN 0::UTINYINT ELSE 255 END", "UTINYINT"),
+                ("CASE WHEN false THEN 0::UTINYINT ELSE 256 END", "INTEGER"),
+                (
+                    "CASE WHEN false THEN NULL WHEN false THEN 2::TINYINT ELSE 1 END",
+                    "INTEGER",
+                ),
+                (
+                    "CASE WHEN false THEN 1 WHEN false THEN 2::TINYINT ELSE 1 END",
+                    "INTEGER",
+                ),
+                (
+                    "CASE WHEN false THEN 2::TINYINT WHEN false THEN 1 ELSE 1 END",
+                    "TINYINT",
+                ),
+                ("CASE WHEN false THEN 2::TINYINT ELSE NULL END", "TINYINT"),
+                (
+                    "CASE 3 WHEN 1 THEN 0::SMALLINT WHEN 2 THEN 1 ELSE 1 END",
+                    "SMALLINT",
+                ),
+                ("CASE WHEN false THEN 'bad' ELSE 1::INTEGER END", "INTEGER"),
+                ("CASE WHEN false THEN 1::INTEGER ELSE '2' END", "INTEGER"),
+            ] {
+                assert_eq!(
+                    c.query(&format!("SELECT typeof({expression})"))?.rows,
+                    vec![vec![Value::Varchar(expected.into())]],
+                    "{expression}"
+                );
+            }
+            for expression in [
+                "CASE WHEN false THEN '1' WHEN false THEN 2 ELSE '1' END",
+                "CASE WHEN false THEN NULL WHEN false THEN 2 ELSE '1' END",
+                "CASE WHEN false THEN 1 ELSE '2'::VARCHAR END",
+            ] {
+                assert!(
+                    matches!(
+                        c.query(&format!("SELECT {expression}")),
+                        Err(Error::Bind(_))
+                    ),
+                    "{expression}"
+                );
+            }
+            assert_eq!(c.query("SELECT typeof([1,NULL,1,2::TINYINT]),typeof(['1',NULL,'1',2]),typeof(xor(1::UTINYINT,CASE WHEN true THEN 1 ELSE 1 END))")?.rows,
+                vec![vec![Value::Varchar("TINYINT[]".into()),Value::Varchar("INTEGER[]".into()),Value::Varchar("INTEGER".into())]]);
+            assert_eq!(
+                c.query("SELECT CASE WHEN false THEN abs('-128'::TINYINT) ELSE 1 END")?
+                    .rows,
+                vec![vec![Value::Integer(1)]]
+            );
+            assert!(matches!(
+                c.query("SELECT CASE WHEN true THEN abs('-128'::TINYINT) ELSE 1 END"),
+                Err(Error::OutOfRange(_))
+            ));
+            let p = c.prepare("SELECT typeof(CASE WHEN false THEN 0::TINYINT ELSE $1 END)")?;
+            assert_eq!(
+                c.execute_prepared(&p, &[Value::Integer(1)])?.rows,
+                vec![vec![Value::Varchar("INTEGER".into())]]
+            );
+            c.execute("CREATE TABLE case_t(k TINYINT PRIMARY KEY); INSERT INTO case_t SELECT CASE WHEN i=0 THEN 2::TINYINT ELSE 1 END FROM range(2) t(i)")?;
+            assert_eq!(
+                c.query("SELECT k FROM case_t ORDER BY k")?.rows,
+                vec![vec![Value::Integer(1)], vec![Value::Integer(2)]]
+            );
+            assert!(matches!(
+                c.execute("UPDATE case_t SET k=CASE WHEN k=1 THEN abs('-128'::TINYINT) ELSE 3 END"),
+                Err(Error::OutOfRange(_))
+            ));
+            assert_eq!(
+                c.query("SELECT k FROM case_t ORDER BY k")?.rows,
+                vec![vec![Value::Integer(1)], vec![Value::Integer(2)]]
+            );
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct CoercionProbe(CastMode);
 

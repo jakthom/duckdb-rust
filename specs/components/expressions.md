@@ -72,6 +72,17 @@ with the first integer literal to produce a concrete type. No expression is
 evaluated to discover literal identity. Assignment and ordinary scalar-function
 coercion policies remain separate from this collection-template context.
 
+CASE result inference has a different ordered policy: children bind in source
+order, then the ELSE type combines with each THEN type in source order. Every
+pair invokes normal selected combination, so repeated integer/string literals
+and later NULLs normalize their pseudo-type identity. Collection shortcuts must
+not leak into this path. The provisional rewrite shares ordered inference with
+an explicit context, preserving literal provenance and selected type/cast
+services without evaluating result branches. Pruned CASE expressions still
+retain CASE identity for enclosing function overloads. Source:
+`src/planner/binder/expression/bind_case_expression.cpp` and the selected
+combination rules referenced below.
+
 MAP constructor NULL/duplicate keys are invalid input. Converted MAP keys also
 need validation, but the cast records its own rejection provenance so TRY_CAST
 can NULL the entire result for an invalid or duplicate converted key without

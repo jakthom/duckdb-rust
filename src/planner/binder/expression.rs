@@ -566,7 +566,6 @@ impl State<'_, '_> {
                 ..
             } => {
                 let mut branches = Vec::new();
-                let mut data_type = DataType::Null;
                 for condition in conditions {
                     let predicate = if let Some(operand) = operand {
                         self.binary(
@@ -578,11 +577,6 @@ impl State<'_, '_> {
                         self.boolean(recurse(&condition.condition)?)?
                     };
                     let value = recurse(&condition.result)?;
-                    data_type = self
-                        .context
-                        .query
-                        .types()
-                        .common_type(&data_type, &value.data_type)?;
                     branches.push((predicate, value));
                 }
                 let otherwise = else_result
@@ -590,11 +584,13 @@ impl State<'_, '_> {
                     .map(|e| recurse(e))
                     .transpose()?
                     .unwrap_or_else(|| BoundExpr::literal(Value::Null));
-                data_type = self
-                    .context
-                    .query
-                    .types()
-                    .common_type(&data_type, &otherwise.data_type)?;
+                // Development binds all children in source order, then infers
+                // result metadata starting with ELSE and visiting each THEN.
+                // This is selected metadata inference, not child evaluation.
+                let data_type = self.ordered_combination_type(
+                    std::iter::once(&otherwise).chain(branches.iter().map(|(_, value)| value)),
+                    super::coercion::CombinationSequence::Case,
+                )?;
                 Ok(self.prune_case(BoundExpr {
                     kind: ExprKind::Case(
                         branches
