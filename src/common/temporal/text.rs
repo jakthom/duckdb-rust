@@ -41,7 +41,7 @@ impl Scanner<'_, '_> {
         }
         Ok(value)
     }
-    fn clock(&mut self, nanos: bool) -> Result<Parts> {
+    fn clock(&mut self, nanos: bool, strict: bool) -> Result<Parts> {
         self.space()?;
         let start = self.pos;
         let mut hour = 0_i64;
@@ -56,19 +56,23 @@ impl Scanner<'_, '_> {
             return Err(invalid("invalid clock text"));
         }
         self.advance()?;
-        let minute = if self.peek().is_none() {
+        let minute_start = self.pos;
+        let minute = if self.peek().is_none() && !strict {
             0
         } else {
             self.digits(false)?
         };
         let second = if self.peek().is_none() {
+            if strict && self.pos - minute_start != 2 {
+                return Err(invalid("strict clock requires a two-digit final minute"));
+            }
             0
         } else {
             if self.peek() != Some(b':') {
                 return Err(invalid("invalid clock separator"));
             }
             self.advance()?;
-            if self.peek().is_none() {
+            if self.peek().is_none() && !strict {
                 0
             } else {
                 self.digits(false)?
@@ -95,6 +99,12 @@ impl Scanner<'_, '_> {
             + if nanos { fraction / 1000 } else { fraction };
         if micros > MICROS_PER_DAY {
             return Err(invalid("time field value out of range"));
+        }
+        if strict {
+            self.space()?;
+            if self.pos != self.bytes.len() {
+                return Err(invalid("invalid strict clock trailing text"));
+            }
         }
         Ok(Parts {
             micros,
@@ -173,7 +183,7 @@ fn timestamp(
         pos,
         check: suffix.check,
     };
-    let mut parts = clock.clock(nanos)?;
+    let mut parts = clock.clock(nanos, false)?;
     if clock.pos != end {
         return Err(invalid("invalid timestamp clock suffix"));
     }
@@ -275,59 +285,10 @@ fn parse_inner(
     check: &mut dyn FnMut() -> Result<()>,
 ) -> Result<TemporalValue> {
     use DataType::*;
-    let nanos = matches!(data_type, TimeNs | TimestampNs | TimestampTzNs);
     if matches!(data_type, Time | TimeNs | TimeTz) {
-        let mut clock = Scanner {
-            bytes: text.as_bytes(),
-            pos: 0,
-            check,
-        };
-        let parsed = clock.clock(nanos);
-        let parts = match parsed {
-            Ok(parts) => {
-                if *data_type == TimeTz {
-                    clock.space()?;
-                    let offset = if clock.peek().is_none() {
-                        0
-                    } else {
-                        clock.offset()?
-                    };
-                    let value = TemporalValue::TimeTz {
-                        micros: parts.micros,
-                        offset,
-                    };
-                    value.validate()?;
-                    (clock.check)()?;
-                    return Ok(value);
-                }
-                parts
-            }
-            Err(Error::Conversion(_)) => {
-                let mut parts = timestamp(text, *data_type == TimeTz, nanos, clock.check)?;
-                if parts.micros.abs_diff(0) == i64::MAX as u64 {
-                    return Err(invalid("infinite timestamp has no time"));
-                }
-                parts.micros = parts.micros.rem_euclid(MICROS_PER_DAY);
-                if *data_type == TimeTz {
-                    return Ok(TemporalValue::TimeTz {
-                        micros: parts.micros,
-                        offset: 0,
-                    });
-                }
-                parts
-            }
-            Err(error) => return Err(error),
-        };
-        (clock.check)()?;
-        return TemporalValue::from_ticks(
-            data_type,
-            if nanos {
-                parts.micros * 1000 + parts.nanos
-            } else {
-                parts.micros
-            },
-        );
+        return parse_clock(text, data_type, false, check);
     }
+    let nanos = matches!(data_type, TimestampNs | TimestampTzNs);
     let parts = timestamp(text, data_type.has_time_zone(), nanos, check)?;
     if parts.micros.abs_diff(0) == i64::MAX as u64 {
         return TemporalValue::from_ticks(data_type, parts.micros);
@@ -350,9 +311,120 @@ fn parse_inner(
     }
 }
 
+/// Core VARIANT fallback requests strict text conversion. This is distinct
+/// from ordinary explicit casts and from TRY_CAST failure recovery. TIMETZ
+/// deliberately keeps permissive clock fields but requires a complete offset;
+/// no strict clock target retries its input as a timestamp.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn parse_clock(
+    text: &str,
+    data_type: &DataType,
+    strict: bool,
+    check: &mut dyn FnMut() -> Result<()>,
+) -> Result<TemporalValue> {
+    use DataType::*;
+    let nanos = *data_type == TimeNs;
+    let mut clock = Scanner {
+        bytes: text.as_bytes(),
+        pos: 0,
+        check,
+    };
+    let parsed = clock.clock(nanos, strict && *data_type != TimeTz);
+    let parts = match parsed {
+        Ok(parts) => {
+            if *data_type == TimeTz {
+                clock.space()?;
+                let offset = if clock.peek().is_none() {
+                    0
+                } else {
+                    clock.offset()?
+                };
+                if strict {
+                    clock.space()?;
+                    if clock.pos != clock.bytes.len() {
+                        return Err(invalid("invalid strict clock offset trailing text"));
+                    }
+                }
+                let value = TemporalValue::TimeTz {
+                    micros: parts.micros,
+                    offset,
+                };
+                value.validate()?;
+                (clock.check)()?;
+                return Ok(value);
+            }
+            parts
+        }
+        Err(Error::Conversion(_)) if !strict => {
+            let mut parts = timestamp(text, *data_type == TimeTz, nanos, clock.check)?;
+            if parts.micros.abs_diff(0) == i64::MAX as u64 {
+                return Err(invalid("infinite timestamp has no time"));
+            }
+            parts.micros = parts.micros.rem_euclid(MICROS_PER_DAY);
+            if *data_type == TimeTz {
+                return Ok(TemporalValue::TimeTz {
+                    micros: parts.micros,
+                    offset: 0,
+                });
+            }
+            parts
+        }
+        Err(error) => return Err(error),
+    };
+    (clock.check)()?;
+    TemporalValue::from_ticks(
+        data_type,
+        if nanos {
+            parts.micros * 1000 + parts.nanos
+        } else {
+            parts.micros
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn strict_clock_source_policy_checks_long_inputs_and_preserves_cancellation() {
+        for (kind, text) in [
+            (DataType::Time, " ".repeat(100_000) + "12:34:56"),
+            (
+                DataType::TimeNs,
+                "12:34:56.".to_owned() + &"0".repeat(100_000),
+            ),
+            (DataType::Time, "12:34:56".to_owned() + &" ".repeat(100_000)),
+            (
+                DataType::TimeTz,
+                "12:34:56+02".to_owned() + &" ".repeat(100_000),
+            ),
+        ] {
+            let mut checks = 0;
+            let result = TemporalValue::parse_clock_strict_checked(&text, &kind, &mut || {
+                checks += 1;
+                if checks == 8 {
+                    Err(Error::Interrupted)
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(
+                matches!(result, Err(Error::Interrupted)),
+                "{kind}: {result:?}"
+            );
+            assert_eq!(checks, 8);
+        }
+        assert!(matches!(
+            TemporalValue::parse_clock_strict_checked(
+                "12:34:56",
+                &DataType::Timestamp,
+                &mut || Ok(())
+            ),
+            Err(Error::Internal(_))
+        ));
+    }
 
     #[test]
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

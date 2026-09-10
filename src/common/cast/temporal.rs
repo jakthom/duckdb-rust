@@ -1,5 +1,6 @@
 use super::{
-    CastBehavior, CastFailure, CastFunction, CastMode, CastRegistry, CastResult, CastSpec,
+    CastBehavior, CastFailure, CastFunction, CastMode, CastRegistry, CastResult, CastSourceContext,
+    CastSpec,
 };
 use crate::{
     common::{DataType, Error, Result, TemporalValue, Value, temporal::TEMPORAL_TYPES},
@@ -112,6 +113,43 @@ impl CastFunction for TemporalCast {
                 }
                 _ => CastFailure::fatal(error),
             })
+    }
+    fn cast_attempt_with_context(
+        &self,
+        value: &Value,
+        spec: &CastSpec,
+        behavior: CastBehavior,
+        source_context: CastSourceContext,
+        query: &QueryContext,
+    ) -> CastResult<Value> {
+        if source_context == CastSourceContext::Variant
+            && matches!(
+                spec.target,
+                DataType::Time | DataType::TimeNs | DataType::TimeTz
+            )
+            && let Value::Varchar(text) = value
+        {
+            return TemporalValue::parse_clock_strict_checked(text, &spec.target, &mut || {
+                query.check()
+            })
+            .map(Value::Temporal)
+            .map_err(|error| match error {
+                Error::Conversion(_) => {
+                    // Only this leaf's text rejection is a VARIANT input
+                    // failure. Validators and selected child failures are
+                    // never caught here; bound the diagnostic copy too.
+                    let end = text.char_indices().nth(128).map_or(text.len(), |(i, _)| i);
+                    let tail = if end < text.len() { "..." } else { "" };
+                    CastFailure::invalid_input(Error::Conversion(format!(
+                        "Can't convert VARIANT(VARCHAR) value '{}{tail}' to '{}'",
+                        &text[..end],
+                        spec.target
+                    )))
+                }
+                _ => CastFailure::fatal(error),
+            });
+        }
+        self.cast_attempt(value, spec, behavior, query)
     }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {
         context.check()?;

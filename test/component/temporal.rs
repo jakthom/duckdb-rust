@@ -20,6 +20,8 @@ use duckdb_rust::{
 };
 use std::sync::Arc;
 
+mod temporal_variant;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn temporal_literals_keep_type_precision_nulls_and_canonical_comparison() -> Result<()> {

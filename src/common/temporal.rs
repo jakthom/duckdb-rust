@@ -307,6 +307,24 @@ impl TemporalValue {
         }
         text::parse(text, data_type, check)
     }
+    /// Strict built-in clock text policy used by a selected VARIANT child
+    /// cast. Ordinary SQL text conversion remains `parse_checked`.
+    pub(crate) fn parse_clock_strict_checked(
+        text: &str,
+        data_type: &DataType,
+        check: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<Self> {
+        check()?;
+        if !matches!(
+            data_type,
+            DataType::Time | DataType::TimeNs | DataType::TimeTz
+        ) {
+            return Err(Error::Internal(
+                "strict clock parser requires a clock type".into(),
+            ));
+        }
+        text::parse_clock(text, data_type, true, check)
+    }
     pub fn date(self) -> Result<Date> {
         if !self.is_finite() {
             return Ok(if self.ticks()? > 0 {

@@ -26,6 +26,24 @@ Binding selects common types and inserts casts before most physical execution. `
 
 `Value::CastAs` and `TryCastAs` use a cast-function set and context where provided. The default variants provide context-free conversions. The throwing and optional-result APIs encode distinct failure contracts; callers must not replace failed conversion with a legitimate SQL NULL unless that is the intended SQL operation. Vectorized casts apply the corresponding conversion semantics across a batch, including NULL propagation and per-value conversion errors.
 
+Source provenance can affect accepted text independently of explicit/implicit
+conversion and error recovery. Development's VARIANT fallback invokes
+`DefaultTryCastAs` with strict input conversion. TIME/TIME_NS then require a
+complete clock string, reject a final one-digit minute without seconds, and do
+not retry timestamp text. TIMETZ deliberately parses its clock fields
+non-strictly, but strictly consumes the offset and disables timestamp fallback.
+Timestamp cast entry points do not forward that strict argument; do not infer
+one universal temporal policy. DATE has separate strict year-length and suffix
+rules. These are source observations, not a claim that every Rust path is
+implemented. A selected-adapter implementation must preserve its replacement,
+validation, cancellation and failure-provenance contracts when carrying such
+context through nested extraction.
+
+Sources: [VARIANT fallback](../../../duckdb/src/function/cast/variant/from_variant.cpp),
+[clock parsing](../../../duckdb/src/common/types/time.cpp),
+[cast entry points](../../../duckdb/src/common/operator/cast_operators.cpp),
+[calendar parsing](../../../duckdb/src/common/types/date.cpp).
+
 Decimal arithmetic must preserve both precision and scale constraints; temporal types have units and semantic distinctions that cannot be recovered from an integer's width alone. String and binary values differ even when both have byte storage. LIST and fixed-size ARRAY differ in shape constraints. MAP and UNION add semantic structure over nested storage. These are engineering obligations derived from the type model, not permission to interchange physically similar types.
 
 ## Cross-component invariants
