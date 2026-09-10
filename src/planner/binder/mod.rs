@@ -283,7 +283,7 @@ impl State<'_, '_> {
                 }
                 if name == "bitstring" {
                     return if modifiers.len() <= 1
-                        && modifiers.iter().all(|value| value.parse::<u64>().is_ok())
+                        && modifiers.iter().all(|value| value.parse::<i64>().is_ok())
                     {
                         Ok(DataType::Bit)
                     } else {

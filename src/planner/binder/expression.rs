@@ -302,6 +302,10 @@ impl State<'_, '_> {
                     B::DuckIntegerDivide => Some(Operator::IntegerDivide),
                     B::Modulo => Some(Operator::Modulo),
                     B::StringConcat => Some(Operator::Concat),
+                    B::BitwiseAnd => Some(Operator::BitAnd),
+                    B::BitwiseOr => Some(Operator::BitOr),
+                    B::PGBitwiseShiftLeft => Some(Operator::ShiftLeft),
+                    B::PGBitwiseShiftRight => Some(Operator::ShiftRight),
                     _ => None,
                 };
                 if let Some(operator) = overload {
@@ -336,6 +340,9 @@ impl State<'_, '_> {
                     ast::UnaryOperator::Not => (UnaryOp::Not, self.boolean(inner)?),
                     ast::UnaryOperator::Minus => {
                         return self.operator(Operator::Negate, vec![inner]);
+                    }
+                    ast::UnaryOperator::BitwiseNot => {
+                        return self.operator(Operator::BitNot, vec![inner]);
                     }
                     _ => return Err(unsupported(op)),
                 };

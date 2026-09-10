@@ -1,5 +1,6 @@
 mod aggregate;
 mod binary_scalar;
+mod bit;
 mod enumeration;
 pub mod grouped;
 pub(crate) mod nested;
@@ -183,6 +184,7 @@ impl FunctionRegistry {
         scalar::register(&mut registry);
         temporal::register(&mut registry);
         binary_scalar::register(&mut registry);
+        bit::register(&mut registry);
         enumeration::register(&mut registry);
         nested::register(&mut registry);
         aggregate::register(&mut registry);

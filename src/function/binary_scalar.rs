@@ -69,7 +69,10 @@ impl ScalarFunction for BinaryFunction {
         let (supported, output) = match self.0 {
             "encode" | "unhex" | "from_hex" => (*input == DataType::Varchar, DataType::Blob),
             "decode" => (*input == DataType::Blob, DataType::Varchar),
-            "octet_length" => (*input == DataType::Blob, DataType::BigInt),
+            "octet_length" => (
+                matches!(input, DataType::Blob | DataType::Bit),
+                DataType::BigInt,
+            ),
             "hex" | "to_hex" => (
                 matches!(input, DataType::Varchar | DataType::Blob) || input.is_integer(),
                 DataType::Varchar,
@@ -100,6 +103,7 @@ impl ScalarFunction for BinaryFunction {
                     )
                 }),
             ("octet_length", Value::Blob(bytes)) => Ok(Value::Integer(bytes.len() as i128)),
+            ("octet_length", Value::Bit(bits)) => Ok(Value::Integer(bits.bytes().len() as i128)),
             ("hex" | "to_hex", Value::Blob(bytes)) => encode_hex(bytes, query).map(Value::Varchar),
             ("hex" | "to_hex", Value::Varchar(text)) => {
                 encode_hex(text.as_bytes(), query).map(Value::Varchar)

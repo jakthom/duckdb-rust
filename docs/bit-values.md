@@ -38,14 +38,72 @@ maintained Kani run/investigation on the integrated code before declaring this
 substantial stage complete. An earlier tracing command overlapped source
 isolation and returned nonzero; the stable isolated rerun is the reported pass.
 
+## SQL operators/functions and independent native evidence
+
+The next slice registers selected `&`, `|`, `~`, `<<`, `>>` and `xor` kernels
+for BIT and all ten fixed-width integral types. Numeric operations preserve the
+selected physical width, including 128-bit extrema; left-shift negatives and
+overflow error, while out-of-range right-shift counts return zero. BIT shifts
+retain logical length. Functions include `bitstring`, `bit_length`, `bit_count`,
+`get_bit`, `set_bit`, `bit_position`, `bitstring_byte_comparable`, BIT length
+aliases/octet length, and `bit_and`/`bit_or`/`bit_xor` aggregates with ordinary
+grouped and window execution. Development's surprising HUGEINT popcount result
+(`bit_count(-1::HUGEINT) = -128`, returned as TINYINT) is checked explicitly.
+
+The initial `bit-reference-initial.json` records development 50/55 SQL and
+release 45/55 SQL, with native C++-producer/Rust-checkpoint/Rust-WAL paths 3/3
+on each pin. Investigation found an actual empty-BLOB cast bug, now repaired:
+ordinary BLOB-to-BIT rejects empty input. The campaign also mistakenly marked
+unparenthesized negative BIT casts and unsupported BIT-to-ENUM casts as success
+queries. The follow-up keeps those expressions as separate expected-error cases
+and adds the intended parenthesized numeric casts; no upstream assertion was
+changed. Its native mutation changes a bit instead of redundantly setting zero.
+
+`bit-reference-empty-blob.json` records development 56/59 SQL, release 50/59,
+and native paths 3/3 on each pin. Both reports retain source fingerprints,
+binary/library identities, typed results and failures. The production builds
+use `--release --no-default-features`; each took about 1m24s. Development still
+differs on signed type-modifier parsing, integer-literal-sensitive XOR binding,
+and its INTERNAL Error for `TRY_CAST(''::BLOB AS BIT)` (the selected reference
+cast throws despite being declared infallible). Rust currently returns NULL
+for that TRY_CAST; this is an open observable mismatch, not a passing result.
+Release additionally differs on empty VARCHAR casts, TRY_CAST narrowing errors,
+the byte-comparable function, and logical BIT sorting/minimum behavior.
+
+Seven retained native fixtures supplement the campaign. Both pins produce a
+mixed BIT/list/struct/decimal schema with defaults, a primary key and 70,005-bit
+overflow data. Release fixtures actually use Dictionary and FSST; development
+actually uses DICT_FSST with EMPTY_VALIDITY. Development's forced legacy
+Dictionary/FSST requests fall back to Uncompressed because those encoders are
+disabled after storage V1_2_0; their manifests record that fact and they are not
+counted as exercising legacy compression. The generator initially rejected that
+fallback until the source policy and actual compression were checked.
+
+These fixtures exposed a legacy-FSST NULL-placeholder bug after the report
+campaign: decoded empty BIT payloads need an external validity check, just like
+uncompressed placeholders. The narrow repair retains strict validity and does
+not accept an empty non-NULL DICT_FSST dictionary entry. All seven fixtures now
+check exact rows, nested NULL/container distinctions, read-only byte stability,
+rollback, real updates/deletes and checkpoint reopen in the BIT component suite.
+The report fingerprints precede this FSST repair; the independent fixture tests
+are the direct validation evidence for it.
+
+Current normal checks pass BIT (6 tests), compression (15), numeric (25),
+operators (8) and workspace/all-target clippy. Coverage finds no missing
+instrumentation across 257 files, 2,224 functions and 203 interface methods.
+Exhaustive tracing compilation passes and removes its temporary telemetry.
+The integration lead still owns the maintained Kani checkpoint and controlled
+performance comparisons before declaring the substantial stage complete.
+
 ## Continuing work and limits
 
-SQL bitwise operators, scalar functions and aggregates are a separate active
-increment. Independent C++ producer/checkpoint/WAL compatibility campaigns have
-not yet run for BIT: Rust's own native round trip is not external compatibility
-evidence. Native string constant compression is still explicitly unsupported,
-as for the existing VARCHAR/BLOB path. Integer-literal-sensitive overload
-selection belongs to the shared lead binder work, including the distinction
+The remaining `bitstring_agg(value[, min, max])` requires retained aggregate
+bind constants and, for the unary form, upstream-equivalent child statistics.
+Deriving bounds from observed group rows would give different values and is not
+an acceptable substitute. That shared bind/statistics interface remains under
+coordination. Native string constant compression is still explicitly unsupported,
+as for VARCHAR/BLOB. Integer-literal-sensitive overload selection and signed
+type-modifier grammar belong to the shared lead work, including the distinction
 between a bare literal and an explicitly cast or CASE-produced INTEGER.
 
 Full upstream mappings, boundary/error diagnostics, broader native compression,

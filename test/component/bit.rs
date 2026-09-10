@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{io::Read, sync::Arc};
 
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
@@ -6,7 +6,7 @@ use duckdb_rust::{
         BitString,
         cast::{CastMode, CastRegistry},
         type_registry::builtin_types,
-        vector::Vector,
+        vector::{DataChunk, Vector},
     },
     execution::{
         expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
@@ -14,6 +14,7 @@ use duckdb_rust::{
         operator::join::{HashJoin, JoinAlgorithm, NestedLoopJoin},
         physical_plan::NativePhysicalPlanner,
     },
+    function::operator::{Operator, OperatorRegistry},
     parallel::QueryContext,
     storage::{
         checkpoint::FileCheckpoint,
@@ -124,6 +125,10 @@ fn packed_bit_lengths_native_padding_vectors_and_numeric_patterns_are_exact() ->
         Value::Integer(127)
     );
     assert!(bit("000000000").cast(&DataType::TinyInt).is_err());
+    assert!(matches!(
+        Value::Blob(Vec::new()).cast(&DataType::Bit),
+        Err(Error::Conversion(_))
+    ));
     let values = vec![
         bit("0"),
         bit("00"),
@@ -329,5 +334,301 @@ fn bit_native_wal_and_overflow_preserve_commits_nulls_and_bit_length() -> Result
         c.query("SELECT v FROM t WHERE k='00'::BIT")?.rows,
         vec![vec![long]]
     );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn numeric_bitwise_widths_shifts_and_selected_batches_preserve_full_domains() -> Result<()> {
+    let query = QueryContext::background();
+    let types = builtin_types();
+    let registry = OperatorRegistry::builtins();
+    for data_type in [
+        DataType::TinyInt,
+        DataType::SmallInt,
+        DataType::Integer,
+        DataType::BigInt,
+        DataType::HugeInt,
+        DataType::UTinyInt,
+        DataType::USmallInt,
+        DataType::UInteger,
+        DataType::UBigInt,
+        DataType::UHugeInt,
+    ] {
+        let width = data_type
+            .integer_bits()
+            .or_else(|| data_type.unsigned_bits())
+            .unwrap();
+        let signed = data_type.is_signed_integer();
+        let mask = u128::MAX >> (128 - width);
+        let value = |word: u128| {
+            if signed {
+                Value::Integer(((word as i128) << (128 - width)) >> (128 - width))
+            } else {
+                Value::Unsigned(word)
+            }
+        };
+        let values = vec![
+            value(0),
+            value(1),
+            value(mask >> 1),
+            value(mask),
+            Value::Null,
+        ];
+        for (operation, expected) in [
+            (Operator::BitAnd, value(1)),
+            (Operator::BitOr, value(mask)),
+            (Operator::BitXor, value(mask ^ 1)),
+        ] {
+            let bound =
+                registry.bind(operation, &[data_type.clone(), data_type.clone()], &types)?;
+            assert_eq!(bound.apply(&[value(mask), value(1)], &query)?, expected);
+            for vector in [
+                Vector::flat(data_type.clone(), values.clone())?,
+                Arc::new(Vector::flat(data_type.clone(), values.clone())?)
+                    .select(vec![3, 0, 4, 1, 2, 3])?,
+                Vector::constant(data_type.clone(), value(mask), 17)?,
+            ] {
+                let right = Vector::constant(data_type.clone(), value(1), vector.len())?;
+                let count = vector.len();
+                let input = DataChunk::new(vec![vector, right], count)?;
+                let output = bound.apply_batch(&input, &query)?;
+                for (row, values) in input.rows().enumerate() {
+                    assert_eq!(output.get(row).unwrap(), &bound.apply(&values, &query)?);
+                }
+            }
+        }
+        let not = registry.bind(Operator::BitNot, std::slice::from_ref(&data_type), &types)?;
+        assert_eq!(not.apply(&[value(0)], &query)?, value(mask));
+        assert_eq!(not.apply(&[value(mask)], &query)?, value(0));
+        let left = registry.bind(
+            Operator::ShiftLeft,
+            &[data_type.clone(), data_type.clone()],
+            &types,
+        )?;
+        let right = registry.bind(
+            Operator::ShiftRight,
+            &[data_type.clone(), data_type],
+            &types,
+        )?;
+        let safe_shift = width - if signed { 2 } else { 1 };
+        assert_eq!(
+            left.apply(&[value(1), value(u128::from(safe_shift))], &query)?,
+            value(1_u128 << safe_shift)
+        );
+        assert!(matches!(
+            left.apply(&[value(1), value(u128::from(safe_shift + 1))], &query),
+            Err(Error::OutOfRange(_))
+        ));
+        assert_eq!(
+            left.apply(&[value(0), value(u128::from(width))], &query)?,
+            value(0)
+        );
+        assert_eq!(
+            right.apply(&[value(mask), value(u128::from(width))], &query)?,
+            value(0)
+        );
+        assert_eq!(
+            right.apply(&[value(mask), value(1)], &query)?,
+            value(if signed { mask } else { mask >> 1 })
+        );
+        if signed {
+            assert!(matches!(
+                left.apply(&[value(mask), value(0)], &query),
+                Err(Error::OutOfRange(_))
+            ));
+            assert!(matches!(
+                left.apply(&[value(0), value(mask)], &query),
+                Err(Error::OutOfRange(_))
+            ));
+            assert_eq!(right.apply(&[value(mask), value(mask)], &query)?, value(0));
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn bit_functions_aggregates_windows_and_mutations_use_logical_positions() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut c = DatabaseBuilder::new()
+            .expressions(expressions)
+            .batch_size(2)
+            .build()?
+            .connect();
+        assert_eq!(c.query("SELECT bitstring('101',5),bitstring('101'::BIT,5),bit_length('é'),bit_length('001'::BIT),bit_count('001'::BIT),get_bit('101'::BIT,1),set_bit('101'::BIT,1,1)")?.rows,
+            vec![vec![bit("00101"),bit("00101"),Value::Integer(16),Value::Integer(3),Value::Integer(1),Value::Integer(0),bit("111")]]);
+        assert_eq!(c.query("SELECT length('001'::BIT),len('001'::BIT),char_length('001'::BIT),character_length('001'::BIT),octet_length('001'::BIT),hex(bitstring_byte_comparable('001'::BIT)),bit_position('001'::BIT,'0001'::BIT),bit_position('11'::BIT,'111'::BIT)")?.rows,
+            vec![vec![Value::Integer(3),Value::Integer(3),Value::Integer(3),Value::Integer(3),Value::Integer(1),Value::Varchar("020203".into()),Value::Integer(0),Value::Integer(1)]]);
+        assert_eq!(c.query("SELECT '101'::BIT & '011'::BIT,'101'::BIT | '011'::BIT,xor('101'::BIT,'011'::BIT),~'101'::BIT,'101'::BIT << 1,'101'::BIT >> 1,'101'::BIT >> -1,'101'::BIT << 3,bit_count(-1::HUGEINT),bit_count(255::UTINYINT)")?.rows,
+            vec![vec![bit("001"),bit("111"),bit("110"),bit("010"),bit("010"),bit("010"),bit("000"),bit("000"),Value::Integer(-128),Value::Integer(8)]]);
+        c.execute("CREATE TABLE b(k INTEGER PRIMARY KEY,v BIT); INSERT INTO b VALUES (1,'001'),(2,'010'),(3,'111'),(4,NULL)")?;
+        assert_eq!(
+            c.query("SELECT bit_and(v),bit_or(v),bit_xor(v),bit_xor(DISTINCT v) FROM b")?
+                .rows,
+            vec![vec![bit("000"), bit("111"), bit("100"), bit("100")]]
+        );
+        assert_eq!(
+            c.query(
+                "SELECT bit_xor(v) OVER(ORDER BY k ROWS UNBOUNDED PRECEDING) FROM b ORDER BY k"
+            )?
+            .rows,
+            vec![
+                vec![bit("001")],
+                vec![bit("011")],
+                vec![bit("100")],
+                vec![bit("100")]
+            ]
+        );
+        assert_eq!(
+            c.query("SELECT bit_xor(v),bit_and(v),bit_or(v) FROM b WHERE false")?
+                .rows,
+            vec![vec![Value::Null; 3]]
+        );
+        assert_eq!(
+            c.query("SELECT bit_xor('101'::BIT) FROM b")?.rows,
+            vec![vec![bit("000")]]
+        );
+        let update = c.prepare("UPDATE b SET v=set_bit(v,$1,$2) WHERE k=$3")?;
+        c.execute_prepared(
+            &update,
+            &[Value::Integer(1), Value::Integer(1), Value::Integer(1)],
+        )?;
+        c.execute("BEGIN; UPDATE b SET v=~v; ROLLBACK")?;
+        assert_eq!(
+            c.query("SELECT v FROM b WHERE k=1")?.rows,
+            vec![vec![bit("011")]]
+        );
+        for sql in [
+            "SELECT get_bit('1'::BIT,-1)",
+            "SELECT get_bit('1'::BIT,1)",
+            "SELECT '1'::BIT << -1",
+        ] {
+            assert!(matches!(c.query(sql), Err(Error::OutOfRange(_))), "{sql}");
+        }
+        for sql in [
+            "SELECT bitstring('1',0)",
+            "SELECT bitstring('1',-1)",
+            "SELECT set_bit('1'::BIT,0,2)",
+            "SELECT '1'::BIT & '01'::BIT",
+            "SELECT bit_and(v) FROM (VALUES ('1'::BIT),('01'::BIT)) t(v)",
+        ] {
+            assert!(matches!(c.query(sql), Err(Error::InvalidInput(_))), "{sql}");
+        }
+        for sql in [
+            "SELECT bit_count(1::UHUGEINT)",
+            "SELECT bit_count(1.0)",
+            "SELECT '1'::BIT + '1'::BIT",
+        ] {
+            assert!(matches!(c.query(sql), Err(Error::Bind(_))), "{sql}");
+        }
+        for sql in [
+            "SELECT bitstring('',1)",
+            "SELECT bitstring('xF',9)",
+            "SELECT bitstring('2',1)",
+        ] {
+            assert!(matches!(c.query(sql), Err(Error::Conversion(_))), "{sql}");
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn independently_written_bit_columns_children_and_compression_survive_mutation_and_reopen()
+-> Result<()> {
+    let directory = tempfile::tempdir()?;
+    for target in ["release", "development"] {
+        for name in ["scalar", "dictionary", "fsst", "dict_fsst"] {
+            if target == "release" && name == "dict_fsst" {
+                continue; // Development-only codec; its positive fixture follows.
+            }
+            let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+                "test/data/duckdb/bit-{target}/bit_{name}.duckdb.gz"
+            ));
+            let mut bytes = Vec::new();
+            flate2::read::GzDecoder::new(std::fs::File::open(source)?).read_to_end(&mut bytes)?;
+            let path = directory.path().join(format!("bit-{target}-{name}.duckdb"));
+            std::fs::write(&path, &bytes)?;
+            let expected = if name == "scalar" {
+                [
+                    Some("0".to_owned()),
+                    Some("1111111".to_owned()),
+                    Some("11111111".to_owned()),
+                    Some("100000000".to_owned()),
+                    None,
+                    Some("10010".repeat(14001)),
+                    Some("001".to_owned()),
+                ]
+                .into_iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    vec![
+                        Value::Integer(i as i128),
+                        text.map_or(Value::Null, |s| bit(&s)),
+                    ]
+                })
+                .collect::<Vec<_>>()
+            } else {
+                (0..10013)
+                    .map(|i| {
+                        vec![
+                            Value::Integer(i),
+                            if i % 11 == 0 {
+                                Value::Null
+                            } else {
+                                bit(&format!("{}1", "01".repeat((i % 37) as usize + 1)))
+                            },
+                        ]
+                    })
+                    .collect::<Vec<_>>()
+            };
+            {
+                let mut c = Database::open_read_only(&path)
+                    .unwrap_or_else(|error| panic!("{target}/{name}: {error}"))
+                    .connect();
+                let result = c.query("SELECT id,b FROM t ORDER BY id")?;
+                assert_eq!(result.columns[1].data_type, DataType::Bit);
+                assert_eq!(result.rows, expected, "{target}/{name}");
+                if name == "scalar" {
+                    assert_eq!(c.query("SELECT xs[1],xs[2],xs[3],struct_extract(s,'b'),struct_extract(s,'d') FROM t WHERE id=0")?.rows,
+                        vec![vec![bit("1"),Value::Null,bit("001"),bit("01"),Value::Decimal{value:125,width:8,scale:2}]]);
+                    assert_eq!(
+                        c.query(
+                            "SELECT xs IS NULL,s IS NULL FROM t WHERE id IN (1,2) ORDER BY id"
+                        )?
+                        .rows,
+                        vec![
+                            vec![Value::Boolean(false), Value::Boolean(false)],
+                            vec![Value::Boolean(true), Value::Boolean(true)]
+                        ]
+                    );
+                }
+            }
+            assert_eq!(
+                std::fs::read(&path)?,
+                bytes,
+                "read-only open changed C++ fixture"
+            );
+            {
+                let mut c = Database::open(&path)?.connect();
+                c.execute("BEGIN; UPDATE t SET b='0'; DELETE FROM t; ROLLBACK")?;
+                assert_eq!(c.query("SELECT id,b FROM t ORDER BY id")?.rows, expected);
+                c.execute("UPDATE t SET b='101' WHERE id=1; DELETE FROM t WHERE id=2")?;
+            }
+            let mut after = expected;
+            after[1][1] = bit("101");
+            after.remove(2);
+            let mut c = Database::open_read_only(&path)?.connect();
+            assert_eq!(
+                c.query("SELECT id,b FROM t ORDER BY id")?.rows,
+                after,
+                "{target}/{name} mutation checkpoint"
+            );
+        }
+    }
     Ok(())
 }

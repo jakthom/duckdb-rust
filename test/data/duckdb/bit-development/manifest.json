@@ -1,0 +1,206 @@
+{
+  "bit_scalar": {
+    "writer": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "reference_identity": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "size": 1060864,
+    "sha256": "7bdb94376b6569f939e6d3b8578ff8fabb3388fa5ee34ab7f4c470a29bf5040a",
+    "observed_compression": [
+      {
+        "column_name": "b",
+        "segment_type": "BIT",
+        "compression": "Uncompressed",
+        "n": "7"
+      },
+      {
+        "column_name": "b",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": "7"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "Uncompressed",
+        "n": "7"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "7"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "BIT",
+        "compression": "Uncompressed",
+        "n": "7"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "DECIMAL(8,2)",
+        "compression": "Constant",
+        "n": "7"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": "21"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "BIT",
+        "compression": "Uncompressed",
+        "n": "3"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "BIT[]",
+        "compression": "Uncompressed",
+        "n": "7"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": "10"
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='uncompressed';\n        CREATE TABLE t(id INTEGER PRIMARY KEY, b BIT DEFAULT '001', xs BIT[], s STRUCT(b BIT,d DECIMAL(8,2)));\n        INSERT INTO t VALUES\n          (0,'0',['1',NULL,'001'],{'b':'01','d':1.25}),\n          (1,'1111111',[],{'b':NULL,'d':NULL}),\n          (2,'11111111',NULL,NULL),(3,'100000000',NULL,NULL),\n          (4,NULL,NULL,NULL),(5,repeat('10010',14001)::BIT,NULL,NULL);\n        INSERT INTO t(id) VALUES (6);\n        CHECKPOINT;"
+  },
+  "bit_dict_fsst": {
+    "writer": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "reference_identity": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "size": 536576,
+    "sha256": "60811ca64915f1aa4efbd640f8e844ded52f89f1062c3c5fd2128f6b8b5eef4a",
+    "observed_compression": [
+      {
+        "column_name": "b",
+        "segment_type": "BIT",
+        "compression": "DICT_FSST",
+        "n": "10013"
+      },
+      {
+        "column_name": "b",
+        "segment_type": "VALIDITY",
+        "compression": "Empty Validity",
+        "n": "10013"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "BitPacking",
+        "n": "10013"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "10013"
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='dict_fsst';\n        CREATE TABLE t AS SELECT i::INTEGER id,\n          CASE WHEN i%11=0 THEN NULL ELSE (repeat('01',(i%37)::INTEGER+1)||'1')::BIT END b\n        FROM range(10013) r(i);\n        CHECKPOINT;"
+  },
+  "bit_dictionary": {
+    "writer": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "reference_identity": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "size": 536576,
+    "sha256": "e9f03323a939a20820631548a6b13af24a853b291cb95f582714dc79a21c3081",
+    "observed_compression": [
+      {
+        "column_name": "b",
+        "segment_type": "BIT",
+        "compression": "Uncompressed",
+        "n": "10013"
+      },
+      {
+        "column_name": "b",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": "10013"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "BitPacking",
+        "n": "10013"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "10013"
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='dictionary';\n        CREATE TABLE t AS SELECT i::INTEGER id,\n          CASE WHEN i%11=0 THEN NULL ELSE (repeat('01',(i%37)::INTEGER+1)||'1')::BIT END b\n        FROM range(10013) r(i);\n        CHECKPOINT;"
+  },
+  "bit_fsst": {
+    "writer": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "reference_identity": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "size": 536576,
+    "sha256": "fcb3a4c35397fd8a2c6968b37f1ceea48653dc8a0248b05eef1bc175607f3058",
+    "observed_compression": [
+      {
+        "column_name": "b",
+        "segment_type": "BIT",
+        "compression": "Uncompressed",
+        "n": "10013"
+      },
+      {
+        "column_name": "b",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": "10013"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "BitPacking",
+        "n": "10013"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "10013"
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='fsst';\n        CREATE TABLE t AS SELECT i::INTEGER id,\n          CASE WHEN i%11=0 THEN NULL ELSE (repeat('01',(i%37)::INTEGER+1)||'1')::BIT END b\n        FROM range(10013) r(i);\n        CHECKPOINT;"
+  }
+}

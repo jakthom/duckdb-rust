@@ -30,7 +30,12 @@ impl CastFunction for BitCast {
         if spec.target == DataType::Bit {
             let bits = match value {
                 Value::Varchar(text) => BitString::parse(text, || query.check())?,
-                Value::Blob(bytes) => BitString::from_blob(bytes.clone())?,
+                Value::Blob(bytes) => {
+                    if bytes.is_empty() {
+                        return Err(Error::Conversion("Cannot cast empty BLOB to BIT".into()));
+                    }
+                    BitString::from_blob(bytes.clone())?
+                }
                 _ => {
                     let bytes = match value {
                         Value::Boolean(value) => vec![u8::from(*value)],

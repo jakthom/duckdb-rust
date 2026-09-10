@@ -20,6 +20,8 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "upper",
         "length",
         "char_length",
+        "character_length",
+        "len",
         "coalesce",
         "nullif",
         "concat",
@@ -53,8 +55,10 @@ impl ScalarFunction for Builtin {
         if matches!(self.0, "coalesce" | "nullif") {
             return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
         }
-        if matches!(self.0, "lower" | "upper" | "length" | "char_length")
-            && arguments.len() == 1
+        if matches!(
+            self.0,
+            "lower" | "upper" | "length" | "char_length" | "character_length" | "len"
+        ) && arguments.len() == 1
             && matches!(arguments[0], DataType::Enum(_))
         {
             return Ok(vec![DataType::Varchar]);
@@ -88,8 +92,12 @@ impl ScalarFunction for Builtin {
             {
                 Ok(DataType::Varchar)
             }
-            "length" | "char_length"
-                if count == 1 && matches!(arguments[0], DataType::Varchar | DataType::Null) =>
+            "length" | "char_length" | "character_length" | "len"
+                if count == 1
+                    && matches!(
+                        arguments[0],
+                        DataType::Varchar | DataType::Bit | DataType::Null
+                    ) =>
             {
                 Ok(DataType::BigInt)
             }
@@ -175,7 +183,12 @@ impl ScalarFunction for Builtin {
             },
             "lower" => Value::Varchar(args[0].to_string().to_lowercase()),
             "upper" => Value::Varchar(args[0].to_string().to_uppercase()),
-            "length" | "char_length" => Value::Integer(args[0].to_string().chars().count() as i128),
+            "length" | "char_length" | "character_length" | "len" => {
+                Value::Integer(match &args[0] {
+                    Value::Bit(value) => value.length() as i128,
+                    value => value.to_string().chars().count() as i128,
+                })
+            }
             "sqrt" => {
                 let v = args[0].as_f64()?;
                 if v < 0.0 {

@@ -149,7 +149,14 @@ pub(super) fn fsst(
         }
         let input = &data[end - offset..end - offset + length];
         let output = decompress(input, &symbols, query)?;
-        values.push(string_value(output, data_type)?);
+        values.push(if *data_type == DataType::Bit && output.is_empty() {
+            // Legacy FSST stores zero bytes for NULL rows, just like the
+            // uncompressed codec. A valid empty BIT has a padding byte. The
+            // enclosing validity stream must confirm this NULL placeholder.
+            Value::Null
+        } else {
+            string_value(output, data_type)?
+        });
     }
     Ok(values)
 }

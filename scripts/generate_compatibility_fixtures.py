@@ -11,6 +11,17 @@ from reference_version import TARGETS, require_reference
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = {
+    "bit_scalar": """
+        SET force_compression='uncompressed';
+        CREATE TABLE t(id INTEGER PRIMARY KEY, b BIT DEFAULT '001', xs BIT[], s STRUCT(b BIT,d DECIMAL(8,2)));
+        INSERT INTO t VALUES
+          (0,'0',['1',NULL,'001'],{'b':'01','d':1.25}),
+          (1,'1111111',[],{'b':NULL,'d':NULL}),
+          (2,'11111111',NULL,NULL),(3,'100000000',NULL,NULL),
+          (4,NULL,NULL,NULL),(5,repeat('10010',14001)::BIT,NULL,NULL);
+        INSERT INTO t(id) VALUES (6);
+        CHECKPOINT;
+    """,
     "nested_roaring": """
         SET force_compression='roaring';
         CREATE TABLE t AS SELECT i::INTEGER id,
@@ -171,6 +182,15 @@ CASES = {
     """,
 }
 
+for bit_codec in ("dictionary", "fsst", "dict_fsst"):
+    CASES[f"bit_{bit_codec}"] = f"""
+        SET force_compression='{bit_codec}';
+        CREATE TABLE t AS SELECT i::INTEGER id,
+          CASE WHEN i%11=0 THEN NULL ELSE (repeat('01',(i%37)::INTEGER+1)||'1')::BIT END b
+        FROM range(10013) r(i);
+        CHECKPOINT;
+    """
+
 FLOATING_SQL = """
     SET force_compression='{codec}';
     CREATE TABLE t AS SELECT i::INTEGER id,
@@ -211,6 +231,15 @@ def main():
             expected_codec = {"alp": "ALP", "alp_float": "ALP", "alprd": "ALPRD", "chimp": "Chimp", "patas": "Patas", "dates_scalar": "Uncompressed", "dates_bitpacking": "BitPacking", "dates_rle": "RLE"}.get(name)
             if expected_codec:
                 assert any(row["compression"] == expected_codec and (not name.startswith("dates_") or row["segment_type"] == "DATE") for row in codecs), f"fixture must actually contain {expected_codec} segments of the expected type"
+            if name.startswith("bit_"):
+                bit_codec = {"bit_scalar":"Uncompressed", "bit_dictionary":"Dictionary", "bit_fsst":"FSST", "bit_dict_fsst":"DICT_FSST"}[name]
+                # Development disables legacy Dictionary/FSST writing after
+                # storage V1_2_0 (common/enums/compression_type.cpp). A forced
+                # disabled codec falls back to Uncompressed; do not claim that
+                # such a fixture exercises the requested legacy decoder.
+                if args.target == "development" and name in ("bit_dictionary", "bit_fsst"):
+                    bit_codec = "Uncompressed"
+                assert any(row["compression"] == bit_codec and row["segment_type"] == "BIT" for row in codecs), f"BIT fixture must actually exercise {bit_codec}: {codecs}"
             metadata = {"writer": version, "reference_identity": identity, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "observed_compression": codecs, "observed_table": table}
             if name.startswith("dict_fsst_"):
                 assert any(row["compression"] == "DICT_FSST" for row in codecs), "fixture must exercise DICT_FSST"

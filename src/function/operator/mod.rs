@@ -1,6 +1,7 @@
 //! Owned operator overloads and checked execution, independent of SQL syntax.
 mod arithmetic;
 mod batch;
+pub(crate) mod bitwise;
 mod date;
 pub mod decimal;
 mod string;
@@ -36,12 +37,18 @@ pub enum Operator {
     Concat,
     Like,
     NotLike,
+    BitAnd,
+    BitOr,
+    BitXor,
+    BitNot,
+    ShiftLeft,
+    ShiftRight,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Operator {
     pub fn arity(self) -> usize {
-        if matches!(self, Self::Plus | Self::Negate) {
+        if matches!(self, Self::Plus | Self::Negate | Self::BitNot) {
             1
         } else {
             2
@@ -237,6 +244,7 @@ impl OperatorRegistry {
     pub fn builtins() -> Self {
         let mut registry = Self::default();
         arithmetic::register(&mut registry);
+        bitwise::register(&mut registry);
         date::register(&mut registry);
         temporal::register(&mut registry);
         string::register(&mut registry);
