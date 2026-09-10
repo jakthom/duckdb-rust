@@ -442,7 +442,7 @@ impl BoundExpr {
                 .get(*i)
                 .cloned()
                 .ok_or_else(|| Error::Bind("column outside input".into()))?,
-            ExprKind::Literal(value) => {
+            ExprKind::Literal(value) | ExprKind::Parameter(value) => {
                 bound_type.validate(value, query)?;
                 // Literals may carry a narrower explicit integer type.
                 require(

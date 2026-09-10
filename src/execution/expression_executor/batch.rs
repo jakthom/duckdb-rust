@@ -38,7 +38,7 @@ impl ExpressionEvaluator for BatchedEvaluator {
         let ExprKind::Binary(op, left, right, data_type) = &expression.kind else {
             return Ok(None);
         };
-        let (ExprKind::Column(index), ExprKind::Literal(value)) = (&left.kind, &right.kind) else {
+        let (ExprKind::Column(index), Some(value)) = (&left.kind, right.constant_value()) else {
             return Ok(None);
         };
         if matches!(op, BinaryOp::And | BinaryOp::Or) {
@@ -100,8 +100,8 @@ impl ExpressionEvaluator for BatchedEvaluator {
                 equal: comparison_matches(*op, Ordering::Equal),
                 greater: comparison_matches(*op, Ordering::Greater),
             };
-            let left = if let (ExprKind::Cast(inner, cast, false), ExprKind::Literal(value)) =
-                (&left.kind, &right.kind)
+            let left = if let (ExprKind::Cast(inner, cast, false), Some(value)) =
+                (&left.kind, right.constant_value())
             {
                 let inner = evaluate_columns(inner, input, context)?;
                 if let Some(selected) = cast.select_integer_comparison(
@@ -177,7 +177,7 @@ fn dictionary_expression(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn single_pure_input(expression: &BoundExpr, column: &mut Option<usize>) -> bool {
     match &expression.kind {
-        ExprKind::Literal(_) => true,
+        ExprKind::Literal(_) | ExprKind::Parameter(_) => true,
         ExprKind::Column(index) => {
             if column.is_some_and(|column| column != *index) {
                 return false;
@@ -248,7 +248,7 @@ fn evaluate_columns(
     context.query().check()?;
     let eval = |child| evaluate_columns(child, input, context);
     let output = match &expression.kind {
-        ExprKind::Literal(value) => {
+        ExprKind::Literal(value) | ExprKind::Parameter(value) => {
             Vector::constant(expression.data_type.clone(), value.clone(), input.len())?
         }
         ExprKind::Column(index) => input

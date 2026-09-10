@@ -295,6 +295,18 @@ fn planner_selects_indexes_through_contracts_across_restart_and_rollback() -> Re
                     let plan =
                         c.query("EXPLAIN SELECT id FROM t WHERE id=1")?.rows[0][0].to_string();
                     assert_eq!(plan.contains("KeyLookup"), number != 0);
+                    // Typed parameters remain execution constants for key
+                    // lookup, without becoming SQL literal binding hints.
+                    let parameter = c.prepare("SELECT id FROM t WHERE id=?")?;
+                    let before = lookups.load(Ordering::Relaxed);
+                    assert_eq!(
+                        c.execute_prepared(&parameter, &[Value::Integer(1)])?.rows,
+                        vec![ints(&[1])]
+                    );
+                    assert_eq!(
+                        lookups.load(Ordering::Relaxed) - before,
+                        usize::from(number != 0)
+                    );
                     assert!(
                         c.query("SELECT id FROM t WHERE id=1 AND id=2")?
                             .rows

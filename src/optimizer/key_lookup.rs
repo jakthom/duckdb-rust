@@ -77,7 +77,7 @@ fn collect_equalities(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn constant(expression: &BoundExpr, context: &QueryContext) -> Option<Value> {
     match &expression.kind {
-        ExprKind::Literal(value) => value
+        ExprKind::Literal(value) | ExprKind::Parameter(value) => value
             .fits_type(&expression.data_type)
             .then(|| value.clone()),
         ExprKind::Cast(inner, cast, try_cast) => {

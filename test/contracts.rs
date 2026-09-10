@@ -6,6 +6,9 @@ use std::{
     time::Duration,
 };
 
+#[path = "component/value_binding.rs"]
+mod value_binding;
+
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
     catalog::{CatalogMut, ColumnDefinition, TableDefinition, TableName},

@@ -36,6 +36,9 @@ pub struct BoundExpr {
 #[derive(Clone, Debug)]
 pub enum ExprKind {
     Literal(Value),
+    /// A statement-owned typed parameter. Constant for execution, but not a
+    /// SQL literal for contextual overload or string coercion rules.
+    Parameter(Value),
     Column(usize),
     /// One-based lexical query depth and a typed position in that outer row.
     OuterColumn {
@@ -97,7 +100,10 @@ impl BoundExpr {
     /// Consumers must separately establish the row scope and NULL semantics.
     pub fn is_pure_and_total(&self) -> bool {
         match &self.kind {
-            ExprKind::Literal(_) | ExprKind::Column(_) | ExprKind::OuterColumn { .. } => true,
+            ExprKind::Literal(_)
+            | ExprKind::Parameter(_)
+            | ExprKind::Column(_)
+            | ExprKind::OuterColumn { .. } => true,
             ExprKind::Unary(_, inner) => inner.is_pure_and_total(),
             ExprKind::Cast(inner, cast, false) => inner.is_pure_and_total() && cast.is_total(),
             ExprKind::Case(branches, otherwise) => {
@@ -116,10 +122,7 @@ impl BoundExpr {
                     && function.is_total(
                         &arguments
                             .iter()
-                            .map(|argument| match &argument.kind {
-                                ExprKind::Literal(value) => Some(value),
-                                _ => None,
-                            })
+                            .map(Self::constant_value)
                             .collect::<Vec<_>>(),
                     )
             }
@@ -130,7 +133,10 @@ impl BoundExpr {
     /// of a subquery have their own row scope and are not scalar children.
     pub fn visit_children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
         match &self.kind {
-            ExprKind::Literal(_) | ExprKind::Column(_) | ExprKind::OuterColumn { .. } => (),
+            ExprKind::Literal(_)
+            | ExprKind::Parameter(_)
+            | ExprKind::Column(_)
+            | ExprKind::OuterColumn { .. } => (),
             ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => visit(inner),
             ExprKind::Binary(_, left, right, _) => {
                 visit(left);
@@ -214,9 +220,10 @@ impl BoundExpr {
                 negated,
                 operand_type,
             ),
-            kind @ (ExprKind::Literal(_) | ExprKind::Column(_) | ExprKind::OuterColumn { .. }) => {
-                kind
-            }
+            kind @ (ExprKind::Literal(_)
+            | ExprKind::Parameter(_)
+            | ExprKind::Column(_)
+            | ExprKind::OuterColumn { .. }) => kind,
         };
         Ok(Self {
             kind,
@@ -227,6 +234,20 @@ impl BoundExpr {
         Self {
             data_type: value.data_type(),
             kind: ExprKind::Literal(value),
+        }
+    }
+    pub fn parameter(value: Value) -> Self {
+        Self {
+            data_type: value.data_type(),
+            kind: ExprKind::Parameter(value),
+        }
+    }
+    /// A retained value without evaluation. This does not establish SQL literal
+    /// identity; optimizers and executors may treat typed parameters as constants.
+    pub fn constant_value(&self) -> Option<&Value> {
+        match &self.kind {
+            ExprKind::Literal(value) | ExprKind::Parameter(value) => Some(value),
+            _ => None,
         }
     }
     pub fn column(index: usize, data_type: DataType) -> Self {

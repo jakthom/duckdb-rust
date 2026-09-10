@@ -28,7 +28,7 @@ fn fold(expression: BoundExpr, query: &QueryContext) -> Result<BoundExpr> {
     query.check()?;
     let mut expression = expression.map_children(|child| fold(child, query))?;
     if let ExprKind::Cast(inner, cast, _) = &expression.kind
-        && let ExprKind::Literal(value) = &inner.kind
+        && let Some(value) = inner.constant_value()
         && let Ok(value) = cast.apply(value, query)
     {
         expression.kind = ExprKind::Literal(value);
@@ -38,10 +38,7 @@ fn fold(expression: BoundExpr, query: &QueryContext) -> Result<BoundExpr> {
         if !effects.volatile && !effects.external_access {
             let values: Option<Vec<_>> = arguments
                 .iter()
-                .map(|argument| match &argument.kind {
-                    ExprKind::Literal(value) => Some(value.clone()),
-                    _ => None,
-                })
+                .map(|argument| argument.constant_value().cloned())
                 .collect();
             if let Some(values) = values
                 && let Ok(value) = function.apply(&values, query)

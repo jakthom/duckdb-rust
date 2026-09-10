@@ -47,6 +47,12 @@ pub trait ScalarBindArguments {
     fn is_string_literal(&self, index: usize) -> Result<bool> {
         self.data_type(index).map(|_| false)
     }
+    /// A signed integer SQL literal, including a directly negated numeric
+    /// token. Typed parameters, explicit casts and folded expressions are not
+    /// literals. This is binding metadata, not a global narrowing conversion.
+    fn integer_literal(&self, index: usize) -> Result<Option<i128>> {
+        self.data_type(index).map(|_| None)
+    }
     fn constant(&self, index: usize) -> Result<Value>;
 }
 

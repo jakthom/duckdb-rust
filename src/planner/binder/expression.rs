@@ -37,7 +37,9 @@ impl State<'_, '_> {
             .into_iter()
             .zip(argument_types.iter())
             .map(|(e, target)| {
-                let mode = if super::coercion::string_literal(&e) {
+                let mode = if super::coercion::string_literal(&e)
+                    || super::coercion::integer_literal_fits(&e, target)
+                {
                     CastMode::Explicit
                 } else {
                     CastMode::Implicit
@@ -82,11 +84,10 @@ impl State<'_, '_> {
                         _ => retained.push((predicate, value)),
                     }
                 }
-                if retained.is_empty() {
-                    otherwise.kind
-                } else {
-                    ExprKind::Case(retained, otherwise)
-                }
+                // Keep expression provenance through outer overload binding.
+                // Removing dead dependencies must not turn CASE into a SQL
+                // literal merely because its remaining value is a literal.
+                ExprKind::Case(retained, otherwise)
             }
             kind => kind,
         };
@@ -156,7 +157,7 @@ impl State<'_, '_> {
                     .parameters
                     .get(index)
                     .cloned()
-                    .map(BoundExpr::literal)
+                    .map(BoundExpr::parameter)
                     .ok_or_else(|| Error::Bind(format!("missing parameter {name}")))
             }
             ast::Expr::Value(_) => self.sql_literal(expr),
@@ -668,6 +669,12 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
         self.arguments
             .get(index)
             .map(super::coercion::string_literal)
+            .ok_or_else(|| Error::Bind("function argument outside signature".into()))
+    }
+    fn integer_literal(&self, index: usize) -> Result<Option<i128>> {
+        self.arguments
+            .get(index)
+            .map(super::coercion::integer_literal)
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))
     }
     fn constant(&self, index: usize) -> Result<Value> {

@@ -105,7 +105,7 @@ fn ungrouped(
                     .get(*index)
                     .cloned()
                     .ok_or_else(|| Error::Internal("aggregate column outside input".into())),
-                ExprKind::Literal(value) => {
+                ExprKind::Literal(value) | ExprKind::Parameter(value) => {
                     Vector::constant(argument.data_type.clone(), value.clone(), batch.len())
                 }
                 _ => Err(Error::Internal(

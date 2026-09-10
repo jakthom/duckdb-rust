@@ -122,7 +122,7 @@ impl ExpressionEvaluator for ScalarEvaluator {
         query.check()?;
         let eval = |e: &BoundExpr| self.evaluate(e, row, context);
         let value = match &expression.kind {
-            ExprKind::Literal(v) => v.clone(),
+            ExprKind::Literal(v) | ExprKind::Parameter(v) => v.clone(),
             ExprKind::OuterColumn { depth, column } => context.outer_column(*depth, *column)?,
             ExprKind::Subquery(subquery) => {
                 if let Some(value) = context.prepared_subquery(subquery) {

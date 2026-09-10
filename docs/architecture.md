@@ -162,6 +162,14 @@ there is no function-name branch in its callers. Prepared statements rebind the
 value for each execution. [Settings verification](settings/README.md) records
 the supported behavior and differences between the two C++ references.
 
+The same interface exposes SQL string-literal identity and signed integer
+literal values for contextual overload selection. Defaults grant neither hint
+to other frontends. Explicit casts, unary plus and CASE expressions do not
+inherit a child's literal identity; early CASE dependency pruning retains a
+CASE node even when no branches remain. Typed API parameters use a distinct
+bound node. They remain constants for evaluation, vectorization, aggregation,
+optimizer folding and index lookup without becoming SQL literal hints.
+
 ## Table alteration
 
 `CatalogMut::alter_table` publishes metadata and affected rows atomically in its
@@ -640,11 +648,12 @@ available registered casts and rejects ties. `CastFunction::coercion_cost`
 exposes ranking independently of cast availability. Built-in target costs
 follow DuckDB's priorities for the supported types; a replacement can declare
 its own ranking policy. SQL integer literals within i32 range carry INTEGER
-metadata, and fitting integer literals can select narrower integer overloads.
+metadata; larger signed literals retain BIGINT/HUGEINT metadata. Fitting integer
+literals at every supported width can select narrower integer overloads.
 That literal information is a binding input, not an extra physical value type.
 Prepared API values retain their declared/inferred types; explicit casts remain
-available. String-literal special resolution and general polymorphic function
-constructors are still incomplete.
+available. String-literal context is shared by comparisons and scalar binding;
+broader contextual coercion and polymorphic function constructors remain incomplete.
 
 Binding writes the chosen casts into the plan, then stores an immutable
 `BoundOperator` with the exact signature and function effects. The evaluator

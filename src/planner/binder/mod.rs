@@ -395,10 +395,15 @@ impl State<'_, '_> {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn constant_expression(expression: &BoundExpr) -> bool {
     match &expression.kind {
-        ExprKind::Literal(_) => true,
+        ExprKind::Literal(_) | ExprKind::Parameter(_) => true,
         ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => constant_expression(inner),
         ExprKind::Binary(_, left, right, _) => {
             constant_expression(left) && constant_expression(right)
+        }
+        ExprKind::Case(branches, otherwise) => {
+            branches.iter().all(|(predicate, value)| {
+                constant_expression(predicate) && constant_expression(value)
+            }) && constant_expression(otherwise)
         }
         ExprKind::Operator(function, arguments) => {
             let effects = function.effects();
@@ -490,12 +495,7 @@ impl State<'_, '_> {
             .iter()
             .map(|arg| OperatorArgument {
                 data_type: &arg.data_type,
-                integer_literal: match arg.kind {
-                    ExprKind::Literal(Value::Integer(n)) if arg.data_type == DataType::Integer => {
-                        Some(n)
-                    }
-                    _ => None,
-                },
+                integer_literal: coercion::integer_literal(arg),
             })
             .collect();
         let resolved = self.context.operators.resolve(

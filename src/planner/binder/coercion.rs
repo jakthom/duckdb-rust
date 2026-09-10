@@ -10,6 +10,30 @@ pub(super) fn string_literal(value: &BoundExpr) -> bool {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn integer_literal(value: &BoundExpr) -> Option<i128> {
+    match &value.kind {
+        ExprKind::Literal(Value::Integer(number))
+            if value.data_type.integer_bits().is_some()
+                && Value::Integer(*number).fits_type(&value.data_type) =>
+        {
+            Some(*number)
+        }
+        _ => None,
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn integer_literal_fits(value: &BoundExpr, target: &DataType) -> bool {
+    integer_literal(value).is_some_and(|number| {
+        if target.is_unsigned_integer() {
+            number >= 0 && Value::Unsigned(number as u128).fits_type(target)
+        } else {
+            target.integer_bits().is_some() && Value::Integer(number).fits_type(target)
+        }
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn comparison_cast_mode(
         &self,
