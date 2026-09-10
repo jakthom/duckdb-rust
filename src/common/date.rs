@@ -85,6 +85,22 @@ impl Date {
     /// Calendar text uses matching -, /, backslash or space separators,
     /// optional (BC), and ASCII whitespace. Timestamp suffixes are not parsed.
     pub(crate) fn parse_checked(text: &str, mut check: impl FnMut() -> Result<()>) -> Result<Self> {
+        let (date, mut pos) = Self::parse_prefix_checked(text, &mut check)?;
+        skip_space(text.as_bytes(), &mut pos, &mut check)?;
+        check()?;
+        if pos != text.len() {
+            return Err(invalid_date());
+        }
+        Ok(date)
+    }
+
+    /// Parse a calendar prefix while retaining the exact first suffix byte.
+    /// Timestamp parsing owns that suffix; ordinary DATE casts still require
+    /// full consumption through `parse_checked`. Special values stay strict.
+    pub(crate) fn parse_prefix_checked(
+        text: &str,
+        mut check: impl FnMut() -> Result<()>,
+    ) -> Result<(Self, usize)> {
         check()?;
         let bytes = text.as_bytes();
         let mut pos = 0;
@@ -102,7 +118,7 @@ impl Date {
                 pos += word.len();
                 skip_space(bytes, &mut pos, &mut check)?;
                 return if pos == bytes.len() {
-                    Ok(if negative { Self(-date.0) } else { date })
+                    Ok((if negative { Self(-date.0) } else { date }, pos))
                 } else {
                     Err(invalid_date())
                 };
@@ -148,11 +164,11 @@ impl Date {
             year = 1 - year;
             pos += 5;
         }
-        skip_space(bytes, &mut pos, &mut check)?;
-        if pos != bytes.len() {
+        if bytes.get(pos).is_some_and(u8::is_ascii_digit) {
             return Err(invalid_date());
         }
-        Self::from_ymd(year, month, day)
+        check()?;
+        Ok((Self::from_ymd(year, month, day)?, pos))
     }
 }
 
@@ -224,5 +240,45 @@ impl fmt::Display for Date {
         } else {
             f.write_str("-infinity")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn date_prefix_keeps_suffix_boundaries_and_full_date_contract() -> Result<()> {
+        for (text, expected, suffix) in [
+            ("2000 01 02 12:34:56", "2000-01-02", " 12:34:56"),
+            ("0001-01-01 (BC)T00:00:00", "0001-01-01 (BC)", "T00:00:00"),
+            ("\t2024/1/2\t", "2024-01-02", "\t"),
+        ] {
+            let (date, pos) = Date::parse_prefix_checked(text, || Ok(()))?;
+            assert_eq!(date.to_string(), expected);
+            assert_eq!(&text[pos..], suffix);
+            assert_eq!(
+                Date::parse_checked(text, || Ok(())).is_ok(),
+                suffix.trim().is_empty()
+            );
+        }
+        for text in ["2000-01-011", "epoch 12:00", "infinityT00:00"] {
+            assert!(Date::parse_prefix_checked(text, || Ok(())).is_err());
+        }
+        let input = " ".repeat(100_000) + "2000-01-01";
+        let mut checks = 0;
+        assert!(matches!(
+            Date::parse_prefix_checked(&input, || {
+                checks += 1;
+                if checks == 3 {
+                    Err(Error::Interrupted)
+                } else {
+                    Ok(())
+                }
+            }),
+            Err(Error::Interrupted)
+        ));
+        Ok(())
     }
 }
