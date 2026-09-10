@@ -46,6 +46,17 @@ pub struct CastSpec {
 pub trait CastFunction: Debug + Send + Sync {
     fn name(&self) -> &'static str;
     fn supports(&self, spec: &CastSpec) -> bool;
+    /// Bind composite conversions through the selected registries, retaining
+    /// child casts instead of looking them up again during row execution.
+    /// None keeps this adapter; errors reject the cast without a fallback.
+    fn bind_cast(
+        &self,
+        _spec: &CastSpec,
+        _casts: &CastRegistry,
+        _types: &super::type_registry::TypeRegistry,
+    ) -> Result<Option<Arc<dyn CastFunction>>> {
+        Ok(None)
+    }
     /// Proves absence of data-dependent errors for every valid source value.
     /// Cancellation and resource failures remain possible. False means unknown.
     fn is_total(&self, _spec: &CastSpec) -> bool {
@@ -433,6 +444,17 @@ impl CastRegistry {
             .selected(&spec)
             .cloned()
             .ok_or_else(|| Error::Bind(format!("no {mode:?} cast from {source} to {target}")))?;
+        let function = match function.bind_cast(&spec, self, types)? {
+            Some(bound) => {
+                if !bound.supports(&spec) {
+                    return Err(Error::Bind(
+                        "bound cast does not support its signature".into(),
+                    ));
+                }
+                bound
+            }
+            None => function,
+        };
         Ok(BoundCast {
             spec,
             source: source_type,

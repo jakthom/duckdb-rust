@@ -21,6 +21,8 @@ use duckdb_rust::{
 };
 use std::{cmp::Ordering, sync::Arc};
 
+#[path = "types/binding.rs"]
+mod binding;
 #[path = "types/keys.rs"]
 mod keys;
 

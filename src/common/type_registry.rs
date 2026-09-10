@@ -123,6 +123,17 @@ pub enum OrderingRepresentation {
 /// Replacement preserves the meaning of serialized metadata and
 /// payloads. Missing families/unsupported parameters fail before use.
 pub trait TypeAdapter: Debug + Send + Sync {
+    /// Resolve and retain child adapters from this composition once at bind
+    /// time. None keeps the registered adapter. The replacement must implement
+    /// the same family and pass all ordinary metadata/capability checks. Row
+    /// operations must not reselect children from an ambient query registry.
+    fn bind_type(
+        &self,
+        _data_type: &DataType,
+        _types: &TypeRegistry,
+    ) -> Result<Option<Arc<dyn TypeAdapter>>> {
+        Ok(None)
+    }
     fn ordering_representation(&self, _data_type: &DataType) -> OrderingRepresentation {
         OrderingRepresentation::Comparison
     }
@@ -142,6 +153,19 @@ pub trait TypeAdapter: Debug + Send + Sync {
     ) -> Result<()>;
     /// None declines this pair. Conflicting proposed targets fail binding.
     fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>>;
+    /// Binding-only recursive inference through the selected child families.
+    /// A shared family receives the original operand order once, permitting
+    /// directional metadata such as left-first STRUCT member ordering. Distinct
+    /// families each propose a target with their own type first and must agree.
+    /// The default preserves existing family proposals.
+    fn common_type_with_registry(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        _types: &TypeRegistry,
+    ) -> Result<Option<DataType>> {
+        self.common_type(left, right)
+    }
     fn compare(
         &self,
         data_type: &DataType,
@@ -333,6 +357,13 @@ impl TypeRegistry {
             })?;
         self.validate_children(data_type)?;
         adapter.validate_type(data_type)?;
+        let adapter = match adapter.bind_type(data_type, self)? {
+            Some(bound) => {
+                bound.validate_type(data_type)?;
+                bound
+            }
+            None => adapter,
+        };
         let key_representation = adapter.key_representation(data_type);
         if key_representation == KeyRepresentation::Integer && !data_type.is_signed_integer() {
             return Err(Error::Bind(
@@ -435,8 +466,12 @@ impl TypeRegistry {
         } else if *left == DataType::Null {
             Some(right.clone())
         } else {
-            let a = a.adapter.common_type(left, right)?;
-            let b = b.adapter.common_type(right, left)?;
+            let a = a.adapter.common_type_with_registry(left, right, self)?;
+            let b = if left.family() == right.family() {
+                None
+            } else {
+                b.adapter.common_type_with_registry(right, left, self)?
+            };
             match (a, b) {
                 (Some(a), Some(b)) if a != b => {
                     return Err(Error::Bind(
