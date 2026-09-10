@@ -28,6 +28,11 @@ pub(in crate::storage::duckdb) fn write(
                 output.signed(((v ^ (1_u128 << 127)) >> 64) as i64);
                 output.unsigned(v as u64);
             }
+            Value::Temporal(_) => {
+                return Err(Error::Unsupported(
+                    "native temporal constant encoding is pending".into(),
+                ));
+            }
             Value::Integer(v) if *data_type == DataType::HugeInt => {
                 output.signed((v >> 64) as i64);
                 output.unsigned(v as u64);

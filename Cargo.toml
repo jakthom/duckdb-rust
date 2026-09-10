@@ -95,6 +95,10 @@ name = "dates"
 path = "test/component/dates.rs"
 
 [[test]]
+name = "temporal"
+path = "test/component/temporal.rs"
+
+[[test]]
 name = "operators"
 path = "test/component/operators.rs"
 

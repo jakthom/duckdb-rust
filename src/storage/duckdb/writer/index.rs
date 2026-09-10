@@ -306,6 +306,22 @@ fn encode_value(value: &Value, data_type: &DataType, output: &mut Vec<u8>) -> Re
             output.extend(&bytes[16 - width..]);
         }
         Value::Date(v) => output.extend((v.days() as u32 ^ (1 << 31)).to_be_bytes()),
+        Value::Temporal(v) => {
+            if *data_type == DataType::Interval {
+                return Err(Error::Unsupported(
+                    "native INTERVAL ART key encoding".into(),
+                ));
+            }
+            if *data_type == DataType::TimeTz {
+                output.extend(
+                    (v.comparison_key() + (i128::from(57599_i64 * 1_000_000) << 24)).to_be_bytes()
+                        [8..]
+                        .iter(),
+                );
+            } else {
+                output.extend((v.ticks()? as u64 ^ (1 << 63)).to_be_bytes());
+            }
+        }
         Value::Integer(v) => {
             let width = match data_type {
                 DataType::TinyInt => 1,

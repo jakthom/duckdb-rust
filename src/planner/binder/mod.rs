@@ -115,6 +115,27 @@ impl State<'_, '_> {
         let resolved = match data_type {
             T::Boolean | T::Bool => Ok(DataType::Boolean),
             T::Date => Ok(DataType::Date),
+            T::Time(_, zone) => Ok(
+                if matches!(
+                    zone,
+                    ast::TimezoneInfo::WithTimeZone | ast::TimezoneInfo::Tz
+                ) {
+                    DataType::TimeTz
+                } else {
+                    DataType::Time
+                },
+            ),
+            T::Timestamp(_, zone) => Ok(
+                if matches!(
+                    zone,
+                    ast::TimezoneInfo::WithTimeZone | ast::TimezoneInfo::Tz
+                ) {
+                    DataType::TimestampTz
+                } else {
+                    DataType::Timestamp
+                },
+            ),
+            T::Interval { .. } => Ok(DataType::Interval),
             T::TinyInt(_) => Ok(DataType::TinyInt),
             T::SmallInt(_) | T::Int2(_) | T::Int16 => Ok(DataType::SmallInt),
             T::Int(_) | T::Integer(_) | T::Int4(_) | T::Int32 => Ok(DataType::Integer),
@@ -171,6 +192,20 @@ impl State<'_, '_> {
                 if name == "uinteger" && modifiers.is_empty() {
                     self.context.query.types().bind(&DataType::UInteger)?;
                     return Ok(DataType::UInteger);
+                }
+                if modifiers.is_empty() {
+                    let temporal = match name.as_str() {
+                        "time_ns" => Some(DataType::TimeNs),
+                        "timestamp_s" => Some(DataType::TimestampS),
+                        "timestamp_ms" => Some(DataType::TimestampMs),
+                        "timestamp_ns" => Some(DataType::TimestampNs),
+                        "timestamptz_ns" => Some(DataType::TimestampTzNs),
+                        _ => None,
+                    };
+                    if let Some(data_type) = temporal {
+                        self.context.query.types().bind(&data_type)?;
+                        return Ok(data_type);
+                    }
                 }
                 let parameters = modifiers
                     .iter()

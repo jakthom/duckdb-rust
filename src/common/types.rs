@@ -25,6 +25,16 @@ pub enum DataType {
     Blob,
     Uuid,
     Date,
+    Time,
+    TimeNs,
+    TimeTz,
+    Timestamp,
+    TimestampS,
+    TimestampMs,
+    TimestampNs,
+    TimestampTz,
+    TimestampTzNs,
+    Interval,
     Extension(Arc<TypeIdentity>),
 }
 
@@ -70,6 +80,16 @@ impl DataType {
             Self::Blob => "builtin.blob",
             Self::Uuid => "builtin.uuid",
             Self::Date => "builtin.date",
+            Self::Time => "builtin.time",
+            Self::TimeNs => "builtin.time_ns",
+            Self::TimeTz => "builtin.time_tz",
+            Self::Timestamp => "builtin.timestamp",
+            Self::TimestampS => "builtin.timestamp_s",
+            Self::TimestampMs => "builtin.timestamp_ms",
+            Self::TimestampNs => "builtin.timestamp_ns",
+            Self::TimestampTz => "builtin.timestamp_tz",
+            Self::TimestampTzNs => "builtin.timestamp_tz_ns",
+            Self::Interval => "builtin.interval",
             Self::Extension(identity) => &identity.name,
         }
     }
@@ -172,6 +192,16 @@ impl fmt::Display for DataType {
                 Self::Blob => "BLOB",
                 Self::Uuid => "UUID",
                 Self::Date => "DATE",
+                Self::Time => "TIME",
+                Self::TimeNs => "TIME_NS",
+                Self::TimeTz => "TIME WITH TIME ZONE",
+                Self::Timestamp => "TIMESTAMP",
+                Self::TimestampS => "TIMESTAMP_S",
+                Self::TimestampMs => "TIMESTAMP_MS",
+                Self::TimestampNs => "TIMESTAMP_NS",
+                Self::TimestampTz => "TIMESTAMP WITH TIME ZONE",
+                Self::TimestampTzNs => "TIMESTAMP_NS WITH TIME ZONE",
+                Self::Interval => "INTERVAL",
                 Self::Extension(_) => unreachable!("handled extension type"),
             }
         )
@@ -198,6 +228,7 @@ pub enum Value {
     /// UUID bits in network/text order, without the native storage sign-bit flip.
     Uuid(u128),
     Date(Date),
+    Temporal(super::TemporalValue),
     Extension(Arc<ExtensionValue>),
 }
 
@@ -234,6 +265,7 @@ impl Value {
             Self::Blob(_) => DataType::Blob,
             Self::Uuid(_) => DataType::Uuid,
             Self::Date(_) => DataType::Date,
+            Self::Temporal(value) => value.data_type(),
             Self::Extension(value) => value.data_type.clone(),
         }
     }
@@ -279,6 +311,7 @@ impl Value {
                     && value.data_type == *data_type
                     && value.bytes.len() <= 16 * 1024 * 1024
             }
+            Self::Temporal(value) => value.data_type() == *data_type && value.validate().is_ok(),
             _ => self.data_type() == *data_type,
         }
     }
@@ -305,6 +338,13 @@ impl Value {
         match self {
             Self::Date(date) => Ok(*date),
             _ => Err(Error::Conversion("value is not DATE".into())),
+        }
+    }
+
+    pub fn as_temporal(&self) -> Result<super::TemporalValue> {
+        match self {
+            Self::Temporal(value) => Ok(*value),
+            _ => Err(Error::Conversion("value is not temporal".into())),
         }
     }
 
@@ -376,6 +416,7 @@ impl Value {
             }),
             (Self::Boolean(a), Self::Boolean(b)) => Ok(a.cmp(b)),
             (Self::Date(a), Self::Date(b)) => Ok(a.cmp(b)),
+            (Self::Temporal(a), Self::Temporal(b)) => a.compare(*b),
             (Self::Varchar(a), Self::Varchar(b)) => Ok(a.cmp(b)),
             (Self::Blob(a), Self::Blob(b)) => Ok(a.cmp(b)),
             (Self::Uuid(a), Self::Uuid(b)) => Ok(a.cmp(b)),
@@ -436,7 +477,11 @@ impl Value {
                 };
                 key.extend_from_slice(&bits.to_le_bytes())?;
             }
-            Self::Date(_) | Self::Blob(_) | Self::Uuid(_) | Self::Extension(_) => {
+            Self::Date(_)
+            | Self::Blob(_)
+            | Self::Uuid(_)
+            | Self::Temporal(_)
+            | Self::Extension(_) => {
                 return Err(Error::Unsupported(
                     "registered type requires its selected key adapter".into(),
                 ));
@@ -476,6 +521,7 @@ impl fmt::Display for Value {
             Self::Blob(v) => super::scalar::format_blob(v, f),
             Self::Uuid(v) => super::scalar::format_uuid(*v, f),
             Self::Date(v) => write!(f, "{v}"),
+            Self::Temporal(v) => write!(f, "{v}"),
             Self::Extension(value) => write!(f, "{}({} bytes)", value.data_type, value.bytes.len()),
         }
     }

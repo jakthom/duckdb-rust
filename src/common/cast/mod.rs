@@ -4,6 +4,7 @@ mod builtin;
 mod date;
 mod integer;
 pub mod numeric;
+pub mod temporal;
 
 pub use date::DateCast;
 
@@ -360,6 +361,7 @@ impl CastRegistry {
             }
         }
         numeric::register(&mut registry);
+        temporal::register(&mut registry);
         registry
     }
     /// A selected family adapter resolves parameterized types without expanding

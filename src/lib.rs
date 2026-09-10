@@ -14,5 +14,5 @@ pub mod planner;
 pub mod storage;
 pub mod transaction;
 
-pub use common::{DataType, Date, Error, Result, Value};
+pub use common::{DataType, Date, Error, Result, TemporalValue, Value};
 pub use main::{Connection, Database, DatabaseBuilder, QueryResult, QuerySummary};

@@ -106,6 +106,21 @@ impl State<'_, '_> {
                     .ok_or_else(|| Error::Bind(format!("missing parameter {name}")))
             }
             ast::Expr::Value(_) => self.sql_literal(expr),
+            ast::Expr::Interval(interval)
+                if interval.leading_field.is_none() && interval.last_field.is_none() =>
+            {
+                let literal = recurse(&interval.value)?;
+                let cast = self.context.casts.bind(
+                    &literal.data_type,
+                    &DataType::Interval,
+                    CastMode::Explicit,
+                    self.context.query.types(),
+                )?;
+                Ok(BoundExpr {
+                    data_type: DataType::Interval,
+                    kind: ExprKind::Cast(Box::new(literal), cast.into(), false),
+                })
+            }
             ast::Expr::TypedString(typed) => {
                 let literal =
                     BoundExpr::literal(self.literal(&ast::Expr::Value(typed.value.clone()))?);

@@ -5,6 +5,7 @@ mod batch;
 pub mod date;
 mod key;
 pub mod numeric;
+pub mod temporal;
 pub use key::KeyWriter;
 
 use std::{
@@ -293,6 +294,11 @@ pub struct TypeRegistry {
 impl TypeRegistry {
     pub fn builtins() -> Self {
         let mut registry = Self::default();
+        for data_type in super::temporal::TEMPORAL_TYPES {
+            registry
+                .register(data_type.family(), Arc::new(temporal::TemporalType))
+                .expect("unique temporal type");
+        }
         for data_type in [
             DataType::Null,
             DataType::Boolean,
