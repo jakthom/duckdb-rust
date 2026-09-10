@@ -1,0 +1,326 @@
+{
+  "recorded_at": "2026-09-10T22:01:48.081192+00:00",
+  "source_sha256": "c81e4958d5d98c474fafd6d81c9d1f0f5f050a790501f08e9cfbdfdf00c739e8",
+  "rust_binary_sha256": "8e1a6d837dc3d562621869ed8a3cc6bc006847965023f206642893cc824dd7a4",
+  "script_sha256": "5618f6765d71d3e2ca7b3ab04b1cf2efd90af55283ad12aeea270fbbe35a0127",
+  "references": {
+    "development": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "release": {
+      "target": "release",
+      "required_version": "1.5.5",
+      "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+      "reported_source_id": "d8cdaa33fd",
+      "version": "v1.5.5 (Variegata) d8cdaa33fd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+      "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+    }
+  },
+  "cases": [
+    {
+      "target": "development",
+      "storage_version": "v1.0.0",
+      "before": {
+        "main": 64,
+        "database": 1,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "after": {
+        "main": 64,
+        "database": 1,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 288230376151711745
+      },
+      "rust_rows": [
+        {
+          "amount": "2.50",
+          "id": 1,
+          "s": "changed"
+        },
+        {
+          "amount": "3.75",
+          "id": 2,
+          "s": "new"
+        }
+      ],
+      "reference_rows": [
+        {
+          "id": 1,
+          "s": "changed",
+          "amount": "2.50"
+        },
+        {
+          "id": 2,
+          "s": "new",
+          "amount": "3.75"
+        }
+      ],
+      "rows_match": true,
+      "version_preserved": true,
+      "identity_preserved": true,
+      "generation_advanced": false,
+      "passed": false
+    },
+    {
+      "target": "development",
+      "storage_version": "v1.2.0",
+      "before": {
+        "main": 65,
+        "database": 4,
+        "effective": 65,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "after": {
+        "main": 64,
+        "database": 1,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 288230376151711745
+      },
+      "rust_rows": [
+        {
+          "amount": "2.50",
+          "id": 1,
+          "s": "changed"
+        },
+        {
+          "amount": "3.75",
+          "id": 2,
+          "s": "new"
+        }
+      ],
+      "reference_rows": [
+        {
+          "id": 1,
+          "s": "changed",
+          "amount": "2.50"
+        },
+        {
+          "id": 2,
+          "s": "new",
+          "amount": "3.75"
+        }
+      ],
+      "rows_match": true,
+      "version_preserved": false,
+      "identity_preserved": true,
+      "generation_advanced": false,
+      "passed": false
+    },
+    {
+      "target": "development",
+      "storage_version": "v1.5.0",
+      "before": {
+        "main": 68,
+        "database": 7,
+        "effective": 68,
+        "identifier": "b433c0619a6d2fb68261a5087fd056ba",
+        "iteration": 1,
+        "root": 0
+      },
+      "after": {
+        "main": 64,
+        "database": 1,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 288230376151711745
+      },
+      "rust_rows": [
+        {
+          "amount": "2.50",
+          "id": 1,
+          "s": "changed"
+        },
+        {
+          "amount": "3.75",
+          "id": 2,
+          "s": "new"
+        }
+      ],
+      "reference_rows": [
+        {
+          "id": 1,
+          "s": "changed",
+          "amount": "2.50"
+        },
+        {
+          "id": 2,
+          "s": "new",
+          "amount": "3.75"
+        }
+      ],
+      "rows_match": true,
+      "version_preserved": false,
+      "identity_preserved": false,
+      "generation_advanced": false,
+      "passed": false
+    },
+    {
+      "target": "development",
+      "storage_version": "v2.0.0",
+      "before": {
+        "main": 999,
+        "database": 69,
+        "effective": 69,
+        "identifier": "502420d4e0c6982486776f70f92ca9e7",
+        "iteration": 1,
+        "root": 0
+      },
+      "after": {
+        "main": 64,
+        "database": 1,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 288230376151711745
+      },
+      "rust_rows": [
+        {
+          "amount": "2.50",
+          "id": 1,
+          "s": "changed"
+        },
+        {
+          "amount": "3.75",
+          "id": 2,
+          "s": "new"
+        }
+      ],
+      "reference_rows": [
+        {
+          "id": 1,
+          "s": "changed",
+          "amount": "2.50"
+        },
+        {
+          "id": 2,
+          "s": "new",
+          "amount": "3.75"
+        }
+      ],
+      "rows_match": true,
+      "version_preserved": false,
+      "identity_preserved": false,
+      "generation_advanced": false,
+      "passed": false
+    },
+    {
+      "target": "release",
+      "storage_version": "v1.0.0",
+      "before": {
+        "main": 64,
+        "database": 2,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "after": {
+        "main": 64,
+        "database": 1,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 288230376151711745
+      },
+      "rust_rows": [
+        {
+          "amount": "2.50",
+          "id": 1,
+          "s": "changed"
+        },
+        {
+          "amount": "3.75",
+          "id": 2,
+          "s": "new"
+        }
+      ],
+      "reference_rows": [
+        {
+          "id": 1,
+          "s": "changed",
+          "amount": "2.50"
+        },
+        {
+          "id": 2,
+          "s": "new",
+          "amount": "3.75"
+        }
+      ],
+      "rows_match": true,
+      "version_preserved": true,
+      "identity_preserved": true,
+      "generation_advanced": false,
+      "passed": false
+    },
+    {
+      "target": "release",
+      "storage_version": "v1.5.0",
+      "before": {
+        "main": 68,
+        "database": 7,
+        "effective": 68,
+        "identifier": "4b1fbaa66e17e03ac99a6a11401a91c0",
+        "iteration": 1,
+        "root": 0
+      },
+      "after": {
+        "main": 64,
+        "database": 1,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 288230376151711745
+      },
+      "rust_rows": [
+        {
+          "amount": "2.50",
+          "id": 1,
+          "s": "changed"
+        },
+        {
+          "amount": "3.75",
+          "id": 2,
+          "s": "new"
+        }
+      ],
+      "reference_rows": [
+        {
+          "id": 1,
+          "s": "changed",
+          "amount": "2.50"
+        },
+        {
+          "id": 2,
+          "s": "new",
+          "amount": "3.75"
+        }
+      ],
+      "rows_match": true,
+      "version_preserved": false,
+      "identity_preserved": false,
+      "generation_advanced": false,
+      "passed": false
+    }
+  ],
+  "scope": "Check native version/identity preservation across independent checkpoint mutations.\n\nThis is a header/publication diagnostic, not complete file compatibility or a\ntiming gate. Earlier runs are immutable. Both producer identities are retained.\n",
+  "full_parity": false,
+  "source_unchanged": true,
+  "passed": false
+}
