@@ -109,6 +109,19 @@ pub trait CastFunction: Debug + Send + Sync {
             _ => 110,
         }
     }
+    /// Binding-only composite overload ranking. None declines a conversion
+    /// whose required child casts are unavailable in this composition. Errors
+    /// remain errors; callers must not silently fall back to another adapter.
+    /// Composite factories should recurse through `coercion_cost_with_types`
+    /// on their child signatures, not infer availability from shape alone.
+    fn coercion_cost_with_registry(
+        &self,
+        spec: &CastSpec,
+        _casts: &CastRegistry,
+        _types: &super::type_registry::TypeRegistry,
+    ) -> Result<Option<u32>> {
+        Ok(Some(self.coercion_cost(spec)))
+    }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value>;
 }
 
@@ -482,6 +495,26 @@ impl CastRegistry {
                 function.coercion_cost(&spec)
             }
         })
+    }
+    /// Composition-aware availability and ranking for expression binding.
+    /// The legacy metadata-only query above cannot resolve composite children.
+    pub fn coercion_cost_with_types(
+        &self,
+        source: &DataType,
+        target: &DataType,
+        mode: CastMode,
+        types: &super::type_registry::TypeRegistry,
+    ) -> Result<Option<u32>> {
+        let spec = CastSpec {
+            source: source.clone(),
+            target: target.clone(),
+            mode,
+        };
+        let Some(function) = self.selected(&spec) else {
+            return Ok(None);
+        };
+        let cost = function.coercion_cost_with_registry(&spec, self, types)?;
+        Ok(cost.map(|cost| if source == target { 0 } else { cost }))
     }
     pub fn adapters(&self) -> Vec<(&'static str, &'static str)> {
         let names: std::collections::BTreeSet<_> = self

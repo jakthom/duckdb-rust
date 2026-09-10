@@ -139,6 +139,14 @@ struct WrapperCast {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for WrapperCast {
+    fn coercion_cost_with_registry(
+        &self,
+        spec: &CastSpec,
+        casts: &CastRegistry,
+        types: &TypeRegistry,
+    ) -> Result<Option<u32>> {
+        casts.coercion_cost_with_types(child(&spec.source)?, &spec.target, spec.mode, types)
+    }
     fn name(&self) -> &'static str {
         self.child
             .as_ref()
@@ -307,6 +315,15 @@ fn composite_binding_rejects_missing_children_invalid_capabilities_and_cast_fact
             invalid_bound_signature: false,
         }),
     )?;
+    assert_eq!(
+        casts.coercion_cost_with_types(
+            &data_type,
+            &DataType::Varchar,
+            CastMode::Explicit,
+            &types
+        )?,
+        None
+    );
     assert!(matches!(
         casts.bind(&data_type, &DataType::Varchar, CastMode::Explicit, &types),
         Err(Error::Bind(_))
@@ -319,6 +336,11 @@ fn composite_binding_rejects_missing_children_invalid_capabilities_and_cast_fact
         },
         Arc::new(AsciiCast),
     )?;
+    assert!(
+        casts
+            .coercion_cost_with_types(&data_type, &DataType::Varchar, CastMode::Explicit, &types)?
+            .is_some()
+    );
     casts.replace(
         spec,
         Arc::new(WrapperCast {

@@ -435,7 +435,9 @@ impl OperatorRegistry {
                 } else {
                     entry.coercion
                 };
-                let Some(mut part) = casts.coercion_cost(argument.data_type, target, mode) else {
+                let Some(mut part) =
+                    casts.coercion_cost_with_types(argument.data_type, target, mode, types)?
+                else {
                     break;
                 };
                 if argument.data_type.is_decimal() && target.is_decimal() {
