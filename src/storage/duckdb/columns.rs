@@ -177,7 +177,11 @@ pub(super) fn read_column(
         reader.field(101)?;
         let validity = read_column(blocks, decoders, reader, None, count, row_start)?;
         for (value, valid) in output.iter_mut().zip(validity) {
-            if valid != Value::Boolean(true) {
+            if valid.is_null() {
+                // The selected validity decoder explicitly preserves the base
+                // decoder's inline NULLs (e.g. DICT_FSST dictionary entry zero).
+                continue;
+            } else if valid != Value::Boolean(true) {
                 *value = Value::Null;
             } else if value.is_null() {
                 return Err(corrupt("valid row has no decoded value"));

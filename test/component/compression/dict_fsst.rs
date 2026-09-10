@@ -1,6 +1,106 @@
 use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn empty_validity_explicitly_preserves_base_nulls_and_obeys_dispatch_limits() -> Result<()> {
+    let registry = compression::decoders();
+    let query = QueryContext::background();
+    for count in [0, 1, 2049] {
+        assert_eq!(
+            read(&registry, 14, &[], count, SegmentType::Validity, &query)?,
+            vec![Value::Null; count]
+        );
+    }
+    assert!(matches!(
+        read(
+            &registry,
+            14,
+            &[],
+            1,
+            SegmentType::Values(&DataType::Blob),
+            &query
+        ),
+        Err(Error::Unsupported(_))
+    ));
+    let interrupt = InterruptHandle::default();
+    let limited = QueryContext::new(interrupt.clone(), None, 8, 2)?;
+    assert!(matches!(
+        read(&registry, 14, &[], 3, SegmentType::Validity, &limited),
+        Err(Error::Resource(_))
+    ));
+    interrupt.interrupt();
+    assert!(matches!(
+        read(&registry, 14, &[], 1, SegmentType::Validity, &limited),
+        Err(Error::Interrupted)
+    ));
+    // The registry's foreign-output regression separately checks that a default
+    // adapter emitting the same NULL marker is rejected rather than authorized.
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn independently_written_dict_fsst_modes_survive_sql_mutation_rollback_and_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    for name in ["dictionary", "combined", "unique"] {
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "test/data/duckdb/dict-fsst-development/dict_fsst_{name}.duckdb.gz"
+        ));
+        let mut bytes = Vec::new();
+        flate2::read::GzDecoder::new(std::fs::File::open(source)?).read_to_end(&mut bytes)?;
+        let path = directory.path().join(format!("{name}.duckdb"));
+        std::fs::write(&path, &bytes)?;
+        let expected = (0..10013)
+            .map(|i| {
+                let value = match name {
+                    "dictionary" if i % 11 == 0 => Value::Null,
+                    "dictionary" if i % 13 == 0 => Value::Varchar(String::new()),
+                    "dictionary" => Value::Varchar(format!("category-{}", i % 7)),
+                    "combined" if i % 29 == 0 => Value::Null,
+                    "combined" if i % 31 == 0 => Value::Varchar(String::new()),
+                    "combined" => {
+                        Value::Varchar(format!("{}{}", "duckdb-scalar-🦆-".repeat(8), i % 5003))
+                    }
+                    _ => Value::Varchar(format!("{}{i}", "unique-scalar-".repeat(8))),
+                };
+                vec![Value::Integer(i), value]
+            })
+            .collect::<Vec<_>>();
+        {
+            let mut connection = duckdb_rust::Database::open_read_only(&path)?.connect();
+            let result = connection.query("SELECT id,text FROM t ORDER BY id")?;
+            assert_eq!(result.columns[1].data_type, DataType::Varchar);
+            assert_eq!(result.rows, expected, "{name} independent decode");
+        }
+        assert_eq!(
+            std::fs::read(&path)?,
+            bytes,
+            "read-only mode changed producer file"
+        );
+        {
+            let mut connection = duckdb_rust::Database::open(&path)?.connect();
+            connection.execute("BEGIN; UPDATE t SET text='aborted'; DELETE FROM t; ROLLBACK")?;
+            assert_eq!(
+                connection.query("SELECT id,text FROM t ORDER BY id")?.rows,
+                expected
+            );
+            connection
+                .execute("UPDATE t SET text='committed' WHERE id=1; DELETE FROM t WHERE id=2")?;
+        }
+        let mut after = expected;
+        after[1][1] = Value::Varchar("committed".into());
+        after.remove(2);
+        let mut connection = duckdb_rust::Database::open_read_only(&path)?.connect();
+        assert_eq!(
+            connection.query("SELECT id,text FROM t ORDER BY id")?.rows,
+            after,
+            "{name} checkpoint reopen"
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn segment(mode: u8, entries: &[&[u8]], indices: &[u128]) -> Vec<u8> {
     // Independent layout oracle from pinned development's native header: three
     // u32 fields at 0/4/12 and mode/length-width/index-width bytes at 8/9/10.

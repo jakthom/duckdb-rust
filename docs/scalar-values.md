@@ -161,3 +161,46 @@ is not declared a completed substantial stage before the maintained suite is
 run, investigated and reported there. No benchmark campaign has run alongside
 concurrent builds; label-lookup/metadata costs and isolated scalar workloads
 remain performance obligations, with the faster pinned reference as target.
+
+## Development DICT_FSST native dependency
+
+The scalar worker adds checked readers for DICT_FSST (15) and EMPTY_VALIDITY
+(14). This unblocks a real development-produced nested fixture: its string child
+uses codec 15 even when the fixture requests integer bitpacking. The previous
+missing-codec failure remains historical evidence, not a passing compatibility
+claim made before the decoder existed.
+
+DICT_FSST supports dictionary-only, dictionary-plus-FSST and FSST-only modes,
+sharing existing checked packed-integer and FSST symbol primitives. Bounds,
+alignment, dictionary shape, byte totals, packed tails, code/index domains,
+truncation, invalid UTF-8 for VARCHAR, resource limits and cancellation are
+checked. BLOB retains arbitrary bytes. No encoder, fast partial scan, global
+memory budget or performance result is implied by this full-segment reader.
+
+An independent development producer generated the three retained fixtures in
+`test/data/duckdb/dict-fsst-development`. The manifest records exact source and
+executable identities, SQL, file hashes, and actual wire submodes: DICTIONARY,
+DICT_FSST and FSST_ONLY each contain 10,013 rows. These fixtures exercise exact
+typed reads, unchanged read-only files, rollback, committed updates/deletes and
+checkpoint reopen. Synthetic tests additionally cover NULL/empty/binary values,
+malformed headers and payloads, packed tails and interrupted/limited requests.
+
+The independent campaign exposed the required EMPTY_VALIDITY dependency after
+synthetic DICT_FSST tests passed. Its no-op behavior preserves inline dictionary
+NULLs. The provisional Rust decoder protocol uses Boolean false/true to set NULL
+or assert a decoded non-NULL value, and a NULL protocol marker to preserve the
+base value. Only a selected decoder explicitly opting into
+`preserves_decoded_validity()` may emit that marker; foreign/default decoders
+still reject it. Nested containers reject preserve markers because they have no
+inline container validity. This interface remains revisable rather than an
+architecture commitment. Integrated Kani and controlled performance remain
+lead-owned checkpoints; no substantial stage is declared complete here.
+
+Post-dependency checks pass: normal check, compression 15/15 (including the
+default adapter NULL-output rejection), nested 8/8, and workspace/all-target
+clippy. The development nested bitpacking fixture now follows the positive
+exact-value path. ROARING integration is a separate worker increment and is
+still an explicit negative case on this validation base. Instrumentation
+coverage reports 248 files, 2,124 functions and 202 interface methods, with no
+missing attributes; exhaustive trace compilation passes with no error returns
+or panics and removes temporary telemetry.

@@ -54,13 +54,20 @@ pub struct DecodeContext<'a> {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Reentrant, side-effect-free full-segment decoding. Output is independently
 /// owned and contains exactly `count` physically typed values, in stored order.
-/// Validity output consists solely of non-NULL Booleans. Implementations reject
+/// Validity output is Boolean: false sets NULL, true requires a decoded value.
+/// An adapter opting into `preserves_decoded_validity` may also return NULL as
+/// an explicit instruction to preserve the base decoder's validity. That marker
+/// is a protocol value, not an invalid row; ordinary adapters cannot emit it.
+/// Implementations reject
 /// malformed input, cooperate with cancellation, and check the row limit before
 /// allocating output. No partial scan, fetch, or encoding capability is implied.
 pub trait SegmentDecoder: Send + Sync {
     fn id(&self) -> CodecId;
     fn name(&self) -> &'static str;
     fn supports(&self, kind: SegmentType<'_>) -> bool;
+    fn preserves_decoded_validity(&self) -> bool {
+        false
+    }
     fn decode(&self, input: DecodeInput<'_>, context: &DecodeContext<'_>) -> Result<Vec<Value>>;
 }
 
@@ -140,7 +147,10 @@ impl DecoderRegistry {
                 context.query.check()?;
             }
             let valid = match input.kind {
-                SegmentType::Validity => matches!(value, Value::Boolean(_)),
+                SegmentType::Validity => {
+                    matches!(value, Value::Boolean(_))
+                        || (value.is_null() && decoder.preserves_decoded_validity())
+                }
                 SegmentType::Values(data_type) => value.fits_type(data_type),
             };
             if !valid {

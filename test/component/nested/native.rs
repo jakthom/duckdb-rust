@@ -87,11 +87,6 @@ fn independent_nested_bitpacking_and_row_group_boundaries() -> Result<()> {
     let directory = tempfile::tempdir()?;
     for target in ["release", "development"] {
         for (name, count) in [("nested_bitpacking", 10013), ("nested_rowgroups", 125013)] {
-            // Independently generated development strings selected DICT_FSST,
-            // tracked separately until that decoder lands.
-            if target == "development" && name == "nested_bitpacking" {
-                continue;
-            }
             let path = directory.path().join(format!("{target}-{name}.duckdb"));
             fixture(target, name, &path)?;
             let mut connection = Database::open(&path)?.connect();
@@ -175,18 +170,6 @@ fn independent_nested_bitpacking_and_row_group_boundaries() -> Result<()> {
             }
         }
     }
-    Ok(())
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-#[test]
-fn development_dict_fsst_child_remains_explicitly_unsupported() -> Result<()> {
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join("nested_bitpacking.duckdb");
-    fixture("development", "nested_bitpacking", &path)?;
-    assert!(
-        matches!(Database::open_read_only(&path),Err(duckdb_rust::Error::Unsupported(message)) if message.contains("compression codec 15"))
-    );
     Ok(())
 }
 

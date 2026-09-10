@@ -96,6 +96,11 @@ pub(super) fn read_column(
     }
     reader.field(101)?;
     let validity = super::columns::read_column(blocks, decoders, reader, None, count, row_start)?;
+    if validity.iter().any(Value::is_null) {
+        // Containers have no inline validity to preserve. Pinned development
+        // selects EMPTY_VALIDITY only for DICT_FSST scalar base data.
+        return Err(corrupt("nested validity cannot preserve absent base mask"));
+    }
     reader.field(102)?;
     let mut output = Vec::with_capacity(count);
     match metadata.as_ref() {
