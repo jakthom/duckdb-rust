@@ -46,10 +46,10 @@ impl Date {
             }
             4 | 6 | 9 | 11 => 30,
             1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-            _ => return Err(invalid_date()),
+            _ => return Err(Error::Conversion("date field value out of range".into())),
         };
         if day == 0 || day > length {
-            return Err(invalid_date());
+            return Err(Error::Conversion("date field value out of range".into()));
         }
         // March starts the computational year, keeping leap days at its end.
         let year = i64::from(year) - i64::from(month <= 2);
@@ -107,6 +107,19 @@ impl Date {
         skip_space(bytes, &mut pos, &mut check)?;
         let negative = bytes.get(pos) == Some(&b'-');
         pos += usize::from(negative);
+        // Core accepts the abbreviation only at the actual end of input;
+        // `inf ` is not the same grammar as the full `infinity ` spelling.
+        if bytes[pos..].eq_ignore_ascii_case(b"inf") {
+            check()?;
+            return Ok((
+                if negative {
+                    Self::NEG_INFINITY
+                } else {
+                    Self::INFINITY
+                },
+                bytes.len(),
+            ));
+        }
         for (word, date) in [
             (b"infinity".as_slice(), Self::INFINITY),
             (b"epoch".as_slice(), Self::EPOCH),
@@ -277,6 +290,41 @@ mod tests {
                     Ok(())
                 }
             }),
+            Err(Error::Interrupted)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn date_special_abbreviations_keep_exact_input_boundaries_and_range_categories() -> Result<()> {
+        for (text, expected) in [
+            ("inf", Date::INFINITY),
+            ("\tINF", Date::INFINITY),
+            ("-InF", Date::NEG_INFINITY),
+            ("infinity \t", Date::INFINITY),
+            (" -INFINITY\n", Date::NEG_INFINITY),
+        ] {
+            assert_eq!(Date::parse_checked(text, || Ok(()))?, expected);
+        }
+        for text in [
+            "inf ",
+            "-inf\t",
+            "infi",
+            "infin",
+            "+inf",
+            "infT00:00",
+            "infinityT00:00",
+        ] {
+            assert!(Date::parse_checked(text, || Ok(())).is_err(), "{text}");
+        }
+        for text in ["1900-02-29", "2000-00-01", "2000-01-32"] {
+            assert!(
+                matches!(Date::parse_checked(text, || Ok(())), Err(Error::Conversion(message)) if message == "date field value out of range")
+            );
+        }
+        assert!(matches!(
+            Date::parse_checked("inf", || Err(Error::Interrupted)),
             Err(Error::Interrupted)
         ));
         Ok(())
