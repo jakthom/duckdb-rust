@@ -1,0 +1,197 @@
+{
+  "writer": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+  "reference_identity": {
+    "target": "development",
+    "required_version": "2.0.0-dev84019",
+    "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "reported_source_id": "99063af2bd",
+    "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+    "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+  },
+  "cases": {
+    "nested": {
+      "setup": "CREATE TABLE t(i INTEGER PRIMARY KEY,s STRUCT(n DECIMAL(12,2),z TIMESTAMP_NS,b BIT),l STRUCT(x INTEGER)[],a INTEGER[2],m MAP(VARCHAR,INTEGER[]),u UNION(n INTEGER,s VARCHAR)); CHECKPOINT;",
+      "transactions": [
+        "INSERT INTO t VALUES(0,{'n':1.25,'z':TIMESTAMP_NS '2000-01-01 00:00:00.123456789','b':'101'::BIT},[{'x':1},NULL],[1,NULL],map(['x','y'],[[1,NULL],[]]),union_value(n:=NULL)),(1,{'n':NULL,'z':NULL,'b':NULL},[],[NULL,2],map([],[]),union_value(s:='a')),(2,NULL,NULL,NULL,NULL,NULL);",
+        "BEGIN; UPDATE t SET s={'n':2.50,'z':TIMESTAMP_NS '2001-01-01 00:00:00.000000001','b':'0'::BIT},u=union_value(s:='changed') WHERE i=0; DELETE FROM t WHERE i=2; COMMIT;"
+      ],
+      "query": "SELECT i,s::VARCHAR s,l::VARCHAR l,a::VARCHAR a,m::VARCHAR m,u::VARCHAR u FROM t ORDER BY i",
+      "checkpoint_sha256": "9f040ddf71be86c469d98f4c82d51c8377953aa8939f048c38326d899160422e",
+      "wal_sha256": "341daeb73e30e9adf42850c405cd097bcaf0dcce4d6e9c9a46b84ead959cacf1",
+      "states": [
+        {
+          "end": 0,
+          "rows": [],
+          "identities": []
+        },
+        {
+          "end": 970,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'n': 1.25, 'z': '2000-01-01 00:00:00.123456789', 'b': 101}",
+              "l": "[{'x': 1}, NULL]",
+              "a": "[1, NULL]",
+              "m": "{x=[1, NULL], y=[]}",
+              "u": "NULL"
+            },
+            {
+              "i": 1,
+              "s": "{'n': NULL, 'z': NULL, 'b': NULL}",
+              "l": "[]",
+              "a": "[NULL, 2]",
+              "m": "{}",
+              "u": "a"
+            },
+            {
+              "i": 2,
+              "s": null,
+              "l": null,
+              "a": null,
+              "m": null,
+              "u": null
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 1947,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'n': 2.50, 'z': '2001-01-01 00:00:00.000000001', 'b': 0}",
+              "l": "[{'x': 1}, NULL]",
+              "a": "[1, NULL]",
+              "m": "{x=[1, NULL], y=[]}",
+              "u": "changed"
+            },
+            {
+              "i": 1,
+              "s": "{'n': NULL, 'z': NULL, 'b': NULL}",
+              "l": "[]",
+              "a": "[NULL, 2]",
+              "m": "{}",
+              "u": "a"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 3,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            }
+          ]
+        }
+      ]
+    },
+    "nested_v2": {
+      "setup": "CREATE TABLE t(i INTEGER PRIMARY KEY,s STRUCT(n DECIMAL(12,2),z TIMESTAMP_NS,b BIT),l STRUCT(x INTEGER)[],a INTEGER[2],m MAP(VARCHAR,INTEGER[]),u UNION(n INTEGER,s VARCHAR)); CHECKPOINT;",
+      "transactions": [
+        "INSERT INTO t VALUES(0,{'n':1.25,'z':TIMESTAMP_NS '2000-01-01 00:00:00.123456789','b':'101'::BIT},[{'x':1},NULL],[1,NULL],map(['x','y'],[[1,NULL],[]]),union_value(n:=NULL)),(1,{'n':NULL,'z':NULL,'b':NULL},[],[NULL,2],map([],[]),union_value(s:='a')),(2,NULL,NULL,NULL,NULL,NULL);",
+        "BEGIN; UPDATE t SET s={'n':2.50,'z':TIMESTAMP_NS '2001-01-01 00:00:00.000000001','b':'0'::BIT},u=union_value(s:='changed') WHERE i=0; DELETE FROM t WHERE i=2; COMMIT;"
+      ],
+      "query": "SELECT i,s::VARCHAR s,l::VARCHAR l,a::VARCHAR a,m::VARCHAR m,u::VARCHAR u FROM t ORDER BY i",
+      "checkpoint_sha256": "3647dca7ce6c94b2bdd5713f7909c28f654aaf66ba4b013f9d12bbb62131f7a1",
+      "wal_sha256": "130098de00fd90d2c37da8a8e90b3ccb490729d93795a30d94263a6864a36421",
+      "states": [
+        {
+          "end": 0,
+          "rows": [],
+          "identities": []
+        },
+        {
+          "end": 968,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'n': 1.25, 'z': '2000-01-01 00:00:00.123456789', 'b': 101}",
+              "l": "[{'x': 1}, NULL]",
+              "a": "[1, NULL]",
+              "m": "{x=[1, NULL], y=[]}",
+              "u": "NULL"
+            },
+            {
+              "i": 1,
+              "s": "{'n': NULL, 'z': NULL, 'b': NULL}",
+              "l": "[]",
+              "a": "[NULL, 2]",
+              "m": "{}",
+              "u": "a"
+            },
+            {
+              "i": 2,
+              "s": null,
+              "l": null,
+              "a": null,
+              "m": null,
+              "u": null
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 1945,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'n': 2.50, 'z': '2001-01-01 00:00:00.000000001', 'b': 0}",
+              "l": "[{'x': 1}, NULL]",
+              "a": "[1, NULL]",
+              "m": "{x=[1, NULL], y=[]}",
+              "u": "changed"
+            },
+            {
+              "i": 1,
+              "s": "{'n': NULL, 'z': NULL, 'b': NULL}",
+              "l": "[]",
+              "a": "[NULL, 2]",
+              "m": "{}",
+              "u": "a"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 3,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            }
+          ]
+        }
+      ],
+      "storage_version": "v2.0.0"
+    }
+  }
+}

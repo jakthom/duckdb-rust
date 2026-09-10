@@ -16,6 +16,8 @@ mod native;
 mod tuple;
 #[path = "nested/variant.rs"]
 mod variant;
+#[path = "nested/wal.rs"]
+mod wal;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]

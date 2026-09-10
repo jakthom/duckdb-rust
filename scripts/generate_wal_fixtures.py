@@ -13,6 +13,11 @@ import time
 from reference_version import TARGETS, require_reference
 
 CASES = {
+    'nested': (
+        """CREATE TABLE t(i INTEGER PRIMARY KEY,s STRUCT(n DECIMAL(12,2),z TIMESTAMP_NS,b BIT),l STRUCT(x INTEGER)[],a INTEGER[2],m MAP(VARCHAR,INTEGER[]),u UNION(n INTEGER,s VARCHAR)); CHECKPOINT;""",
+        ["""INSERT INTO t VALUES(0,{'n':1.25,'z':TIMESTAMP_NS '2000-01-01 00:00:00.123456789','b':'101'::BIT},[{'x':1},NULL],[1,NULL],map(['x','y'],[[1,NULL],[]]),union_value(n:=NULL)),(1,{'n':NULL,'z':NULL,'b':NULL},[],[NULL,2],map([],[]),union_value(s:='a')),(2,NULL,NULL,NULL,NULL,NULL);""",
+         """BEGIN; UPDATE t SET s={'n':2.50,'z':TIMESTAMP_NS '2001-01-01 00:00:00.000000001','b':'0'::BIT},u=union_value(s:='changed') WHERE i=0; DELETE FROM t WHERE i=2; COMMIT;"""],
+        'SELECT i,s::VARCHAR s,l::VARCHAR l,a::VARCHAR a,m::VARCHAR m,u::VARCHAR u FROM t ORDER BY i'),
     'mutations': (
         """CREATE TABLE t(i INTEGER PRIMARY KEY, s VARCHAR, d DATE, n BIGINT, b BOOLEAN);
         INSERT INTO t SELECT i, 'old-' || i, DATE '2000-01-01' + i::INTEGER, i*100, true FROM range(10) r(i);
@@ -48,17 +53,21 @@ CASES = {
          "UPDATE t SET s=NULL WHERE i%7=0;"],
         'SELECT * FROM t ORDER BY i'),
 }
+CASES['nested_v2'] = CASES['nested']
 
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def reference(executable, path, query):
+def reference(executable, path, query, plain=False):
     # Row JSON escapes embedded NUL bytes correctly in the reference shell.
-    sql = f'SELECT to_json(r)::VARCHAR AS row FROM ({query}) r'
+    # Nested fixtures explicitly cast values to VARCHAR and contain no embedded
+    # NUL text, so they do not require the optional JSON extension to quote rows.
+    sql = query if plain else f'SELECT to_json(r)::VARCHAR AS row FROM ({query}) r'
     output = subprocess.check_output([executable, str(path), '-readonly', '-json', '-c', sql], text=True)
-    return [json.loads(row['row'], parse_constant={'NaN': 'NaN', 'Infinity': 'inf', '-Infinity': '-inf'}.__getitem__) for row in json.loads(output)]
+    rows = json.loads(output) if output.strip() else []
+    return rows if plain else [json.loads(row['row'], parse_constant={'NaN': 'NaN', 'Infinity': 'inf', '-Infinity': '-inf'}.__getitem__) for row in rows]
 
 
 def send_ready(process, sql):
@@ -86,21 +95,32 @@ def main():
     parser.add_argument('--target', choices=TARGETS, default='release')
     parser.add_argument('--duckdb', type=Path)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--case', action='append', choices=CASES, help='Generate selected cases only; repeat to select several')
     args = parser.parse_args()
+    if args.target != 'development' and args.case and 'nested_v2' in args.case:
+        parser.error('nested_v2 requires the pinned development producer')
     args.duckdb, identity = require_reference(args.duckdb, target=args.target)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    manifest = {'writer': identity['version'], 'reference_identity': identity, 'cases': {}}
-    for name, (setup, transactions, query) in CASES.items():
+    manifest_path = args.output_dir / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text()) if args.case and manifest_path.exists() else {'writer': identity['version'], 'reference_identity': identity, 'cases': {}}
+    if manifest['reference_identity']['sha256'] != identity['sha256']:
+        raise ValueError('Refusing to mix fixture producer identities')
+    for name in args.case or CASES:
+        if name == 'nested_v2' and args.target != 'development':
+            continue
+        setup, transactions, query = CASES[name]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'fixture.duckdb'
             # Exercise requested v1.3 storage separately from the producer's
             # default. The selected binary, not this option, determines its WAL
             # header encoding; the manifest records the actual producer.
-            process = subprocess.Popen([args.duckdb, ':memory:' if name == 'version65' else str(path), '-json'],
+            process = subprocess.Popen([args.duckdb, ':memory:' if name in ['version65','nested_v2'] else str(path), '-json'],
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 if name == 'version65':
                     send_ready(process, f"ATTACH '{path}' AS fixture (STORAGE_VERSION 'v1.3.0'); USE fixture;")
+                if name == 'nested_v2':
+                    send_ready(process, f"ATTACH '{path}' AS fixture (STORAGE_VERSION 'v2.0.0'); USE fixture;")
                 send_ready(process, setup)
                 baseline = path.read_bytes()
                 points = [0]
@@ -125,9 +145,9 @@ def main():
             for end in points:
                 log_path.write_bytes(log[:end])
                 # CREATE cases have no table until their first committed group.
-                rows = reference(args.duckdb, path, query) if end or name != 'create' else None
+                rows = reference(args.duckdb, path, query, plain=name.startswith('nested')) if end or name != 'create' else None
                 identity_query = 'SELECT rowid AS row_id,' + ('id FROM extra.t ORDER BY id' if name == 'create' else 'i FROM t ORDER BY i')
-                identities = reference(args.duckdb, path, identity_query) if rows is not None else None
+                identities = reference(args.duckdb, path, identity_query, plain=name.startswith('nested')) if rows is not None else None
                 states.append({'end': end, 'rows': rows, 'identities': identities})
                 assert path.read_bytes() == checkpoint and log_path.read_bytes() == log[:end]
             log_path.write_bytes(log)
@@ -135,6 +155,8 @@ def main():
                 (args.output_dir / (name + suffix + '.gz')).write_bytes(gzip.compress(data, mtime=0))
             manifest['cases'][name] = {'setup': setup, 'transactions': transactions, 'query': query,
                 'checkpoint_sha256': digest(checkpoint), 'wal_sha256': digest(log), 'states': states}
+            if name == 'nested_v2':
+                manifest['cases'][name]['storage_version'] = 'v2.0.0'
             print(f'{name}: {len(checkpoint)} checkpoint bytes, {len(log)} WAL bytes')
     (args.output_dir / 'manifest.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
 

@@ -162,8 +162,11 @@ fn flat(
         data_type,
         DataType::Varchar | DataType::Blob | DataType::Bit
     ) {
-        if reader.optional(107)? && reader.boolean()? {
-            let byte_count = usize::try_from(reader.unsigned()?)
+        let byte_count = reader.optional_unsigned(107, u64::MAX)?;
+        if byte_count != u64::MAX {
+            // optional_idx is an unsigned index with UINT64_MAX sentinel,
+            // not the boolean-prefixed serialization of optional_ptr<T>.
+            let byte_count = usize::try_from(byte_count)
                 .map_err(|_| corrupt("WAL string byte count overflow"))?;
             if byte_count > 16 * 1024 * 1024 {
                 return Err(Error::Resource("WAL string vector exceeds 16 MiB".into()));

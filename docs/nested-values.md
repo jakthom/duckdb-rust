@@ -263,3 +263,58 @@ nested function/performance inventory remain open.
 The instrumentation check completed in 53.11 seconds with zero errors, panics
 or open spans; temporary telemetry was deleted. The fixture generator also
 rejects an explicit release-target TUPLE request before creating output.
+
+### Nested WAL vector and development metadata increment
+
+Native WAL vectors now carry LIST/ARRAY/STRUCT/MAP/UNION children through
+recursive validity and physical streams. TUPLE uses the same positional stream
+machinery internally, but public WAL publication remains rejected by the native
+type/version gate; VARIANT physical WAL storage is still unsupported. Child
+vector dispatch handles flat, constant and dictionary encodings recursively.
+LIST entries validate arbitrary offset/length slices instead of assuming
+contiguous offsets, including overlapping dictionary slices. A shared 16-million
+cell budget bounds immediate child expansion before allocation and charges
+owned overlapping-slice copies; depth remains bounded at 64.
+
+Pinned development required two additional compatibility fixes. WAL USE_TABLE
+and DROP_TABLE use a field-103 qualified name instead of legacy schema/table
+fields 101/102. Both formats are read, with conflicting identities and nested
+schema paths rejected. Development string vectors store an optional-index byte
+count in field 107 followed by length/data blobs 108/109. This optional index is
+an unsigned value with UINT64_MAX sentinel, not a boolean-prefixed pointer. The
+decoder checks exact lengths, zero-length NULL entries, bounded offsets and
+unused bytes while preserving the legacy field-102 string list.
+
+Source references are pinned `src/common/types/vector.cpp`,
+`src/include/duckdb/common/serializer/{serializer,deserializer}.hpp`,
+`src/storage/serialization/serialize_wal.cpp`, and
+`src/parser/qualified_name.cpp`. Independent interrupted-process fixtures are
+retained separately under `test/data/wal-nested-{release,development}`. The
+development fixtures include default and explicit v2.0.0 storage. All nine
+recorded commit boundaries preserve expected nested values and leave checkpoint
+and WAL bytes unchanged on read-only recovery.
+
+The Rust WAL workload covers mixed DECIMAL/TIMESTAMP_NS/BIT/STRUCT/LIST/ARRAY/MAP/
+UNION values, prepared insertion, update/delete rollback, committed mutation,
+recovery, equality joins, checkpoint and reopen. The separate
+`scripts/nested_wal_reference.py` campaign passed all four selected producer
+cases across pinned release/development: Rust WAL and independent C++ checkpoint
+followed by Rust WAL, then C++ mutation/checkpoint and Rust reopen. Exact producer
+identities, Rust/source fingerprints, durable-pair hashes and final rows are in
+`docs/nested-wal-reference.json`; this correctness run is not a performance
+measurement or full compatibility claim.
+
+Ordinary check, nested tests 19/19, contracts 25/25, logging 7/7, recovery 14/14,
+the three focused WAL unit tests and all-target clippy pass. The units exercise
+truncation, bad shapes, slice amplification, development string metadata and
+ambiguous/deep qualified names. Coverage reports 275 files, 2,421 functions and
+207 interface methods with no missing attributes.
+
+Still open: C++ physical nested child-update paths and their parent/child
+validity ordering, nested native non-NULL default codecs, version-aware TUPLE
+publication and VARIANT native storage. The mixed fixture's UNION update uses
+replacement rows, so it does not prove the distinct physical child-update path.
+Kani remains the lead's substantial integrated-checkpoint responsibility.
+
+The instrumentation check completed in 61.29 seconds with zero errors, panics
+or open spans; temporary telemetry was deleted.
