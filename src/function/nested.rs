@@ -4,11 +4,11 @@ use super::{
 use crate::{
     common::{
         DataType, Error, NestedPayload, NestedType, NestedValue, Result, Value,
-        type_registry::TypeRegistry,
+        type_registry::{BoundType, TypeRegistry},
     },
     parallel::QueryContext,
 };
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 mod concat;
 mod map;
 mod variant;
@@ -52,6 +52,7 @@ struct NestedFunction {
     name: &'static str,
     result: Option<DataType>,
     field: Option<usize>,
+    key: Option<BoundType>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -102,6 +103,7 @@ impl ScalarFunction for NestedFunction {
                 name: self.name,
                 result: Some(fields[index].clone()),
                 field: Some(index),
+                key: None,
             })));
         }
         if self.name == "struct_extract" || self.name == "union_extract" {
@@ -126,13 +128,27 @@ impl ScalarFunction for NestedFunction {
                 name: self.name,
                 result: Some(fields[index].1.clone()),
                 field: Some(index),
+                key: None,
             })));
         }
         let arguments = self.argument_types(&types, query.types())?;
+        let result = self.return_type(&arguments, query.types())?;
+        let key = if self.name == "map" {
+            let DataType::Nested(metadata) = &result else {
+                return Err(Error::Internal("MAP constructor metadata".into()));
+            };
+            let NestedType::Map { key, .. } = metadata.as_ref() else {
+                return Err(Error::Internal("MAP constructor type".into()));
+            };
+            Some(query.types().bind(key)?)
+        } else {
+            None
+        };
         Ok(Some(Arc::new(Self {
             name: self.name,
-            result: Some(self.return_type(&arguments, query.types())?),
+            result: Some(result),
             field: None,
+            key,
         })))
     }
     fn argument_types(
@@ -347,9 +363,28 @@ impl ScalarFunction for NestedFunction {
                     })
                     .collect::<Result<Vec<_>>>()?;
                 if values[0].len() != values[1].len() {
-                    return Err(Error::Conversion(
+                    return Err(Error::InvalidInput(
                         "MAP key and value list lengths differ".into(),
                     ));
+                }
+                // Constructor domain failures are InvalidInput. Keep this
+                // separate from converted-key validation in NestedCast: its
+                // explicit rejection provenance must remain recoverable by TRY.
+                let key = self
+                    .key
+                    .as_ref()
+                    .ok_or_else(|| Error::Internal("MAP constructor key was not bound".into()))?;
+                query.check_rows(values[0].len())?;
+                let mut keys = BTreeSet::new();
+                for value in values[0] {
+                    if value.is_null() {
+                        return Err(Error::InvalidInput("Map keys can not be NULL.".into()));
+                    }
+                    let mut bytes = Vec::new();
+                    key.append_key(value, &mut bytes, query)?;
+                    if !keys.insert(bytes) {
+                        return Err(Error::InvalidInput("Map keys must be unique.".into()));
+                    }
                 }
                 NestedValue::value(
                     result.clone(),
@@ -391,6 +426,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
                 name,
                 result: None,
                 field: None,
+                key: None,
             }))
             .expect("unique nested function");
     }

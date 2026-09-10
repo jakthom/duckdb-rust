@@ -45,6 +45,35 @@ The binder does not discard expressions declaring volatility or external access.
 This is not a general nullability inference or permission to change ordinary
 fixed-type arithmetic results. CTAS still normalizes SQL NULL at storage boundaries.
 
+## Ordered collection literal binding
+
+Development lowers `MAP {key: value, ...}` to the selected `map` function with
+ordered key/value `list_value` arguments. Template inference visits arguments
+left to right, skips later untyped NULLs, and retains a binding when the next
+template type is exactly equal. String-literal identity is therefore observable:
+`['1', NULL, '2', 3]` infers INTEGER[], but `[NULL, '1', 3]` rejects concrete
+VARCHAR/INTEGER combination. Explicit VARCHAR casts, columns and parameters
+must not gain this literal privilege. Common-type proposals remain selected
+registry behavior; combination casts do not widen ordinary function overloads.
+
+Integer-literal identity also includes the literal value. `[1, 2::TINYINT]` and
+`[1, 1, 3::TINYINT]` infer TINYINT[], while `[1, 2, 3::TINYINT]` infers INTEGER[].
+These source observations require a selected literal-aware inference contract;
+they are not permission to bypass a registered type adapter with a hardcoded
+width rule. The initial Rust MAP/string-literal slice does not implement this
+integer-literal distinction.
+
+MAP constructor NULL/duplicate keys are invalid input. Converted MAP keys also
+need validation, but the cast records its own rejection provenance so TRY_CAST
+can NULL the entire result for an invalid or duplicate converted key without
+swallowing child validation, cancellation or infrastructure failures.
+
+Sources: [MAP lowering](../../../duckdb/src/parser/peg/transformer/transform_expression.cpp),
+[template inference](../../../duckdb/src/function/function_binder.cpp),
+[combination rules](../../../duckdb/src/function/combine_types_rules.cpp),
+[MAP validation](../../../duckdb/src/common/vector/map_vector.cpp),
+[MAP casts](../../../duckdb/src/function/cast/map_cast.cpp).
+
 ## Ownership, errors, and performance
 
 Result vectors may reference input data when an expression is a simple reference. Callers must retain underlying buffers if results escape input reuse. Expression executors typically belong to local operator/task state; sharing mutable evaluation state between workers is not implied by sharing an immutable physical expression tree. Scratch vectors and selections should be reused across chunks while their sizes and validity are reset correctly.

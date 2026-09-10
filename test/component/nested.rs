@@ -12,6 +12,8 @@ use std::{cmp::Ordering, sync::Arc};
 mod accessors;
 #[path = "nested/concat.rs"]
 mod concat;
+#[path = "nested/map_literals.rs"]
+mod map_literals;
 #[path = "nested/native.rs"]
 mod native;
 #[path = "nested/object.rs"]

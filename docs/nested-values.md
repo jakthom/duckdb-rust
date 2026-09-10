@@ -723,3 +723,42 @@ missing attributes. Instrumentation compatibility completed in 53.77 seconds
 with zero errors, panics or open spans; temporary telemetry was deleted. This
 internal codec prerequisite does not claim a new independent Kani run; the lead
 owns the subsequent maintained run at the substantial integrated checkpoint.
+
+### MAP literals and ordered sequence binding
+
+`MAP {key: value, ...}` now lowers to ordered key/value sequences and the
+selected `map` scalar function. Sequence literals use combination casts, retaining
+selected implicit-first/explicit-fallback adapters instead of granting ordinary
+function overloads new conversions. Ordered string-literal inference follows
+the pinned template rules: initial NULL, later NULL, repeated string literals,
+typed VARCHAR columns/parameters and selected common-type proposals remain
+distinct. Explicit numeric widths, decimals, ENUM/string combinations and
+nested typed-NULL metadata are covered. Integer-literal value identity and
+contextual narrowing are not yet implemented.
+
+The builtin MAP constructor retains its selected key adapter and reports NULL,
+duplicate and length-invalid inputs as InvalidInput. Generic nested validation
+and cast failure provenance are unchanged: invalid or duplicate converted keys
+still NULL the whole TRY_CAST result, while bad converted values can remain
+NULL children. A retained custom key adapter is exercised under an empty ambient
+registry, including a Resource failure that must not become invalid input.
+
+Four connected tests cover selected scalar replacement, selected common types
+and casts, both evaluators, prepared scalar parameters, mixed DECIMAL/TIMESTAMP_NS/
+LIST children, joins, window grouping, failed mutations, rollback, indexed
+scalar-ID changes, checkpoint and reopen. The immutable initial production report
+`nested-map-literal-reference.json` records 30/37 matches on both pins: four
+correct rejections had the wrong error category, and three integer-literal type
+inference cases disagreed. After the constructor repair,
+`nested-map-literal-key-errors-reference.json` records 34/37 on both pins, with
+only those three integer-literal gaps remaining. Both reports verify unchanged
+source during their run. The runner intentionally exits nonzero for these
+remaining gaps; neither campaign is a passing full-parity result.
+
+Ordinary check, nested 35/35, casts 12/12, types 15/15, contracts 27/27 and
+all-target clippy pass. Coverage reports 305 files, 2,798 functions and 211
+interface methods with no missing attributes. Instrumentation compatibility
+completed in 36.90 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted. The lead owns the maintained Kani run at the substantial
+integrated checkpoint. There is no new performance or native VARIANT publication
+claim here, and the broader nested/function inventory remains unfinished.
