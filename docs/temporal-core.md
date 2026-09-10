@@ -78,6 +78,28 @@ INTERVAL n UNIT lowers through selected DOUBLE casting, truncation when required
 the unit's declared integer width, and its selected constructor. Tests replace
 date_part/trunc adapters to verify the syntax does not bypass registration.
 
+`date_diff`/`datediff` count period crossings, while `date_sub`/`datesub` count
+complete periods. DATE, TIME and microsecond TIMESTAMP use selected overloads
+and casts; timestamp-unit inputs retain development's implicit reduction rules.
+Calendar month completion clips only at the later month's final day, preserving
+leap years, time-of-day thresholds, reverse signs and BC calendars. Week
+differences count seven-day distances, not Monday crossings. Fixed-unit
+timestamp crossings floor negative epochs, whereas complete periods truncate
+the checked elapsed duration. Wide DATE day/hour/year differences need not fit a
+TIMESTAMP; units that construct microseconds or calendar timestamps retain their
+specific intermediate range errors instead of accepting a representable quotient.
+
+The selected function keeps closed-specifier metadata without requiring constant
+evaluation. Its separate speculative NULL-template request occurs only after a
+valid temporal signature is chosen; conversion failures do not establish NULL,
+and selected resource/internal/logical-validation failures remain fatal. Known
+NULL results retain BIGINT metadata and do not evaluate discarded children.
+Ordinary runtime specifiers retain selected VARCHAR casts, including replacement
+ENUM casts. Constant specifiers dispatch before dynamic endpoint NULL/infinity
+checks; dynamic specifiers skip invalid units in NULL/infinite rows. This is not
+yet complete physical constant-vector provenance: a plan-produced column or
+scalar subquery can differ from a closed bound expression in C++.
+
 Checked clock/timestamp scanning shares the calendar-prefix parser while keeping
 calendar-only DATE APIs fully consuming. It handles one-/two-digit clock fields,
 optional final fields, exact fractional units, numeric offsets, timestamp-to-time
@@ -611,7 +633,8 @@ file interoperability, or performance parity.
 ## Remaining work in the same assignment
 
 This is not a stopping boundary. The remaining function catalog includes
-date_trunc/date_diff/date_sub/time_bucket, formatting/parsing functions, richer
+date_trunc/time_bucket, remaining date_diff/date_sub vector/error distinctions,
+formatting/parsing functions, richer
 date_part specifiers and struct results, current-time functions and broader
 calendar arithmetic. Remaining DATE/clock/timestamp text semantics, parser error
 diagnostics and type aliases, timestamp

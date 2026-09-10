@@ -20,6 +20,7 @@ use duckdb_rust::{
 };
 use std::sync::Arc;
 
+mod temporal_difference;
 mod temporal_variant;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -9,6 +9,7 @@ use crate::{
     parallel::QueryContext,
 };
 use std::sync::Arc;
+mod difference;
 
 #[derive(Debug)]
 struct TemporalFunction {
@@ -18,6 +19,7 @@ struct TemporalFunction {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
+    difference::register(registry);
     for name in [
         "year",
         "month",
