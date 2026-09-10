@@ -1,4 +1,5 @@
 mod constant;
+mod unbound;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn constant_expression(
@@ -115,6 +116,7 @@ pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
     reader.field(100)?;
     let data_type = match reader.unsigned()? {
         1 => DataType::Null,
+        4 => unbound::read(reader)?,
         10 => DataType::Boolean,
         11 => DataType::TinyInt,
         12 => DataType::SmallInt,

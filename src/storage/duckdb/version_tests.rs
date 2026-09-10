@@ -181,3 +181,43 @@ fn segment_byte_sizes_preserve_absence_and_reject_width_overflow() -> Result<()>
     ));
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parsed_native_types_resolve_known_names_without_executing_or_erasing_metadata() -> Result<()> {
+    for (name, children, expected) in [
+        ("TIMETZ", 0, Some(crate::DataType::TimeTz)),
+        ("timestamp_ns", 0, Some(crate::DataType::TimestampNs)),
+        ("application_type", 0, None),
+        ("TIMETZ", 1, None),
+    ] {
+        let mut output = binary::Encoder::default();
+        output.property(100, 4); // UNBOUND, not SQLNULL
+        output.field(101);
+        output.boolean(true);
+        output.property(100, 7); // UnboundTypeInfo
+        output.field(204);
+        output.boolean(true);
+        output.property(100, 21);
+        output.property(101, 207); // TypeExpression
+        output.field(202);
+        output.string(name)?;
+        output.property(203, children);
+        output.field(204);
+        output.property(100, 3);
+        output.string("")?;
+        output.string("")?;
+        output.string(name)?;
+        output.end();
+        output.end();
+        output.end();
+        output.end();
+        let decoded = catalog::logical_type(&mut Reader::new(output.0));
+        if let Some(expected) = expected {
+            assert_eq!(decoded?, expected);
+        } else {
+            assert!(matches!(decoded, Err(Error::Unsupported(_))));
+        }
+    }
+    Ok(())
+}
