@@ -606,9 +606,10 @@ separately. Checkpoint NULL/count behavior matches development in these fixtures
 this does not erase the earlier in-memory/default-optimizer discrepancies.
 
 Native VARIANT publication, WAL, defaults and GEOMETRY payload tag 33 remain
-unsupported. Empty or case-distinct OBJECT names accepted by JSON-to-VARIANT
-conversion remain a dynamic representation obligation: current retained child
-metadata still uses ordinary STRUCT validation. The pinned CLI lacks its JSON
+unsupported at this reader checkpoint. Empty or case-distinct OBJECT names
+accepted by JSON-to-VARIANT conversion remain a dynamic representation obligation
+at this point: retained child metadata still uses ordinary STRUCT validation.
+The pinned CLI lacks its JSON
 extension, so that source-backed case has not received an independent native
 fixture; no extension was installed or rebuilt. The release also rejects the
 empty `struct_pack()` used by the development unshredded fixture, so an identical
@@ -657,3 +658,30 @@ Kani run belongs to the lead's next substantial integrated checkpoint, not this
 internal worker prerequisite. Instrumentation compatibility completed in 58.36
 seconds with zero error returns, panics or open spans; temporary telemetry was
 deleted.
+
+### Native exact-name OBJECT materialization
+
+The native unshredded and shredded VARIANT readers now construct internal
+OBJECT metadata. Empty, case-distinct and embedded-zero UTF-8 member names
+survive materialization and selected SQL extraction. Exact duplicate members,
+including collisions between typed and leftover fields, are rejected as corrupt
+before publication; reconstruction does not discard a stored child. Ordinary
+unshredded member order and lexicographic shredded reconstruction remain intact.
+
+The source-backed canonical-payload tests cover these unusual names and malformed
+collisions. They are not an independent JSON-produced native fixture: the pinned
+CLI's missing extension limitation still applies. Existing independent native
+fixtures remain unchanged. The production-build follow-up
+`nested-object-native-reference.json` passes all 49/49 original exact queries
+(development unshredded 17/17, development shredded 16/16, release-produced
+shredded 16/16 with the development oracle). Checkpoint bytes remain unchanged.
+The lead's separately integrated qualified-subscript binder repair also makes
+the direct join pass; the older reports remain immutable.
+
+Ordinary check, six native VARIANT payload units, nested 31/31 and all-target
+clippy pass. Coverage reports 298 files, 2,698 functions and 209 interface
+methods with no missing attributes. Native VARIANT publication and WAL remain
+unsupported; no performance or full-family parity claim is made. Instrumentation
+compatibility completed in 33.82 seconds with zero errors, panics or open spans;
+temporary telemetry was deleted. The lead owns the maintained Kani run at the
+subsequent substantial integrated checkpoint.

@@ -375,7 +375,17 @@ pub(super) fn array_value(children: Vec<Typed>) -> Result<Typed> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn object_value(children: Vec<(String, Typed)>) -> Result<Typed> {
-    let ty = NestedType::Struct(
+    // Canonical objects already collapse exact duplicate JSON keys at input.
+    // A stored duplicate (including typed/leftover collisions) is malformed,
+    // not permission to discard a child here. Empty and case-distinct names
+    // remain valid and do not inherit SQL STRUCT's identifier restrictions.
+    let mut names = std::collections::BTreeSet::new();
+    for (name, _) in &children {
+        if !names.insert(name) {
+            return Err(corrupt("duplicate exact native VARIANT OBJECT key"));
+        }
+    }
+    let ty = NestedType::Object(
         children
             .iter()
             .map(|(name, (ty, _))| (name.clone(), ty.clone()))

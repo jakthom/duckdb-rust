@@ -272,3 +272,105 @@ fn native_variant_reconstruction_orders_leftover_objects_only_for_shredded_colum
     assert_eq!(value.to_string(), "{'a': false, 'z': true}");
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn native_variant_objects_preserve_empty_case_distinct_and_zero_byte_names() -> Result<()> {
+    // Source-backed canonical row, not an independently JSON-produced file:
+    // the pinned CLI has no JSON extension. The raw key strings are UTF-8,
+    // not SQL identifiers, including a zero byte and the empty string.
+    let mut data = vec![4, 0];
+    for value in [1i32, 2, 3] {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
+    let source = row(
+        &["", "A", "a", "nul\0key"],
+        &[(Some(0), 1), (Some(1), 2), (Some(2), 3), (Some(3), 4)],
+        &[(29, 0), (5, 2), (5, 6), (0, 10), (5, 10)],
+        data,
+    )?;
+    let (ty, value) = decoded(&source, &mut Budget::new())?;
+    let DataType::Nested(metadata) = &ty else {
+        unreachable!()
+    };
+    let NestedType::Object(fields) = metadata.as_ref() else {
+        panic!("native logical OBJECT must not become SQL STRUCT")
+    };
+    assert_eq!(
+        fields
+            .iter()
+            .map(|field| field.0.as_str())
+            .collect::<Vec<_>>(),
+        ["", "A", "a", "nul\0key"]
+    );
+    let value = envelope((ty, value))?;
+    let mut connection = crate::Database::memory()?.connect();
+    let query = connection.prepare("SELECT variant_extract($1,$2::VARCHAR)::INTEGER")?;
+    for (name, expected) in [
+        ("", Value::Integer(1)),
+        ("A", Value::Integer(2)),
+        ("a", Value::Null),
+        ("nul\0key", Value::Integer(3)),
+        ("missing", Value::Null),
+    ] {
+        assert_eq!(
+            connection
+                .execute_prepared(&query, &[value.clone(), Value::Varchar(name.into())])?
+                .rows,
+            vec![vec![expected]]
+        );
+    }
+    for keys in [&["a"][..], &["a", "a"][..]] {
+        let source = row(
+            keys,
+            &[(Some(0), 1), (Some((keys.len() - 1) as u32), 2)],
+            &[(29, 0), (1, 2), (2, 2)],
+            vec![2, 0],
+        )?;
+        assert!(matches!(
+            decoded(&source, &mut Budget::new()),
+            Err(Error::Corrupt(_))
+        ));
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn native_variant_shredded_objects_merge_exact_names_and_reject_duplicate_members() -> Result<()> {
+    let typed_type = NestedType::Struct(vec![("A".into(), DataType::Integer)]).data_type();
+    let ty = NestedType::Struct(vec![
+        ("typed_value".into(), typed_type.clone()),
+        ("untyped_value_index".into(), DataType::UInteger),
+    ])
+    .data_type();
+    let typed = NestedValue::value(typed_type, NestedPayload::Struct(vec![Value::Integer(7)]))?;
+    let value = NestedValue::value(
+        ty.clone(),
+        NestedPayload::Struct(vec![typed, Value::Unsigned(1)]),
+    )?;
+    for name in ["a", "A", ""] {
+        let source = row(&[name], &[(Some(0), 1)], &[(29, 0), (1, 2)], vec![1, 0])?;
+        let mut budget = Budget::new();
+        let unshredded = Unshredded::new(&source, &mut budget)?.unwrap();
+        let decoded =
+            super::super::shredded::decode(&ty, &value, Some(&unshredded), 0, &mut budget);
+        if name == "A" {
+            assert!(matches!(decoded, Err(Error::Corrupt(_))));
+        } else {
+            let (ty, value) = decoded?.unwrap();
+            assert!(
+                matches!(ty, DataType::Nested(metadata) if matches!(metadata.as_ref(), NestedType::Object(_)))
+            );
+            assert_eq!(
+                value.to_string(),
+                if name.is_empty() {
+                    "{'': true, 'A': 7}"
+                } else {
+                    "{'A': 7, 'a': true}"
+                }
+            );
+        }
+    }
+    Ok(())
+}

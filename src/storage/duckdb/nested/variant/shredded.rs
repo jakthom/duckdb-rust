@@ -160,7 +160,7 @@ fn content(
                 let DataType::Nested(metadata) = ty else {
                     return Err(corrupt("VARIANT OBJECT overlay is not OBJECT"));
                 };
-                let NestedType::Struct(fields) = metadata.as_ref() else {
+                let NestedType::Object(fields) = metadata.as_ref() else {
                     return Err(corrupt("VARIANT OBJECT overlay is not OBJECT"));
                 };
                 let Value::Nested(value) = value else {
