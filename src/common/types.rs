@@ -24,6 +24,7 @@ pub enum DataType {
     Varchar,
     Blob,
     Bit,
+    Bignum,
     Uuid,
     Enum(Arc<super::EnumType>),
     Date,
@@ -82,6 +83,7 @@ impl DataType {
             Self::Varchar => "builtin.varchar",
             Self::Blob => "builtin.blob",
             Self::Bit => "builtin.bit",
+            Self::Bignum => "builtin.bignum",
             Self::Uuid => "builtin.uuid",
             Self::Enum(_) => "builtin.enum",
             Self::Date => "builtin.date",
@@ -122,7 +124,7 @@ impl DataType {
     }
 
     pub fn is_numeric(&self) -> bool {
-        self.is_integer() || self.is_floating() || self.is_decimal()
+        self.is_integer() || self.is_floating() || self.is_decimal() || *self == Self::Bignum
     }
 
     pub fn is_floating(&self) -> bool {
@@ -210,6 +212,7 @@ impl fmt::Display for DataType {
                 Self::Varchar => "VARCHAR",
                 Self::Blob => "BLOB",
                 Self::Bit => "BIT",
+                Self::Bignum => "BIGNUM",
                 Self::Uuid => "UUID",
                 Self::Enum(_) => unreachable!("handled ENUM metadata"),
                 Self::Date => "DATE",
@@ -248,6 +251,7 @@ pub enum Value {
     Varchar(String),
     Blob(Vec<u8>),
     Bit(Arc<super::BitString>),
+    Bignum(Arc<super::BignumValue>),
     /// UUID bits in network/text order, without the native storage sign-bit flip.
     Uuid(u128),
     Enum(Arc<super::EnumValue>),
@@ -289,6 +293,7 @@ impl Value {
             Self::Varchar(_) => DataType::Varchar,
             Self::Blob(_) => DataType::Blob,
             Self::Bit(_) => DataType::Bit,
+            Self::Bignum(_) => DataType::Bignum,
             Self::Uuid(_) => DataType::Uuid,
             Self::Enum(value) => DataType::Enum(value.data_type.clone()),
             Self::Date(_) => DataType::Date,
@@ -340,6 +345,7 @@ impl Value {
                     && value.bytes.len() <= 16 * 1024 * 1024
             }
             Self::Bit(value) => *data_type == DataType::Bit && value.validate().is_ok(),
+            Self::Bignum(value) => *data_type == DataType::Bignum && value.validate().is_ok(),
             Self::Enum(value) => {
                 matches!(data_type, DataType::Enum(metadata) if value.data_type == *metadata && (value.ordinal as usize) < metadata.labels.len())
             }
@@ -394,6 +400,7 @@ impl Value {
             }
             Self::Float(v) => Ok(f64::from(*v)),
             Self::Double(v) => Ok(*v),
+            Self::Bignum(v) => v.to_f64(|| Ok(())),
             _ => Err(Error::Conversion(format!("{self} is not numeric"))),
         }
     }
@@ -457,6 +464,7 @@ impl Value {
             (Self::Varchar(a), Self::Varchar(b)) => Ok(a.cmp(b)),
             (Self::Blob(a), Self::Blob(b)) => Ok(a.cmp(b)),
             (Self::Bit(a), Self::Bit(b)) => Ok(a.compare(b)),
+            (Self::Bignum(a), Self::Bignum(b)) => a.compare(b, || Ok(())),
             (Self::Uuid(a), Self::Uuid(b)) => Ok(a.cmp(b)),
             (Self::Enum(a), Self::Enum(b)) => {
                 if a.data_type == b.data_type {
@@ -525,6 +533,7 @@ impl Value {
             Self::Date(_)
             | Self::Blob(_)
             | Self::Bit(_)
+            | Self::Bignum(_)
             | Self::Uuid(_)
             | Self::Enum(_)
             | Self::Temporal(_)
@@ -568,6 +577,7 @@ impl fmt::Display for Value {
             Self::Varchar(v) => write!(f, "{v}"),
             Self::Blob(v) => super::scalar::format_blob(v, f),
             Self::Bit(v) => write!(f, "{v}"),
+            Self::Bignum(v) => write!(f, "{v}"),
             Self::Uuid(v) => super::scalar::format_uuid(*v, f),
             Self::Enum(value) => write!(f, "{}", value.label().map_err(|_| fmt::Error)?),
             Self::Date(v) => write!(f, "{v}"),

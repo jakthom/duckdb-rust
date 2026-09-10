@@ -159,6 +159,7 @@ pub(super) fn register(registry: &mut CastRegistry) {
         "builtin.interval",
         "builtin.blob",
         "builtin.bit",
+        "builtin.bignum",
         "builtin.uuid",
         "builtin.list",
         "builtin.array",

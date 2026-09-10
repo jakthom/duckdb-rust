@@ -99,6 +99,10 @@ name = "bit"
 path = "test/component/bit.rs"
 
 [[test]]
+name = "bignum"
+path = "test/component/bignum.rs"
+
+[[test]]
 name = "enumeration"
 path = "test/component/enumeration.rs"
 

@@ -230,7 +230,7 @@ pub(super) fn read_segments(
                 if compression != 1
                     || !matches!(
                         data_type,
-                        Some(DataType::Varchar | DataType::Blob | DataType::Bit)
+                        Some(DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum)
                     )
                 {
                     return Err(Error::Unsupported(
@@ -312,7 +312,7 @@ pub(super) fn statistics(reader: &mut Reader, data_type: Option<&DataType>) -> R
     let mut minimum = Value::Null;
     match data_type {
         Some(DataType::Nested(metadata)) => super::nested::read_statistics(reader, metadata)?,
-        Some(DataType::Varchar | DataType::Blob | DataType::Bit) => {
+        Some(DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum) => {
             string_statistics::read(reader)?;
         }
         Some(data_type) => {

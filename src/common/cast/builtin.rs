@@ -66,6 +66,7 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
             Value::Date(_)
             | Value::Blob(_)
             | Value::Bit(_)
+            | Value::Bignum(_)
             | Value::Uuid(_)
             | Value::Enum(_)
             | Value::Temporal(_)

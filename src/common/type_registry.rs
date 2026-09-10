@@ -2,6 +2,7 @@
 //! selected adapter supplies the semantics for every registered type family.
 pub mod ascii;
 mod batch;
+pub mod bignum;
 pub mod bit;
 pub mod date;
 pub mod enumeration;
@@ -343,6 +344,9 @@ impl TypeRegistry {
         registry
             .register("builtin.bit", Arc::new(bit::BitType))
             .expect("unique BIT family");
+        registry
+            .register("builtin.bignum", Arc::new(bignum::BignumType))
+            .expect("unique BIGNUM family");
         for data_type in [
             DataType::UTinyInt,
             DataType::USmallInt,
@@ -644,6 +648,7 @@ impl TypeAdapter for PrimitiveTypes {
             DataType::Date
                 | DataType::Blob
                 | DataType::Bit
+                | DataType::Bignum
                 | DataType::Uuid
                 | DataType::Enum(_)
                 | DataType::Extension(_)

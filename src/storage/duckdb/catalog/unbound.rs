@@ -44,6 +44,7 @@ pub(super) fn read(reader: &mut Reader) -> Result<DataType> {
         "varchar" | "text" | "string" => Ok(DataType::Varchar),
         "blob" | "bytea" | "binary" | "varbinary" => Ok(DataType::Blob),
         "bit" | "bitstring" => Ok(DataType::Bit),
+        "bignum" | "varint" => Ok(DataType::Bignum),
         "uuid" | "guid" => Ok(DataType::Uuid),
         "date" => Ok(DataType::Date),
         "time" => Ok(DataType::Time),

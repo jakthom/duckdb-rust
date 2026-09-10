@@ -313,6 +313,15 @@ fn encode_value(value: &Value, data_type: &DataType, output: &mut Vec<u8>) -> Re
             let width = super::super::primitive::width(data_type)?;
             output.extend(&v.to_be_bytes()[16 - width..]);
         }
+        Value::Bignum(value) => {
+            for byte in value.to_native(|| Ok(()))? {
+                if byte <= 1 {
+                    output.push(1);
+                }
+                output.push(byte);
+            }
+            output.push(0);
+        }
         Value::Decimal { value, .. } => {
             let width = super::super::primitive::width(data_type)?;
             let mut bytes = value.to_be_bytes();

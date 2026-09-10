@@ -291,7 +291,7 @@ pub(super) fn column_bytes(
     for (chunk, values) in values.chunks(2048).enumerate() {
         if matches!(
             data_type,
-            DataType::Varchar | DataType::Blob | DataType::Bit
+            DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum
         ) {
             let mut start = 0;
             while start < values.len() {
@@ -302,6 +302,7 @@ pub(super) fn column_bytes(
                         Value::Varchar(v) => v.len(),
                         Value::Blob(v) => v.len(),
                         Value::Bit(v) => v.bytes().len() + 1,
+                        Value::Bignum(v) => v.byte_len() + 3,
                         _ => 0,
                     };
                     let length = if length > 4096 { 12 } else { length };
@@ -397,7 +398,7 @@ pub(super) fn segment_with_statistics(
     let mut overflow_blocks = Vec::new();
     if matches!(
         data_type,
-        DataType::Varchar | DataType::Blob | DataType::Bit
+        DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum
     ) {
         let mut strings = Vec::new();
         let mut offsets = Vec::new();
@@ -408,6 +409,10 @@ pub(super) fn segment_with_statistics(
                 Value::Varchar(v) => v.as_bytes(),
                 Value::Blob(v) => v.as_slice(),
                 Value::Bit(v) => {
+                    bit_bytes = v.to_native(|| Ok(()))?;
+                    &bit_bytes
+                }
+                Value::Bignum(v) => {
                     bit_bytes = v.to_native(|| Ok(()))?;
                     &bit_bytes
                 }
@@ -528,7 +533,7 @@ pub(super) fn statistics(
         None => {}
         // The writer's legacy compatibility target predates interval stats.
         Some(DataType::Interval) => {}
-        Some(DataType::Varchar | DataType::Blob | DataType::Bit) => {
+        Some(DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum) => {
             output.field(200);
             output.blob(&[0; 8]);
             output.field(201);
@@ -545,6 +550,7 @@ pub(super) fn statistics(
                         Value::Varchar(v) => v.len() as u64,
                         Value::Blob(v) => v.len() as u64,
                         Value::Bit(v) => v.bytes().len() as u64 + 1,
+                        Value::Bignum(v) => v.byte_len() as u64 + 3,
                         _ => 0,
                     })
                     .max()

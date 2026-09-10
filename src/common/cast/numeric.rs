@@ -85,6 +85,9 @@ impl CastFunction for ExactNumericCast {
     }
     fn supports(&self, spec: &CastSpec) -> bool {
         let (a, b) = (&spec.source, &spec.target);
+        if *a == DataType::Bignum || *b == DataType::Bignum {
+            return false;
+        }
         if !(a.is_numeric() || matches!(a, DataType::Null | DataType::Boolean | DataType::Varchar))
             || !(b.is_numeric() || matches!(b, DataType::Boolean | DataType::Varchar))
         {

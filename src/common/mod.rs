@@ -1,4 +1,6 @@
+pub mod bignum;
 pub mod bit;
+pub use bignum::BignumValue;
 pub mod cast;
 pub use bit::BitString;
 mod date;

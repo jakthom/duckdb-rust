@@ -17,7 +17,9 @@ macro_rules! string_decoder {
             fn supports(&self, kind: SegmentType<'_>) -> bool {
                 matches!(
                     kind,
-                    SegmentType::Values(DataType::Varchar | DataType::Blob | DataType::Bit)
+                    SegmentType::Values(
+                        DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum
+                    )
                 )
             }
             fn decode(
@@ -149,14 +151,16 @@ pub(super) fn fsst(
         }
         let input = &data[end - offset..end - offset + length];
         let output = decompress(input, &symbols, query)?;
-        values.push(if *data_type == DataType::Bit && output.is_empty() {
-            // Legacy FSST stores zero bytes for NULL rows, just like the
-            // uncompressed codec. A valid empty BIT has a padding byte. The
-            // enclosing validity stream must confirm this NULL placeholder.
-            Value::Null
-        } else {
-            string_value(output, data_type)?
-        });
+        values.push(
+            if matches!(data_type, DataType::Bit | DataType::Bignum) && output.is_empty() {
+                // Legacy FSST stores zero bytes for NULL rows, just like the
+                // uncompressed codec. A valid empty BIT has a padding byte. The
+                // enclosing validity stream must confirm this NULL placeholder.
+                Value::Null
+            } else {
+                string_value(output, data_type)?
+            },
+        );
     }
     Ok(values)
 }
@@ -167,6 +171,8 @@ pub(super) fn string_value(bytes: Vec<u8>, data_type: &DataType) -> Result<Value
         DataType::Blob => Ok(Value::Blob(bytes)),
         DataType::Bit => crate::common::BitString::from_native(&bytes, || Ok(()))
             .map(crate::common::BitString::value),
+        DataType::Bignum => crate::common::BignumValue::from_native(&bytes, || Ok(()))
+            .map(crate::common::BignumValue::value),
         DataType::Varchar => String::from_utf8(bytes)
             .map(Value::Varchar)
             .map_err(|_| corrupt("invalid UTF-8 string")),

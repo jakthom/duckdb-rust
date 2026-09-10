@@ -146,6 +146,7 @@ pub(super) fn logical_type_at(reader: &mut Reader, depth: usize) -> Result<DataT
         25 => DataType::Varchar,
         26 => DataType::Blob,
         36 => DataType::Bit,
+        39 => DataType::Bignum,
         54 => DataType::Uuid,
         50 => DataType::HugeInt,
         28 => DataType::UTinyInt,

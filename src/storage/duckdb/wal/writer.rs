@@ -442,7 +442,7 @@ pub(super) fn vector(
     e.field(102);
     if matches!(
         data_type,
-        DataType::Varchar | DataType::Blob | DataType::Bit
+        DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum
     ) {
         e.unsigned(values.len() as u64);
         for value in values {
@@ -451,6 +451,7 @@ pub(super) fn vector(
                 Value::Varchar(text) => e.string(text)?,
                 Value::Blob(bytes) => e.blob(bytes),
                 Value::Bit(value) => e.blob(&value.to_native(|| context.check())?),
+                Value::Bignum(value) => e.blob(&value.to_native(|| context.check())?),
                 Value::Null => e.string("")?,
                 _ => return Err(invalid("string physical type")),
             }

@@ -160,7 +160,7 @@ fn flat(
     }
     if matches!(
         data_type,
-        DataType::Varchar | DataType::Blob | DataType::Bit
+        DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum
     ) {
         let byte_count = reader.optional_unsigned(107, u64::MAX)?;
         if byte_count != u64::MAX {
@@ -249,6 +249,8 @@ fn flat(
 fn string_value(bytes: Vec<u8>, data_type: &DataType, context: &QueryContext) -> Result<Value> {
     match data_type {
         DataType::Blob => Ok(Value::Blob(bytes)),
+        DataType::Bignum => crate::common::BignumValue::from_native(&bytes, || context.check())
+            .map(crate::common::BignumValue::value),
         DataType::Bit => crate::common::BitString::from_native(&bytes, || context.check())
             .map(crate::common::BitString::value),
         DataType::Varchar => String::from_utf8(bytes)

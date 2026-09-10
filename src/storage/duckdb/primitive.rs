@@ -151,6 +151,7 @@ pub(super) fn type_id(data_type: &DataType) -> Result<u64> {
         DataType::Varchar => Ok(25),
         DataType::Blob => Ok(26),
         DataType::Bit => Ok(36),
+        DataType::Bignum => Ok(39),
         DataType::Uuid => Ok(54),
         DataType::HugeInt => Ok(50),
         DataType::UTinyInt => Ok(28),

@@ -1,5 +1,6 @@
 //! Selected, owned conversions between declared logical types. A bound cast
 //! retains its adapter; changing a registry does not change existing plans.
+pub mod bignum;
 pub mod bit;
 mod builtin;
 mod date;
@@ -458,6 +459,7 @@ impl CastRegistry {
         temporal::register(&mut registry);
         scalar::register(&mut registry);
         bit::register(&mut registry);
+        bignum::register(&mut registry);
         nested::register(&mut registry);
         registry
     }
@@ -651,6 +653,7 @@ impl CastFunction for PrimitiveCast {
             DataType::Date
                 | DataType::Blob
                 | DataType::Bit
+                | DataType::Bignum
                 | DataType::Uuid
                 | DataType::Enum(_)
                 | DataType::Extension(_)
@@ -659,6 +662,7 @@ impl CastFunction for PrimitiveCast {
             DataType::Date
                 | DataType::Blob
                 | DataType::Bit
+                | DataType::Bignum
                 | DataType::Uuid
                 | DataType::Enum(_)
                 | DataType::Extension(_)

@@ -293,6 +293,10 @@ impl State<'_, '_> {
                     self.context.query.types().bind(&DataType::UInteger)?;
                     return Ok(DataType::UInteger);
                 }
+                if matches!(name.as_str(), "bignum" | "varint") && modifiers.is_empty() {
+                    self.context.query.types().bind(&DataType::Bignum)?;
+                    return Ok(DataType::Bignum);
+                }
                 if name == "bitstring" {
                     return if modifiers.len() <= 1
                         && modifiers.iter().all(|value| value.parse::<i64>().is_ok())

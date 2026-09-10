@@ -225,6 +225,7 @@ fn print_result(result: &QueryResult, json: bool) -> Result<()> {
                         duckdb_rust::Value::Null => serde_json::Value::Null,
                         duckdb_rust::Value::Date(v) => serde_json::Value::String(v.to_string()),
                         duckdb_rust::Value::Blob(_)
+                        | duckdb_rust::Value::Bignum(_)
                         | duckdb_rust::Value::Uuid(_)
                         | duckdb_rust::Value::Enum(_) => {
                             serde_json::Value::String(value.to_string())

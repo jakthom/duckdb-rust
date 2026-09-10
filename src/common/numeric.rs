@@ -55,6 +55,15 @@ pub fn common_type(left: &DataType, right: &DataType) -> Result<DataType> {
     if *left == Double || *right == Double {
         return Ok(Double);
     }
+    if *left == Bignum || *right == Bignum {
+        return if left.is_decimal() || right.is_decimal() {
+            Err(Error::Bind(
+                "BIGNUM and DECIMAL require an explicit common cast".into(),
+            ))
+        } else {
+            Ok(Bignum)
+        };
+    }
     if *left == Float || *right == Float {
         return Ok(Float);
     }

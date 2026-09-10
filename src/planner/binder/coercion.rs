@@ -182,6 +182,7 @@ fn equality_score(ty: &DataType) -> Option<u8> {
         Bit => 100,
         Blob => 101,
         Uuid => 102,
+        Bignum => 103,
         Nested(_) | Extension(_) => return None,
     })
 }

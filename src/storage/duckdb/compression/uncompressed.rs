@@ -23,7 +23,7 @@ impl SegmentDecoder for UncompressedDecoder {
         context.query.check_rows(input.count)?;
         match input.kind {
             SegmentType::Values(
-                data_type @ (DataType::Varchar | DataType::Blob | DataType::Bit),
+                data_type @ (DataType::Varchar | DataType::Blob | DataType::Bit | DataType::Bignum),
             ) => strings(context, input.data, input.count, data_type),
             kind => (0..input.count)
                 .map(|i| {
@@ -86,14 +86,16 @@ fn strings(
                 .ok_or_else(|| corrupt("string outside dictionary"))?
                 .to_vec()
         };
-        values.push(if *data_type == DataType::Bit && bytes.is_empty() {
-            // Uncompressed NULL rows have an empty placeholder. A real empty
-            // BIT still has its padding byte; strict validity rejects this
-            // placeholder if the enclosing mask incorrectly marks it valid.
-            Value::Null
-        } else {
-            super::strings::string_value(bytes, data_type)?
-        });
+        values.push(
+            if matches!(data_type, DataType::Bit | DataType::Bignum) && bytes.is_empty() {
+                // Uncompressed NULL rows have an empty placeholder. A real empty
+                // BIT still has its padding byte; strict validity rejects this
+                // placeholder if the enclosing mask incorrectly marks it valid.
+                Value::Null
+            } else {
+                super::strings::string_value(bytes, data_type)?
+            },
+        );
         previous = offset;
     }
     Ok(values)
