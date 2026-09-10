@@ -9,6 +9,7 @@ mod temporal;
 mod version_tests;
 mod visibility;
 pub mod wal;
+mod write_support;
 mod writer;
 
 use std::collections::HashSet;
@@ -21,6 +22,7 @@ use binary::{Reader, checksum, corrupt, u64_at};
 /// before publication; this format has no dependency on filesystem or SQL APIs.
 pub struct DuckDbFormat {
     decoders: super::compression::DecoderRegistry,
+    new_file_version: u64,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -33,7 +35,19 @@ impl Default for DuckDbFormat {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DuckDbFormat {
     pub fn new(decoders: super::compression::DecoderRegistry) -> Self {
-        Self { decoders }
+        Self {
+            decoders,
+            new_file_version: 64,
+        }
+    }
+    /// Select the native storage version for newly created images. Existing
+    /// files retain their validated version; this is not an implicit upgrade.
+    /// The provisional legacy default remains 64. VARIANT needs 68, and TUPLE
+    /// or empty STRUCT needs 69, matching the pinned development type gates.
+    pub fn with_storage_version(mut self, version: u64) -> Result<Self> {
+        write_support::new_headers(version)?;
+        self.new_file_version = version;
+        Ok(self)
     }
 }
 
@@ -59,7 +73,11 @@ impl SnapshotFormat for DuckDbFormat {
     }
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>> {
         snapshot.validate()?;
-        writer::encode(snapshot)
+        if self.new_file_version == 64 {
+            writer::encode(snapshot)
+        } else {
+            writer::encode_version(snapshot, self.new_file_version)
+        }
     }
     fn checkpoint_encoder(
         &self,
@@ -75,6 +93,11 @@ impl SnapshotFormat for DuckDbFormat {
         previous: &[u8],
     ) -> Result<super::layout::CheckpointImage> {
         snapshot.validate()?;
+        for table in crate::catalog::Catalog::tables(snapshot)? {
+            for column in table.columns {
+                write_support::successor_type(&column.data_type)?;
+            }
+        }
         Ok(super::layout::CheckpointImage {
             bytes: writer::encode_successor(snapshot, CheckpointIdentity::read(previous)?)?,
             layout: super::layout::CheckpointLayout::compacted(snapshot)?,
@@ -106,6 +129,14 @@ struct CheckpointIdentity {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CheckpointIdentity {
+    fn storage_version(self) -> u64 {
+        match self.database_version {
+            0..=3 | 64 => 64,
+            4..=7 => self.database_version + 61,
+            69 => 69,
+            _ => unreachable!("validated checkpoint storage version"),
+        }
+    }
     fn read(bytes: &[u8]) -> Result<Self> {
         if bytes.get(8..12) != Some(b"DUCK") {
             return Err(corrupt("missing DuckDB magic"));

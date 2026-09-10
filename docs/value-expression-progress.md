@@ -17,6 +17,14 @@ historical results and limits.
 
 ## Seventh integrated implementation checkpoint
 
+The later [versioned native nested publication increment](nested-publication-values.md)
+repairs all four recorded committed-writer failures. Independent C++ files now
+survive Rust mutation and reopen with development-correct content and retained
+versions/identifiers. Selected services, recursive version gates and connected
+transaction tests are in place. WAL capability handoff and exact VARIANT recovery
+layout validation remain explicit integration work. This increment is queued
+for the next combined workspace/Kani checkpoint, not a new timing acceptance.
+
 At `8bd50a3`, `cargo check --workspace`, `cargo test --workspace`, and all-target
 clippy with warnings denied pass. The same two external-CLI analytics tests
 remain ignored, not passing obligations. The suite includes 51 library tests,

@@ -154,13 +154,23 @@ fn independent_variant_child_streams_preserve_dynamic_types_and_nested_nulls() -
         );
         drop(c);
         let mut c = Database::open(&path)?.connect();
-        assert!(matches!(
-            c.execute("UPDATE t SET id=id+100"),
-            Err(duckdb_rust::Error::Unsupported(_))
-        ));
+        c.execute("BEGIN; UPDATE t SET id=id+100; ROLLBACK")?;
+        assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, expected);
+        assert!(
+            fs::read(&path)? == bytes,
+            "rollback changed checkpoint bytes: {target}/{name}"
+        );
+        c.execute("UPDATE t SET id=id+100")?;
+        let mut expected: Vec<_> = expected.into_iter().collect();
+        for row in &mut expected {
+            row[0] = Value::Integer(row[0].as_i128()? + 100);
+        }
         assert_eq!(c.query("SELECT * FROM t ORDER BY id")?.rows, expected);
         drop(c);
-        assert_eq!(fs::read(&path)?, bytes);
+        assert!(
+            fs::read(&path)? != bytes,
+            "committed mutation did not change checkpoint bytes: {target}/{name}"
+        );
         assert_eq!(
             Database::open_read_only(&path)?
                 .connect()
@@ -168,6 +178,7 @@ fn independent_variant_child_streams_preserve_dynamic_types_and_nested_nulls() -
                 .rows,
             expected
         );
+        let published = fs::read(&path)?;
         // The selected codec can produce a correctly typed BLOB while its
         // internal VARIANT offsets/lengths are invalid. Reject that logical
         // corruption before publishing any catalog or table state.
@@ -181,7 +192,10 @@ fn independent_variant_child_streams_preserve_dynamic_types_and_nested_nulls() -
             )?))
             .build();
         assert!(matches!(malformed, Err(duckdb_rust::Error::Corrupt(_))));
-        assert_eq!(fs::read(&path)?, bytes);
+        assert!(
+            fs::read(&path)? == published,
+            "malformed reader changed published file"
+        );
     }
     Ok(())
 }

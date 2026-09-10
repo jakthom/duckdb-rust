@@ -16,6 +16,8 @@ mod concat;
 mod native;
 #[path = "nested/object.rs"]
 mod object;
+#[path = "nested/publication.rs"]
+mod publication;
 #[path = "nested/tuple.rs"]
 mod tuple;
 #[path = "nested/variant.rs"]

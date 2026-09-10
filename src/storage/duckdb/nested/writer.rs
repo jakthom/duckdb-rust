@@ -27,7 +27,10 @@ pub(in crate::storage::duckdb) fn child_values(
                 .collect()
         }
         NestedType::Variant => {
-            return Err(Error::Unsupported("native VARIANT child streams".into()));
+            return Ok(vec![(
+                variant::unshredded_type(),
+                variant::encode_rows(values, context)?,
+            )]);
         }
         NestedType::Object(_) => {
             return Err(Error::Unsupported(
@@ -131,6 +134,11 @@ pub(in crate::storage::duckdb) fn write_statistics(
     context: &QueryContext,
 ) -> Result<()> {
     let children = child_values(metadata, values, context)?;
+    if matches!(metadata, NestedType::Variant) {
+        output.property(200, 1); // VariantStatsShreddingState::NOT_SHREDDED
+        output.field(225);
+        return statistics(output, Some(&children[0].0), &children[0].1, context);
+    }
     output.field(200);
     if matches!(
         metadata,

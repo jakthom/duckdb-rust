@@ -6,6 +6,7 @@ use crate::{
     common::{type_registry::BoundType, variant::Node},
     parallel::QueryContext,
 };
+#[cfg(test)]
 mod tests;
 
 struct Limits {

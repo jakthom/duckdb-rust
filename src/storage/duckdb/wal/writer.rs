@@ -44,7 +44,7 @@ impl TransactionLog for DuckDbTransactionLog {
         let mut session = Session::default();
         for definition in snapshot.tables()? {
             for column in &definition.columns {
-                primitive::type_id(&column.data_type)?;
+                super::super::write_support::wal_type(&column.data_type)?;
             }
             let next = snapshot.next_row_id(&definition.name)?;
             session.tables.insert(
@@ -153,6 +153,9 @@ impl LogSession for Session {
                     output.push(record)?;
                 }
                 TransactionChange::CreateTable(definition) => {
+                    for column in &definition.columns {
+                        super::super::write_support::wal_type(&column.data_type)?;
+                    }
                     if next.tables.contains_key(&definition.name) {
                         return Err(invalid("duplicate table"));
                     }
@@ -186,6 +189,9 @@ impl LogSession for Session {
                     let Some(definition) = alteration.definition(&state.definition)? else {
                         return Err(invalid("no-op alteration in journal"));
                     };
+                    for column in &definition.columns {
+                        super::super::write_support::wal_type(&column.data_type)?;
+                    }
                     if next.tables.contains_key(&definition.name) {
                         return Err(invalid("altered table collision"));
                     }

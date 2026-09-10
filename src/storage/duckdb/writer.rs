@@ -95,7 +95,13 @@ impl Arena {
         }
         Ok(pointers[0])
     }
-    fn finish(mut self, root: u64, previous: Option<super::CheckpointIdentity>) -> Result<Vec<u8>> {
+    fn finish(
+        mut self,
+        root: u64,
+        previous: Option<super::CheckpointIdentity>,
+        version: u64,
+    ) -> Result<Vec<u8>> {
+        let (new_main, new_database) = super::write_support::new_headers(version)?;
         let free = self.slot()?;
         let mut free_data = Vec::new();
         free_data.extend(0u64.to_le_bytes());
@@ -114,7 +120,7 @@ impl Arena {
         let mut output = Vec::with_capacity(12288 + self.blocks.len() * ALLOCATION);
         let mut main = vec![0; 4088];
         main[..4].copy_from_slice(b"DUCK");
-        main[4..12].copy_from_slice(&previous.map_or(64, |p| p.main_version).to_le_bytes());
+        main[4..12].copy_from_slice(&previous.map_or(new_main, |p| p.main_version).to_le_bytes());
         main[44..54].copy_from_slice(b"v0.1-rust\0");
         let iteration = if let Some(previous) = previous {
             main[116..132].copy_from_slice(&previous.identifier);
@@ -138,7 +144,7 @@ impl Arena {
                 count,
                 ALLOCATION as u64,
                 2048,
-                previous.map_or(1, |p| p.database_version),
+                previous.map_or(new_database, |p| p.database_version),
             ]
             .into_iter()
             .enumerate()
@@ -163,7 +169,13 @@ fn append_checked(output: &mut Vec<u8>, data: &[u8]) -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn encode(snapshot: &Snapshot) -> Result<Vec<u8>> {
-    encode_checkpoint(snapshot, None)
+    encode_version(snapshot, 64)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn encode_version(snapshot: &Snapshot, version: u64) -> Result<Vec<u8>> {
+    super::write_support::new_headers(version)?;
+    encode_checkpoint(snapshot, None, version)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -171,16 +183,22 @@ pub(super) fn encode_successor(
     snapshot: &Snapshot,
     previous: super::CheckpointIdentity,
 ) -> Result<Vec<u8>> {
-    encode_checkpoint(snapshot, Some(previous))
+    encode_checkpoint(snapshot, Some(previous), previous.storage_version())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn encode_checkpoint(
     snapshot: &Snapshot,
     previous: Option<super::CheckpointIdentity>,
+    version: u64,
 ) -> Result<Vec<u8>> {
     let context = QueryContext::background().with_types(snapshot.type_registry());
     let tables = snapshot.tables()?;
+    for table in &tables {
+        for column in &table.columns {
+            super::write_support::checkpoint_type(&column.data_type, version)?;
+        }
+    }
     let schemas = snapshot.schemas()?;
     let mut arena = Arena::default();
     let mut catalog = Encoder::default();
@@ -240,7 +258,7 @@ fn encode_checkpoint(
         *used &= !(1u64 << (root >> 56));
         root = replacement;
     }
-    arena.finish(root, previous)
+    arena.finish(root, previous, version)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

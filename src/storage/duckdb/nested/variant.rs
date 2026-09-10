@@ -1,12 +1,18 @@
 //! Pinned native VARIANT metadata. The public logical type remains dynamic;
 //! these canonical fields describe its unshredded physical child streams only.
 use super::*;
+mod encoding;
 mod payload;
 mod shredded;
-// Internal codec seam until checkpoint publication carries the actual selected
-// type/context into nested writers and the format owner enables compatibility.
-#[cfg(test)]
-mod encoding;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn encode_rows(
+    values: &[Value],
+    context: &crate::parallel::QueryContext,
+) -> Result<Vec<Value>> {
+    let selected = context.types().bind(&NestedType::Variant.data_type())?;
+    encoding::encode_rows(values, &selected, context)
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_column(
@@ -219,10 +225,21 @@ mod tests {
             logical_type_at(&mut Reader::new(output.0), 0),
             Err(Error::Corrupt(_))
         ));
-        // A reader increment must not silently authorize legacy publication.
+        let mut output = Encoder::default();
+        write_type(&mut output, &NestedType::Variant.data_type())?;
+        let mut reader = Reader::new(output.0);
+        assert_eq!(
+            logical_type_at(&mut reader, 0)?,
+            NestedType::Variant.data_type()
+        );
+        assert!(reader.finished());
+        // Logical metadata support does not authorize an older checkpoint.
         assert!(matches!(
-            write_type(&mut Encoder::default(), &NestedType::Variant.data_type()),
-            Err(Error::Unsupported(_))
+            super::super::super::write_support::checkpoint_type(
+                &NestedType::Variant.data_type(),
+                64
+            ),
+            Err(Error::InvalidInput(_))
         ));
         Ok(())
     }

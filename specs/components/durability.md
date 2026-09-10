@@ -71,6 +71,24 @@ the C++ file's statistics ordering. The current synchronous snapshot encoder
 has a background maintenance context, not a new promise of interruptible
 filesystem operations or a global byte budget.
 
+The provisional native writer can explicitly select storage 64–69 for a new
+image; the legacy default remains 64. That preference does not upgrade existing
+files. Check recursive table-type capabilities before emitting data, including
+empty tables and CREATE/ALTER paths. Ordinary FileCheckpoint publication can
+write canonical unshredded VARIANT at storage 68 or newer, and positional TUPLE
+and empty STRUCT at storage 69. Reading a shredded column does not require the
+successor writer to preserve its compression or shredding strategy, but it must
+preserve exact logical content and the existing file identity/version.
+
+WAL publication has a separate capability boundary. Until the selected log
+session retains the actual checkpoint version and supports the matching wire
+representation, reject VARIANT, TUPLE and empty STRUCT recursively before log
+publication. VARIANT recovery checkpoint publication also remains unavailable
+until layout validation can compare canonicalized content exactly. SQL equality
+is not sufficient: equal numeric values with different tags, widths or floating
+bits are not interchangeable durable payloads. These are current implementation
+limits, not a reduced target for the value-and-expression milestone.
+
 Three complementary test classes are required: ordinary close/reopen and checkpoint tests; process-interruption/WAL replay tests; and injected file-write or synchronization failures. The native storage fuzzer performs operation sequences with one-shot filesystem faults and verifies the next reopen against the last expected state. It is not a general malformed-database-byte generator.
 
 Assertions should separate acknowledged commits, rejected commits, and indeterminate external failures. Check table contents, catalog objects, indexes, and future database usability, not just whether opening succeeds. Historical storage files and cross-version readers add a separate format-compatibility obligation described in [compatibility testing](../testing/compatibility.md). Relevant code and execution limitations for fault campaigns are in [fuzzing](../testing/fuzzer.md) and [stress](../testing/stress.md).

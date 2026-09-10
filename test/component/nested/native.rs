@@ -81,13 +81,22 @@ fn independent_development_tuple_streams_preserve_empty_and_positional_children(
     assert!(
         matches!(malformed, Err(duckdb_rust::Error::Corrupt(message)) if message.contains("valid row has no decoded value"))
     );
-    // Publication is deliberately unavailable until a development-v2 writer
-    // is selected. Reading an ID110 file is not bidirectional compatibility.
+    // Its retained v2 compatibility permits tuple/empty-container publication.
     let mut c = Database::open(&path)?.connect();
-    assert!(c.execute("UPDATE t SET id=7 WHERE id=0").is_err());
+    c.execute("BEGIN; UPDATE t SET id=7 WHERE id=0; ROLLBACK")?;
     assert_eq!(
         c.query("SELECT sum(id) FROM t")?.rows,
         vec![vec![Value::Integer(3)]]
+    );
+    c.execute("UPDATE t SET id=7 WHERE id=0")?;
+    let expected = c.query("SELECT * FROM t ORDER BY id")?.rows;
+    drop(c);
+    assert_eq!(
+        Database::open_read_only(&path)?
+            .connect()
+            .query("SELECT * FROM t ORDER BY id")?
+            .rows,
+        expected
     );
     Ok(())
 }

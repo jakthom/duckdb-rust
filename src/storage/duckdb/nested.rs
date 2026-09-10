@@ -252,12 +252,8 @@ pub(super) fn type_id(metadata: &NestedType) -> Result<u64> {
         NestedType::Map { .. } => 102,
         NestedType::Union(_) => 107,
         NestedType::Array { .. } => 108,
-        NestedType::Tuple(_) => {
-            return Err(Error::Unsupported(
-                "TUPLE publication requires development v2 storage".into(),
-            ));
-        }
-        NestedType::Variant => return Err(Error::Unsupported("native VARIANT type layout".into())),
+        NestedType::Tuple(_) => 110,
+        NestedType::Variant => 109,
         NestedType::Object(_) => {
             return Err(Error::Unsupported(
                 "native internal OBJECT type layout".into(),
@@ -305,12 +301,21 @@ pub(super) fn write_info(output: &mut Encoder, metadata: &NestedType) -> Result<
                 write_field(output, name, ty)?;
             }
         }
-        NestedType::Tuple(_) => {
-            return Err(Error::Unsupported(
-                "TUPLE publication requires development v2 storage".into(),
-            ));
+        NestedType::Tuple(fields) => {
+            output.property(100, 5);
+            output.property(200, fields.len() as u64);
+            for ty in fields {
+                write_field(output, "", ty)?;
+            }
         }
-        NestedType::Variant => return Err(Error::Unsupported("native VARIANT type layout".into())),
+        NestedType::Variant => {
+            output.property(100, 5);
+            let fields = variant::fields();
+            output.property(200, fields.len() as u64);
+            for (name, ty) in fields {
+                write_field(output, &name, &ty)?;
+            }
+        }
         NestedType::Object(_) => {
             return Err(Error::Unsupported(
                 "native internal OBJECT type layout".into(),
