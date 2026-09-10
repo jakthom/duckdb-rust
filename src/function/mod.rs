@@ -6,6 +6,7 @@ pub(crate) mod nested;
 pub mod operator;
 mod scalar;
 mod settings;
+mod temporal;
 pub mod window;
 
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
@@ -169,6 +170,7 @@ impl FunctionRegistry {
     pub fn builtins() -> Self {
         let mut registry = Self::default();
         scalar::register(&mut registry);
+        temporal::register(&mut registry);
         binary_scalar::register(&mut registry);
         enumeration::register(&mut registry);
         nested::register(&mut registry);

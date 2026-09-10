@@ -368,3 +368,72 @@ fn temporal_wal_replay_preserves_commits_and_discards_rolled_back_mutations() ->
     );
     Ok(())
 }
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn temporal_functions_extract_epoch_constructors_and_infinity_are_typed() -> Result<()> {
+    let mut c = Database::memory()?.connect();
+    for (sql, expected) in [
+        ("make_date(2024,2,29)", "2024-02-29"),
+        ("make_time(12,34,56.1234565)", "12:34:56.123457"),
+        (
+            "make_timestamp(2000,1,2,3,4,5.123456)",
+            "2000-01-02 03:04:05.123456",
+        ),
+        ("make_timestamp(-1)", "1969-12-31 23:59:59.999999"),
+        ("make_timestamp_ns(-1)", "1969-12-31 23:59:59.999999999"),
+        ("make_timestamp_ms(-1)", "1969-12-31 23:59:59.999"),
+        ("to_seconds(0.0000009)", "00:00:00.000001"),
+        ("to_milliseconds(0.0009)", "00:00:00.000001"),
+        (
+            "to_years(2)+to_days(3)+to_hours(4)+to_minutes(5)+to_microseconds(6)",
+            "2 years 3 days 04:05:00.000006",
+        ),
+        ("last_day(DATE '2024-02-01')", "2024-02-29"),
+        ("dayname(DATE 'epoch')", "Thursday"),
+        ("monthname(DATE 'epoch')", "January"),
+        ("extract(year FROM DATE '0001-01-01 (BC)')", "0"),
+        (
+            "extract(microseconds FROM TIME '12:34:56.123456')",
+            "56123456",
+        ),
+        ("year(INTERVAL '-13 months')", "-1"),
+        ("month(INTERVAL '-13 months')", "-1"),
+        ("hour(INTERVAL '35 hours')", "35"),
+        ("epoch(INTERVAL '1 year')", "31557600"),
+        ("epoch(TIMETZ '13:00:00+01')", "46800"),
+        ("epoch_us(TIME_NS '00:00:00.000000001')", "0"),
+        ("epoch_ms(-1)", "1969-12-31 23:59:59.999"),
+        ("isinf(TIMESTAMP 'infinity')", "true"),
+        ("isfinite(INTERVAL '1 year')", "true"),
+        ("epoch(TIMESTAMP 'infinity')", "NULL"),
+        ("year(DATE '-infinity')", "NULL"),
+        ("date_part('epoch',TIMESTAMP 'epoch')", "0"),
+    ] {
+        assert_eq!(
+            c.query(&format!("SELECT {sql}"))?.rows[0][0].to_string(),
+            expected,
+            "{sql}"
+        );
+    }
+    let result=c.query("SELECT typeof(date_part(p,t)), date_part(p,t) FROM (VALUES ('epoch',TIMESTAMP 'epoch'),('year',TIMESTAMP '2000-01-01')) v(p,t)")?;
+    assert_eq!(
+        result.rows[0],
+        vec![Value::Varchar("DOUBLE".into()), Value::Double(0.0)]
+    );
+    assert_eq!(result.rows[1][1], Value::Double(2000.0));
+    assert_eq!(
+        c.query("SELECT typeof(date_part('year',DATE 'epoch'))")?
+            .rows[0][0],
+        Value::Varchar("BIGINT".into())
+    );
+    for sql in [
+        "SELECT make_date(2023,2,29)",
+        "SELECT make_time(25,0,0)",
+        "SELECT to_years(2147483647)",
+        "SELECT make_timestamp_ns('-9223372036854775808'::BIGINT)",
+    ] {
+        assert!(c.query(sql).is_err(), "{sql}");
+    }
+    Ok(())
+}

@@ -147,6 +147,15 @@ impl State<'_, '_> {
                     .ok_or_else(|| Error::Bind(format!("missing parameter {name}")))
             }
             ast::Expr::Value(_) => self.sql_literal(expr),
+            ast::Expr::Extract { field, expr, .. } => self.scalar_call(
+                "date_part",
+                vec![
+                    BoundExpr::literal(Value::Varchar(
+                        field.to_string().trim_matches('\'').to_ascii_lowercase(),
+                    )),
+                    recurse(expr)?,
+                ],
+            ),
             ast::Expr::Interval(interval)
                 if interval.leading_field.is_none() && interval.last_field.is_none() =>
             {
