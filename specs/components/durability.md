@@ -89,6 +89,15 @@ is not sufficient: equal numeric values with different tags, widths or floating
 bits are not interchangeable durable payloads. These are current implementation
 limits, not a reduced target for the value-and-expression milestone.
 
+Strict physical layout validation must compare floating-point bits recursively,
+not just in top-level columns. It must accept identical nested NaN payloads and
+reject changed payload bits or zero signs. Container metadata, ordering, union
+tags and child NULLs remain exact. The current bounded comparison uses borrowed
+row views, checks cancellation, and limits each row to 16 million logical values
+and depth 64; shared allocations do not waive the logical visit count. This
+physical check does not authorize native VARIANT canonicalization or SQL equality
+as a substitute for format-owned content validation.
+
 Three complementary test classes are required: ordinary close/reopen and checkpoint tests; process-interruption/WAL replay tests; and injected file-write or synchronization failures. The native storage fuzzer performs operation sequences with one-shot filesystem faults and verifies the next reopen against the last expected state. It is not a general malformed-database-byte generator.
 
 Assertions should separate acknowledged commits, rejected commits, and indeterminate external failures. Check table contents, catalog objects, indexes, and future database usability, not just whether opening succeeds. Historical storage files and cross-version readers add a separate format-compatibility obligation described in [compatibility testing](../testing/compatibility.md). Relevant code and execution limitations for fault campaigns are in [fuzzing](../testing/fuzzer.md) and [stress](../testing/stress.md).

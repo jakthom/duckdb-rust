@@ -1,5 +1,6 @@
 use super::*;
-use crate::{common::Value, storage::layout::CheckpointLayout};
+use crate::storage::layout::CheckpointLayout;
+mod values;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
@@ -43,11 +44,7 @@ impl Snapshot {
                 let source = source.rows.get(&old).ok_or_else(invalid)?;
                 if !seen.insert(new)
                     || source.len() != row.len()
-                    || !source.iter().zip(row.iter()).all(|(a, b)| match (a, b) {
-                        (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
-                        (Value::Double(a), Value::Double(b)) => a.to_bits() == b.to_bits(),
-                        _ => a == b,
-                    })
+                    || !values::equal(source.iter(), row.iter(), context)?
                 {
                     return Err(invalid());
                 }

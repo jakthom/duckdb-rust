@@ -28,6 +28,8 @@ use std::{
     },
 };
 
+#[path = "checkpoint_exact.rs"]
+mod exact;
 #[path = "checkpoint_publication.rs"]
 mod publication;
 
