@@ -298,5 +298,65 @@
     ],
     "observed_table": "t",
     "sql": "SET force_compression='bitpacking';\n        CREATE TABLE t AS SELECT i::INTEGER id,\n          CASE WHEN i%17=0 THEN NULL WHEN i%13=0 THEN [] ELSE [i,NULL,i+1] END xs,\n          {'x':i::BIGINT,'y':CASE WHEN i%19=0 THEN NULL ELSE i::INTEGER END} s\n        FROM range(125013) r(i);\n        CHECKPOINT;"
+  },
+  "nested_roaring": {
+    "writer": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "reference_identity": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "size": 1323008,
+    "sha256": "642abd2d8cc8bc84ca12c3abdc74f1559662a8abcea720f3675c6e15fa0db643",
+    "observed_compression": [
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "BitPacking",
+        "n": "125013"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "125013"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "BIGINT",
+        "compression": "BitPacking",
+        "n": "500052"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "BIGINT",
+        "compression": "RLE",
+        "n": "125013"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "BOOLEAN",
+        "compression": "Roaring",
+        "n": "500052"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "625065"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "VALIDITY",
+        "compression": "Roaring",
+        "n": "625065"
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='roaring';\n        CREATE TABLE t AS SELECT i::INTEGER id,\n          {'sparse_null':CASE WHEN i%2048 IN (2,8,2047) THEN NULL ELSE i END,\n           'sparse_valid':CASE WHEN i%2048 IN (2,8,2047) THEN i ELSE NULL END,\n           'single_run':CASE WHEN i%2048 BETWEEN 300 AND 1100 THEN NULL ELSE i END,\n           'many_runs':CASE WHEN i%256 BETWEEN 30 AND 90 THEN NULL ELSE i END,\n           'alternating':CASE WHEN i%2=0 THEN NULL ELSE i END,\n           'sparse_bit':i%2048 IN (2,8,2047),\n           'run_bit':i%2048 BETWEEN 300 AND 1100,\n           'many_runs_bit':i%256 BETWEEN 30 AND 90,\n           'alternating_bit':i%2=0} s\n        FROM range(125013) r(i);\n        CHECKPOINT;"
   }
 }

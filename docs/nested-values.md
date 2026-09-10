@@ -79,6 +79,36 @@ the stable retry is the executed passing instrumentation result.
 
 ## Remaining work (continuing assignment)
 
+### ROARING child-validity follow-up
+
+The selected ROARING decoder now supports native codec 13 for validity and
+BOOLEAN values. It validates aligned data/metadata boundaries, packed container
+metadata, sparse and inverted arrays, short/compressed NULL runs, bitsets,
+ordered indices and bounded partial tails. Development may allocate a full
+2,048-bit final bitset despite a smaller logical cardinality; that unused tail is
+accepted without producing extra rows. C++ short terminal runs can similarly
+contain one unobserved invalid bit. Those reference layouts are exercised rather
+than rejected as malformed.
+
+The previously failing development 125,013-row fixture now passes every selected
+value, Rust publication and exact reopen. Two additional independent 125,013-row
+release/development fixtures contain a STRUCT with sparse/dense validity, single
+and multiple runs, alternating bitsets and BOOLEAN children. All values pass.
+The retained DICT_FSST-15 file remains an explicit unsupported case pending the
+scalar worker's decoder, not a native compatibility pass.
+
+Ordinary check, three focused decoder unit tests (including malformed bounds,
+truncation, cancellation and row limits), nested tests (9), compression tests
+(11), and enumeration tests (3) passed. Final clippy passed after its initial
+single-element negative-test loop warning was corrected. Coverage reports 245
+files, 2,119 functions, 201 interface methods, no missing attributes; trace check
+completed successfully in 64.09 seconds with no reported errors/panics/open spans
+and temporary telemetry deleted. No performance acceptance or independent Kani
+claim is attached to this internal follow-up; integrated proofs remain the lead's
+substantial-checkpoint responsibility.
+
+### Continuing type/expression work
+
 All six requested families remain in scope. UNION enum tags and broader member-coercion coverage; VARIANT dynamic semantics; TUPLE/unnamed rows; ordered list aggregation and remaining nested functions; slicing, lambdas and shape/coercion edge cases; formatting and mixed-family semantics need expansion. ARRAY/common-type, STRUCT field-union and composite overload ranking rules need broader reference coverage.
 
 Native DuckDB nested WAL and non-NULL default codecs are not implemented yet. The private JSON round trip is not native compatibility evidence. Native default and ART encoding reject nested values explicitly, and native nested indexes must follow reference-supported behavior rather than a blanket assumption that every type is indexable. Further tests must include nested registry replacement, adversarial payload/resource cases, alternate execution/index compositions, mixed temporal/scalar families, independent C++ files, native rollback/recovery/reopen, upstream regressions and isolated faster-reference performance campaigns.

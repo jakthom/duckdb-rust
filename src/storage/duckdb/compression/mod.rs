@@ -9,6 +9,7 @@ mod packed;
 mod patas;
 use super::primitive;
 mod rle;
+mod roaring;
 mod strings;
 mod uncompressed;
 
@@ -19,6 +20,7 @@ pub use chimp::ChimpDecoder;
 pub use constant::ConstantDecoder;
 pub use patas::PatasDecoder;
 pub use rle::RleDecoder;
+pub use roaring::RoaringDecoder;
 pub use strings::{DictionaryDecoder, FsstDecoder};
 pub use uncompressed::UncompressedDecoder;
 
@@ -35,6 +37,7 @@ pub fn decoders() -> DecoderRegistry {
         Arc::new(UncompressedDecoder) as Arc<dyn SegmentDecoder>,
         Arc::new(ConstantDecoder),
         Arc::new(RleDecoder),
+        Arc::new(RoaringDecoder),
         Arc::new(DictionaryDecoder),
         Arc::new(BitPackingDecoder),
         Arc::new(FsstDecoder),

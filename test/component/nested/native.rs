@@ -87,9 +87,9 @@ fn independent_nested_bitpacking_and_row_group_boundaries() -> Result<()> {
     let directory = tempfile::tempdir()?;
     for target in ["release", "development"] {
         for (name, count) in [("nested_bitpacking", 10013), ("nested_rowgroups", 125013)] {
-            // Independently generated development children selected DICT_FSST
-            // and ROARING, tracked separately until those decoders land.
-            if target == "development" {
+            // Independently generated development strings selected DICT_FSST,
+            // tracked separately until that decoder lands.
+            if target == "development" && name == "nested_bitpacking" {
                 continue;
             }
             let path = directory.path().join(format!("{target}-{name}.duckdb"));
@@ -180,14 +180,56 @@ fn independent_nested_bitpacking_and_row_group_boundaries() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
-fn development_nested_child_codecs_are_explicitly_unsupported() -> Result<()> {
+fn development_dict_fsst_child_remains_explicitly_unsupported() -> Result<()> {
     let directory = tempfile::tempdir()?;
-    for (name, codec) in [("nested_bitpacking", 15), ("nested_rowgroups", 13)] {
-        let path = directory.path().join(format!("{name}.duckdb"));
-        fixture("development", name, &path)?;
-        assert!(
-            matches!(Database::open_read_only(&path),Err(duckdb_rust::Error::Unsupported(message)) if message.contains(&format!("compression codec {codec}")))
-        );
+    let path = directory.path().join("nested_bitpacking.duckdb");
+    fixture("development", "nested_bitpacking", &path)?;
+    assert!(
+        matches!(Database::open_read_only(&path),Err(duckdb_rust::Error::Unsupported(message)) if message.contains("compression codec 15"))
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn independent_roaring_container_families_preserve_child_validity_and_boolean_values() -> Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    for target in ["release", "development"] {
+        let path = directory.path().join(format!("{target}-roaring.duckdb"));
+        fixture(target, "nested_roaring", &path)?;
+        let mut connection = Database::open_read_only(&path)?.connect();
+        let rows = connection.query("SELECT * FROM t")?.rows;
+        assert_eq!(rows.len(), 125013);
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(row[0], Value::Integer(i as i128));
+            let Value::Nested(record) = &row[1] else {
+                panic!("STRUCT row {i}")
+            };
+            let NestedPayload::Struct(fields) = &record.payload else {
+                panic!("STRUCT payload")
+            };
+            let sparse = [2, 8, 2047].contains(&(i % 2048));
+            let run = (300..=1100).contains(&(i % 2048));
+            let many_runs = (30..=90).contains(&(i % 256));
+            let alternating = i % 2 == 0;
+            let mut expected = [sparse, !sparse, run, many_runs, alternating]
+                .into_iter()
+                .map(|null| {
+                    if null {
+                        Value::Null
+                    } else {
+                        Value::Integer(i as i128)
+                    }
+                })
+                .collect::<Vec<_>>();
+            expected.extend(
+                [sparse, run, many_runs, alternating]
+                    .into_iter()
+                    .map(Value::Boolean),
+            );
+            assert_eq!(fields, &expected, "{target} roaring row {i}");
+        }
     }
     Ok(())
 }

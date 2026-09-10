@@ -11,6 +11,21 @@ from reference_version import TARGETS, require_reference
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = {
+    "nested_roaring": """
+        SET force_compression='roaring';
+        CREATE TABLE t AS SELECT i::INTEGER id,
+          {'sparse_null':CASE WHEN i%2048 IN (2,8,2047) THEN NULL ELSE i END,
+           'sparse_valid':CASE WHEN i%2048 IN (2,8,2047) THEN i ELSE NULL END,
+           'single_run':CASE WHEN i%2048 BETWEEN 300 AND 1100 THEN NULL ELSE i END,
+           'many_runs':CASE WHEN i%256 BETWEEN 30 AND 90 THEN NULL ELSE i END,
+           'alternating':CASE WHEN i%2=0 THEN NULL ELSE i END,
+           'sparse_bit':i%2048 IN (2,8,2047),
+           'run_bit':i%2048 BETWEEN 300 AND 1100,
+           'many_runs_bit':i%256 BETWEEN 30 AND 90,
+           'alternating_bit':i%2=0} s
+        FROM range(125013) r(i);
+        CHECKPOINT;
+    """,
     "nested_scalar": """
         SET force_compression='uncompressed';
         CREATE TABLE t(id INTEGER, xs INTEGER[], a INTEGER[2],
