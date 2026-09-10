@@ -21,6 +21,9 @@ pub(super) fn read(reader: &mut Reader, depth: usize) -> Result<Value> {
     if reader.optional(103)? {
         reader.unsigned()?; // Source query location, not an evaluation input.
     }
+    if reader.optional(104)? {
+        u32::try_from(reader.unsigned()?).map_err(|_| corrupt("query location length overflow"))?;
+    }
     let value = match (class, kind) {
         (7, 75) => {
             reader.field(200)?;

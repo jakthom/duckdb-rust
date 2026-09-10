@@ -6,6 +6,12 @@ pub(in crate::storage::duckdb) fn table_definition(
     table: &TableDefinition,
 ) -> Result<()> {
     output.property(100, 1);
+    // Development replay/checkpoint binding navigates the schema components
+    // between catalog and table. The catalog is descriptive, not an attachment
+    // target; readers rebind the table in the opened database. Retain a complete
+    // three-part name even though Snapshot does not own a filesystem basename.
+    output.field(101);
+    output.string("duckdb_rust")?;
     output.field(102);
     output.string(&table.name.schema)?;
     output.property(105, 0);

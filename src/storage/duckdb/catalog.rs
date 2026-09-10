@@ -37,15 +37,15 @@ pub(super) fn load(
         if !reader.boolean()? {
             return Err(corrupt("null catalog entry"));
         }
-        let schema = create_base(&mut reader, kind)?;
+        let name = create_base(&mut reader, kind)?;
         match kind {
             2 => {
-                snapshot.create_schema(&schema, schema.eq_ignore_ascii_case("main"))?;
+                snapshot.create_schema(&name.schema, name.schema.eq_ignore_ascii_case("main"))?;
                 reader.end()?;
                 reader.end()?;
             }
             1 => {
-                let definition = table_definition(&mut reader, schema)?;
+                let definition = table_definition(&mut reader, name)?;
                 reader.field(101)?;
                 let pointer = reader.pointer()?;
                 reader.field(102)?;
@@ -277,7 +277,7 @@ fn indexes(reader: &mut Reader) -> Result<()> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<String> {
+pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<CreateName> {
     reader.field(100)?;
     if reader.unsigned()? != kind {
         return Err(corrupt("catalog type mismatch"));
@@ -285,7 +285,7 @@ pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<String> {
     if reader.optional(101)? {
         reader.string()?;
     }
-    let schema = if reader.optional(102)? {
+    let mut schema = if reader.optional(102)? {
         reader.string()?
     } else {
         "main".into()
@@ -304,16 +304,57 @@ pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<String> {
             "persisted DuckDB catalog SQL text".into(),
         ));
     }
-    Ok(schema)
+    let mut name = None;
+    if reader.optional(111)? {
+        reader.field(100)?;
+        let count = reader.length()?;
+        if !(2..=3).contains(&count) {
+            return Err(Error::Unsupported(
+                "DuckDB nested or incomplete catalog qualification".into(),
+            ));
+        }
+        let mut path = (0..count)
+            .map(|_| reader.string())
+            .collect::<Result<Vec<_>>>()?;
+        reader.end()?;
+        let last = path
+            .pop()
+            .ok_or_else(|| corrupt("missing qualified name"))?;
+        schema = path
+            .pop()
+            .ok_or_else(|| corrupt("missing qualified schema"))?;
+        if schema.is_empty() || (kind == 2 && !last.is_empty()) || (kind == 1 && last.is_empty()) {
+            return Err(corrupt("invalid qualified catalog name"));
+        }
+        if kind == 1 {
+            name = Some(last);
+        }
+    }
+    Ok(CreateName { schema, name })
+}
+
+pub(super) struct CreateName {
+    schema: String,
+    name: Option<String>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn table_definition(reader: &mut Reader, schema: String) -> Result<TableDefinition> {
+pub(super) fn table_definition(
+    reader: &mut Reader,
+    qualified: CreateName,
+) -> Result<TableDefinition> {
     let name = if reader.optional(200)? {
         reader.string()?
     } else {
         return Err(corrupt("table without a name"));
     };
+    if qualified
+        .name
+        .as_ref()
+        .is_some_and(|qualified| qualified != &name)
+    {
+        return Err(corrupt("qualified and legacy table names disagree"));
+    }
     reader.field(201)?;
     reader.field(100)?;
     let mut definitions = Vec::new();
@@ -322,7 +363,7 @@ pub(super) fn table_definition(reader: &mut Reader, schema: String) -> Result<Ta
     }
     reader.end()?;
     let mut definition = TableDefinition {
-        name: TableName::new(schema, name),
+        name: TableName::new(qualified.schema, name),
         columns: definitions,
         unique_keys: Vec::new(),
     };

@@ -3,6 +3,8 @@ mod catalog;
 mod columns;
 pub mod compression;
 mod primitive;
+#[cfg(test)]
+mod version_tests;
 mod visibility;
 pub mod wal;
 mod writer;
@@ -124,7 +126,7 @@ impl Blocks {
                 .ok_or_else(|| corrupt("truncated main header"))?,
         )?;
         let version = u64_at(&bytes, 12)?;
-        if !(64..=67).contains(&version) {
+        if !(64..=69).contains(&version) && version != 999 {
             return Err(Error::Unsupported(format!(
                 "DuckDB storage version {version}"
             )));
@@ -137,6 +139,7 @@ impl Blocks {
             }
         }
         let header = database_header(&bytes)?;
+        validate_storage_version(version, u64_at(header, 56)?)?;
         let block_size = match u64_at(header, 40)? {
             0 => 262144,
             n => usize::try_from(n).map_err(|_| corrupt("block size overflow"))?,
@@ -213,6 +216,25 @@ impl Blocks {
         }
         Ok(Reader::new(output))
     }
+}
+
+/// Development v2 uses 999 in the main header and stores storage version 69
+/// in the selected database header. Older files store serialization versions
+/// there instead (including a historical mistaken storage-version value 64).
+/// Keep the two namespaces separate and reject unknown future layouts.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn validate_storage_version(main: u64, database: u64) -> Result<()> {
+    let supported = if main == 999 || database >= 69 {
+        database == 69
+    } else {
+        matches!(database, 0..=7 | 64)
+    };
+    if !supported {
+        return Err(Error::Unsupported(format!(
+            "DuckDB database storage/serialization version {database} (main {main})"
+        )));
+    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
