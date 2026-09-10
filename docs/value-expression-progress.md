@@ -484,3 +484,25 @@ passes all 30 prior assertions in 3.040 s, then reaches the same unsupported
 three-second outcome; source-paired timing investigation remains open. The
 other changed outcome is the already-failing large grouping-set insert reaching
 its existing 512 MiB writer limit before the deadline instead of timing out.
+
+The [source-paired join diagnosis](value-expression-join-deadline-paired.json)
+now compares a clean production rebuild of last-pushed `ae0cd51` with `7812862`:
+three alternating pairs reach 26/29, 30/30 and 30/30 previous/current records.
+Both final pairs reach the same unsupported expression; neither loses a prior
+assertion in the current engine. This does not reproduce a new deadline
+regression, and does not waive either file's timeout or unsupported join. Source
+and binary identities are unchanged throughout; this is not C++ performance
+acceptance. The clean temporary baseline worktree was removed afterward.
+
+Sampling `487d8f0`'s prepared decimal-total query placed 1,104 of 1,404 sampled
+executor stacks in the coefficient reduction. This was diagnostic sampling,
+not a timing acceptance result; temporary profiler files were deleted. The next
+candidate (`7812862`) moves loader/magnitude selection outside individual blocks
+and widens the final proven block rather than each arithmetic lane. Its new
+scalar-versus-column regression covers widths 12/15/16/18, signed tails, empty
+input, block boundaries and totals beyond i64. Focused checks/tests/clippy pass.
+The fourth [numeric trial](value-expression-performance-checkpoint5-d-numeric-fastest.json)
+still fails decimal total: 49,083/51,291 ns against release 50,750 ns, maximum
+ratio 1.010660. Only the eight numeric cases were rerun in this trial (seven
+pass); the remaining 26 were not repeated for this failed candidate. No new
+full-suite/Kani completion is claimed for this ongoing reduction experiment.

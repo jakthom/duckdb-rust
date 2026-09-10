@@ -1,0 +1,124 @@
+{
+  "recorded_at": "2026-09-10T21:21:41.729780+00:00",
+  "scope": "Paired Rust deadline diagnosis using unchanged upstream assertions. Neither a C++ performance comparison nor a full test-parity gate. Every outcome and prefix is retained; no best-run selection.",
+  "identities": {
+    "previous": {
+      "commit": "ae0cd51c795c19ed58bfd0c007bb9394084f5e87",
+      "source_sha256": "e597b1b173655d80d0c86113c9ce4bc6e14662e1cb99af423ec03b4fc8868b5a",
+      "binary_sha256": "9da573564539d616a1c54af3eeb597035890f1ca7ed4bf3f778eaade4d0e414b",
+      "build": [
+        "cargo",
+        "build",
+        "--offline",
+        "--release",
+        "--no-default-features",
+        "--bin",
+        "duckdb-rust-test-worker"
+      ]
+    },
+    "current": {
+      "commit": "781286298f719000b948947b91dd340f912c8adf",
+      "source_sha256": "8cd541fefc296899654fb2a8dc489cc50eaf27acd4dcf92917dd3fe0e47ec002",
+      "binary_sha256": "b78eb18ba40d8d65d900415c6f3254f3c4c069212eee8a1c56a8b76dca9daa77",
+      "build": [
+        "cargo",
+        "build",
+        "--offline",
+        "--release",
+        "--no-default-features",
+        "--bin",
+        "duckdb-rust-test-worker"
+      ]
+    }
+  },
+  "path": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+  "sql_sha256": "24c47bff19ff1f00e05ddd0ac1ca66746b261d23b3c2e2cf2fce3a0581709439",
+  "timeout_seconds": 3.0,
+  "pairs": 3,
+  "harness_sha256": {
+    "upstream_regression.py": "3f2417ebde479afed53801c604ce3844a7c07c70fe55ff01b344d8236fa9cf15",
+    "run_upstream.py": "08a33e7e6430f2a828e8131575c5e444a62fccc17eb9f18e19cd03bc0f78496e",
+    "sqllogic.py": "b957b7a1657b4c6e2bdcc7d9acd84398f3fde029fec11b9c14cd13fc56f04efb"
+  },
+  "runs": [
+    {
+      "pair": 1,
+      "engine": "previous",
+      "id": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "path": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "passed_records": 26,
+      "skipped_records": 0,
+      "source_sql_records": 70,
+      "status": "timeout",
+      "reason": "file deadline exceeded",
+      "line": 309,
+      "elapsed_seconds": 3.005583
+    },
+    {
+      "pair": 1,
+      "engine": "current",
+      "id": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "path": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "passed_records": 29,
+      "skipped_records": 0,
+      "source_sql_records": 70,
+      "status": "timeout",
+      "reason": "file deadline exceeded",
+      "line": 346,
+      "elapsed_seconds": 3.005921
+    },
+    {
+      "pair": 2,
+      "engine": "current",
+      "id": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "path": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "passed_records": 30,
+      "skipped_records": 0,
+      "source_sql_records": 70,
+      "status": "unsupported",
+      "reason": "Not implemented: p.k IS NOT DISTINCT FROM b.k",
+      "line": 365,
+      "elapsed_seconds": 2.784505
+    },
+    {
+      "pair": 2,
+      "engine": "previous",
+      "id": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "path": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "passed_records": 30,
+      "skipped_records": 0,
+      "source_sql_records": 70,
+      "status": "unsupported",
+      "reason": "Not implemented: p.k IS NOT DISTINCT FROM b.k",
+      "line": 365,
+      "elapsed_seconds": 2.80918
+    },
+    {
+      "pair": 3,
+      "engine": "previous",
+      "id": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "path": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "passed_records": 30,
+      "skipped_records": 0,
+      "source_sql_records": 70,
+      "status": "unsupported",
+      "reason": "Not implemented: p.k IS NOT DISTINCT FROM b.k",
+      "line": 365,
+      "elapsed_seconds": 2.831683
+    },
+    {
+      "pair": 3,
+      "engine": "current",
+      "id": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "path": "test/sql/join/hash_join/hash_join_dictionary_emission.test_slow",
+      "passed_records": 30,
+      "skipped_records": 0,
+      "source_sql_records": 70,
+      "status": "unsupported",
+      "reason": "Not implemented: p.k IS NOT DISTINCT FROM b.k",
+      "line": 365,
+      "elapsed_seconds": 2.772854
+    }
+  ],
+  "source_unchanged": true
+}

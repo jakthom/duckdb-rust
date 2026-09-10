@@ -20,10 +20,10 @@ typed concat/combination binding. Its latest fifth-checkpoint refresh executes
 all 5,638 files: 423 pass, with 19,240 successful records including failed-file
 prefixes. No checkpoint-three full-file pass is lost. The initial shorter
 constant-column timeout prefix does not reproduce against the last pushed source
-in paired diagnosis; a later join deadline reaches all previous assertions with
-an extended timeout, but its source-paired investigation remains open. Timeouts
-and the 512 MiB writer limit remain gaps. All three new timing trials pass
-33/34 faster-reference workloads: decimal total aggregation still fails and is
+in paired diagnosis; a later join deadline also loses no previous prefix in
+three alternating source pairs. Timeouts and the 512 MiB writer limit remain
+gaps. Three full timing trials pass 33/34 faster-reference workloads, and a
+fourth numeric-only trial still fails decimal total aggregation. That gap is
 being repaired before pushing. The preceding 34/34 checkpoint-three timing
 matrix is historical, not evidence that this later source passes. All failures
 remain retained; new-family workloads and the rest of the parity matrix remain
