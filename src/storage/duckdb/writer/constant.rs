@@ -16,7 +16,7 @@ pub(in crate::storage::duckdb) fn write(
     if !value.is_null() {
         output.field(102);
         match value.cast(data_type)? {
-            Value::Extension(_) => {
+            Value::Nested(_) | Value::Extension(_) => {
                 return Err(Error::Unsupported(
                     "native extension constant encoding".into(),
                 ));

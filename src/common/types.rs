@@ -35,6 +35,7 @@ pub enum DataType {
     TimestampTz,
     TimestampTzNs,
     Interval,
+    Nested(Arc<super::NestedType>),
     Extension(Arc<TypeIdentity>),
 }
 
@@ -90,6 +91,7 @@ impl DataType {
             Self::TimestampTz => "builtin.timestamp_tz",
             Self::TimestampTzNs => "builtin.timestamp_tz_ns",
             Self::Interval => "builtin.interval",
+            Self::Nested(metadata) => metadata.family(),
             Self::Extension(identity) => &identity.name,
         }
     }
@@ -147,6 +149,9 @@ impl DataType {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for DataType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Self::Nested(metadata) = self {
+            return write!(f, "{metadata}");
+        }
         if let Self::Decimal { width, scale } = self {
             return write!(f, "DECIMAL({width},{scale})");
         }
@@ -202,6 +207,7 @@ impl fmt::Display for DataType {
                 Self::TimestampTz => "TIMESTAMP WITH TIME ZONE",
                 Self::TimestampTzNs => "TIMESTAMP_NS WITH TIME ZONE",
                 Self::Interval => "INTERVAL",
+                Self::Nested(_) => unreachable!("handled nested type"),
                 Self::Extension(_) => unreachable!("handled extension type"),
             }
         )
@@ -229,6 +235,7 @@ pub enum Value {
     Uuid(u128),
     Date(Date),
     Temporal(super::TemporalValue),
+    Nested(Arc<super::NestedValue>),
     Extension(Arc<ExtensionValue>),
 }
 
@@ -266,6 +273,7 @@ impl Value {
             Self::Uuid(_) => DataType::Uuid,
             Self::Date(_) => DataType::Date,
             Self::Temporal(value) => value.data_type(),
+            Self::Nested(value) => value.data_type.clone(),
             Self::Extension(value) => value.data_type.clone(),
         }
     }
@@ -312,6 +320,11 @@ impl Value {
                     && value.bytes.len() <= 16 * 1024 * 1024
             }
             Self::Temporal(value) => value.data_type() == *data_type && value.validate().is_ok(),
+            Self::Nested(value) => {
+                super::type_registry::check_metadata(data_type).is_ok()
+                    && value.fits_type()
+                    && value.data_type == *data_type
+            }
             _ => self.data_type() == *data_type,
         }
     }
@@ -481,6 +494,7 @@ impl Value {
             | Self::Blob(_)
             | Self::Uuid(_)
             | Self::Temporal(_)
+            | Self::Nested(_)
             | Self::Extension(_) => {
                 return Err(Error::Unsupported(
                     "registered type requires its selected key adapter".into(),
@@ -522,6 +536,7 @@ impl fmt::Display for Value {
             Self::Uuid(v) => super::scalar::format_uuid(*v, f),
             Self::Date(v) => write!(f, "{v}"),
             Self::Temporal(v) => write!(f, "{v}"),
+            Self::Nested(value) => write!(f, "{value}"),
             Self::Extension(value) => write!(f, "{}({} bytes)", value.data_type, value.bytes.len()),
         }
     }

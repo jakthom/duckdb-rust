@@ -64,6 +64,7 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
             | Value::Blob(_)
             | Value::Uuid(_)
             | Value::Temporal(_)
+            | Value::Nested(_)
             | Value::Extension(_) => {
                 return Err(Error::Conversion(
                     "value requires a separate cast adapter".into(),

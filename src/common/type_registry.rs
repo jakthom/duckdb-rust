@@ -4,6 +4,7 @@ pub mod ascii;
 mod batch;
 pub mod date;
 mod key;
+pub mod nested;
 pub mod numeric;
 pub mod scalar;
 pub mod temporal;
@@ -348,6 +349,18 @@ impl TypeRegistry {
                 .register(data_type.family(), Arc::new(numeric::ExactNumericTypes))
                 .expect("unique numeric family");
         }
+        for family in [
+            "builtin.list",
+            "builtin.array",
+            "builtin.struct",
+            "builtin.map",
+            "builtin.union",
+            "builtin.variant",
+        ] {
+            registry
+                .register(family, Arc::new(nested::NestedTypes::default()))
+                .expect("unique nested family");
+        }
         registry
     }
     pub fn register(&mut self, family: &str, adapter: Arc<dyn TypeAdapter>) -> Result<()> {
@@ -460,9 +473,32 @@ impl TypeRegistry {
                 }
             }
         }
+        if let DataType::Nested(metadata) = data_type {
+            for child in metadata.children() {
+                Self::validate_metadata(child, depth + 1, nodes, bytes)?;
+            }
+            if let super::NestedType::Struct(fields) | super::NestedType::Union(fields) =
+                metadata.as_ref()
+            {
+                for (name, _) in fields {
+                    *bytes = bytes
+                        .checked_sub(name.len())
+                        .ok_or_else(|| Error::Resource("type metadata exceeds 16 MiB".into()))?;
+                }
+            }
+        }
         Ok(())
     }
     fn validate_children(&self, data_type: &DataType) -> Result<()> {
+        if let DataType::Nested(metadata) = data_type {
+            for child in metadata.children() {
+                self.adapters
+                    .get(child.family())
+                    .ok_or_else(|| Error::Unsupported("unregistered child type".into()))?
+                    .validate_type(child)?;
+                self.validate_children(child)?;
+            }
+        }
         if let DataType::Extension(identity) = data_type {
             for parameter in &identity.parameters {
                 if let TypeParameter::Type(child) = parameter {

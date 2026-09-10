@@ -377,6 +377,7 @@ fn encode_value(value: &Value, data_type: &DataType, output: &mut Vec<u8>) -> Re
             output.push(0);
         }
         Value::Null => return Err(Error::Internal("NULL ART key".into())),
+        Value::Nested(_) => return Err(Error::Unsupported("native nested ART keys".into())),
     }
     Ok(())
 }

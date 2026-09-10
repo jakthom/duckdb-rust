@@ -3,6 +3,7 @@
 mod builtin;
 mod date;
 mod integer;
+mod nested;
 pub mod numeric;
 pub mod scalar;
 pub mod temporal;
@@ -377,6 +378,7 @@ impl CastRegistry {
         numeric::register(&mut registry);
         temporal::register(&mut registry);
         scalar::register(&mut registry);
+        nested::register(&mut registry);
         registry
     }
     /// A selected family adapter resolves parameterized types without expanding

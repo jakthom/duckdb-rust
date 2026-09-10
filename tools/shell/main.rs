@@ -240,6 +240,7 @@ fn print_result(result: &QueryResult, json: bool) -> Result<()> {
                         duckdb_rust::Value::Double(v) => serde_json::Value::String(v.to_string()),
                         duckdb_rust::Value::Varchar(v) => serde_json::Value::String(v.clone()),
                         duckdb_rust::Value::Temporal(v) => serde_json::Value::String(v.to_string()),
+                        duckdb_rust::Value::Nested(v) => serde_json::Value::String(v.to_string()),
                     };
                     object.insert(field.name.clone(), value);
                 }
