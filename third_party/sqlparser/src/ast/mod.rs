@@ -2162,7 +2162,12 @@ impl fmt::Display for Expr {
                 write!(f, ")")
             }
             Expr::Tuple(exprs) => {
-                write!(f, "({})", display_comma_separated(exprs))
+                write!(
+                    f,
+                    "({}{})",
+                    display_comma_separated(exprs),
+                    if exprs.len() == 1 { "," } else { "" }
+                )
             }
             Expr::Struct { values, fields } => {
                 if !fields.is_empty() {

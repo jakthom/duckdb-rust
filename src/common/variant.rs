@@ -57,7 +57,10 @@ impl<'a> Node<'a> {
                 DataType::Interval => 11,
                 DataType::Bit => 13,
                 DataType::Nested(metadata) => match metadata.as_ref() {
-                    NestedType::List(_) | NestedType::Array { .. } | NestedType::Map { .. } => 14,
+                    NestedType::List(_)
+                    | NestedType::Array { .. }
+                    | NestedType::Map { .. }
+                    | NestedType::Tuple(_) => 14,
                     NestedType::Struct(_) => 15,
                     _ => return Err(invalid()),
                 },
@@ -71,6 +74,11 @@ impl<'a> Node<'a> {
             return Err(invalid());
         };
         Ok(match (metadata.as_ref(), &value.payload) {
+            (NestedType::Tuple(types), NestedPayload::Struct(values)) => types
+                .iter()
+                .zip(values)
+                .map(|(ty, value)| Self::Typed(ty, value))
+                .collect(),
             (
                 NestedType::List(child) | NestedType::Array { element: child, .. },
                 NestedPayload::Sequence(values),

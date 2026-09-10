@@ -14,10 +14,12 @@ fn child_values(metadata: &NestedType, values: &[Value]) -> Result<Vec<(DataType
         NestedType::List(_) | NestedType::Array { .. } | NestedType::Map { .. } => {
             vec![(list_child(metadata)?, Vec::new())]
         }
-        NestedType::Struct(_) | NestedType::Union(_) => physical_fields(metadata)?
-            .into_iter()
-            .map(|(_, ty)| (ty, Vec::with_capacity(values.len())))
-            .collect(),
+        NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_) => {
+            physical_fields(metadata)?
+                .into_iter()
+                .map(|(_, ty)| (ty, Vec::with_capacity(values.len())))
+                .collect()
+        }
         NestedType::Variant => {
             return Err(Error::Unsupported("native VARIANT child streams".into()));
         }
@@ -31,7 +33,7 @@ fn child_values(metadata: &NestedType, values: &[Value]) -> Result<Vec<(DataType
         }
         let additional = match (metadata, value) {
             (NestedType::Array { length, .. }, _) => *length,
-            (NestedType::Struct(_) | NestedType::Union(_), _) => 1,
+            (NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_), _) => 1,
             (_, Value::Nested(value)) => match &value.payload {
                 NestedPayload::Sequence(values) => values.len(),
                 NestedPayload::Map(values) => values.len(),
@@ -63,7 +65,7 @@ fn child_values(metadata: &NestedType, values: &[Value]) -> Result<Vec<(DataType
                         .ok_or_else(|| Error::Resource("ARRAY child count overflow".into()))?;
                     column.resize(count, Value::Null);
                 }
-                NestedType::Struct(_) | NestedType::Union(_) => {
+                NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_) => {
                     for (_, values) in &mut children {
                         values.push(Value::Null);
                     }
@@ -117,7 +119,10 @@ pub(in crate::storage::duckdb) fn write_statistics(
 ) -> Result<()> {
     let children = child_values(metadata, values)?;
     output.field(200);
-    if matches!(metadata, NestedType::Struct(_) | NestedType::Union(_)) {
+    if matches!(
+        metadata,
+        NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_)
+    ) {
         output.unsigned(children.len() as u64);
     }
     for (ty, values) in children {
@@ -182,7 +187,7 @@ pub(in crate::storage::duckdb) fn write_column(
     output.field(102);
     let structure = matches!(
         metadata.as_ref(),
-        NestedType::Struct(_) | NestedType::Union(_)
+        NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_)
     );
     if structure {
         output.unsigned(children.len() as u64);

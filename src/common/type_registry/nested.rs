@@ -85,8 +85,8 @@ impl TypeAdapter for NestedTypes {
                 ));
             }
             NestedType::Struct(fields) | NestedType::Union(fields) => {
-                if fields.is_empty()
-                    || matches!(metadata.as_ref(), NestedType::Union(_)) && fields.len() > 256
+                if matches!(metadata.as_ref(), NestedType::Union(_))
+                    && (fields.is_empty() || fields.len() > 256)
                 {
                     return Err(Error::Bind("invalid nested field count".into()));
                 }
@@ -189,6 +189,25 @@ impl TypeAdapter for NestedTypes {
                     key: types.common_type(a, b)?,
                     value: types.common_type(x, y)?,
                 }
+            }
+            (NestedType::Tuple(a), NestedType::Tuple(b)) if a.len() == b.len() => {
+                NestedType::Tuple(
+                    a.iter()
+                        .zip(b)
+                        .map(|(a, b)| types.common_type(a, b))
+                        .collect::<Result<_>>()?,
+                )
+            }
+            (NestedType::Tuple(a), NestedType::Struct(b))
+            | (NestedType::Struct(b), NestedType::Tuple(a))
+                if a.len() == b.len() =>
+            {
+                NestedType::Struct(
+                    a.iter()
+                        .zip(b)
+                        .map(|(a, (name, b))| Ok((name.clone(), types.common_type(a, b)?)))
+                        .collect::<Result<_>>()?,
+                )
             }
             _ => return Ok(None),
         };

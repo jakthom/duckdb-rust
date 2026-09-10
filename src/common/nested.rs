@@ -50,6 +50,12 @@ fn normalize_storage_type_inner(data_type: &DataType) -> Result<DataType> {
             length: *length,
         },
         NestedType::Struct(children) => NestedType::Struct(fields(children)?),
+        NestedType::Tuple(children) => NestedType::Tuple(
+            children
+                .iter()
+                .map(normalize_storage_type_inner)
+                .collect::<Result<_>>()?,
+        ),
         NestedType::Map { key, value } => NestedType::Map {
             key: normalize_storage_type_inner(key)?,
             value: normalize_storage_type_inner(value)?,
@@ -65,6 +71,7 @@ pub enum NestedType {
     List(DataType),
     Array { element: DataType, length: usize },
     Struct(Vec<(String, DataType)>),
+    Tuple(Vec<DataType>),
     Map { key: DataType, value: DataType },
     Union(Vec<(String, DataType)>),
     Variant,
@@ -95,6 +102,7 @@ impl NestedType {
         match self {
             Self::List(element) | Self::Array { element, .. } => vec![element],
             Self::Struct(fields) | Self::Union(fields) => fields.iter().map(|(_, ty)| ty).collect(),
+            Self::Tuple(fields) => fields.iter().collect(),
             Self::Map { key, value } => vec![key, value],
             Self::Variant => Vec::new(),
         }
@@ -105,6 +113,7 @@ impl NestedType {
             Self::List(_) => "builtin.list",
             Self::Array { .. } => "builtin.array",
             Self::Struct(_) => "builtin.struct",
+            Self::Tuple(_) => "builtin.tuple",
             Self::Map { .. } => "builtin.map",
             Self::Union(_) => "builtin.union",
             Self::Variant => "builtin.variant",
@@ -167,6 +176,10 @@ impl NestedValue {
                         .zip(values)
                         .all(|((_, ty), value)| fits(value, ty))
             }
+            (NestedType::Tuple(fields), NestedPayload::Struct(values)) => {
+                fields.len() == values.len()
+                    && fields.iter().zip(values).all(|(ty, value)| fits(value, ty))
+            }
             (NestedType::Map { key, value }, NestedPayload::Map(entries)) => entries
                 .iter()
                 .all(|(k, v)| !k.is_null() && fits(k, key) && fits(v, value)),
@@ -188,6 +201,18 @@ impl fmt::Display for NestedType {
             Self::List(element) => write!(f, "{}[]", ChildType(element)),
             Self::Array { element, length } => write!(f, "{}[{length}]", ChildType(element)),
             Self::Map { key, value } => write!(f, "MAP({}, {})", ChildType(key), ChildType(value)),
+            Self::Struct(fields) if fields.is_empty() => write!(f, "STRUCT"),
+            Self::Tuple(fields) if fields.is_empty() => write!(f, "TUPLE"),
+            Self::Tuple(fields) => {
+                write!(f, "TUPLE(")?;
+                for (index, ty) in fields.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", ChildType(ty))?;
+                }
+                write!(f, ")")
+            }
             Self::Struct(fields) | Self::Union(fields) => {
                 write!(
                     f,
@@ -241,6 +266,19 @@ impl fmt::Display for NestedValue {
                 let DataType::Nested(metadata) = &self.data_type else {
                     return Err(fmt::Error);
                 };
+                if let NestedType::Tuple(fields) = metadata.as_ref() {
+                    write!(f, "(")?;
+                    for (index, (ty, value)) in fields.iter().zip(values).enumerate() {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        display_child(f, ty, value)?;
+                    }
+                    if fields.len() == 1 {
+                        write!(f, ",")?;
+                    }
+                    return write!(f, ")");
+                }
                 let NestedType::Struct(fields) = metadata.as_ref() else {
                     return Err(fmt::Error);
                 };

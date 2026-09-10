@@ -17,6 +17,11 @@ pub(super) use writer::{write_column, write_statistics};
 pub(super) fn physical_fields(metadata: &NestedType) -> Result<Vec<(String, DataType)>> {
     Ok(match metadata {
         NestedType::Struct(fields) => fields.clone(),
+        NestedType::Tuple(fields) => fields
+            .iter()
+            .cloned()
+            .map(|ty| (String::new(), ty))
+            .collect(),
         NestedType::Union(fields) => std::iter::once((String::new(), DataType::UTinyInt))
             .chain(fields.iter().cloned())
             .collect(),
@@ -52,7 +57,7 @@ pub(super) fn read_statistics(reader: &mut Reader, metadata: &NestedType) -> Res
         NestedType::List(_) | NestedType::Map { .. } | NestedType::Array { .. } => {
             super::columns::statistics(reader, Some(&list_child(metadata)?))?;
         }
-        NestedType::Struct(_) | NestedType::Union(_) => {
+        NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_) => {
             let fields = physical_fields(metadata)?;
             if reader.length()? != fields.len() {
                 return Err(corrupt("nested statistics child count"));
@@ -171,7 +176,7 @@ pub(super) fn read_column(
                 output.push(NestedValue::value(data_type.clone(), payload)?);
             }
         }
-        NestedType::Struct(_) | NestedType::Union(_) => {
+        NestedType::Struct(_) | NestedType::Tuple(_) | NestedType::Union(_) => {
             let fields = physical_fields(metadata)?;
             if reader.length()? != fields.len() {
                 return Err(corrupt("STRUCT column child count"));
@@ -231,6 +236,11 @@ pub(super) fn type_id(metadata: &NestedType) -> Result<u64> {
         NestedType::Map { .. } => 102,
         NestedType::Union(_) => 107,
         NestedType::Array { .. } => 108,
+        NestedType::Tuple(_) => {
+            return Err(Error::Unsupported(
+                "TUPLE publication requires development v2 storage".into(),
+            ));
+        }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT type layout".into())),
     })
 }
@@ -274,6 +284,11 @@ pub(super) fn write_info(output: &mut Encoder, metadata: &NestedType) -> Result<
                 write_field(output, name, ty)?;
             }
         }
+        NestedType::Tuple(_) => {
+            return Err(Error::Unsupported(
+                "TUPLE publication requires development v2 storage".into(),
+            ));
+        }
         NestedType::Variant => return Err(Error::Unsupported("native VARIANT type layout".into())),
     }
     output.end();
@@ -299,7 +314,7 @@ pub(super) fn read_type(reader: &mut Reader, id: u64, depth: usize) -> Result<Da
     reader.field(100)?;
     let kind = reader.unsigned()?;
     let expected = match id {
-        100 | 107 => 5,
+        100 | 107 | 110 => 5,
         101 | 102 => 4,
         108 => 9,
         _ => return Err(corrupt("unknown nested type")),
@@ -338,9 +353,12 @@ pub(super) fn read_type(reader: &mut Reader, id: u64, depth: usize) -> Result<Da
                 }
             }
         }
-        100 | 107 => {
-            reader.field(200)?;
-            let count = reader.length()?;
+        100 | 107 | 110 => {
+            let count = if reader.optional(200)? {
+                reader.length()?
+            } else {
+                0
+            };
             if count > 4096 {
                 return Err(Error::Resource("nested type exceeds 4096 fields".into()));
             }
@@ -359,6 +377,13 @@ pub(super) fn read_type(reader: &mut Reader, id: u64, depth: usize) -> Result<Da
                 }
                 fields.remove(0);
                 NestedType::Union(fields)
+            } else if id == 110
+                || !fields.is_empty() && fields.iter().all(|(name, _)| name.is_empty())
+            {
+                if fields.iter().any(|(name, _)| !name.is_empty()) {
+                    return Err(corrupt("TUPLE fields must be unnamed"));
+                }
+                NestedType::Tuple(fields.into_iter().map(|(_, ty)| ty).collect())
             } else {
                 NestedType::Struct(fields)
             }

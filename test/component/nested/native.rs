@@ -14,6 +14,84 @@ fn fixture(target: &str, name: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
+struct MissingDecimalValue;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl duckdb_rust::storage::compression::SegmentDecoder for MissingDecimalValue {
+    fn id(&self) -> duckdb_rust::storage::compression::CodecId {
+        duckdb_rust::storage::compression::CodecId(1)
+    }
+    fn name(&self) -> &'static str {
+        "missing-decimal-test"
+    }
+    fn supports(&self, kind: duckdb_rust::storage::compression::SegmentType<'_>) -> bool {
+        duckdb_rust::storage::duckdb::compression::UncompressedDecoder.supports(kind)
+    }
+    fn decode(
+        &self,
+        input: duckdb_rust::storage::compression::DecodeInput<'_>,
+        context: &duckdb_rust::storage::compression::DecodeContext<'_>,
+    ) -> Result<Vec<Value>> {
+        let mut values = duckdb_rust::storage::duckdb::compression::UncompressedDecoder
+            .decode(input, context)?;
+        if matches!(
+            input.kind,
+            duckdb_rust::storage::compression::SegmentType::Values(DataType::Decimal { .. })
+        ) {
+            values.fill(Value::Null);
+        }
+        Ok(values)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn independent_development_tuple_streams_preserve_empty_and_positional_children() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("development-tuple.duckdb");
+    fixture("development", "nested_tuple", &path)?;
+    let mut c = Database::open_read_only(&path)?.connect();
+    assert_eq!(c.query("SELECT id,v[1],v[4][1],v[4][2],v[5]::VARCHAR,e::VARCHAR,s::VARCHAR,one::VARCHAR,typeof(e),typeof(s),typeof(one) FROM t ORDER BY id")?.rows,
+        (0..3).map(|i|vec![Value::Integer(i),if i==2 {Value::Null}else{Value::Integer(i)},if i==2 {Value::Null}else{Value::Integer(i)},Value::Null,if i==2 {Value::Null}else{Value::Varchar("101".into())},Value::Varchar("()".into()),Value::Varchar("{}".into()),Value::Varchar(format!("({i},)")),Value::Varchar("TUPLE".into()),Value::Varchar("STRUCT".into()),Value::Varchar("TUPLE(INTEGER)".into())]).collect::<Vec<_>>());
+    assert_eq!(
+        c.query("SELECT v[2],v[3] FROM t WHERE id=0")?.rows,
+        vec![vec![
+            Value::Decimal {
+                value: 12500,
+                width: 12,
+                scale: 2
+            },
+            Value::Temporal(duckdb_rust::common::TemporalValue::parse(
+                "2000-01-01 00:00:00.123456789",
+                &DataType::TimestampNs
+            )?)
+        ]]
+    );
+    drop(c);
+    // A NULL placeholder is legal only while waiting for validity. The same
+    // selected decoder output under a valid child mask remains corruption.
+    let mut decoders = duckdb_rust::storage::duckdb::compression::decoders();
+    decoders.replace(Arc::new(MissingDecimalValue))?;
+    let malformed = DatabaseBuilder::new()
+        .durability(Arc::new(FileCheckpoint::open(
+            &path,
+            OpenMode::ReadOnly,
+            Arc::new(duckdb_rust::storage::duckdb::DuckDbFormat::new(decoders)),
+        )?))
+        .build();
+    assert!(
+        matches!(malformed, Err(duckdb_rust::Error::Corrupt(message)) if message.contains("valid row has no decoded value"))
+    );
+    // Publication is deliberately unavailable until a development-v2 writer
+    // is selected. Reading an ID110 file is not bidirectional compatibility.
+    let mut c = Database::open(&path)?.connect();
+    assert!(c.execute("UPDATE t SET id=7 WHERE id=0").is_err());
+    assert_eq!(
+        c.query("SELECT sum(id) FROM t")?.rows,
+        vec![vec![Value::Integer(3)]]
+    );
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn independent_nested_child_streams_survive_checkpoint_publication() -> Result<()> {

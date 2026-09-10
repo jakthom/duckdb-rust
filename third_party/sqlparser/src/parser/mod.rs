@@ -1934,6 +1934,27 @@ impl<'a> Parser<'a> {
                         expr
                     } else if let Some(lambda) = self.try_parse_lambda()? {
                         return Ok(lambda);
+                    } else if dialect_is!(dialect is DuckDbDialect) {
+                        // DuckDB distinguishes (), (x,), (x) and (x,y). Keep the
+                        // singleton trailing comma in the AST; a generic comma
+                        // parser discards the information needed to distinguish it.
+                        self.with_state(ParserState::Normal, |parser| {
+                            if parser.peek_token_ref().token == Token::RParen {
+                                return Ok(Expr::Tuple(Vec::new()));
+                            }
+                            let first = parser.parse_expr()?;
+                            if !parser.consume_token(&Token::Comma) {
+                                return Ok(Expr::Nested(Box::new(first)));
+                            }
+                            let mut values = vec![first];
+                            while parser.peek_token_ref().token != Token::RParen {
+                                values.push(parser.parse_expr()?);
+                                if !parser.consume_token(&Token::Comma) {
+                                    break;
+                                }
+                            }
+                            Ok(Expr::Tuple(values))
+                        })?
                     } else {
                         // Parentheses in expressions switch to "normal" parsing state.
                         // This matters for dialects (SQLite, DuckDB) where `NOT NULL` can
@@ -3492,7 +3513,9 @@ impl<'a> Parser<'a> {
     /// Duckdb Struct Data Type <https://duckdb.org/docs/sql/data_types/struct.html#retrieving-from-structs>
     fn parse_duckdb_struct_type_def(&mut self) -> Result<Vec<StructField>, ParserError> {
         self.expect_keyword_is(Keyword::STRUCT)?;
-        self.expect_token(&Token::LParen)?;
+        if !self.consume_token(&Token::LParen) {
+            return Ok(Vec::new());
+        }
         let struct_body = self.parse_comma_separated(|parser| {
             let field_name = parser.parse_identifier()?;
             let field_type = parser.parse_data_type()?;

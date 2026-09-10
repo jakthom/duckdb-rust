@@ -13,7 +13,7 @@ impl State<'_, '_> {
         let name = match metadata.as_ref() {
             NestedType::Map { .. } => "map_extract_value",
             NestedType::List(_) | NestedType::Array { .. } => "list_extract",
-            NestedType::Struct(_) => "struct_extract",
+            NestedType::Struct(_) | NestedType::Tuple(_) => "struct_extract",
             NestedType::Union(_) => "union_extract",
             NestedType::Variant => "variant_extract",
         };

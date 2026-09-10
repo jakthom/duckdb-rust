@@ -32,7 +32,9 @@ impl ScalarFunction for Constructor {
             NestedType::List(_) | NestedType::Array { .. } => {
                 NestedPayload::Sequence(arguments.to_vec())
             }
-            NestedType::Struct(_) => NestedPayload::Struct(arguments.to_vec()),
+            NestedType::Struct(_) | NestedType::Tuple(_) => {
+                NestedPayload::Struct(arguments.to_vec())
+            }
             NestedType::Union(_) if arguments.len() == 1 => NestedPayload::Union {
                 tag: 0,
                 value: arguments[0].clone(),
@@ -63,6 +65,43 @@ impl ScalarFunction for NestedFunction {
         let types = (0..arguments.len())
             .map(|index| arguments.data_type(index))
             .collect::<Result<Vec<_>>>()?;
+        if matches!(
+            self.name,
+            "struct_extract" | "struct_extract_at" | "array_extract"
+        ) && let [DataType::Nested(metadata), index_type] = types.as_slice()
+            && (matches!(metadata.as_ref(), NestedType::Tuple(_))
+                || self.name == "struct_extract_at")
+        {
+            if !index_type.is_integer() {
+                return Err(Error::Bind(
+                    "name extraction cannot be used on an unnamed struct".into(),
+                ));
+            }
+            let fields = match metadata.as_ref() {
+                NestedType::Tuple(fields) => fields.iter().collect::<Vec<_>>(),
+                NestedType::Struct(fields) if self.name == "struct_extract_at" => {
+                    fields.iter().map(|(_, ty)| ty).collect()
+                }
+                _ => {
+                    return Err(Error::Bind(
+                        "positional extraction requires STRUCT or TUPLE".into(),
+                    ));
+                }
+            };
+            let index = match arguments.constant(1)? {
+                Value::Integer(value) => usize::try_from(value).ok(),
+                Value::Unsigned(value) => usize::try_from(value).ok(),
+                _ => None,
+            }
+            .and_then(|value| value.checked_sub(1))
+            .filter(|index| *index < fields.len())
+            .ok_or_else(|| Error::Bind("TUPLE index out of range".into()))?;
+            return Ok(Some(Arc::new(Self {
+                name: self.name,
+                result: Some(fields[index].clone()),
+                field: Some(index),
+            })));
+        }
         if self.name == "struct_extract" || self.name == "union_extract" {
             let [DataType::Nested(metadata), DataType::Varchar] = types.as_slice() else {
                 return Err(Error::Bind(
@@ -115,6 +154,28 @@ impl ScalarFunction for NestedFunction {
             return Ok(result.clone());
         }
         match self.name {
+            "row" => Ok(NestedType::Tuple(arguments.to_vec()).data_type()),
+            "struct_values" | "struct_keys" if arguments.len() == 1 => match &arguments[0] {
+                DataType::Nested(metadata) => match metadata.as_ref() {
+                    NestedType::Struct(fields) => Ok(if self.name == "struct_values" {
+                        NestedType::Tuple(fields.iter().map(|(_, ty)| ty.clone()).collect())
+                            .data_type()
+                    } else {
+                        NestedType::List(DataType::Varchar).data_type()
+                    }),
+                    NestedType::Tuple(fields) if self.name == "struct_values" => {
+                        Ok(NestedType::Tuple(fields.clone()).data_type())
+                    }
+                    _ => Err(Error::Bind(format!(
+                        "{} expects a STRUCT argument",
+                        self.name
+                    ))),
+                },
+                _ => Err(Error::Bind(format!(
+                    "{} expects a STRUCT argument",
+                    self.name
+                ))),
+            },
             "union_tag" if arguments.len() == 1 => match &arguments[0] {
                 DataType::Nested(metadata) => match metadata.as_ref() {
                     NestedType::Union(fields) => {
@@ -170,13 +231,56 @@ impl ScalarFunction for NestedFunction {
             .result
             .as_ref()
             .ok_or_else(|| Error::Internal("nested function was not bound".into()))?;
-        if matches!(self.name, "list_value" | "array_value") {
+        if matches!(self.name, "list_value" | "array_value" | "row") {
             return Constructor(result.clone()).evaluate(arguments, query);
         }
         if arguments.iter().any(Value::is_null) {
             return Ok(Value::Null);
         }
+        if matches!(self.name, "struct_extract_at" | "array_extract")
+            && let Some(field) = self.field
+        {
+            let Value::Nested(value) = &arguments[0] else {
+                return Err(Error::Internal("TUPLE argument".into()));
+            };
+            let NestedPayload::Struct(values) = &value.payload else {
+                return Err(Error::Internal("TUPLE payload".into()));
+            };
+            return values
+                .get(field)
+                .cloned()
+                .ok_or_else(|| Error::Internal("TUPLE extraction index".into()));
+        }
         match self.name {
+            "struct_values" | "struct_keys" => {
+                let Value::Nested(value) = &arguments[0] else {
+                    return Err(Error::Internal("STRUCT argument".into()));
+                };
+                let NestedPayload::Struct(values) = &value.payload else {
+                    return Err(Error::Internal("STRUCT payload".into()));
+                };
+                if self.name == "struct_values" {
+                    return NestedValue::value(
+                        result.clone(),
+                        NestedPayload::Struct(values.clone()),
+                    );
+                }
+                let DataType::Nested(metadata) = &value.data_type else {
+                    return Err(Error::Internal("STRUCT metadata".into()));
+                };
+                let NestedType::Struct(fields) = metadata.as_ref() else {
+                    return Err(Error::Internal("STRUCT key metadata".into()));
+                };
+                NestedValue::value(
+                    result.clone(),
+                    NestedPayload::Sequence(
+                        fields
+                            .iter()
+                            .map(|(name, _)| Value::Varchar(name.clone()))
+                            .collect(),
+                    ),
+                )
+            }
             "list_extract" | "array_extract" => {
                 let Value::Nested(value) = &arguments[0] else {
                     return Err(Error::Internal("list argument".into()));
@@ -271,6 +375,10 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "list_extract",
         "array_extract",
         "struct_extract",
+        "struct_extract_at",
+        "struct_values",
+        "struct_keys",
+        "row",
         "union_extract",
         "union_tag",
         "map",

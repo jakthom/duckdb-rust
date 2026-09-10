@@ -68,6 +68,9 @@ impl CastFunction for NestedCast {
                 .iter()
                 .any(|(a, _)| b.iter().any(|(b, _)| a.eq_ignore_ascii_case(b))),
             (NestedType::Map { .. }, NestedType::Map { .. }) => true,
+            (NestedType::Tuple(a), NestedType::Tuple(b)) => a.len() == b.len(),
+            (NestedType::Tuple(a), NestedType::Struct(b))
+            | (NestedType::Struct(b), NestedType::Tuple(a)) => a.len() == b.len(),
             _ => false,
         }
     }
@@ -184,6 +187,7 @@ pub(super) fn register(registry: &mut CastRegistry) {
         "builtin.list",
         "builtin.array",
         "builtin.struct",
+        "builtin.tuple",
         "builtin.map",
         "builtin.union",
         "builtin.variant",

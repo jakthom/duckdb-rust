@@ -98,6 +98,24 @@ impl VariantCast {
                     }
                     NestedPayload::Map(result)
                 }
+                NestedType::Tuple(fields) => {
+                    if node.rank()? != 14 {
+                        return Err(invalid().into());
+                    }
+                    let values = node.array()?;
+                    if values.len() != fields.len() {
+                        return Err(Error::Conversion(
+                            "VARIANT ARRAY cardinality differs from TUPLE".into(),
+                        ).into());
+                    }
+                    NestedPayload::Struct(
+                        values
+                            .into_iter()
+                            .zip(fields)
+                            .map(|(value, ty)| self.convert(value, ty, query, depth + 1))
+                            .collect::<CastResult<_>>()?,
+                    )
+                }
                 NestedType::Union(_) => {
                     return Err(Error::Conversion("Can't convert VARIANT to UNION".into()).into());
                 }

@@ -285,6 +285,9 @@ impl State<'_, '_> {
                 array.elem.iter().map(&recurse).collect::<Result<_>>()?,
                 None,
             ),
+            ast::Expr::Tuple(values) => {
+                self.scalar_call("row", values.iter().map(&recurse).collect::<Result<_>>()?)
+            }
             ast::Expr::Dictionary(fields) => self.nested_constructor(
                 fields
                     .iter()

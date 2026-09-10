@@ -362,6 +362,7 @@ impl TypeRegistry {
             "builtin.list",
             "builtin.array",
             "builtin.struct",
+            "builtin.tuple",
             "builtin.map",
             "builtin.union",
         ] {

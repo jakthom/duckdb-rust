@@ -212,6 +212,18 @@ impl State<'_, '_> {
                 value: self.data_type(value)?,
             }
             .data_type()),
+            T::Tuple(fields) => Ok(crate::common::NestedType::Tuple(
+                fields
+                    .iter()
+                    .map(|field| {
+                        if field.field_name.is_some() {
+                            return Err(Error::Bind("TUPLE fields must be unnamed".into()));
+                        }
+                        self.data_type(&field.field_type)
+                    })
+                    .collect::<Result<_>>()?,
+            )
+            .data_type()),
             T::Union(fields) => Ok(crate::common::NestedType::Union(
                 fields
                     .iter()

@@ -22,6 +22,15 @@ CASES = {
         INSERT INTO t(id) VALUES (6);
         CHECKPOINT;
     """,
+    "nested_tuple": """
+        SET force_compression='uncompressed';
+        CREATE TABLE t AS SELECT i::INTEGER id,
+          CASE WHEN i=2 THEN NULL ELSE row(i::INTEGER,(i+125)::DECIMAL(12,2),
+            TIMESTAMP_NS '2000-01-01 00:00:00.123456789',[i,NULL]::BIGINT[],'101'::BIT) END v,
+          row() e, struct_pack() s, row(i::INTEGER) one
+        FROM range(3) r(i);
+        CHECKPOINT;
+    """,
     "nested_roaring": """
         SET force_compression='roaring';
         CREATE TABLE t AS SELECT i::INTEGER id,
@@ -211,6 +220,8 @@ def main():
     parser.add_argument("--duckdb", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True, help="Explicit destination; retained historical fixtures are not replaced by default")
     args = parser.parse_args()
+    if args.target != "development" and args.case and "nested_tuple" in args.case:
+        parser.error("nested_tuple requires the pinned development v2 producer")
     binary, identity = require_reference(args.duckdb, target=args.target)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     version = identity["version"]
@@ -218,12 +229,18 @@ def main():
     manifest = json.loads(manifest_path.read_text()) if args.case and manifest_path.exists() else {}
     with tempfile.TemporaryDirectory() as directory:
         for name in args.case or [*CASES, *HISTORICAL]:
+            if name == "nested_tuple" and args.target != "development":
+                continue
             sql = CASES.get(name)
             path = Path(directory) / f"{name}.duckdb"
             if name in HISTORICAL:
                 path.write_bytes(HISTORICAL[name].read_bytes())
             else:
-                subprocess.run([str(binary), str(path), "-c", sql], check=True, stdout=subprocess.DEVNULL)
+                if name == "nested_tuple":
+                    setup = f"ATTACH '{path}' AS fixture (STORAGE_VERSION 'v2.0.0'); USE fixture; "
+                    subprocess.run([str(binary), "-c", setup + sql], check=True, stdout=subprocess.DEVNULL)
+                else:
+                    subprocess.run([str(binary), str(path), "-c", sql], check=True, stdout=subprocess.DEVNULL)
             data = path.read_bytes()
             (args.output_dir / f"{name}.duckdb.gz").write_bytes(gzip.compress(data, mtime=0))
             table = "temperatures_double" if name in HISTORICAL else "t"
@@ -250,6 +267,8 @@ def main():
                 metadata.update({"writer": "historical DuckDB artifact; original writer revision unrecorded", "reference_reader": version, "source": str(HISTORICAL[name].relative_to(ROOT.parent)), "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT.parent/"duckdb", text=True).strip(), "query": "SELECT temperature::DOUBLE AS value FROM temperatures_double UNION ALL SELECT temperature::DOUBLE AS value FROM temperatures_float"})
             else:
                 metadata["sql"] = sql.strip()
+                if name == "nested_tuple":
+                    metadata["storage_version"] = "v2.0.0"
                 if name.startswith("dates_"):
                     metadata["query"] = "SELECT id, d::VARCHAR AS d, c::VARCHAR AS c FROM t ORDER BY id"
                 if name in ["alprd", "alp_float"]:

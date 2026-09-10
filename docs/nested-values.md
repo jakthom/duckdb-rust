@@ -217,3 +217,49 @@ casts and broader upstream/performance coverage. Native VARIANT persistence is
 not established by these private-format tests. The shared DICT_FSST and
 EMPTY_VALIDITY integrations have resolved the earlier native nested codec-15
 negative; all retained nested native fixtures now run as positive regressions.
+
+### TUPLE SQL and development-native reader increment
+
+Development TUPLE has positional child metadata and reuses the retained STRUCT
+payload/child-adapter machinery, without treating unnamed values as named
+STRUCTs. SQL now distinguishes `()`, `(x,)`, `(x)` and `(x,y)`; `row`, positional
+access, `struct_extract_at`, `struct_values`, `struct_keys`, recursive positional
+casts and TUPLE/STRUCT combination inference are covered. Empty TUPLE and STRUCT
+values are non-NULL; UNION still requires at least one named member. The local
+DuckDB grammar change preserves singleton commas in parser-rendered SQL and
+keeps subquery/lambda handling ahead of the tuple path.
+
+Mixed DECIMAL/TIMESTAMP_NS/LIST/BIT tuples pass comparisons, grouping/DISTINCT,
+joins, windows, prepared values, indexed-row mutation, rollback and private JSON
+reopen. VARIANT views TUPLE as an ARRAY and converts compatible ARRAY values back
+to positional TUPLE children. TUPLE keys explicitly reject ART primary/unique
+indexes while ordinary equality keys remain usable.
+
+The independent pinned development `nested_tuple` fixture explicitly selects
+storage version v2.0.0 and retains its producer identity, SQL, checksum and
+observed codecs. The reader accepts development logical ID110, legacy nonempty
+unnamed STRUCT metadata, and omitted default-empty child metadata. It preserves
+positional values, nested NULLs and empty TUPLE/STRUCT streams. Publication of
+TUPLE-containing native files remains deliberately Unsupported until the lead's
+minimum-version writer selection is integrated; the test verifies that a failed
+publication leaves the table unchanged. This is not bidirectional compatibility.
+
+This independent file exposed a shared DECIMAL decoder defect: a NULL child
+encoded with the physical signed minimum was rejected as an out-of-precision
+decimal before its validity mask was applied. Logical reconstruction now maps
+that reserved sentinel to NULL at each 2/4/8/16-byte width. Tests cover precision
+boundaries, scale zero/full scale, both selected bitpacking adapters, rejection
+of other out-of-domain coefficients, and rejection of NULL decoder output under
+an explicitly valid child mask.
+
+Ordinary check, all 17 nested tests, all 16 compression tests, the focused three
+TUPLE regressions after the final accessor lint repair, and all-target clippy
+pass. Coverage reports 265 files, 2,311 functions and 205 interface methods with
+no missing attributes. This is an internal integrable increment; Kani remains
+the lead's substantial integrated-checkpoint task. Native TUPLE publication,
+nested WAL/default codecs, dynamic VARIANT native storage and the broader
+nested function/performance inventory remain open.
+
+The instrumentation check completed in 53.11 seconds with zero errors, panics
+or open spans; temporary telemetry was deleted. The fixture generator also
+rejects an explicit release-target TUPLE request before creating output.
