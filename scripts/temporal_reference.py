@@ -107,6 +107,37 @@ CAST_VALUES = {
 }
 SQL += [f'SELECT ({value})::{target}' for value in CAST_VALUES.values() for target in CAST_VALUES]
 SQL += [f'SELECT {name}({value})' for name in ('year','month','day','quarter','dayofyear','dayofweek','isodow','century','decade','millennium','hour','minute','second','millisecond','microsecond','epoch','epoch_ms','epoch_us','epoch_ns','isfinite','isinf','last_day','dayname','monthname') for value in CAST_VALUES.values()]
+CLOCK_TEXT = [
+    '1:', '1:2', '1:02:', '1:2:3', '12:34:56junk', '12:34:56 +02',
+    '12:34:56+2', '12:34:56+02', '12:34:56+02junk', '12:34:56Z',
+    '12:34:56+00:99:99', '12:34:56+16', '12:34+02', '24:00:00.000000999',
+    '2000-01-01 12:34:56+02', '2000-01-01 12:34:56.123456789',
+    '2000-01-01 12:34:56 UTC', '2000-01-01 12:34:56 America/New_York',
+    '2000-01-01T12:34:56',
+]
+TIMESTAMP_TEXT = [
+    '2000-01-01 1:2', '2000-01-01 1:', '2000-01-01 12:34+02',
+    '2000-01-01 12:34:56+2', '2000-01-01 12:34:56+02',
+    '2000-01-01 12:34:56+99:99:99', '2000-01-01 12:34:56+000000',
+    '2000-01-01 12:34:56+00:00:99', '2000-01-01 12:34:56+00:99',
+    '2000-01-01 12:34:56+02junk', '2000-01-01 12:34:56 UTC',
+    '2000-01-01 12:34:56 utc', '2000-01-01 12:34:56 America/New_York',
+    '2000-01-01 12:34:56 America-New/York', '2000-01-01 12:34:56  UTC',
+    '2000-01-01 12:34:56 junk', '2000 01 02 12:34:56',
+    '0001-01-01 (BC) 12:34:56', '0001-01-01 (BC)', 'epoch', '-epoch',
+    '-infinity', '2000-01-01 ', '2000-01-01\t', '2000-01-01 24:00:00.000000999',
+]
+SQL += [f"SELECT {target} '{value}'" for value in CLOCK_TEXT for target in ('TIME','TIME_NS','TIMETZ')]
+SQL += [f"SELECT {target} '{value}'" for value in TIMESTAMP_TEXT for target in ('TIMESTAMP','TIMESTAMP_S','TIMESTAMP_MS','TIMESTAMP_NS','TIMESTAMPTZ','TIMESTAMPTZ_NS')]
+SQL += [
+    "SELECT v,v::TIME,(v::TIME)::TIME_NS,(v::TIME)::TIMETZ,epoch_us(v) FROM (VALUES (TIME_NS '24:00:00'),(TIME_NS '24:00:00.000000001'),(TIME_NS '24:00:00.000000499'),(TIME_NS '24:00:00.000000500'),(TIME_NS '24:00:00.000000999')) t(v) ORDER BY v",
+    "SELECT TRY_CAST('24:00:00.000001' AS TIME_NS),TRY_CAST('24:00:00.000001' AS TIME),TRY_CAST('24:00:00.000001+00' AS TIMETZ)",
+    "SELECT make_time(23,59,60),make_time(23,59,60.49999999999999),make_time(0,0,-0.0000001),make_time(23,59,60.49)::TIME_NS,make_time(23,59,60.49)::TIMETZ",
+    "SELECT make_time(23,59,60.5)",
+    "SELECT DATE '2000-01-01'+(TIME_NS '24:00:00.000000999')::TIME,(TIME_NS '24:00:00.000000999')::TIME+INTERVAL '0 seconds'",
+]
+BOUNDARY_DEFINITION = "CREATE TABLE clock_boundaries(id INTEGER PRIMARY KEY,n TIME_NS UNIQUE,u TIME,z TIMETZ,child STRUCT(n TIME_NS,z TIMETZ),items TIME_NS[]); INSERT INTO clock_boundaries SELECT id,v,v::TIME,(v::TIME)::TIMETZ,{'n':v,'z':(v::TIME)::TIMETZ},[v,NULL] FROM (VALUES(1,TIME_NS '24:00:00'),(2,TIME_NS '24:00:00.000000001'),(3,TIME_NS '24:00:00.000000999'),(4,make_time(23,59,60.49999999999999)::TIME_NS)) t(id,v)"
+BOUNDARY_QUERY = "SELECT id,n::VARCHAR AS n,u::VARCHAR AS u,z::VARCHAR AS z,child::VARCHAR AS child,items::VARCHAR AS items,(DATE '2000-01-01'+u)::VARCHAR AS shifted FROM clock_boundaries ORDER BY id"
 DEFINITION = "CREATE TABLE t(id INTEGER PRIMARY KEY,tm TIME DEFAULT TIME '12:00:00',ts TIMESTAMP DEFAULT TIMESTAMP 'epoch',s TIMESTAMP_S DEFAULT TIMESTAMP_S 'epoch',ms TIMESTAMP_MS DEFAULT TIMESTAMP_MS 'epoch',ns TIMESTAMP_NS DEFAULT TIMESTAMP_NS 'epoch',z TIMESTAMPTZ DEFAULT TIMESTAMPTZ 'epoch',tz TIMETZ DEFAULT TIMETZ '12:00:00+02',iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t(id) VALUES(1); INSERT INTO t VALUES (2,NULL,TIMESTAMP '1969-12-31 23:59:59.999999',TIMESTAMP_S '2000-01-01',TIMESTAMP_MS '2000-01-01 12:00:00.123',TIMESTAMP_NS '2000-01-01 12:00:00.123456789',TIMESTAMPTZ '2000-01-01 12:00:00+02',TIMETZ '00:00:00-05:30',INTERVAL '-1 month 30 days -00:00:00.000001')"
 QUERY = "SELECT id,tm::VARCHAR AS tm,ts::VARCHAR AS ts,s::VARCHAR AS s,ms::VARCHAR AS ms,ns::VARCHAR AS ns,z::VARCHAR AS z,tz::VARCHAR AS tz,iv::VARCHAR AS iv FROM t ORDER BY id"
 
@@ -177,7 +208,7 @@ def main():
                 trial['persistence'].append(case)
                 try:
                     path = Path(scratch) / (label+'.duckdb')
-                    command(producer, path, DEFINITION)
+                    command(producer, path, DEFINITION + ';' + BOUNDARY_DEFINITION)
                     case['checkpoint_sha256'] = digest(path)
                     wal = Path(str(path)+'.wal')
                     if wal.exists():
@@ -186,11 +217,22 @@ def main():
                     actual_rows = command(rust, path, QUERY, json_output=True, readonly=True)
                     if expected != actual_rows:
                         raise AssertionError({'cpp': expected, 'rust': actual_rows})
+                    expected_boundary = command(cpp_cli, path, BOUNDARY_QUERY, json_output=True, readonly=True)
+                    actual_boundary = command(rust, path, BOUNDARY_QUERY, json_output=True, readonly=True)
+                    case['initial_clock_boundaries'] = {'cpp': expected_boundary, 'rust': actual_boundary}
+                    if expected_boundary != actual_boundary:
+                        raise AssertionError(case['initial_clock_boundaries'])
                     command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET ts=TIMESTAMP '1970-01-02',iv=iv+INTERVAL '1 day' WHERE id=1")
+                    command(rust, path, "BEGIN; DELETE FROM clock_boundaries; ROLLBACK; UPDATE clock_boundaries SET n=(n::TIME)::TIME_NS WHERE id=3")
                     expected = command(cpp_cli, path, QUERY, json_output=True, readonly=True)
                     actual_rows = command(rust, path, QUERY, json_output=True, readonly=True)
                     if expected != actual_rows:
                         raise AssertionError({'cpp': expected, 'rust': actual_rows})
+                    expected_boundary = command(cpp_cli, path, BOUNDARY_QUERY, json_output=True, readonly=True)
+                    actual_boundary = command(rust, path, BOUNDARY_QUERY, json_output=True, readonly=True)
+                    case['final_clock_boundaries'] = {'cpp': expected_boundary, 'rust': actual_boundary}
+                    if expected_boundary != actual_boundary:
+                        raise AssertionError(case['final_clock_boundaries'])
                     case.update(passed=True, final_rows=actual_rows)
                 except Exception as error:
                     case['error'] = str(error)

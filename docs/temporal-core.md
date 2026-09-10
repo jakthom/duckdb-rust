@@ -15,9 +15,22 @@ recovery, checkpoints, and reopen are exercised together.
 from midnight; timestamp units are measured from the Unix epoch. Infinite
 timestamps remain distinct from the reserved signed-minimum NULL slot. Physical
 value validation rejects invalid clock ranges, reserved timestamp slots, and
-stored TIMETZ offsets outside ±15:59:59. Timestamp text accepts numeric offsets
-through ±23:59:59. Value remains 32 bytes and DataType at most 16 bytes.
+stored TIMETZ offsets outside ±15:59:59. Timestamp numeric offsets require two
+digits per supplied field but do not enforce per-field civil ranges: development
+accepts +99:99:99 and normalizes the total. Value remains 32 bytes and DataType at
+most 16 bytes.
 No host clock, timezone, or ambient process setting participates in these paths.
+
+Physical clocks and accepted text have separate provisional domains. Selected
+SQL constructors/casts are closed over zero through 24 hours plus 500,000
+microseconds for TIME/TIMETZ, and the equivalent nanosecond interval for TIME_NS.
+`make_time(23,59,60.5)` reaches that upper boundary: whole-second conversion uses
+ties-even rounding, and the remaining fraction is rounded separately. Direct
+TIME/TIMETZ text still stops at 24 hours; TIME_NS text permits only the additional
+999 nanoseconds retained after its microsecond range check. Casting those final
+nanoseconds to TIME can carry a microsecond past midnight, and casting back to
+TIME_NS preserves it. Arbitrary native/API raw clocks outside this measured
+SQL-closed domain remain unsupported; storage-word width alone is not validation.
 
 Intervals retain signed months, days, and microseconds for calendar arithmetic,
 formatting, and persistence. Equality/order keys normalize a month to thirty
@@ -49,6 +62,17 @@ INTERVAL n UNIT lowers through selected DOUBLE casting, truncation when required
 the unit's declared integer width, and its selected constructor. Tests replace
 date_part/trunc adapters to verify the syntax does not bypass registration.
 
+Checked clock/timestamp scanning shares the calendar-prefix parser while keeping
+ordinary DATE casts fully consuming. It handles one-/two-digit clock fields,
+optional final fields, exact fractional units, numeric offsets, timestamp-to-time
+fallback, and development's different standalone/timestamp suffix rules. Long
+calendar, whitespace, fractional and zone-name scans check cancellation without
+unbounded temporary allocations. Standalone TIME ignores a non-strict final
+suffix; TIMETZ parses an offset, not Z. Named timestamp suffixes are ignored for
+naive values but only UTC is interpreted for zoned values without ICU. No named
+zone lookup or host-timezone fallback occurs. Development's date-only timestamp
+text with trailing whitespace is rejected, even though ordinary DATE accepts it.
+
 ## Evidence and regressions
 
 `scripts/temporal_reference.py` verifies both pinned source/binary identities and
@@ -68,6 +92,10 @@ do not establish diagnostic-category parity.
 | [Interval text initial](temporal-text-reference-initial.json) | 443/448 | 418/448 | 3/3 | 3/3 |
 | [Interval text repair](temporal-text-reference-repaired.json) | 448/448 | 422/448 | 3/3 | 3/3 |
 | [Interval units/diagnostics](temporal-diagnostics-reference.json) | 455/455 | 429/455 | 3/3 | 3/3 |
+| [Clock text initial](temporal-clock-reference-initial.json) | 548/662 | 532/662 | 3/3 | 3/3 |
+| [Clock text repair](temporal-clock-reference-repaired.json) | 661/662 | 598/662 | 3/3 | 3/3 |
+| [Clock domain investigation](temporal-clock-domain-reference.json) | 666/667 | 601/667 | 0/3 expanded | 0/3 expanded |
+| [Clock domain integrated](temporal-clock-domain-integrated.json) | 667/667 | 602/667 | 2/3 expanded | 1/3 expanded |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -133,6 +161,32 @@ classification still require a shared contract change. Boolean harness
 normalization, missing UNNEST/INTERVAL type qualifiers and general overload
 diagnostics remain explicit failures. Assertions and prior evidence are unchanged.
 
+Clock-domain native cases expand the earlier flat schema with TIME_NS, cast-
+produced clocks past midnight, nested STRUCT/LIST children, index uniqueness,
+calendar rollover and subsequent rollback/update/reopen. Their initial zero
+counts exposed a nested scalar-quoting gap, native nested WAL dispatch and the
+release's unavailable TIME-to-TIME_NS cast, not regressions in the earlier flat
+native schema. The combined VARIANT formatter repairs quoting; both development
+C++ and Rust checkpoint producers now pass the expanded file workflow. Rust's
+native nested WAL producer still fails, and release cannot create its extended
+producer schema with the selected cast. Both pins read the Rust-produced boundary
+checkpoint correctly. Failed trials and their exact messages remain preserved.
+
+The same cross-family assertion matrix is executable with
+`cargo run --example temporal_nested_wal_obligation`. It currently exits with
+the native STRUCT WAL fixed-width dispatch error. The ordinary temporal suite
+executes its JSON/native checkpoint modes; the WAL obligation is neither ignored
+nor counted as a passing test. Its assertions remain intact for the nested worker.
+
+The [unchanged TIME/TIMESTAMP upstream run](upstream-temporal-clock-text.json)
+passes nine of 26 files, fails eleven and reports six unsupported (five depend on
+ICU, one on a missing TIMESTAMP_US alias). Passing files include time/timestamp
+2411 cases, time limits, TIME/TIMESTAMP TRY_CAST, alternative timestamp casts,
+BC timestamps, millisecond timestamps and core TIMESTAMPTZ. Failures retain
+exact diagnostic differences, infinity abbreviations, missing nanosecond and
+timetz_byte_comparable functions, timestamp avg, and boolean harness normalization.
+This broader run is not full upstream parity despite the selected 667-case pass.
+
 ## Checkpoint validation
 
 Routine checks pass: `cargo check`; ten temporal component tests plus DATE,
@@ -187,7 +241,22 @@ The small plural-unit/diagnostic follow-up passes twelve temporal tests, ordinar
 check/clippy, instrumentation coverage (255 files, 2228 functions, 205 interfaces,
 no missing entries), and all-target trace compilation (53.38 seconds, temporary
 telemetry deleted). It does not add a separate formal-proof claim; the preceding
-interval-text checkpoint is the latest full Kani run.
+interval-text checkpoint was its latest full Kani run.
+
+The clock/domain stage passes fourteen ordinary temporal tests, seven DATE tests,
+four adjacent temporal tests and the DATE prefix boundary/cancellation test;
+post-integration nested fourteen and BIT three tests also pass. Check/clippy pass.
+The full Kani 0.67.0 suite passes six of six harnesses, zero failures, with the
+TIMETZ physical-domain assumptions expanded to include constructor/cast carry.
+Times were 48.202, 0.753, 0.473, 2.194, 3.625 and 78.710 seconds. This verifies
+the existing packing/equality claims over the expanded bound, not arbitrary raw
+native payloads, parser correctness or SQL closure as a formal theorem.
+After the literal-provenance integration, coverage reports 268 files, 2355
+functions and 206 interfaces, no missing instrumentation; all-target trace
+compilation passes in 32.11 seconds and deletes temporary telemetry. The prior
+clock-stage trace also passed in 50.95 seconds. Production build with
+`cargo build --release --no-default-features` passes (1 minute 34 seconds).
+No new execution-performance gate is claimed.
 
 Kani's reported atomics are modeled sequentially; unsupported foreign calls and
 caller-location constructs must remain unreachable in a successful harness.
@@ -200,14 +269,15 @@ This is not a stopping boundary. The remaining function catalog includes
 date_trunc/date_diff/date_sub/time_bucket, formatting/parsing functions, richer
 date_part specifiers and struct results, current-time functions and broader
 calendar arithmetic. Remaining DATE/clock/timestamp text semantics, parser error
-diagnostics and unit syntax, non-interval long-input cancellation, timestamp
+diagnostics and type aliases, timestamp
 physical/display extrema, complete
 conversion/overload/error matrices, and broader indexed-key/native codec cases
 remain open. Existing selected matrices do not assert catalog completeness.
 
 Named IANA timezone semantics require an explicitly selected timezone adapter
 and settings/context behavior, not host timezone inference. Both pinned core
-reference builds currently lack ICU; they reject named-zone timestamp input.
+reference builds currently lack ICU; zoned input rejects non-UTC names, while
+naive timestamp input can ignore those names without interpreting them.
 Core numeric offsets are implemented, but ICU behavior, DST gaps/ambiguities,
 calendars, and session-relative conversion remain unverified. Optional IANA
 experimentation must not silently widen the default core reference behavior.
