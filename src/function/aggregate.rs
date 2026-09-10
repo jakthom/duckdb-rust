@@ -397,30 +397,21 @@ fn sum_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> Opti
 /// Caller proves the sum of all input magnitudes fits i64, so every lane does
 /// too. Physical dispatch is monomorphic for this block, outside the hot loop.
 fn sum_proven_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> i128 {
-    // Keep physical-kind validation independent in each lane too. A shared
-    // boolean reduction otherwise links every coefficient load even though
-    // the arithmetic accumulators are independent. Reduce both only once.
+    // The caller's column construction proves the physical kind. Keep a
+    // checked load so an internal misuse still fails, without carrying eight
+    // validity accumulators and conditional-zero coefficients through the hot
+    // loop. Nothing is published until this entire private reduction returns.
     let mut lanes = [0_i64; 8];
-    let mut validity = [true; 8];
     let mut blocks = values.chunks_exact(8);
     for block in &mut blocks {
-        for ((lane, valid), value) in lanes.iter_mut().zip(&mut validity).zip(block) {
-            let value = integer(value);
-            *valid &= value.is_some();
-            *lane += value.unwrap_or_default();
+        for (lane, value) in lanes.iter_mut().zip(block) {
+            *lane += integer(value).expect("validated narrow SUM input");
         }
     }
     let mut sum: i128 = lanes.into_iter().map(i128::from).sum();
-    let mut valid = validity.into_iter().all(|valid| valid);
     for value in blocks.remainder() {
-        let value = integer(value);
-        valid &= value.is_some();
-        sum += i128::from(value.unwrap_or_default());
+        sum += i128::from(integer(value).expect("validated narrow SUM input"));
     }
-    // Physical construction and the caller's non-NULL proof establish this.
-    // Accumulate the invariant check without a branch per lane; never publish
-    // a sum if an internal caller supplied a different physical kind.
-    assert!(valid, "validated narrow SUM input");
     sum
 }
 
