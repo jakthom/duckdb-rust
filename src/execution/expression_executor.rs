@@ -1,5 +1,6 @@
 use super::subquery::SubqueryRequest;
 mod batch;
+mod provenance;
 use crate::{
     common::{Error, Result, Row, Value},
     function::{ArgumentEvaluation, ArgumentProvenance},
@@ -11,6 +12,7 @@ use crate::{
 };
 pub(crate) use batch::select_boolean;
 pub use batch::{BatchedEvaluator, evaluate_expression_rows};
+pub(crate) use provenance::{BatchContext, result_column};
 
 /// An evaluated value and its encoding in the actual current execution scope.
 /// Unknown metadata must never be upgraded by comparing result values. An
@@ -154,15 +156,36 @@ impl ExpressionEvaluator for ScalarEvaluator {
         row: &Row,
         context: &dyn EvaluationContext,
     ) -> Result<Value> {
+        self.evaluate_with_provenance(expression, row, context)
+            .map(|result| result.value)
+    }
+    fn evaluate_with_provenance(
+        &self,
+        expression: &BoundExpr,
+        row: &Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<EvaluatedValue> {
         let query = context.query();
         query.check()?;
-        let eval = |e: &BoundExpr| self.evaluate(e, row, context);
+        let constant = std::cell::Cell::new(true);
+        let eval = |e: &BoundExpr| {
+            let result = self.evaluate_with_provenance(e, row, context)?;
+            constant.set(constant.get() && result.provenance == ArgumentProvenance::Constant);
+            Ok::<Value, Error>(result.value)
+        };
         let value = match &expression.kind {
             ExprKind::Literal(v) | ExprKind::Parameter(v) => v.clone(),
-            ExprKind::OuterColumn { depth, column } => context.outer_column(*depth, *column)?,
+            ExprKind::OuterColumn { depth, column } => {
+                constant.set(false);
+                context.outer_column(*depth, *column)?
+            }
             ExprKind::Subquery(subquery) => {
                 if let Some(value) = context.prepared_subquery(subquery) {
-                    return checked_value(value, &expression.data_type);
+                    return checked_evaluated(
+                        value,
+                        &expression.data_type,
+                        context.subquery_provenance(subquery) == ArgumentProvenance::Constant,
+                    );
                 }
                 let kind = &subquery.kind;
                 let value = match kind {
@@ -209,12 +232,15 @@ impl ExpressionEvaluator for ScalarEvaluator {
                         ),
                         other => other,
                     })?;
+                constant.set(context.subquery_provenance(subquery) == ArgumentProvenance::Constant);
                 value
             }
-            ExprKind::Column(i) => row
-                .get(*i)
-                .cloned()
-                .ok_or_else(|| Error::Internal(format!("column {i} outside row")))?,
+            ExprKind::Column(i) => {
+                constant.set(context.column_provenance(*i) == ArgumentProvenance::Constant);
+                row.get(*i)
+                    .cloned()
+                    .ok_or_else(|| Error::Internal(format!("column {i} outside row")))?
+            }
             ExprKind::Cast(inner, cast, try_cast) => {
                 let value = eval(inner)?;
                 if *try_cast {
@@ -235,20 +261,35 @@ impl ExpressionEvaluator for ScalarEvaluator {
             ExprKind::Binary(op, left, right, operand_type) => {
                 let left = eval(left)?;
                 if *op == BinaryOp::And && left.as_bool()? == Some(false) {
-                    return Ok(Value::Boolean(false));
+                    return checked_evaluated(
+                        Value::Boolean(false),
+                        &expression.data_type,
+                        constant.get(),
+                    );
                 }
                 if *op == BinaryOp::Or && left.as_bool()? == Some(true) {
-                    return Ok(Value::Boolean(true));
+                    return checked_evaluated(
+                        Value::Boolean(true),
+                        &expression.data_type,
+                        constant.get(),
+                    );
                 }
                 evaluate_binary(*op, left, eval(right)?, operand_type, query)?
             }
-            ExprKind::Operator(function, arguments) => match arguments.as_slice() {
-                [argument] => function.apply(&[eval(argument)?], query)?,
-                [left, right] => function.apply(&[eval(left)?, eval(right)?], query)?,
-                _ => return Err(Error::Internal("operator argument count".into())),
-            },
+            ExprKind::Operator(function, arguments) => {
+                let effects = function.effects();
+                constant.set(!effects.volatile && !effects.external_access);
+                match arguments.as_slice() {
+                    [argument] => function.apply(&[eval(argument)?], query)?,
+                    [left, right] => function.apply(&[eval(left)?, eval(right)?], query)?,
+                    _ => return Err(Error::Internal("operator argument count".into())),
+                }
+            }
             ExprKind::Scalar(function, arguments) => {
                 let mut values = Vec::with_capacity(arguments.len());
+                let mut provenance = Vec::with_capacity(arguments.len());
+                let effects = function.effects();
+                constant.set(!effects.volatile && !effects.external_access);
                 for argument in arguments.iter().take(
                     if matches!(function.argument_evaluation(), ArgumentEvaluation::TypeOnly) {
                         0
@@ -256,17 +297,38 @@ impl ExpressionEvaluator for ScalarEvaluator {
                         arguments.len()
                     },
                 ) {
-                    let value = eval(argument)?;
+                    let result = self.evaluate_with_provenance(argument, row, context)?;
+                    constant
+                        .set(constant.get() && result.provenance == ArgumentProvenance::Constant);
+                    let value = result.value;
+                    if matches!(
+                        function.argument_evaluation(),
+                        ArgumentEvaluation::NullOnConstant
+                    ) && result.provenance == ArgumentProvenance::Constant
+                        && value.is_null()
+                    {
+                        // The selected policy permits stopping only after this
+                        // child was executed and its value/metadata validated.
+                        for data_type in [&argument.data_type, &expression.data_type] {
+                            query.types().bind(data_type)?.validate(&value, query)
+                                .map_err(|error| match error {
+                                    Error::Conversion(_) => Error::Internal("constant NULL argument or result differs from its selected type".into()),
+                                    other => other,
+                                })?;
+                        }
+                        return checked_evaluated(value, &expression.data_type, true);
+                    }
                     if matches!(
                         function.argument_evaluation(),
                         ArgumentEvaluation::FirstNonNull
                     ) && !value.is_null()
                     {
-                        return checked_value(value, &expression.data_type);
+                        return checked_evaluated(value, &expression.data_type, constant.get());
                     }
                     values.push(value);
+                    provenance.push(result.provenance);
                 }
-                let value = function.evaluate(&values, query)?;
+                let value = function.evaluate_with_provenance(&values, &provenance, query)?;
                 query
                     .types()
                     .bind(&expression.data_type)?
@@ -316,8 +378,24 @@ impl ExpressionEvaluator for ScalarEvaluator {
                 }
             }
         };
-        checked_value(value, &expression.data_type)
+        checked_evaluated(value, &expression.data_type, constant.get())
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn checked_evaluated(
+    value: Value,
+    data_type: &crate::DataType,
+    constant: bool,
+) -> Result<EvaluatedValue> {
+    Ok(EvaluatedValue {
+        value: checked_value(value, data_type)?,
+        provenance: if constant {
+            ArgumentProvenance::Constant
+        } else {
+            ArgumentProvenance::Unknown
+        },
+    })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

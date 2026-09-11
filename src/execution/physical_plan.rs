@@ -523,16 +523,27 @@ impl PhysicalOperator for Operator {
                             .collect::<Result<_>>()?;
                         return DataChunk::new(columns, batch.len()).map(Some);
                     }
-                    let rows = batch
-                        .rows()
-                        .map(|row| {
-                            expressions
-                                .iter()
-                                .map(|e| e.evaluate(&row, context))
-                                .collect::<Result<Row>>()
+                    let mut columns = (0..expressions.len())
+                        .map(|_| Vec::with_capacity(batch.len()))
+                        .collect::<Vec<_>>();
+                    for row in batch.rows() {
+                        for (expression, values) in expressions.iter().zip(&mut columns) {
+                            values
+                                .push(expression.evaluate_with_provenance(&row, &batch, context)?);
+                        }
+                    }
+                    let columns = columns
+                        .into_iter()
+                        .zip(schema)
+                        .map(|(values, field)| {
+                            super::expression_executor::result_column(
+                                field.data_type.clone(),
+                                values,
+                                context.query,
+                            )
                         })
-                        .collect::<Result<Vec<_>>>()?;
-                    stream::chunk(schema, &rows)
+                        .collect::<Result<_>>()?;
+                    DataChunk::new(columns, batch.len()).map(Some)
                 })
             }
             Node::Limit(input, limit, offset) => {

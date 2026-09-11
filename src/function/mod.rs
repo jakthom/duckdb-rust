@@ -28,6 +28,11 @@ pub struct FunctionEffects {
 pub enum ArgumentEvaluation {
     Eager,
     FirstNonNull,
+    /// Evaluate children in order, but an executed Constant NULL establishes
+    /// the typed NULL result without invoking later children or the callback.
+    /// Unknown/flat NULL does not short-circuit. This is explicit opt-in, not
+    /// a NULL-handling rule inferred from a function name or return type.
+    NullOnConstant,
     /// Binding consumes only declared argument types. No argument expression
     /// is evaluated at execution; the bound function receives an empty slice.
     TypeOnly,

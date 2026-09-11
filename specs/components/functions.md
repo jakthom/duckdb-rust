@@ -155,3 +155,32 @@ additional rewrite so a selected Implicit cast is not replaced by an Explicit
 cast merely because the source is a fitting literal. Existing Explicit and
 Assignment policies remain unchanged. A future single typed cast-policy object
 can replace these provisional hooks if shared use warrants it.
+
+## Rewrite physical provenance propagation
+
+The built-in evaluators now propagate this provenance while evaluating each
+requested row and child once in ordinary order. Literal/parameter projections
+and already materialized statement-local subquery reductions supply Constant;
+flat VALUES inputs do not, even for one row or repeated equal values. Unknown
+and correlated subquery results are not promoted. Selection preserves an
+existing constant encoding; selection of equal flat rows stays dictionary.
+Materializing operators can erase constant encoding. A result's Constant claim
+is a selected-evaluator invariant, like declared effects; all produced physical
+and logical values are validated before normalization can discard later payloads.
+No SQL equality scan creates or checks the claim.
+
+`ArgumentEvaluation::NullOnConstant` is a separate opt-in execution policy.
+Evaluate children in order until an executed Constant NULL establishes the typed
+NULL result; validate that child's selected type and the selected output type,
+then skip later children and the callback. Already executed children keep their
+effects/errors. Unknown/flat NULL does not short-circuit. Eager and FirstNonNull
+adapters retain their existing behavior. This policy currently serves the
+development date-difference overloads; it does not infer generic NULL handling
+from a function name or weaken conversion/validation failure provenance.
+
+Development's projected constant-NULL date-difference calls return NULL before
+parsing a bad specifier or evaluating later failing children. Release retains
+those errors. Development governs these disagreements. Ordinary VALUES NULL
+arguments remain nonconstant and preserve the function's existing dispatch/error
+order. The family differential retains both outcomes rather than weakening its
+exact result/error comparator.

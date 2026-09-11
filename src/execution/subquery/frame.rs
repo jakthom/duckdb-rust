@@ -58,6 +58,12 @@ impl EvaluationContext for Frame<'_, '_> {
     fn prepared_subquery(&self, query: &Arc<BoundSubquery>) -> Option<Value> {
         self.bindings.borrow().get(Arc::as_ptr(query) as usize)
     }
+    fn subquery_provenance(
+        &self,
+        query: &Arc<BoundSubquery>,
+    ) -> crate::function::ArgumentProvenance {
+        self.context.subquery_provenance(query)
+    }
     fn subquery(
         &self,
         query: &Arc<BoundSubquery>,
@@ -132,6 +138,36 @@ impl<'a> PreparedExpression<'a> {
         }
         context.expressions.evaluate(self.expression, row, &frame)
     }
+    /// Preserve the current input's encoding while keeping relational
+    /// preparation and selected child evaluation in the ordinary row order.
+    pub fn evaluate_with_provenance(
+        &self,
+        row: &Row,
+        input: &crate::common::vector::DataChunk,
+        context: &ExecutionContext<'_>,
+    ) -> Result<super::super::expression_executor::EvaluatedValue> {
+        use super::super::expression_executor::BatchContext;
+        if self.dependencies.is_empty() {
+            let batch = BatchContext {
+                parent: context,
+                input,
+            };
+            return context
+                .expressions
+                .evaluate_with_provenance(self.expression, row, &batch);
+        }
+        let frame = Frame::new(context);
+        let batch = BatchContext {
+            parent: &frame,
+            input,
+        };
+        for dependency in &self.dependencies {
+            context.expressions.evaluate(dependency, row, &batch)?;
+        }
+        context
+            .expressions
+            .evaluate_with_provenance(self.expression, row, &batch)
+    }
     pub fn evaluate_batch(
         &self,
         input: &crate::common::vector::DataChunk,
@@ -146,9 +182,13 @@ impl<'a> PreparedExpression<'a> {
             let mut values = Vec::with_capacity(input.len());
             for index in 0..input.len() {
                 input.read_row(index, &mut row)?;
-                values.push(self.evaluate(&row, context)?);
+                values.push(self.evaluate_with_provenance(&row, input, context)?);
             }
-            crate::common::vector::Vector::flat(self.expression.data_type.clone(), values)?
+            super::super::expression_executor::result_column(
+                self.expression.data_type.clone(),
+                values,
+                context.query,
+            )?
         };
         if output.len() != input.len() {
             return Err(crate::Error::Internal(

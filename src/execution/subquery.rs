@@ -77,6 +77,11 @@ impl<'a> PreparedSubqueries<'a> {
             .get(&(Arc::as_ptr(query) as usize))
             .map(|entry| entry.value.clone())
     }
+    pub(super) fn has_value(&self, query: &Arc<crate::planner::expression::BoundSubquery>) -> bool {
+        self.values
+            .borrow()
+            .contains_key(&(Arc::as_ptr(query) as usize))
+    }
     pub(super) fn retain(
         &self,
         query: &Arc<crate::planner::expression::BoundSubquery>,

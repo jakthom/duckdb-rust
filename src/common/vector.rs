@@ -209,6 +209,13 @@ impl Vector {
     // Only checked Vector/DataChunk selection constructors call this helper.
     // Chunk cardinality establishes the same bounds for every column.
     fn selected(self: &Arc<Self>, selection: Arc<[usize]>, ordered: bool) -> Self {
+        if matches!(self.encoding, Encoding::Constant(_)) {
+            return Self {
+                offset: 0,
+                count: selection.len(),
+                ..self.as_ref().clone()
+            };
+        }
         Self {
             numeric_ascending: self.numeric_ascending && ordered,
             data_type: self.data_type.clone(),

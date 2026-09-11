@@ -13,12 +13,16 @@ pub fn evaluate_expression_rows<T: ExpressionEvaluator + ?Sized>(
 ) -> Result<Vector> {
     let mut row = Vec::with_capacity(input.columns().len());
     let mut values = Vec::with_capacity(input.len());
+    let context = BatchContext {
+        parent: context,
+        input,
+    };
     for index in 0..input.len() {
         context.query().check()?;
         input.read_row(index, &mut row)?;
-        values.push(evaluator.evaluate(expression, &row, context)?);
+        values.push(evaluator.evaluate_with_provenance(expression, &row, &context)?);
     }
-    Vector::flat(expression.data_type.clone(), values)
+    result_column(expression.data_type.clone(), values, context.query())
 }
 
 /// Evaluates total scalar trees by columns, using retained type and operator
@@ -66,6 +70,14 @@ impl ExpressionEvaluator for BatchedEvaluator {
         context: &dyn EvaluationContext,
     ) -> Result<Value> {
         ScalarEvaluator.evaluate(expression, row, context)
+    }
+    fn evaluate_with_provenance(
+        &self,
+        expression: &BoundExpr,
+        row: &Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<EvaluatedValue> {
+        ScalarEvaluator.evaluate_with_provenance(expression, row, context)
     }
     fn evaluate_batch(
         &self,

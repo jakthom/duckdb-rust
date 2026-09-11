@@ -42,6 +42,16 @@ impl expression_executor::EvaluationContext for ExecutionContext<'_> {
     fn query(&self) -> &QueryContext {
         self.query
     }
+    fn subquery_provenance(
+        &self,
+        subquery: &std::sync::Arc<crate::planner::expression::BoundSubquery>,
+    ) -> crate::function::ArgumentProvenance {
+        if self.subquery_plans.has_value(subquery) {
+            crate::function::ArgumentProvenance::Constant
+        } else {
+            crate::function::ArgumentProvenance::Unknown
+        }
+    }
     fn outer_column(&self, depth: usize, column: usize) -> Result<crate::Value> {
         let mut frame = self.outer;
         if depth == 0 {
