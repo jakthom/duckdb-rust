@@ -27,6 +27,7 @@ impl Snapshot {
             return Err(Error::Corrupt("restoring a nonempty table".into()));
         }
         let mut physical = std::collections::BTreeSet::new();
+        let mut physical_slots = Vec::with_capacity(slots.len());
         for slot in slots {
             context.check()?;
             let (id, row) = match slot {
@@ -41,11 +42,10 @@ impl Snapshot {
             {
                 return Err(Error::Corrupt("invalid restored row identity".into()));
             }
+            physical_slots.push(row.as_ref().map(|_| id));
         }
         table.next_id = next_id;
-        table.physical_slots = (0..next_id)
-            .map(|id| table.rows.contains_key(&id).then_some(id))
-            .collect();
+        table.physical_slots = physical_slots;
         table.validate(
             self.indexes.as_ref(),
             &context.clone().with_types(self.types.clone()),
