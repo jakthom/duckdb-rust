@@ -5,7 +5,7 @@ mod base64;
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
     common::{
-        cast::{CastMode, CastRegistry},
+        cast::{CastFunction, CastMode, CastRegistry, CastSpec},
         scalar::{parse_blob, parse_uuid},
         type_registry::builtin_types,
         vector::Vector,
@@ -298,6 +298,272 @@ fn binary_scalar_sql_functions_and_negative_cases_match_reference() -> Result<()
     }
     assert_eq!(c.query(r"SELECT TRY_CAST('\xGG' AS BLOB),TRY_CAST('bad' AS UUID),CASE WHEN false THEN '\xGG'::BLOB ELSE 'ok'::BLOB END, NULL::BLOB||'x'::BLOB, encode(NULL)")?.rows,
         vec![vec![Value::Null,Value::Null,Value::Blob(b"ok".to_vec()),Value::Null,Value::Null]]);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn binary_text_codecs_match_partial_bytes_and_malformed_utf8() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut c = DatabaseBuilder::new()
+            .expressions(expressions)
+            .batch_size(2)
+            .build()?
+            .connect();
+        assert_eq!(
+            c.query(
+                "SELECT hex(unbin('')),hex(unbin('1')),hex(unbin('000000001')),\
+                 hex(unbin('111111111')),hex(from_binary('01100001')),\
+                 hex(unbin('101'::ENUM('101'))),typeof(unbin(NULL))"
+            )?
+            .rows,
+            vec![vec![
+                Value::Varchar("".into()),
+                Value::Varchar("01".into()),
+                Value::Varchar("0001".into()),
+                Value::Varchar("01FF".into()),
+                Value::Varchar("61".into()),
+                Value::Varchar("05".into()),
+                Value::Varchar("BLOB".into()),
+            ]]
+        );
+        assert_eq!(
+            c.query(
+                r"SELECT hex(encode(decode('\xFF'::BLOB,'replace'))),
+                  hex(encode(decode('\xFF'::BLOB,'ignore'))),
+                  hex(encode(decode('\xC0\xAFB'::BLOB,'replace'))),
+                  hex(encode(decode('\xC0\xAFB'::BLOB,'ignore'))),
+                  hex(encode(decode('\xE2\x28\xA1'::BLOB,'replace'))),
+                  hex(encode(decode('\xE2\x28\xA1'::BLOB,'ignore'))),
+                  hex(encode(decode('\xE2\x82'::BLOB,'replace'))),
+                  hex(encode(decode('\xED\xA0\x80'::BLOB,'ignore'))),
+                  decode('ok','not-a-mode'),decode(NULL::BLOB,'not-a-mode')"
+            )?
+            .rows,
+            vec![vec![
+                Value::Varchar("3F".into()),
+                Value::Varchar("".into()),
+                Value::Varchar("3F3F42".into()),
+                Value::Varchar("42".into()),
+                Value::Varchar("3F3F3F".into()),
+                Value::Varchar("28".into()),
+                Value::Varchar("3F3F".into()),
+                Value::Varchar("".into()),
+                Value::Varchar("ok".into()),
+                Value::Null,
+            ]]
+        );
+        assert_eq!(
+            c.query(
+                r"SELECT id,hex(encode(decode(b,m))) FROM (VALUES
+                   (1,'ok'::BLOB,'bad'),
+                   (2,'\xFF'::BLOB,'replace'),
+                   (3,'\xFF'::BLOB,'ignore')) t(id,b,m) ORDER BY id"
+            )?
+            .rows,
+            vec![
+                vec![Value::Integer(1), Value::Varchar("6F6B".into())],
+                vec![Value::Integer(2), Value::Varchar("3F".into())],
+                vec![Value::Integer(3), Value::Varchar("".into())],
+            ]
+        );
+        for sql in [
+            "SELECT unbin('10x1')",
+            "SELECT unbin('1'::BLOB)",
+            "SELECT unbin(1)",
+            r"SELECT decode('\xFF'::BLOB)",
+            r"SELECT decode('\xFF'::BLOB,'STRICT')",
+            r"SELECT decode('\xFF'::BLOB,'not-a-mode')",
+            "SELECT decode()",
+            "SELECT decode('a'::BLOB,'strict','extra')",
+            "SELECT decode(s) FROM (VALUES ('a')) t(s)",
+        ] {
+            assert!(c.query(sql).is_err(), "{sql}");
+        }
+        assert!(matches!(
+            c.query("SELECT decode('ok',CAST(from_base64('bad') AS VARCHAR))"),
+            Err(Error::Conversion(_))
+        ));
+        assert_eq!(
+            c.query(
+                r"SELECT CASE WHEN false THEN unbin('x') ELSE unbin('1') END,
+                  CASE WHEN false THEN decode('\xFF'::BLOB) ELSE decode('ok') END"
+            )?
+            .rows,
+            vec![vec![Value::Blob(vec![1]), Value::Varchar("ok".into())]]
+        );
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SelectedDecodeBlobCast;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for SelectedDecodeBlobCast {
+    fn name(&self) -> &'static str {
+        "selected-decode-blob-input"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Varchar
+            && spec.target == DataType::Blob
+            && spec.mode == CastMode::Explicit
+    }
+    fn cast(&self, value: &Value, _: &CastSpec, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        match value {
+            Value::Varchar(value) if value == "malformed" => Ok(Value::Blob(vec![0xff])),
+            Value::Varchar(value) if value == "fatal" => {
+                Err(Error::Resource("selected decode cast failure".into()))
+            }
+            Value::Varchar(_) => Ok(Value::Blob(b"selected".to_vec())),
+            _ => Err(Error::Internal("selected decode cast input".into())),
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn binary_codecs_retain_selected_casts_and_enforce_resource_cancellation() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut casts = CastRegistry::builtins();
+        casts.replace(
+            CastSpec {
+                source: DataType::Varchar,
+                target: DataType::Blob,
+                mode: CastMode::Explicit,
+            },
+            Arc::new(SelectedDecodeBlobCast),
+        )?;
+        let mut c = DatabaseBuilder::new()
+            .casts(casts)
+            .expressions(expressions)
+            .batch_size(2)
+            .build()?
+            .connect();
+        assert_eq!(
+            c.query("SELECT decode('value'),decode('malformed','replace')")?
+                .rows,
+            vec![vec![
+                Value::Varchar("selected".into()),
+                Value::Varchar("?".into())
+            ]]
+        );
+        let prepared = c.prepare("SELECT decode('value'),decode('malformed','ignore')")?;
+        assert_eq!(
+            c.execute_prepared(&prepared, &[])?.rows,
+            vec![vec![
+                Value::Varchar("selected".into()),
+                Value::Varchar("".into())
+            ]]
+        );
+        assert!(matches!(
+            c.query("SELECT decode('fatal')"),
+            Err(Error::Resource(_))
+        ));
+    }
+
+    let functions = duckdb_rust::function::FunctionRegistry::builtins();
+    let interrupted = duckdb_rust::parallel::InterruptHandle::default();
+    interrupted.interrupt();
+    let cancelled = QueryContext::new(interrupted, None, 2, 1024)?;
+    for (name, arguments) in [
+        ("unbin", vec![Value::Varchar("1".repeat(8192))]),
+        ("decode", vec![Value::Blob(vec![b'a'; 8192])]),
+        (
+            "decode",
+            vec![
+                Value::Blob(vec![0xff; 8192]),
+                Value::Varchar("ignore".into()),
+            ],
+        ),
+    ] {
+        assert!(matches!(
+            functions.scalar(name)?.evaluate(&arguments, &cancelled),
+            Err(Error::Interrupted)
+        ));
+    }
+    let oversized = 16 * 1024 * 1024 + 1;
+    assert!(matches!(
+        functions.scalar("unbin")?.evaluate(
+            &[Value::Varchar("0".repeat(oversized))],
+            &QueryContext::background()
+        ),
+        Err(Error::Resource(_))
+    ));
+    assert!(matches!(
+        functions.scalar("decode")?.evaluate(
+            &[Value::Blob(vec![b'a'; oversized])],
+            &QueryContext::background()
+        ),
+        Err(Error::Resource(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn retained_binary_codec_defaults_keep_selected_casts_after_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("binary-codec-default.duckdb");
+    let mut casts = CastRegistry::builtins();
+    casts.replace(
+        CastSpec {
+            source: DataType::Varchar,
+            target: DataType::Blob,
+            mode: CastMode::Explicit,
+        },
+        Arc::new(SelectedDecodeBlobCast),
+    )?;
+    let open = || {
+        DatabaseBuilder::new()
+            .casts(casts.clone())
+            .durability(Arc::new(FileCheckpoint::open(
+                &path,
+                OpenMode::ReadWrite,
+                Arc::new(DuckDbFormat::default()),
+            )?))
+            .build()
+    };
+    {
+        let mut c = open()?.connect();
+        c.execute(
+            "CREATE TABLE t(\
+             id INTEGER PRIMARY KEY,\
+             b BLOB DEFAULT unbin('101'),\
+             valid VARCHAR DEFAULT decode('value'),\
+             repaired VARCHAR DEFAULT decode('malformed','replace'));\
+             INSERT INTO t(id) VALUES (1); CHECKPOINT",
+        )?;
+    }
+    {
+        let mut c = open()?.connect();
+        c.execute("INSERT INTO t(id) VALUES (2)")?;
+        assert_eq!(
+            c.query("SELECT id,hex(b),valid,repaired FROM t ORDER BY id")?
+                .rows,
+            vec![
+                vec![
+                    Value::Integer(1),
+                    Value::Varchar("05".into()),
+                    Value::Varchar("selected".into()),
+                    Value::Varchar("?".into()),
+                ],
+                vec![
+                    Value::Integer(2),
+                    Value::Varchar("05".into()),
+                    Value::Varchar("selected".into()),
+                    Value::Varchar("?".into()),
+                ],
+            ]
+        );
+    }
     Ok(())
 }
 

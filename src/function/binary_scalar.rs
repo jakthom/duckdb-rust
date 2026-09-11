@@ -1,5 +1,6 @@
 use std::sync::Arc;
 mod base64;
+mod codec;
 
 use super::{
     FunctionRegistry, ScalarFunction,
@@ -23,6 +24,8 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "to_hex",
         "bin",
         "to_binary",
+        "unbin",
+        "from_binary",
         "unhex",
         "from_hex",
         "base64",
@@ -48,13 +51,30 @@ impl ScalarFunction for BinaryFunction {
         if arguments.len() == 1 {
             match self.0 {
                 "base64" | "to_base64" => return Ok(vec![DataType::Blob]),
-                "from_base64" => return Ok(vec![DataType::Varchar]),
+                "from_base64" | "unbin" | "from_binary" => {
+                    return Ok(vec![DataType::Varchar]);
+                }
                 _ => (),
             }
         }
+        if self.0 == "decode" {
+            return match arguments.len() {
+                1 => Ok(vec![DataType::Blob]),
+                2 => Ok(vec![DataType::Blob, DataType::Varchar]),
+                _ => Err(Error::Bind("decode requires one or two arguments".into())),
+            };
+        }
         if matches!(
             self.0,
-            "encode" | "unhex" | "from_hex" | "hex" | "to_hex" | "bin" | "to_binary"
+            "encode"
+                | "unbin"
+                | "from_binary"
+                | "unhex"
+                | "from_hex"
+                | "hex"
+                | "to_hex"
+                | "bin"
+                | "to_binary"
         ) && arguments.len() == 1
             && matches!(arguments[0], DataType::Enum(_))
         {
@@ -78,14 +98,20 @@ impl ScalarFunction for BinaryFunction {
         arguments: &[DataType],
         _: &crate::common::type_registry::TypeRegistry,
     ) -> Result<DataType> {
+        if self.0 == "decode" {
+            return match arguments {
+                [DataType::Blob] | [DataType::Blob, DataType::Varchar] => Ok(DataType::Varchar),
+                _ => Err(Error::Bind("no overload for decode".into())),
+            };
+        }
         let [input] = arguments else {
             return Err(Error::Bind(format!("{} requires one argument", self.0)));
         };
         let (supported, output) = match self.0 {
-            "encode" | "unhex" | "from_hex" | "from_base64" => {
+            "encode" | "unbin" | "from_binary" | "unhex" | "from_hex" | "from_base64" => {
                 (*input == DataType::Varchar, DataType::Blob)
             }
-            "decode" | "base64" | "to_base64" => (*input == DataType::Blob, DataType::Varchar),
+            "base64" | "to_base64" => (*input == DataType::Blob, DataType::Varchar),
             "octet_length" => (
                 matches!(input, DataType::Blob | DataType::Bit),
                 DataType::BigInt,
@@ -109,6 +135,16 @@ impl ScalarFunction for BinaryFunction {
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
+        if self.0 == "decode" {
+            return match arguments {
+                [Value::Null] | [_, Value::Null] | [Value::Null, _] => Ok(Value::Null),
+                [Value::Blob(bytes)] => codec::decode_utf8(bytes, None, query).map(Value::Varchar),
+                [Value::Blob(bytes), Value::Varchar(specifier)] => {
+                    codec::decode_utf8(bytes, Some(specifier), query).map(Value::Varchar)
+                }
+                _ => Err(Error::Internal("decode input differs from binding".into())),
+            };
+        }
         let [input] = arguments else {
             return Err(Error::Internal("binary function argument count".into()));
         };
@@ -121,13 +157,9 @@ impl ScalarFunction for BinaryFunction {
             }
             ("from_base64", Value::Varchar(text)) => base64::decode(text, query).map(Value::Blob),
             ("encode", Value::Varchar(text)) => Ok(Value::Blob(text.as_bytes().to_vec())),
-            ("decode", Value::Blob(bytes)) => String::from_utf8(bytes.clone())
-                .map(Value::Varchar)
-                .map_err(|_| {
-                    Error::Conversion(
-                        "Failure in decode: could not convert BLOB to UTF8 string".into(),
-                    )
-                }),
+            ("unbin" | "from_binary", Value::Varchar(text)) => {
+                codec::decode_binary(text, query).map(Value::Blob)
+            }
             ("octet_length", Value::Blob(bytes)) => Ok(Value::Integer(bytes.len() as i128)),
             ("octet_length", Value::Bit(bits)) => Ok(Value::Integer(bits.bytes().len() as i128)),
             ("hex" | "to_hex", Value::Blob(bytes)) => encode_hex(bytes, query).map(Value::Varchar),
