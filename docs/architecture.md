@@ -1,6 +1,6 @@
 # Rust implementation map
 
-Source-checked 2026-09-11 at `0f50d07`. This is a navigation map, not a parity
+Source-checked 2026-09-11 at `31a72d8`. This is a navigation map, not a parity
 claim. Current work and dependencies live in the [parity backlog](parity-backlog.md);
 the [rewrite principles](../specs/rewrite-principles.md) define required replaceability.
 
@@ -21,12 +21,12 @@ results through the connection, preserving cancellation and statement lifecycle.
 
 | Boundary | Existing implementations / location | Important limit |
 | --- | --- | --- |
-| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs), [runtime registry](../src/catalog/registry.rs), [runtime identity](../src/catalog/identity.rs), [dependency graph](../src/catalog/dependency.rs), [search path](../src/catalog/search_path.rs) | Snapshots and transaction-local DDL consume stable table/schema identities and dependencies; plans and sessions do not yet consume stable bindings/search paths, and there is no general object/multi-catalog model |
+| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs), [runtime registry](../src/catalog/registry.rs), [runtime identity](../src/catalog/identity.rs), [dependency graph](../src/catalog/dependency.rs), [search path](../src/catalog/search_path.rs) | Snapshots, transaction-local DDL and table plans consume stable identities; session search paths, general objects and multiple catalogs remain open |
 | Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs) | Every intervening writer conflicts, even disjoint writes |
 | Values/types | [type/value definitions](../src/common/types.rs), [registry](../src/common/type_registry.rs) | Broad scalar/temporal/nested foundation; function and consumer coverage incomplete |
 | Vectors | [flat/constant/dictionary vectors and chunks](../src/common/vector.rs) | Immutable owned/shared data; not complete native or Arrow vector parity |
 | Expressions | [scalar/batched evaluators](../src/execution/expression_executor.rs), [registered functions](../src/function/mod.rs) | Full overload/effect/default semantics remain open |
-| Stored expressions | [owned trees](../src/catalog/expression.rs), [capture](../src/planner/binder/capture.rs), [binding](../src/planner/binder/stored.rs), [selected evaluator](../src/planner/stored.rs) | Closed representable default DDL/demand/native lifecycle exists; current-time/timezone (G04), catalog identity/dependencies (G10) and DML constraints/generated columns (G11) remain separate |
+| Stored expressions | [owned trees](../src/catalog/expression.rs), [capture](../src/planner/binder/capture.rs), [binding](../src/planner/binder/stored.rs), [selected evaluator](../src/planner/stored.rs) | Closed representable default DDL/demand/native lifecycle exists; current-time/named-zone behavior (G04), general catalog objects (G10) and DML constraints/generated columns (G11) remain separate |
 | Optimization | [identity/configurable pipeline](../src/optimizer/mod.rs) | Default simplify/equality-lookup/EXISTS passes; no cost model |
 | Joins/subqueries | [join operators](../src/execution/operator/join.rs), [subquery adapters](../src/execution/subquery.rs) | Hash/nested-loop and streaming/materializing variants; broader SQL remains open |
 | Aggregation/windows | [aggregate](../src/execution/operator/aggregate.rs), [window](../src/execution/operator/window.rs) | Grouping sets and core windows exist; catalog/frame completeness remains open |
@@ -54,9 +54,13 @@ table bindings retain the observed version separately. Snapshot registries rebui
 fresh identities on reopen, publish versions transactionally, apply schema ownership
 through checked dependencies and share one version-bound prepared identity across the
 transaction's data and catalog-basis views. Rename-aware identified ALTER/DROP follows
-the stable object; drop/recreate makes the old binding stale. The pure search-path
+the stable object; drop/recreate makes the old binding stale. Binder, logical and
+physical nodes retain table bindings, with exact catalog-version validation for
+ordinal-bound reads/mutations and stable identity resolution for DDL. Physical scan
+open repeats validation for callers of the public physical boundary, and alternative
+frontends obtain handles through `Connection::resolve_table`. The pure search-path
 model retains user spelling, duplicates and DuckDB's implicit temporary/default/system
-lookup order, but binder/plan propagation and session-setting integration remain open.
+lookup order, but session-setting integration remains open.
 
 Native persistence already has selected versioned scalar/nested checkpoint and
 WAL paths, physical row-ID/deletion-mask handling, compatible local locks and
@@ -82,6 +86,10 @@ and carries selected function identity, qualification and argument provenance th
 checkpoint and WAL exchange. Unqualified interval syntax retains its VARCHAR-to-
 INTERVAL cast, while qualified units retain their cast/function graph. Ambiguous
 named-to-legacy conversion is rejected.
+Ordinary quoted function identifiers use their identifier value rather than rendered
+SQL, and the currently supported `main` qualification maps to the selected built-in
+registry. Retained native `main.list_value` uses that same explicit qualification
+rule; other schemas/catalogs remain unsupported until routed catalogs exist.
 The checked-in development fixture covers FUNCTION checkpoint input. The independent
 process gate covers FUNCTION/CASE/predicate/interval checkpoint exchange in both
 directions and Rust-origin WAL recovery. The pinned release accepts the checkpoint

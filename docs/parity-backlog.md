@@ -191,8 +191,11 @@ BIGINT/HUGEINT GCD/LCM families, including aliases and selected casts, now work
 through scalar/batch evaluation, mutations and reopen. A second numeric slice adds
 the pinned trigonometric/hyperbolic, angle, exponential, cube-root, `even`, `pi`,
 `signbit` and `nextafter` families, including strict-IEEE signed-NaN behavior. The
-remaining conversion, operator, math and scalar-family catalog is still incomplete;
-in particular power/log/gamma/binomial/bit-count/square-root families remain open.
+generated math tail now also includes power/log/square-root/bit-count, `gamma`,
+`lgamma`, development-authoritative `binom`, exact FLOAT/DOUBLE `isnan`, and the
+callable `**`, `^`, `!__postfix` and `@` aliases. Quoted and `main`-qualified scalar
+calls share ordinary binding. SQL operator spelling for exponentiation/postfix
+factorial, the conversion matrix and the remaining scalar-family catalog stay open.
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -220,8 +223,11 @@ plus selected arithmetic, calendar difference/truncation/bucket/format functions
 range; development's interval normalization carries and borrows with Euclidean,
 saturating behavior. ISO/BCE-aware `era`, `isoyear`, `week`/`weekofyear`, `weekday`,
 `yearweek` and `julian` extraction now works through named and generic aliases, with
-pinned NULL-overload and invalid-specifier ordering. Fixed-offset timezone extraction,
-text parsing, transaction-time and ICU work remains open.
+pinned NULL-overload and invalid-specifier ordering. Core `timezone`,
+`timezone_hour` and `timezone_minute` cover fixed-offset TIMETZ and zero-offset
+DATE/TIME/TIMESTAMP behavior; unsafe offsets outside +/-15:59:59 are rejected
+instead of constructing invalid physical values. Text parsing, transaction-time,
+named-zone and ICU work remains open.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -255,10 +261,10 @@ native values from both producer directions. Rust intentionally rejects a sequen
 or shallow zipped expansion above 16,777,216 logical children before allocation;
 the pinned implementation has no
 equivalent fixed ceiling. The shared multi-family `contains` name, higher-order/lambda
-functions and the broader nested catalog remain open. Native files produced upstream
-can still qualify retained list constructors as `main.list_value`, which the exact
-stored-function lookup does not yet resolve. Core GEOMETRY is present in the pinned
-C++ type enum and absent from Rust's built-in DataType enum; it is not solely a
+functions and the broader nested catalog remain open. Retained native constructors
+qualified as `main.list_value` now resolve through the same bounded built-in lookup
+as ordinary `main`-qualified calls. Core GEOMETRY is present in the pinned C++ type
+enum and absent from Rust's built-in DataType enum; it is not solely a
 spatial-extension question.
 
 - **G05.1 Complete nested semantics.** Finish slicing, constructors/accessors,
@@ -422,9 +428,14 @@ are now adopted by snapshot schema/table DDL and transaction publication. Runtim
 registries rebuild fresh non-wire identities on reopen, enforce table-to-schema
 dependencies, preserve identity across rename, reject drop/recreate replacements and
 reuse one prepared insertion identity across transaction-current/catalog-basis views.
-The binder and logical/physical plans still carry names rather than stable bindings,
-and the pure search path is not yet connected to session resolution. Three built-in
-setting definitions exist; there is no general catalog object model.
+SQL binding and logical/physical table plans now retain these identities. Query/DML
+plans require their exact observed catalog version at logical validation and physical
+scan open; stable ALTER/DROP follows rename, rejects replacements, and preserves
+`IF EXISTS` without classifying arbitrary catalog failures as absence. Alternative
+frontends can resolve the same handles through `Connection::resolve_table`. Prepared
+API statements still retain syntax and rebind on each execution, and the pure search
+path is not yet connected to session resolution. Three built-in setting definitions
+exist; there is no general catalog object model.
 
 - **G10.1 Establish identity and dependencies.** Add catalog/object IDs, search paths,
   dependency tracking, invalidation, temporary object scope and transaction visibility.

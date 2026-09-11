@@ -16,8 +16,8 @@ parsed-node representation. Unqualified `INTERVAL` retains the native VARCHAR-to
 INTERVAL cast, and supported qualified units retain the ordinary DOUBLE/trunc/width-
 cast/`to_*` lowering without executing it during DDL. Built-in current-date/time and
 timezone/calendar defaults remain G04 work. Real sequence objects and `nextval`,
-catalog function identity, search-path resolution, plan-bound table identity,
-non-schema dependencies and prepared invalidation remain G10 work.
+general catalog function identity, search-path resolution, non-schema dependencies
+and prepared-plan invalidation remain G10 work.
 DML-level explicit `DEFAULT`, CHECK constraints and generated columns remain G11 work.
 Independent Base64 (`DEFAULT from_base64('AP8=')`) and calendar function defaults
 expose this difference. A Rust-produced file can appear to work because the writer
@@ -100,10 +100,18 @@ name. Table-to-schema dependencies make restricted schema drops atomic. Private 
 native reopen rebuild fresh runtime IDs; no ID or dependency state is serialized.
 
 This is a storage/transaction foundation, not complete catalog resolution. Binder,
-logical and physical plans still carry table names. The pure search-path model is not
-connected to session settings, and exact retained-function lookup does not yet map an
-upstream-qualified `main.list_value` to the registered built-in constructor. General
-objects, attachments, temporary scope and metadata catalogs remain G10 work.
+logical and physical plans carry stable table bindings. Query/DML validation requires
+the exact observed catalog version until per-object schema versions exist; stable DDL
+follows rename and never targets a same-name replacement. Physical scan open validates
+again for direct public physical-plan callers. Optional identity lookup distinguishes
+absence explicitly so `IF EXISTS` does not hide arbitrary catalog errors. Alternative
+frontends obtain owned definitions/bindings through `Connection::resolve_table`.
+
+The pure search-path model is not connected to session settings. Prepared API
+statements retain syntax and rebind rather than retaining plans. General objects,
+attachments, temporary scope and metadata catalogs remain G10 work. Ordinary quoted
+function identifiers and the supported `main` qualification use the selected registry;
+retained native `main.list_value` follows the same rule without fake alias entries.
 
 ## Native parsed expressions and values
 
@@ -199,6 +207,17 @@ and diagnostics. Development is authoritative for demonstrated differences. Pres
 both outcomes. Some temporal operations distinguish constant from column execution;
 folding or vectorization must not erase that behavior. Timezone/ICU coverage needs
 the matching reference extension, not a substitute core-only result.
+
+Core fixed-offset timezone extraction reads TIMETZ's stored offset and treats
+DATE/TIME/TIMESTAMP inputs as offset zero. `timezone(INTERVAL, TIMETZ)` wraps the
+adjusted wall clock modulo one day and retains the requested second-granularity offset.
+Rust rejects offsets outside +/-15:59:59 before physical encoding; named zones, DST,
+ambient timezone and ICU calendars are separate work.
+
+Generated math catalog aliases are callable by quoted identifier. This does not add
+SQL grammar for exponentiation or postfix factorial. Gamma/log-gamma use the selected
+statement IEEE setting, `binom` owns checked HUGEINT overflow and cancellation, and
+`isnan` retains exact FLOAT/DOUBLE overloads.
 
 The IEEE floating-point setting is registered and selected math consumers exist.
 Already-prepared binding/settings retention remains its own issue: reevaluating
