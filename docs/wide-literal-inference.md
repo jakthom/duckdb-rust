@@ -115,3 +115,31 @@ The preceding core inference trace compatibility check passed with zero error
 returns, panics or open spans; its temporary telemetry was deleted. Combined
 maintained Kani remains pending the integration checkpoint, not claimed by these
 prerequisite commits.
+
+## COALESCE regression repair
+
+The selected COALESCE adapter now requests, validates and retains the owned
+combination proposal. Its argument modes are final: ordinary bound casts still
+execute, but the scalar literal privilege does not replace a selected Implicit
+adapter with an Explicit adapter. Existing FirstNonNull evaluation keeps later
+failing, effectful and row-dependent children lazy. No builtin type/cast registry
+or hidden child evaluator is introduced. Missing frontend capability and malformed
+proposals fail explicitly; replacing the selected scalar catalog still replaces
+the behavior without a binder name switch.
+
+Tests exercise the repaired UHUGEINT/INTEGER query, source-order and NULL
+normalization, full-domain cast failures, nested/temporal/decimal values, nullable
+vectors, prepared values, selected Implicit/Explicit counters, fatal errors,
+joins, grouping, windows, indexed lookup, atomic failed UPDATE, rollback and
+native WAL/checkpoint reopen. One counter test initially cast its setup literal
+through the replacement itself; using a genuine BIGINT literal isolates the
+intended COALESCE cast selection. Foreign frontend tests initially used a
+nonexistent registry replacement API and non-Copy array repetition; they now use
+the existing selected registry construction and explicit metadata array.
+These test corrections do not suppress engine or reference failures.
+
+NULLIF remains an explicit follow-up: development's default macro is
+`CASE WHEN a=b THEN NULL ELSE a END`, so its result retains the first expression's
+type and can evaluate that expression again. An eager scalar that coerces both
+inputs and later casts back is not equivalent. The next selected lowering seam
+must preserve the comparison, CASE and duplicate/effectful argument behavior.

@@ -297,6 +297,35 @@ def persistence(rust, cpp, directory):
     return outcomes
 
 
+# Selected COALESCE is source-ordered combination, distinct from ordinary
+# implicit function coercion. Keep the earlier 803 case identities unchanged.
+for signed in ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT'):
+    SQL.append(f"SELECT typeof(coalesce(1::UHUGEINT,1::{signed})),coalesce(1::UHUGEINT,1::{signed}),typeof(coalesce(NULL,1::{signed},1::UHUGEINT))")
+for expression in (
+    'coalesce(1,NULL,1::UHUGEINT)', 'coalesce(NULL,1,1::UHUGEINT)',
+    'coalesce(1,1::UHUGEINT,NULL)', 'coalesce(1,1,1::UHUGEINT)',
+    'coalesce(340282366920938463463374607431768211455,NULL,1)',
+    'coalesce(340282366920938463463374607431768211455,340282366920938463463374607431768211455,1)',
+    "coalesce(1::UHUGEINT,'bad'::INTEGER)", "coalesce('2',1::INTEGER)",
+    'coalesce(NULL,TRUE,1::UTINYINT)', 'coalesce(NULL,NULL)',
+    'coalesce([1::UHUGEINT],[1::INTEGER])', "coalesce(NULL,{'d':1.25})",
+    "coalesce(NULL,TIMESTAMP '2024-01-02 03:04:05')",
+    "coalesce(NULL,'x'::ENUM('x','y'))", "coalesce(NULL,'0101'::BIT)",
+):
+    SQL.append(f'SELECT typeof({expression}),{expression}')
+SQL += [
+    "SELECT coalesce(a,b::INTEGER,c) FROM (VALUES (1::UHUGEINT,'bad'::VARCHAR,2::INTEGER),(NULL,'3',4),(NULL,NULL,5))t(a,b,c)",
+    'SELECT coalesce(a,b),count(*),sum(coalesce(a,b,0)) FROM (VALUES (1::UHUGEINT,2::INTEGER),(NULL,2),(NULL,NULL))t(a,b) GROUP BY coalesce(a,b) ORDER BY 1',
+    'SELECT sum(coalesce(a,b,0)) OVER(ORDER BY i ROWS UNBOUNDED PRECEDING) FROM (VALUES (1,1::UHUGEINT,2::INTEGER),(2,NULL,2),(3,NULL,NULL))t(i,a,b) ORDER BY i',
+]
+ERROR_CASES += [(f'SELECT {expression}', 'Conversion Error') for expression in (
+    'coalesce(340282366920938463463374607431768211455,1)',
+    "coalesce('bad',1::INTEGER)",
+    'TRY_CAST(coalesce(340282366920938463463374607431768211455,1) AS BIGINT)',
+)]
+ERROR_CASES += [("SELECT coalesce('1'::VARCHAR,1::INTEGER)", 'Binder Error')]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', type=Path, required=True)

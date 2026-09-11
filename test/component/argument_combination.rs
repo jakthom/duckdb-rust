@@ -310,3 +310,103 @@ fn selected_argument_modes_can_disable_only_the_additional_literal_rewrite() -> 
     );
     Ok(())
 }
+
+struct ForeignCombination(ArgumentCombination);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarBindArguments for ForeignCombination {
+    fn len(&self) -> usize {
+        2
+    }
+    fn data_type(&self, index: usize) -> Result<DataType> {
+        ExternalArguments.data_type(index)
+    }
+    fn constant(&self, _: usize) -> Result<Value> {
+        panic!("combination must not evaluate")
+    }
+    fn combination(&self, indices: &[usize]) -> Result<ArgumentCombination> {
+        assert_eq!(indices, &[0, 1]);
+        Ok(self.0.clone())
+    }
+}
+
+#[derive(Debug)]
+struct ReplacedCoalesce;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for ReplacedCoalesce {
+    fn name(&self) -> &str {
+        "coalesce"
+    }
+    fn argument_evaluation(&self) -> ArgumentEvaluation {
+        ArgumentEvaluation::TypeOnly
+    }
+    fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        Ok(DataType::Varchar)
+    }
+    fn evaluate(&self, _: &[Value], _: &QueryContext) -> Result<Value> {
+        Ok(Value::Varchar("selected replacement".into()))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn coalesce_requires_valid_selected_frontend_proposals_and_keeps_catalog_replacements() -> Result<()>
+{
+    let registry = FunctionRegistry::builtins();
+    let selected = registry.scalar("coalesce")?;
+    let query = QueryContext::background();
+    assert!(matches!(
+        selected.bind(&ExternalArguments, &query),
+        Err(Error::Unsupported(_))
+    ));
+    for proposal in [
+        ArgumentCombination {
+            data_type: DataType::Integer,
+            cast_modes: vec![],
+        },
+        ArgumentCombination {
+            data_type: DataType::Decimal { width: 0, scale: 0 },
+            cast_modes: vec![CastMode::Implicit; 2],
+        },
+        ArgumentCombination {
+            data_type: DataType::Integer,
+            cast_modes: vec![CastMode::Assignment; 2],
+        },
+    ] {
+        assert!(
+            selected
+                .bind(&ForeignCombination(proposal), &query)
+                .is_err()
+        );
+    }
+    let bound = selected
+        .bind(
+            &ForeignCombination(ArgumentCombination {
+                data_type: DataType::BigInt,
+                cast_modes: vec![CastMode::Implicit; 2],
+            }),
+            &query,
+        )?
+        .unwrap();
+    assert!(
+        bound
+            .argument_types(&[DataType::Integer], query.types())
+            .is_err()
+    );
+    assert!(
+        bound
+            .return_type(&[DataType::Integer, DataType::Integer], query.types())
+            .is_err()
+    );
+    assert!(bound.evaluate(&[Value::Null], &query).is_err());
+    let mut functions = FunctionRegistry::default();
+    functions.register_scalar(Arc::new(ReplacedCoalesce))?;
+    let mut c = DatabaseBuilder::new()
+        .functions(functions)
+        .build()?
+        .connect();
+    assert_eq!(
+        c.query("SELECT coalesce('bad'::INTEGER,1::UHUGEINT)")?.rows,
+        vec![vec![Value::Varchar("selected replacement".into())]]
+    );
+    Ok(())
+}

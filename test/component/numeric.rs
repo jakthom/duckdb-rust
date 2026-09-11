@@ -11,6 +11,8 @@ use std::sync::Arc;
 mod absolute;
 #[path = "numeric_batches.rs"]
 mod batches;
+#[path = "numeric_coalesce.rs"]
+mod coalesce;
 #[path = "numeric_contracts.rs"]
 mod contracts;
 #[path = "numeric_direction.rs"]

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+mod conditional;
 mod numeric;
 
 use super::{ArgumentEvaluation, FunctionRegistry, ScalarFunction};
@@ -13,6 +14,7 @@ struct Builtin(&'static str);
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     numeric::register(registry);
+    conditional::register(registry);
     registry
         .register_scalar(Arc::new(TypeOf(None)))
         .expect("unique typeof");
@@ -23,7 +25,6 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "char_length",
         "character_length",
         "len",
-        "coalesce",
         "nullif",
         "concat",
         "sqrt",
@@ -50,13 +51,6 @@ impl ScalarFunction for Builtin {
             Ok(None)
         }
     }
-    fn argument_evaluation(&self) -> ArgumentEvaluation {
-        if self.0 == "coalesce" {
-            ArgumentEvaluation::FirstNonNull
-        } else {
-            ArgumentEvaluation::Eager
-        }
-    }
     fn argument_types(
         &self,
         arguments: &[DataType],
@@ -68,7 +62,7 @@ impl ScalarFunction for Builtin {
             }
             return Ok(vec![DataType::Varchar; arguments.len()]);
         }
-        if matches!(self.0, "coalesce" | "nullif") {
+        if self.0 == "nullif" {
             return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
         }
         if self.0 == "sqrt" && arguments == [DataType::Bignum] {
@@ -98,9 +92,6 @@ impl ScalarFunction for Builtin {
     ) -> Result<DataType> {
         let count = arguments.len();
         match self.0 {
-            "coalesce" if count > 0 => arguments
-                .iter()
-                .try_fold(DataType::Null, |t, a| types.common_type(&t, a)),
             "nullif" if count == 2 => types.common_type(&arguments[0], &arguments[1]),
             "concat" => Ok(DataType::Varchar),
             "lower" | "upper"
@@ -131,13 +122,6 @@ impl ScalarFunction for Builtin {
     fn evaluate(&self, args: &[Value], context: &QueryContext) -> Result<Value> {
         context.check()?;
         match self.0 {
-            "coalesce" => {
-                return Ok(args
-                    .iter()
-                    .find(|v| !v.is_null())
-                    .cloned()
-                    .unwrap_or(Value::Null));
-            }
             "concat" => {
                 let mut output = String::new();
                 for argument in args {
