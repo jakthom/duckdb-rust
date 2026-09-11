@@ -130,9 +130,8 @@ fn function_name(name: &ast::ObjectName) -> Result<String> {
         })
         .collect::<Result<Vec<_>>>()?;
     match parts.as_slice() {
-        [function] => Ok(function.clone()),
         [schema, function] if schema.eq_ignore_ascii_case("main") => Ok(function.clone()),
-        _ => Err(unsupported(format!("qualified function {name}"))),
+        _ => Ok(parts.join(".")),
     }
 }
 
