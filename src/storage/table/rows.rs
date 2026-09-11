@@ -223,15 +223,30 @@ impl Rows {
         };
         Ok(())
     }
-    pub fn scan(&self) -> Result<SnapshotScan<'_>> {
+    pub fn scan_ordered(&self, order: &[RowId]) -> Result<SnapshotScan> {
         match self {
-            Self::Published { ids, data, types } => Ok(SnapshotScan {
-                ids,
-                data,
-                types: types.clone(),
-                position: 0,
-                finished: false,
-            }),
+            Self::Published { ids, data, types } => {
+                if order.len() != ids.len() {
+                    return Err(Error::Internal(
+                        "physical scan order differs from live rows".into(),
+                    ));
+                }
+                let selection = order
+                    .iter()
+                    .map(|id| {
+                        ids.binary_search(id).map_err(|_| {
+                            Error::Internal("physical scan references an invisible row".into())
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(SnapshotScan {
+                    ids: order.into(),
+                    data: data.select(&selection)?,
+                    types: types.clone(),
+                    position: 0,
+                    finished: false,
+                })
+            }
             Self::Writable(_) => Err(Error::Internal("unpublished table scan".into())),
         }
     }

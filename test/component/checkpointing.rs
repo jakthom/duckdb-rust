@@ -129,6 +129,7 @@ fn effect_default() -> StoredExpression {
 fn wal_recovery_preserves_regular_and_relocated_update_order() -> Result<()> {
     use duckdb_rust::{
         catalog::{CatalogMut, TableDefinition, UniqueKey},
+        common::{NestedPayload, NestedType, NestedValue},
         storage::{
             TableStorage, TableStorageMut, UpdateMetadata,
             log::{TransactionChange, TransactionLog},
@@ -136,17 +137,39 @@ fn wal_recovery_preserves_regular_and_relocated_update_order() -> Result<()> {
             table::Snapshot,
         },
     };
+    type RecoveredRows = Vec<(u64, Vec<Value>)>;
 
-    let recover = |indexed: bool| -> Result<(Vec<(u64, Vec<Value>)>, usize)> {
+    let recover = |indexed: bool, structure: bool| -> Result<(RecoveredRows, usize)> {
         let table = TableName::main("update_order");
         let context = QueryContext::background();
         let mut original = Snapshot::default();
         let mut id = ColumnDefinition::new("id", DataType::Integer);
         id.nullable = !indexed;
+        let struct_type = NestedType::Struct(vec![("i".into(), DataType::Integer)]).data_type();
+        let value = |integer| {
+            if structure {
+                NestedValue::value(
+                    struct_type.clone(),
+                    NestedPayload::Struct(vec![Value::Integer(integer)]),
+                )
+            } else {
+                Ok(Value::Integer(integer))
+            }
+        };
         original.create_table(
             TableDefinition {
                 name: table.clone(),
-                columns: vec![id, ColumnDefinition::new("v", DataType::Integer)],
+                columns: vec![
+                    id,
+                    ColumnDefinition::new(
+                        "v",
+                        if structure {
+                            struct_type.clone()
+                        } else {
+                            DataType::Integer
+                        },
+                    ),
+                ],
                 unique_keys: indexed
                     .then(|| UniqueKey {
                         columns: vec![0],
@@ -160,9 +183,9 @@ fn wal_recovery_preserves_regular_and_relocated_update_order() -> Result<()> {
         original.insert(
             &table,
             vec![
-                vec![Value::Integer(1), Value::Integer(10)],
-                vec![Value::Integer(2), Value::Integer(20)],
-                vec![Value::Integer(3), Value::Integer(30)],
+                vec![Value::Integer(1), value(10)?],
+                vec![Value::Integer(2), value(20)?],
+                vec![Value::Integer(3), value(30)?],
             ],
             &context,
         )?;
@@ -171,16 +194,19 @@ fn wal_recovery_preserves_regular_and_relocated_update_order() -> Result<()> {
         let start = DuckDbTransactionLog.start(&original, &context)?;
         let columns = if indexed { vec![0] } else { vec![1] };
         let metadata = UpdateMetadata::for_table(&original.table(&table)?, columns)?;
-        let row = if indexed {
-            vec![Value::Integer(10), Value::Integer(10)]
+        let rows = if indexed {
+            vec![
+                (2, vec![Value::Integer(30), Value::Integer(30)]),
+                (0, vec![Value::Integer(10), Value::Integer(10)]),
+            ]
         } else {
-            vec![Value::Integer(1), Value::Integer(11)]
+            vec![(0, vec![Value::Integer(1), value(11)?])]
         };
         let append = start.session.prepare(
             &[TransactionChange::Update {
                 table: table.clone(),
                 metadata,
-                rows: vec![(0, row)],
+                rows,
             }],
             &context,
         )?;
@@ -205,7 +231,7 @@ fn wal_recovery_preserves_regular_and_relocated_update_order() -> Result<()> {
         ))
     };
 
-    let (regular, calls) = recover(false)?;
+    let (regular, calls) = recover(false, false)?;
     assert_eq!(calls, 3);
     assert_eq!(
         regular,
@@ -225,7 +251,7 @@ fn wal_recovery_preserves_regular_and_relocated_update_order() -> Result<()> {
         ]
     );
 
-    let (relocated, calls) = recover(true)?;
+    let (relocated, calls) = recover(true, false)?;
     assert_eq!(calls, 3);
     assert_eq!(
         relocated,
@@ -235,15 +261,25 @@ fn wal_recovery_preserves_regular_and_relocated_update_order() -> Result<()> {
                 vec![Value::Integer(2), Value::Integer(20), Value::Integer(1)]
             ),
             (
-                2,
-                vec![Value::Integer(3), Value::Integer(30), Value::Integer(2)]
+                3,
+                vec![Value::Integer(30), Value::Integer(30), Value::Integer(2)]
             ),
             (
-                3,
+                4,
                 vec![Value::Integer(10), Value::Integer(10), Value::Integer(3)]
             ),
         ]
     );
+
+    // STRUCT/TUPLE recurse into their children. A scalar-only STRUCT remains
+    // in place and the native WAL retains both its payload and validity.
+    let (structure, calls) = recover(false, true)?;
+    assert_eq!(calls, 3);
+    assert_eq!(structure[0].0, 0);
+    assert_eq!(structure[0].1[1].to_string(), "{'i': 11}");
+    assert_eq!(structure[0].1[2], Value::Integer(1));
+    assert_eq!(structure[1].1[2], Value::Integer(2));
+    assert_eq!(structure[2].1[2], Value::Integer(3));
     Ok(())
 }
 

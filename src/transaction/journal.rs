@@ -1,6 +1,6 @@
 use super::*;
 use crate::{catalog::TableDefinition, storage::UpdateMetadata};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Catalog for SnapshotTransaction {
@@ -132,12 +132,7 @@ impl TableStorageMut for SnapshotTransaction {
             table: table.clone(),
             metadata: metadata.clone(),
             // Statement validation observes the last replacement of each row.
-            rows: rows
-                .iter()
-                .cloned()
-                .collect::<BTreeMap<_, _>>()
-                .into_iter()
-                .collect(),
+            rows: crate::storage::normalize_update_rows(rows.clone()),
         });
         let count = self.snapshot.update(table, metadata, rows, context)?;
         if count != 0

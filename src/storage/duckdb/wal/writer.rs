@@ -104,6 +104,19 @@ impl DuckDbTransactionLog {
 struct Pending {
     deleted: BTreeSet<RowId>,
     rows: BTreeMap<RowId, Row>,
+    order: Vec<RowId>,
+}
+
+impl Pending {
+    fn insert(&mut self, id: RowId, row: Row) {
+        if !self.rows.contains_key(&id) {
+            self.order.push(id);
+        }
+        self.rows.insert(id, row);
+    }
+    fn remove(&mut self, id: &RowId) -> Option<Row> {
+        self.rows.remove(id)
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -270,7 +283,7 @@ impl LogSession for Session {
                             if !changes.rows.contains_key(id) {
                                 changes.deleted.insert(state.physical(*id)?);
                             }
-                            changes.rows.insert(*id, row.clone());
+                            changes.insert(*id, row.clone());
                         }
                     } else if !changes.rows.is_empty() {
                         // Native undo entries retain a table version. Emit DML
@@ -334,9 +347,7 @@ impl LogSession for Session {
                     let pending = pending.entry(table.clone()).or_default();
                     for row in rows {
                         context.check()?;
-                        pending
-                            .rows
-                            .insert(advance(&mut state.logical_next)?, row.clone());
+                        pending.insert(advance(&mut state.logical_next)?, row.clone());
                     }
                 }
                 TransactionChange::Update {
@@ -373,7 +384,7 @@ impl LogSession for Session {
                             if !pending.rows.contains_key(id) {
                                 pending.deleted.insert(state.physical(*id)?);
                             }
-                            pending.rows.insert(*id, row.clone());
+                            pending.insert(*id, row.clone());
                         }
                     }
                 }
@@ -385,7 +396,7 @@ impl LogSession for Session {
                     let pending = pending.entry(table.clone()).or_default();
                     for id in ids {
                         context.check()?;
-                        if pending.rows.remove(id).is_none() {
+                        if pending.remove(id).is_none() {
                             pending.deleted.insert(state.physical(*id)?);
                         }
                         state.remapped.remove(id);
@@ -402,10 +413,18 @@ impl LogSession for Session {
                 .tables
                 .get_mut(&name)
                 .ok_or_else(|| invalid("missing changed table"))?;
+            let Pending {
+                deleted,
+                rows: mut pending_rows,
+                order,
+            } = pending;
             output.push(named(25, &name)?)?;
-            output.delete(&pending.deleted.into_iter().collect::<Vec<_>>(), context)?;
-            let mut rows = Vec::with_capacity(pending.rows.len());
-            for (logical, row) in pending.rows {
+            output.delete(&deleted.into_iter().collect::<Vec<_>>(), context)?;
+            let mut rows = Vec::with_capacity(pending_rows.len());
+            for logical in order {
+                let Some(row) = pending_rows.remove(&logical) else {
+                    continue;
+                };
                 let physical = advance(&mut state.physical_next)?;
                 if physical == logical {
                     state.remapped.remove(&logical);

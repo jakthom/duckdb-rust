@@ -208,16 +208,16 @@ pub fn next_batch(
     Ok(batch)
 }
 
-pub(crate) struct SnapshotScan<'a> {
-    pub ids: &'a Arc<[RowId]>,
-    pub data: &'a DataChunk,
+pub(crate) struct SnapshotScan {
+    pub ids: Arc<[RowId]>,
+    pub data: DataChunk,
     pub types: Arc<[DataType]>,
     pub position: usize,
     pub finished: bool,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl TableScan for SnapshotScan<'_> {
+impl TableScan for SnapshotScan {
     fn next(&mut self, max_rows: usize, context: &QueryContext) -> Result<Option<ScanBatch>> {
         if self.finished {
             return Ok(None);

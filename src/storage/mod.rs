@@ -80,6 +80,23 @@ impl UpdateMetadata {
     }
 }
 
+/// Keep the first physical encounter position for each row while applying its
+/// final replacement. Plain UPDATE supplies unique IDs; this also keeps direct
+/// storage adapters from re-sorting defensive duplicate input by logical ID.
+pub(crate) fn normalize_update_rows(rows: Vec<(RowId, Row)>) -> Vec<(RowId, Row)> {
+    let mut positions = std::collections::HashMap::new();
+    let mut normalized = Vec::with_capacity(rows.len());
+    for (id, row) in rows {
+        if let Some(&position) = positions.get(&id) {
+            normalized[position] = (id, row);
+        } else {
+            positions.insert(id, normalized.len());
+            normalized.push((id, row));
+        }
+    }
+    normalized
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct StorageCapabilities {
     pub mutable: bool,

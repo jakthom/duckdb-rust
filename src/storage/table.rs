@@ -583,7 +583,13 @@ impl TableStorage for Snapshot {
             .collect())
     }
     fn open_scan(&self, table: &TableName) -> Result<Box<dyn super::scan::TableScan + '_>> {
-        Ok(Box::new(self.get(table)?.rows.scan()?))
+        let table = self.get(table)?;
+        let order = table
+            .physical_slots
+            .iter()
+            .filter_map(|slot| slot.live())
+            .collect::<Vec<_>>();
+        Ok(Box::new(table.rows.scan_ordered(&order)?))
     }
     fn fetch(
         &self,
@@ -675,30 +681,27 @@ impl TableStorageMut for Snapshot {
         // Statement validation observes the final replacement for each logical
         // row. Relocating a duplicate more than once would manufacture phantom
         // physical slots, so normalize before changing either representation.
-        let rows = rows.into_iter().collect::<BTreeMap<_, _>>();
+        let rows = super::normalize_update_rows(rows);
         let count = rows.len();
-        for (&id, row) in &rows {
+        for (id, row) in &rows {
             context.check()?;
-            if !next.rows.contains_key(&id) {
+            if !next.rows.contains_key(id) {
                 return Err(Error::Transaction(format!("row {id} is not visible")));
             }
-            next.rows.insert(id, row.clone());
+            next.rows.insert(*id, row.clone());
         }
         if metadata.mode == UpdateMode::DeleteInsert {
             let mut relocated = Vec::with_capacity(count);
-            for slot in &mut next.physical_slots {
-                let PhysicalSlot::Live(id) = *slot else {
-                    continue;
-                };
-                if rows.contains_key(&id) {
-                    *slot = PhysicalSlot::Deleted(id);
-                    relocated.push(PhysicalSlot::Live(id));
-                }
-            }
-            if relocated.len() != count {
-                return Err(Error::Internal(
-                    "updated row has no live physical slot".into(),
-                ));
+            for (id, _) in &rows {
+                let slot = next
+                    .physical_slots
+                    .iter_mut()
+                    .find(|slot| matches!(slot, PhysicalSlot::Live(row_id) if row_id == id))
+                    .ok_or_else(|| {
+                        Error::Internal("updated row has no live physical slot".into())
+                    })?;
+                *slot = PhysicalSlot::Deleted(*id);
+                relocated.push(PhysicalSlot::Live(*id));
             }
             next.physical_slots.extend(relocated);
         }

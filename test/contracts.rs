@@ -1164,12 +1164,17 @@ fn update_mode_controls_later_volatile_add_order() -> Result<()> {
         "CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER); \
          INSERT INTO t VALUES (1,10),(2,20),(3,30); \
          UPDATE t SET id=10 WHERE id=1; \
-         ALTER TABLE t ADD COLUMN observed INTEGER DEFAULT app.default_tick()",
+         UPDATE t SET id=id+100 WHERE id IN (2,10)",
     )?;
+    assert_eq!(
+        indexed.query("SELECT id FROM t")?.rows,
+        vec![integers(&[3]), integers(&[102]), integers(&[110])]
+    );
+    indexed.execute("ALTER TABLE t ADD COLUMN observed INTEGER DEFAULT app.default_tick()")?;
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert_eq!(
         indexed.query("SELECT id,observed FROM t ORDER BY id")?.rows,
-        vec![integers(&[2, 1]), integers(&[3, 2]), integers(&[10, 3])]
+        vec![integers(&[3, 1]), integers(&[102, 2]), integers(&[110, 3])]
     );
 
     // LIST cannot use DuckDB's regular update path, so assigning it has the
