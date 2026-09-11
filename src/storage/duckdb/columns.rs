@@ -7,7 +7,7 @@ mod row_identity;
 mod string_statistics;
 use crate::{
     catalog::TableDefinition,
-    common::{DataType, Error, Result, Row, Value},
+    common::{DataType, Error, Result, Value},
 };
 
 /// One selected request context follows every descendant column and decoder.
@@ -20,10 +20,10 @@ pub(super) struct ReadContext<'a> {
 
 use crate::{
     parallel::QueryContext,
-    storage::compression::{
+    storage::{compression::{
         CodecId, DecodeContext, DecodeInput, DecoderRegistry, SegmentStatistics as Statistics,
         SegmentType,
-    },
+    }, table::RestoredSlot},
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -33,7 +33,7 @@ pub(super) fn read_table(
     table: &TableDefinition,
     total: usize,
     next_row_id: u64,
-) -> Result<Vec<(crate::storage::RowId, Row)>> {
+) -> Result<Vec<RestoredSlot>> {
     let blocks = context.blocks;
     context.query.check()?;
     let mut identities =
@@ -122,9 +122,10 @@ pub(super) fn read_table(
                 row[index] = value;
             }
         }
-        rows.extend(group.into_iter().zip(deleted).enumerate().filter_map(
-            |(index, (row, deleted))| (!deleted).then_some((start + index as u64, row)),
-        ));
+        rows.extend(group.into_iter().zip(deleted).enumerate().map(|(index, (row, deleted))| {
+            let id = start + index as u64;
+            if deleted { RestoredSlot::Deleted(id) } else { RestoredSlot::Live(id, row) }
+        }));
     }
     identities.finish()?;
     context.query.check()?;

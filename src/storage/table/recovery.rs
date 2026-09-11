@@ -2,25 +2,38 @@ use super::*;
 use crate::storage::recovery::{RecoveredChange, RecoveryTarget};
 mod nested;
 
+/// A native checkpoint slot retains its physical identity even when its row is
+/// deleted. Decoders must not discard that provenance before restoration.
+#[derive(Debug)]
+pub(crate) enum RestoredSlot {
+    Live(RowId, Row),
+    Deleted(RowId),
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
     /// Restore physical identities without reusing deleted slots. The table
     /// must already exist and be empty. Failure leaves it unchanged.
-    pub(crate) fn restore_rows(
+    pub(crate) fn restore_slots(
         &mut self,
         name: &TableName,
-        rows: Vec<(RowId, Row)>,
+        slots: Vec<RestoredSlot>,
         next_id: RowId,
         context: &QueryContext,
     ) -> Result<()> {
-        context.check_rows(rows.len())?;
+        context.check_rows(slots.len())?;
         let mut table = self.get(name)?.clone();
         if table.next_id != 0 || !table.rows.is_empty() {
             return Err(Error::Corrupt("restoring a nonempty table".into()));
         }
-        for (id, row) in rows {
+        let mut physical = std::collections::BTreeSet::new();
+        for slot in slots {
             context.check()?;
-            if id >= next_id || table.rows.insert(id, row).is_some() {
+            let (id, row) = match slot {
+                RestoredSlot::Live(id, row) => (id, Some(row)),
+                RestoredSlot::Deleted(id) => (id, None),
+            };
+            if id >= next_id || !physical.insert(id) || row.as_ref().is_some_and(|row| table.rows.insert(id, row.clone()).is_some()) {
                 return Err(Error::Corrupt("invalid restored row identity".into()));
             }
         }

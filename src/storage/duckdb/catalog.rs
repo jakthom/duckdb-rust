@@ -62,7 +62,7 @@ pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
                 let rows = columns::read_table(context, pointer, &definition, total, next_row_id)?;
                 let name = definition.name.clone();
                 snapshot.create_table(definition, false)?;
-                snapshot.restore_rows(&name, rows, next_row_id, context.query)?;
+                snapshot.restore_slots(&name, rows, next_row_id, context.query)?;
             }
             _ => {
                 return Err(Error::Unsupported(format!(

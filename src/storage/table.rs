@@ -6,6 +6,7 @@ use std::{
 mod alter;
 mod layout;
 mod recovery;
+pub(crate) use recovery::RestoredSlot;
 mod rows;
 use rows::Rows;
 
