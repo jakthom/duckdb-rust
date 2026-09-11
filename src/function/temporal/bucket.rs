@@ -1,7 +1,7 @@
 //! Fixed-duration and calendar-month buckets, with explicit offset and origin
 //! overloads. TIME wraps at midnight; no ambient timezone is consulted.
 use super::{truncation::calendar_date, *};
-use crate::function::{ArgumentEvaluation, ArgumentProvenance};
+use crate::function::{ArgumentEvaluation, ArgumentProvenance, ScalarSignature};
 
 const ORIGIN_MICROS: i64 = 10959 * MICROS_PER_DAY;
 const ORIGIN_MONTHS: i32 = 360;
@@ -10,6 +10,7 @@ const ORIGIN_MONTHS: i32 = 360;
 struct TimeBucket {
     known_null: bool,
     offset: bool,
+    signature: Option<ScalarSignature>,
 }
 
 #[derive(Clone, Copy)]
@@ -31,13 +32,36 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         .register_scalar(Arc::new(TimeBucket {
             known_null: false,
             offset: false,
+            signature: None,
         }))
         .expect("unique time_bucket function");
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn no_overload() -> Error {
-    Error::Bind("No matching overload for time_bucket; add explicit INTERVAL and DATE, TIMESTAMP or TIME casts".into())
+fn candidates() -> Vec<ScalarSignature> {
+    use DataType::*;
+    // Preserve advertised placeholder order, including unavailable ICU entries.
+    [
+        vec![Interval, Date],
+        vec![Interval, Date, Date],
+        vec![Interval, Date, Interval],
+        vec![Interval, Time],
+        vec![Interval, Time, Interval],
+        vec![Interval, Time, Time],
+        vec![Interval, Timestamp],
+        vec![Interval, Timestamp, Interval],
+        vec![Interval, Timestamp, Timestamp],
+        vec![Interval, TimestampTz],
+        vec![Interval, TimestampTz, Interval],
+        vec![Interval, TimestampTz, TimestampTz],
+        vec![Interval, TimestampTz, Varchar],
+    ]
+    .into_iter()
+    .map(|arguments| ScalarSignature {
+        return_type: arguments[1].clone(),
+        arguments,
+    })
+    .collect()
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -51,17 +75,17 @@ impl ScalarFunction for TimeBucket {
         query: &QueryContext,
     ) -> Result<Option<Arc<dyn ScalarFunction>>> {
         query.check()?;
-        if !matches!(arguments.len(), 2 | 3) {
-            return Ok(None);
+        let candidates = candidates();
+        ScalarSignature::validate_candidates(self.name(), &candidates, query)?;
+        let selected = arguments.select_overload(self.name(), &candidates)?;
+        let signature = ScalarSignature::selected(&candidates, selected)?.clone();
+        if signature.arguments.len() != arguments.len() {
+            return Err(Error::Internal("selected bucket overload arity".into()));
         }
-        let sources = (0..arguments.len())
-            .map(|index| arguments.data_type(index))
-            .collect::<Result<Vec<_>>>()?;
-        self.argument_types(&sources, query.types())?;
-        for (index, source) in sources.iter().enumerate() {
-            if *source == DataType::Varchar && !arguments.is_string_literal(index)? {
-                return Err(no_overload());
-            }
+        if signature.return_type == DataType::TimestampTz {
+            return Err(Error::Unsupported(
+                "time_bucket with time zones requires a selected ICU timezone adapter".into(),
+            ));
         }
         let mut known_null = false;
         for index in 0..arguments.len() {
@@ -72,7 +96,8 @@ impl ScalarFunction for TimeBucket {
         }
         Ok(Some(Arc::new(Self {
             known_null,
-            offset: sources.get(2) == Some(&DataType::Interval),
+            offset: signature.arguments.get(2) == Some(&DataType::Interval),
+            signature: Some(signature),
         })))
     }
     fn argument_evaluation(&self) -> ArgumentEvaluation {
@@ -87,79 +112,26 @@ impl ScalarFunction for TimeBucket {
         arguments: &[DataType],
         _types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Vec<DataType>> {
-        use DataType::*;
-        if !matches!(arguments.len(), 2 | 3) || !matches!(arguments[0], Interval | Null | Varchar) {
-            return Err(no_overload());
+        let signature = self.signature.as_ref().ok_or_else(|| {
+            Error::Unsupported("bucket requires selected overload binding".into())
+        })?;
+        if arguments.len() != signature.arguments.len() {
+            return Err(Error::Internal("bound bucket argument count".into()));
         }
-        if arguments
-            .iter()
-            .any(|arg| matches!(arg, TimestampTz | TimestampTzNs))
-        {
-            return Err(Error::Unsupported(
-                "time_bucket with time zones requires a selected ICU timezone adapter".into(),
-            ));
-        }
-        let offset = arguments.get(2) == Some(&Interval);
-        if arguments
-            .get(2)
-            .is_some_and(|arg| matches!(arg, Null | Varchar))
-        {
-            return Err(no_overload());
-        }
-        let mut candidates = vec![&arguments[1]];
-        if arguments.len() == 3 && !offset {
-            candidates.push(&arguments[2]);
-        }
-        let target = if candidates
-            .iter()
-            .any(|arg| matches!(arg, Timestamp | TimestampS | TimestampMs | TimestampNs))
-        {
-            Timestamp
-        } else if candidates.contains(&&Date) {
-            Date
-        } else if candidates.contains(&&Time) {
-            Time
-        } else {
-            return Err(no_overload());
-        };
-        for arg in candidates {
-            if !matches!(
-                arg,
-                Date | Time | Timestamp | TimestampS | TimestampMs | TimestampNs | Null | Varchar
-            ) || (*arg == Time && target != Time)
-                || (target == Time
-                    && matches!(
-                        arg,
-                        Date | Timestamp | TimestampS | TimestampMs | TimestampNs
-                    ))
-            {
-                return Err(no_overload());
-            }
-        }
-        let mut result = vec![Interval, target.clone()];
-        if arguments.len() == 3 {
-            result.push(if offset { Interval } else { target });
-        }
-        Ok(result)
+        Ok(signature.arguments.clone())
     }
     fn return_type(
         &self,
         arguments: &[DataType],
         _types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<DataType> {
-        if !matches!(arguments.len(), 2 | 3)
-            || arguments[0] != DataType::Interval
-            || !matches!(
-                arguments[1],
-                DataType::Date | DataType::Timestamp | DataType::Time
-            )
-            || arguments
-                .get(2)
-                .is_some_and(|arg| *arg != DataType::Interval && *arg != arguments[1])
-        {
-            return Err(no_overload());
+        let signature = self.signature.as_ref().ok_or_else(|| {
+            Error::Unsupported("bucket requires selected overload binding".into())
+        })?;
+        if arguments != signature.arguments {
+            return Err(Error::Internal("bound bucket signature changed".into()));
         }
-        Ok(arguments[1].clone())
+        Ok(signature.return_type.clone())
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         self.evaluate_with_provenance(
@@ -314,7 +286,9 @@ impl Interval {
             ));
         }
         if throw {
-            Err(Error::NotImplemented("Period must be greater than 0".into()))
+            Err(Error::NotImplemented(
+                "Period must be greater than 0".into(),
+            ))
         } else {
             Ok(None)
         }

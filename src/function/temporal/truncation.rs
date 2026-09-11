@@ -3,13 +3,14 @@
 use super::{units::Unit, *};
 use crate::{
     common::cast::CastMode,
-    function::{ArgumentEvaluation, ArgumentProvenance},
+    function::{ArgumentEvaluation, ArgumentProvenance, ScalarSignature},
 };
 
 #[derive(Debug)]
 struct DateTruncation {
     name: &'static str,
     known_null: bool,
+    signature: Option<ScalarSignature>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -19,16 +20,28 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
             .register_scalar(Arc::new(DateTruncation {
                 name,
                 known_null: false,
+                signature: None,
             }))
             .expect("unique calendar truncation function");
     }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn no_overload(name: &str) -> Error {
-    Error::Bind(format!(
-        "No matching overload for {name}; add explicit DATE, TIMESTAMP or INTERVAL casts"
-    ))
+fn candidates() -> Vec<ScalarSignature> {
+    use DataType::*;
+    // Advertised extension-placeholder order is part of candidate diagnostics.
+    // The ICU signature is metadata only; selecting it still rejects execution.
+    [Date, Interval, Timestamp, TimestampTz]
+        .into_iter()
+        .map(|kind| ScalarSignature {
+            return_type: if kind == Date {
+                Timestamp
+            } else {
+                kind.clone()
+            },
+            arguments: vec![Varchar, kind],
+        })
+        .collect()
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -50,16 +63,24 @@ impl ScalarFunction for DateTruncation {
         query: &QueryContext,
     ) -> Result<Option<Arc<dyn ScalarFunction>>> {
         query.check()?;
-        if arguments.len() != 2 {
-            return Ok(None);
+        let candidates = candidates();
+        ScalarSignature::validate_candidates(self.name, &candidates, query)?;
+        let selected = arguments.select_overload(self.name, &candidates)?;
+        let signature = ScalarSignature::selected(&candidates, selected)?.clone();
+        if signature.arguments.len() != arguments.len() {
+            return Err(Error::Internal("selected truncation overload arity".into()));
         }
-        let source = [arguments.data_type(0)?, arguments.data_type(1)?];
-        let target = self.argument_types(&source, query.types())?;
+        if signature.return_type == DataType::TimestampTz {
+            return Err(Error::Unsupported(format!(
+                "{} with time zones requires a selected ICU timezone adapter",
+                self.name
+            )));
+        }
         let known_null = arguments.is_provably_null(0)? || arguments.is_provably_null(1)?;
         // The DATE/TIMESTAMP bind callback validates a closed part for its
         // statistics callback even in an unexecuted CASE branch. INTERVAL has
         // no such bind callback. Required evaluation failures remain fatal.
-        if !known_null && target[1] != DataType::Interval && arguments.is_closed(0)? {
+        if !known_null && signature.arguments[1] != DataType::Interval && arguments.is_closed(0)? {
             let part = arguments.constant_as(0, &DataType::Varchar, CastMode::Implicit)?;
             if let Value::Varchar(part) = part {
                 if matches!(Unit::parse(&part)?, Unit::Unsupported) {
@@ -74,6 +95,7 @@ impl ScalarFunction for DateTruncation {
         Ok(Some(Arc::new(Self {
             name: self.name,
             known_null,
+            signature: Some(signature),
         })))
     }
     fn argument_evaluation(&self) -> ArgumentEvaluation {
@@ -88,36 +110,26 @@ impl ScalarFunction for DateTruncation {
         arguments: &[DataType],
         _types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Vec<DataType>> {
-        use DataType::*;
-        let [part, value] = arguments else {
-            return Err(no_overload(self.name));
-        };
-        if !matches!(part, Varchar | Null | Enum(_)) {
-            return Err(no_overload(self.name));
+        let signature = self.signature.as_ref().ok_or_else(|| {
+            Error::Unsupported("truncation requires selected overload binding".into())
+        })?;
+        if arguments.len() != signature.arguments.len() {
+            return Err(Error::Internal("bound truncation argument count".into()));
         }
-        let value = match value {
-            Date | Interval => value.clone(),
-            Timestamp | TimestampS | TimestampMs | TimestampNs => Timestamp,
-            TimestampTz | TimestampTzNs => {
-                return Err(Error::Unsupported(format!(
-                    "{} with time zones requires a selected ICU timezone adapter",
-                    self.name
-                )));
-            }
-            _ => return Err(no_overload(self.name)),
-        };
-        Ok(vec![Varchar, value])
+        Ok(signature.arguments.clone())
     }
     fn return_type(
         &self,
         arguments: &[DataType],
         _types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<DataType> {
-        match arguments {
-            [DataType::Varchar, DataType::Interval] => Ok(DataType::Interval),
-            [DataType::Varchar, DataType::Date | DataType::Timestamp] => Ok(DataType::Timestamp),
-            _ => Err(no_overload(self.name)),
+        let signature = self.signature.as_ref().ok_or_else(|| {
+            Error::Unsupported("truncation requires selected overload binding".into())
+        })?;
+        if arguments != signature.arguments {
+            return Err(Error::Internal("bound truncation signature changed".into()));
         }
+        Ok(signature.return_type.clone())
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         self.evaluate_with_provenance(

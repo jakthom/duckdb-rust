@@ -15,6 +15,9 @@ fn text_rows(result: duckdb_rust::QueryResult) -> Vec<Vec<String>> {
         .collect()
 }
 
+#[path = "temporal_overloads.rs"]
+mod temporal_overloads;
+
 #[test]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn truncation_retains_aliases_calendar_units_duration_signs_and_timestamp_precision() -> Result<()>

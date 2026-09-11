@@ -274,7 +274,14 @@ Sources: [overload selection](../../../duckdb/src/function/function_binder.cpp),
 [advertised extension signatures](../../../duckdb/src/include/duckdb/main/extension_entries.hpp).
 
 The provisional temporal adapters register `date_trunc`/`datetrunc` and
-`time_bucket` through the ordinary selected function catalog. Truncation keeps
+`time_bucket` through the ordinary selected function catalog. Their binding now
+uses the named overload request above, validates the selected index and arity,
+and retains argument/result metadata before any constant-NULL or statistics
+probe. Advertised ICU candidates participate in diagnostics/ranking but remain
+Unsupported if selected without an implementation; no core substitute is used.
+Selected custom casts can change availability without family type whitelists.
+The four source-recognized DATETRUNC/bucket kernel and statistics rejections use
+NotImplemented, distinct from missing rewrite capability. Truncation keeps
 DATE/TIMESTAMP results as microsecond TIMESTAMP and INTERVAL results as INTERVAL;
 unit timestamp arguments use selected casts. Calendar periods, fixed timestamp
 units and signed interval components retain their distinct algorithms. A closed
