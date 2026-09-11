@@ -237,6 +237,15 @@ fn strptime_constant_lists_nulls_prepared_arguments_and_error_boundary_match_cor
         c.query("SELECT strptime('1677-09-21 12:00:00.000000000','%Y-%m-%d %H:%M:%S.%n')"),
         Err(Error::Conversion(_))
     ));
+    assert_eq!(
+        c.query(
+            "SELECT strptime(
+               '1677-09-22 00:00:00.145224193+23:47:17',
+               '%Y-%m-%d %H:%M:%S.%n%z')"
+        )?
+        .rows,
+        vec![vec![timestamp("-infinity", &DataType::TimestampTzNs)?]]
+    );
     assert!(matches!(
         c.query("SELECT strptime('2001-02-30','%Y-%m-%d')"),
         Err(Error::Conversion(_))

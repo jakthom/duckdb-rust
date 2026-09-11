@@ -463,18 +463,16 @@ fn parse(
         (parsed.nanos + 500) / 1000
     };
     let seconds = parsed.hour * 3600 + parsed.minute * 60 + parsed.second - parsed.utc_offset;
-    let ticks = i64::from(date.days())
-        .checked_mul(
-            precision
-                .checked_mul(86_400)
-                .ok_or_else(|| Error::Internal("strptime timestamp precision overflow".into()))?,
-        )
-        .and_then(|date| {
-            seconds
-                .checked_mul(precision)
-                .and_then(|time| date.checked_add(time))
-        })
-        .and_then(|ticks| ticks.checked_add(fraction));
+    let day_precision = precision
+        .checked_mul(86_400)
+        .ok_or_else(|| Error::Internal("strptime timestamp precision overflow".into()))?;
+    let date_ticks = i64::from(date.days()).checked_mul(day_precision);
+    // Native ToTimeNS combines the subsecond fraction with the time-of-day
+    // before adding the date. The order matters at the signed 64-bit boundary.
+    let time_ticks = seconds
+        .checked_mul(precision)
+        .and_then(|time| time.checked_add(fraction));
+    let ticks = date_ticks.and_then(|date| time_ticks.and_then(|time| date.checked_add(time)));
     let Some(ticks) = ticks else {
         return Err(Error::Conversion(
             "Date and time not in timestamp range".into(),
