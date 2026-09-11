@@ -7,7 +7,6 @@ use crate::common::type_registry::TypeRegistry;
 struct DateDifference {
     name: &'static str,
     complete: bool,
-    constant_part: bool,
     known_null: bool,
 }
 
@@ -42,7 +41,6 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
             .register_scalar(Arc::new(DateDifference {
                 name,
                 complete,
-                constant_part: false,
                 known_null: false,
             }))
             .expect("unique calendar difference function");
@@ -75,10 +73,6 @@ impl ScalarFunction for DateDifference {
                 return Err(no_overload(self.name));
             }
         }
-        // Only retain closed-expression provenance. The actual specifier is
-        // still converted through the ordinary selected VARCHAR cast at
-        // execution, including ENUM/custom cast replacements and failures.
-        let constant_part = arguments.is_closed(0)?;
         let mut known_null = false;
         for index in 0..3 {
             if arguments.is_provably_null(index)? {
@@ -89,7 +83,6 @@ impl ScalarFunction for DateDifference {
         Ok(Some(Arc::new(Self {
             name: self.name,
             complete: self.complete,
-            constant_part,
             known_null,
         })))
     }
@@ -97,7 +90,7 @@ impl ScalarFunction for DateDifference {
         if self.known_null {
             super::super::ArgumentEvaluation::TypeOnly
         } else {
-            super::super::ArgumentEvaluation::Eager
+            super::super::ArgumentEvaluation::NullOnConstant
         }
     }
     fn argument_types(
@@ -157,7 +150,24 @@ impl ScalarFunction for DateDifference {
         }
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        self.evaluate_with_provenance(
+            arguments,
+            &vec![crate::function::ArgumentProvenance::Unknown; arguments.len()],
+            query,
+        )
+    }
+    fn evaluate_with_provenance(
+        &self,
+        arguments: &[Value],
+        provenance: &[crate::function::ArgumentProvenance],
+        query: &QueryContext,
+    ) -> Result<Value> {
         query.check()?;
+        if arguments.len() != provenance.len() {
+            return Err(Error::Internal(
+                "calendar difference argument provenance count".into(),
+            ));
+        }
         if self.known_null {
             if !arguments.is_empty() {
                 return Err(Error::Internal(
@@ -179,7 +189,9 @@ impl ScalarFunction for DateDifference {
         };
         // Constant specifiers are dispatched before infinity checks in the core
         // binary executor. Dynamic specifiers are examined only for finite rows.
-        let constant = self.constant_part.then(|| self.unit(part)).transpose()?;
+        let constant = (provenance[0] == crate::function::ArgumentProvenance::Constant)
+            .then(|| self.unit(part))
+            .transpose()?;
         if start.is_null() || end.is_null() {
             return Ok(Value::Null);
         }
