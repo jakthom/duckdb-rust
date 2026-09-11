@@ -66,6 +66,21 @@ fn counted_default() -> StoredExpression {
     }
 }
 
+fn simple_counted_default() -> StoredExpression {
+    StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Cast {
+            expression: Box::new(StoredExpression::literal(
+                DataType::Integer,
+                Value::Integer(1),
+            )),
+            target: DataType::Integer,
+            try_cast: false,
+        },
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn private_snapshot_retains_default_absence_and_complete_expression_provenance() -> Result<()> {
@@ -403,7 +418,7 @@ fn checkpoint_reclaims_only_after_success_and_old_snapshots_keep_physical_demand
         &table,
         &TableAlteration::AddColumn {
             column: ColumnDefinition::new("failed_probe", DataType::Integer)
-                .with_default(counted_default()),
+                .with_default(simple_counted_default()),
             if_not_exists: false,
         },
         &query,
@@ -424,7 +439,8 @@ fn checkpoint_reclaims_only_after_success_and_old_snapshots_keep_physical_demand
     old.catalog_mut()?.alter_table(
         &table,
         &TableAlteration::AddColumn {
-            column: ColumnDefinition::new("old", DataType::Integer).with_default(counted_default()),
+            column: ColumnDefinition::new("old", DataType::Integer)
+                .with_default(simple_counted_default()),
             if_not_exists: false,
         },
         &query,
@@ -438,7 +454,7 @@ fn checkpoint_reclaims_only_after_success_and_old_snapshots_keep_physical_demand
         &table,
         &TableAlteration::AddColumn {
             column: ColumnDefinition::new("current", DataType::Integer)
-                .with_default(counted_default()),
+                .with_default(simple_counted_default()),
             if_not_exists: false,
         },
         &query,
