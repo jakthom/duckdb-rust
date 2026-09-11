@@ -2,6 +2,7 @@
 //! registry, not to implicit numeric conversions inside these evaluators.
 use std::sync::Arc;
 mod absolute;
+mod discrete;
 mod ieee;
 mod rounding;
 
@@ -19,6 +20,7 @@ struct IntegralDirection(&'static str);
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     absolute::register(registry);
+    discrete::register(registry);
     ieee::register(registry);
     rounding::register(registry);
     for name in ["ceil", "ceiling", "floor", "sign"] {

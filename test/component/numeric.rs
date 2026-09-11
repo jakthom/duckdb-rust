@@ -17,6 +17,8 @@ mod coalesce;
 mod contracts;
 #[path = "numeric_direction.rs"]
 mod direction;
+#[path = "numeric_discrete.rs"]
+mod discrete;
 #[path = "numeric_ieee.rs"]
 mod ieee;
 #[path = "numeric_literals.rs"]
