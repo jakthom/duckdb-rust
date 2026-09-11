@@ -45,6 +45,31 @@ fn stored_nested_constructors_keep_typed_nulls_names_and_selected_expression_chi
     let query = QueryContext::background();
     let casts = CastRegistry::builtins();
     let functions = FunctionRegistry::builtins();
+    let qualified_list = StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Function {
+            name: vec!["main".into(), "list_value".into()],
+            arguments: vec![StoredArgument {
+                name: None,
+                expression: StoredExpression::literal(DataType::Integer, Value::Integer(1)),
+            }],
+            is_operator: false,
+            argument_style: StoredArgumentStyle::Named,
+        },
+    };
+    assert_eq!(
+        bind(
+            &qualified_list,
+            &SqlBinder,
+            &functions,
+            &casts,
+            &ScalarEvaluator,
+            &query,
+        )?
+        .data_type,
+        NestedType::List(DataType::Integer).data_type()
+    );
     let decimal = DataType::Decimal {
         width: 12,
         scale: 2,

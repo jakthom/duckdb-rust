@@ -195,7 +195,7 @@ impl State<'_, '_> {
         })
     }
     pub(super) fn is_aggregate(&self, expression: &ast::Expr) -> bool {
-        matches!(expression, ast::Expr::Function(f) if f.over.is_none() && (self.context.functions.aggregate(&f.name.to_string()).is_some() || f.name.to_string().eq_ignore_ascii_case("grouping") || f.name.to_string().eq_ignore_ascii_case("grouping_id")))
+        matches!(expression, ast::Expr::Function(f) if f.over.is_none() && function_name(&f.name).is_ok_and(|name| self.context.functions.aggregate(&name).is_some() || name.eq_ignore_ascii_case("grouping") || name.eq_ignore_ascii_case("grouping_id")))
     }
     pub(super) fn window(
         &self,
@@ -241,7 +241,10 @@ impl State<'_, '_> {
             .iter()
             .map(|expr| self.expr(expr, fields, grouping))
             .collect::<Result<Vec<_>>>()?;
-        let implementation = self.context.functions.window(&function.name.to_string())?;
+        let implementation = self
+            .context
+            .functions
+            .window(&function_name(&function.name)?)?;
         let types = implementation.argument_types(
             &arguments
                 .iter()

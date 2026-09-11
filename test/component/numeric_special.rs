@@ -428,6 +428,19 @@ fn generated_math_catalog_aliases_and_retained_defaults_are_lazy_and_atomic() ->
                 .optimizer(optimizer)
                 .build()?
                 .connect();
+            assert_eq!(
+                connection
+                    .query("SELECT \"**\"(2,3),\"^\"(3,2),\"!__postfix\"(4),\"@\"(-2),\"sqrt\"(4),main.pow(2,3)")?
+                    .rows,
+                vec![vec![
+                    Value::Double(8.0),
+                    Value::Double(9.0),
+                    Value::Integer(24),
+                    Value::Integer(2),
+                    Value::Double(2.0),
+                    Value::Double(8.0),
+                ]]
+            );
             connection.execute(
                 "SET ieee_floating_point_ops=false;
                  CREATE TABLE retained(

@@ -119,6 +119,24 @@ fn unsupported(thing: impl std::fmt::Display) -> Error {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn function_name(name: &ast::ObjectName) -> Result<String> {
+    let parts = name
+        .0
+        .iter()
+        .map(|part| {
+            part.as_ident()
+                .map(|identifier| identifier.value.clone())
+                .ok_or_else(|| unsupported(name))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    match parts.as_slice() {
+        [function] => Ok(function.clone()),
+        [schema, function] if schema.eq_ignore_ascii_case("main") => Ok(function.clone()),
+        _ => Err(unsupported(format!("qualified function {name}"))),
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     fn data_type(&self, data_type: &ast::DataType) -> Result<DataType> {
         use ast::DataType as T;
@@ -706,7 +724,7 @@ fn function_arguments(function: &ast::Function) -> Result<Vec<ast::Expr>> {
                     ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Wildcard)
                 )
             {
-                if function.name.to_string().eq_ignore_ascii_case("count") {
+                if function_name(&function.name)?.eq_ignore_ascii_case("count") {
                     return Ok(Vec::new());
                 }
                 return Err(Error::Bind("wildcard is only valid in count(*)".into()));

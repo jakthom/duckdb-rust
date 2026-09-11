@@ -639,7 +639,7 @@ impl State<'_, '_> {
                         "window or ordered function is not allowed in this clause".into(),
                     ));
                 }
-                let name = function.name.to_string();
+                let name = function_name(&function.name)?;
                 if name.eq_ignore_ascii_case("grouping") || name.eq_ignore_ascii_case("grouping_id")
                 {
                     return self.grouping_function(expr, function, fields, grouping);

@@ -1,7 +1,6 @@
 mod constant;
 mod unbound;
 
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 use super::{
     binary::{Reader, corrupt},
     columns,
