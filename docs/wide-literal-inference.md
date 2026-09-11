@@ -78,3 +78,13 @@ The former DOUBLE result was already incorrect, but its accepted query must
 not be lost. A selected combination specialization is the next repair; global
 implicit casts will not be widened. NULLIF also has an independently observed
 existing result-type gap: development retains its first UHUGEINT input type.
+
+The immutable [wide inference campaign](numeric-wide-inference-reference.json)
+records 803/803 development SQL cases and all three native persistence paths
+passing on unchanged source. All 705 prior case identities remain present and
+pass, including the original three wide failures; 98 added cases exercise the
+signed-width ladder, full-domain values, nested/MAP inference and error boundaries.
+Release passes 462/803 SQL cases and all three persistence paths. The runner's
+nonzero exit retains those release disagreements; it is not a development
+correctness failure. This campaign predates the COALESCE follow-up and does not
+claim that its separately retained regression is covered or fixed.
