@@ -1,11 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-use crate::common::{DataType, Result, Value};
+use crate::common::{DataType, Error, Result, Value};
 use expression::StoredExpression;
 
 mod alter;
 pub mod expression;
+mod identity;
 pub use alter::TableAlteration;
+pub use identity::{
+    CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, DropBehavior, ObjectId,
+    ObjectIdentity, ResolvedTable, TableBinding,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TableName {
@@ -118,9 +123,30 @@ pub struct TableDefinition {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// All metadata is resolved in the caller's transaction snapshot.
 pub trait Catalog: Send {
+    /// Returns the runtime identity of this catalog when the adapter supports
+    /// identity and version tracking. Legacy adapters remain unversioned.
+    fn identity(&self) -> Option<CatalogIdentity> {
+        None
+    }
+
     fn schemas(&self) -> Result<Vec<String>>;
     fn table(&self, name: &TableName) -> Result<TableDefinition>;
     fn tables(&self) -> Result<Vec<TableDefinition>>;
+
+    /// Resolves a table together with the strongest handle this catalog can
+    /// provide. The compatibility implementation is deliberately name-only.
+    fn table_entry(&self, name: &TableName) -> Result<ResolvedTable> {
+        Ok(ResolvedTable::unversioned(self.table(name)?))
+    }
+
+    /// Resolves an identity-aware handle. Name-only catalog adapters must not
+    /// guess, because doing so could bind a replacement object with the same
+    /// name.
+    fn table_by_identity(&self, _identity: &ObjectIdentity) -> Result<ResolvedTable> {
+        Err(Error::Unsupported(
+            "identity-aware table lookup on this catalog".into(),
+        ))
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -129,6 +155,18 @@ pub trait CatalogMut: Catalog {
     fn drop_schema(&mut self, name: &str, if_exists: bool) -> Result<()>;
     fn create_table(&mut self, definition: TableDefinition, if_not_exists: bool) -> Result<()>;
     fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()>;
+
+    /// Drops a previously resolved table. Legacy adapters may safely use their
+    /// name-based path only for a name-only binding.
+    fn drop_table_identified(&mut self, table: &TableBinding, if_exists: bool) -> Result<()> {
+        if table.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware table drop on this catalog".into(),
+            ));
+        }
+        self.drop_table(table.name(), if_exists)
+    }
+
     /// Atomically alter transaction-visible metadata and its rows. Preserve row
     /// identities, indexes, and older readers. Failure leaves both unchanged;
     /// false denotes an IF EXISTS/IF NOT EXISTS no-op. Unsupported adapters
@@ -142,5 +180,21 @@ pub trait CatalogMut: Catalog {
         Err(crate::Error::Unsupported(
             "table alteration on this catalog".into(),
         ))
+    }
+
+    /// Alters a previously resolved table. An identity-aware catalog must
+    /// override this method so a stale binding cannot target a replacement.
+    fn alter_table_identified(
+        &mut self,
+        table: &TableBinding,
+        alteration: &TableAlteration,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<bool> {
+        if table.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware table alteration on this catalog".into(),
+            ));
+        }
+        self.alter_table(table.name(), alteration, context)
     }
 }
