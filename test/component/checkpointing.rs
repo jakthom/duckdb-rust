@@ -269,7 +269,10 @@ fn checkpoint_layouts_preserve_duplicate_rows_nan_bits_and_reject_aliases() -> R
     };
     let mut snapshot = Snapshot::default();
     let mut column = ColumnDefinition::new("f", DataType::Float);
-    column.default = Value::Float(f32::from_bits(0xffc01234));
+    column.default = Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+        DataType::Float,
+        Value::Float(f32::from_bits(0xffc01234)),
+    ));
     let table = TableName::main("duplicate_nan_rows");
     snapshot.create_table(
         TableDefinition {

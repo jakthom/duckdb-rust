@@ -97,7 +97,10 @@ fn checkpoint_layouts_compare_all_nested_float_bits_without_sql_equality() -> Re
         for shape in 0..9 {
             let value = wrapped(float(true, false), shape)?;
             let mut column = ColumnDefinition::new("v", value.data_type());
-            column.default = value.clone();
+            column.default = Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+                value.data_type(),
+                value.clone(),
+            ));
             let name = TableName::main("exact_values");
             let mut source = Snapshot::default();
             source.create_table(

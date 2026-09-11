@@ -1,4 +1,5 @@
 use super::*;
+use crate::catalog::expression::{StoredArgument, StoredExpression, StoredExpressionKind};
 use crate::storage::format::SnapshotFormat;
 use crate::storage::layout::CheckpointLayout;
 mod selected;
@@ -59,16 +60,24 @@ impl Snapshot {
                 || source.definition.unique_keys != destination.definition.unique_keys
                 || columns.len() != other.len()
                 || !columns.iter().zip(other).all(|(a, b)| {
-                    a.name == b.name
-                        && a.data_type == b.data_type
-                        && a.nullable == b.nullable
-                        && a.default == b.default
+                    a.name == b.name && a.data_type == b.data_type && a.nullable == b.nullable
                 })
                 || mapping.next_row_id != destination.next_id
                 || !source.rows.keys().eq(mapping.rows.keys())
                 || source.rows.len() != destination.rows.len()
             {
                 return Err(invalid());
+            }
+            for (left, right) in columns.iter().zip(other) {
+                if !equal_default(
+                    left.default.as_ref(),
+                    right.default.as_ref(),
+                    &self.types,
+                    format,
+                    context,
+                )? {
+                    return Err(invalid());
+                }
             }
             let selected = format
                 .map(|_| {
@@ -101,6 +110,126 @@ impl Snapshot {
         }
         Ok(())
     }
+}
+
+/// Expression syntax and provenance are exact catalog metadata. Literal
+/// payloads alone may use the selected checkpoint format's documented value
+/// equivalence (for example, DuckDB's NaN canonicalization).
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn equal_default(
+    left: Option<&StoredExpression>,
+    right: Option<&StoredExpression>,
+    types: &crate::common::type_registry::TypeRegistry,
+    format: Option<&dyn SnapshotFormat>,
+    context: &QueryContext,
+) -> Result<bool> {
+    let (Some(left), Some(right)) = (left, right) else {
+        return Ok(left.is_none() && right.is_none());
+    };
+    if left.alias != right.alias || left.source_span != right.source_span {
+        return Ok(false);
+    }
+    match (&left.kind, &right.kind) {
+        (
+            StoredExpressionKind::Literal {
+                data_type: left_type,
+                value: left,
+            },
+            StoredExpressionKind::Literal {
+                data_type: right_type,
+                value: right,
+            },
+        ) if left_type == right_type => {
+            let selected = format
+                .map(|_| selected::Column::bind(left_type, types, context))
+                .transpose()?;
+            equal(
+                std::iter::once(left),
+                std::iter::once(right),
+                selected.as_ref().map(std::slice::from_ref),
+                format,
+                context,
+            )
+        }
+        (
+            StoredExpressionKind::Cast {
+                expression: left,
+                target: left_target,
+                try_cast: left_try,
+            },
+            StoredExpressionKind::Cast {
+                expression: right,
+                target: right_target,
+                try_cast: right_try,
+            },
+        ) if left_target == right_target && left_try == right_try => {
+            equal_default(Some(left), Some(right), types, format, context)
+        }
+        (
+            StoredExpressionKind::Function {
+                name: left_name,
+                arguments: left_arguments,
+                is_operator: left_operator,
+                argument_style: left_style,
+            },
+            StoredExpressionKind::Function {
+                name: right_name,
+                arguments: right_arguments,
+                is_operator: right_operator,
+                argument_style: right_style,
+            },
+        ) if left_name == right_name
+            && left_operator == right_operator
+            && left_style == right_style =>
+        {
+            equal_arguments(left_arguments, right_arguments, types, format, context)
+        }
+        (
+            StoredExpressionKind::Operator {
+                kind: left_kind,
+                children: left,
+            },
+            StoredExpressionKind::Operator {
+                kind: right_kind,
+                children: right,
+            },
+        ) if left_kind == right_kind && left.len() == right.len() => {
+            for (left, right) in left.iter().zip(right) {
+                if !equal_default(Some(left), Some(right), types, format, context)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn equal_arguments(
+    left: &[StoredArgument],
+    right: &[StoredArgument],
+    types: &crate::common::type_registry::TypeRegistry,
+    format: Option<&dyn SnapshotFormat>,
+    context: &QueryContext,
+) -> Result<bool> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.iter().zip(right) {
+        if left.name != right.name
+            || !equal_default(
+                Some(&left.expression),
+                Some(&right.expression),
+                types,
+                format,
+                context,
+            )?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

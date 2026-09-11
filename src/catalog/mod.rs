@@ -48,22 +48,12 @@ pub struct ColumnDefinition {
 }
 
 #[derive(Deserialize)]
-#[serde(untagged)]
-enum ColumnDefaultWire {
-    Expression(StoredExpression),
-    /// Private snapshots written before retained defaults stored only the
-    /// eagerly evaluated payload. Read them conservatively while new snapshots
-    /// always write the owned expression form.
-    Legacy(Value),
-}
-
-#[derive(Deserialize)]
 struct ColumnDefinitionWire {
     name: String,
     data_type: DataType,
     nullable: bool,
     #[serde(default)]
-    default: Option<ColumnDefaultWire>,
+    default: serde_json::Value,
 }
 
 impl<'de> Deserialize<'de> for ColumnDefinition {
@@ -71,14 +61,19 @@ impl<'de> Deserialize<'de> for ColumnDefinition {
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
         let wire = ColumnDefinitionWire::deserialize(deserializer)?;
-        let default = match wire.default {
-            Some(ColumnDefaultWire::Expression(expression)) => Some(expression),
-            // The old representation could not distinguish no DEFAULT from
-            // DEFAULT NULL. Preserve its historical no-default interpretation.
-            Some(ColumnDefaultWire::Legacy(Value::Null)) | None => None,
-            Some(ColumnDefaultWire::Legacy(value)) => {
-                Some(StoredExpression::literal(wire.data_type.clone(), value))
-            }
+        let default = if wire.default.is_null() {
+            None
+        } else if let Ok(expression) =
+            serde_json::from_value::<StoredExpression>(wire.default.clone())
+        {
+            Some(expression)
+        } else {
+            // Private snapshots written before retained defaults stored only
+            // the eagerly evaluated payload. Its Null representation was
+            // intrinsically ambiguous and historically meant no default.
+            let value =
+                serde_json::from_value::<Value>(wire.default).map_err(serde::de::Error::custom)?;
+            (!value.is_null()).then(|| StoredExpression::literal(wire.data_type.clone(), value))
         };
         Ok(Self {
             name: wire.name,

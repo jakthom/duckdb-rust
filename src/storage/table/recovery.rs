@@ -30,10 +30,11 @@ impl Snapshot {
         let mut physical_slots = Vec::with_capacity(slots.len());
         for slot in slots {
             context.check()?;
-            let (id, row) = match slot {
-                RestoredSlot::Live(id, row) => (id, Some(row)),
-                RestoredSlot::Deleted(id) => (id, None),
+            let (physical_slot, row) = match slot {
+                RestoredSlot::Live(id, row) => (PhysicalSlot::Live(id), Some(row)),
+                RestoredSlot::Deleted(id) => (PhysicalSlot::Deleted(id), None),
             };
+            let id = physical_slot.row_id();
             if id >= next_id
                 || !physical.insert(id)
                 || row
@@ -42,7 +43,7 @@ impl Snapshot {
             {
                 return Err(Error::Corrupt("invalid restored row identity".into()));
             }
-            physical_slots.push(row.as_ref().map(|_| id));
+            physical_slots.push(physical_slot);
         }
         table.next_id = next_id;
         table.physical_slots = physical_slots;
@@ -101,7 +102,7 @@ impl RecoveryTarget for Snapshot {
                             .checked_add(1)
                             .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
                         table.rows.insert(id, row.clone());
-                        table.physical_slots.push(Some(id));
+                        table.physical_slots.push(PhysicalSlot::Live(id));
                     }
                 }
                 RecoveredChange::Delete { table, ids } => {
@@ -115,11 +116,13 @@ impl RecoveryTarget for Snapshot {
                             let slot = table
                                 .physical_slots
                                 .iter_mut()
-                                .find(|slot| **slot == Some(*id))
+                                .find(|slot| {
+                                    matches!(slot, PhysicalSlot::Live(row_id) if row_id == id)
+                                })
                                 .ok_or_else(|| {
                                     Error::Corrupt("live row has no physical slot".into())
                                 })?;
-                            *slot = None;
+                            *slot = PhysicalSlot::Deleted(*id);
                         }
                     }
                 }

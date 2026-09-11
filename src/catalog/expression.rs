@@ -128,6 +128,14 @@ impl StoredExpression {
             if let Some(alias) = &expression.alias {
                 identifier(alias, &mut identifier_bytes)?;
             }
+            if expression.source_span.is_some_and(|span| {
+                span.length
+                    .is_some_and(|length| span.offset.checked_add(u64::from(length)).is_none())
+            }) {
+                return Err(Error::Resource(
+                    "stored expression source span overflow".into(),
+                ));
+            }
             match &expression.kind {
                 StoredExpressionKind::Literal { data_type, value } => {
                     query.types().bind(data_type)?.validate(value, query)?;

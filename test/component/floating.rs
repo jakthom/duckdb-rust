@@ -133,7 +133,14 @@ fn float_extrema_and_sampled_bits_survive_both_checkpoint_formats() -> Result<()
         assert_eq!(rows.last().unwrap().1, vec![Value::Null]);
         let definition = restored.table(&table)?;
         assert_eq!(definition.columns[0].data_type, DataType::Float);
-        assert_eq!(definition.columns[0].default, Value::Float(-0.5));
+        assert_eq!(
+            definition.columns[0]
+                .default
+                .as_ref()
+                .and_then(|expression| expression.as_literal())
+                .map(|(_, value)| value),
+            Some(&Value::Float(-0.5))
+        );
     }
     Ok(())
 }

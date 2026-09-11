@@ -163,10 +163,6 @@ impl TransactionManager for SnapshotTransactions {
             return Err(error);
         }
         state.snapshot = compacted;
-        state.generation = state
-            .generation
-            .checked_add(1)
-            .ok_or_else(|| Error::Resource("transaction identity exhausted".into()))?;
         Ok(())
     }
     fn types(&self) -> Arc<crate::common::type_registry::TypeRegistry> {

@@ -59,12 +59,36 @@ struct TableData {
     rows: Rows,
     next_id: RowId,
     /// Physical evaluation order retained between checkpoints. Deleted slots
-    /// remain as None until checkpoint reclamation; live slots identify the
-    /// logical row that receives an ADD COLUMN default result.
-    #[serde(default)]
-    physical_slots: Vec<Option<RowId>>,
+    /// retain their old identity until checkpoint reclamation; live slots
+    /// identify the logical row that receives an ADD COLUMN default result.
+    #[serde(default = "missing_physical_slots")]
+    physical_slots: Vec<PhysicalSlot>,
     #[serde(skip)]
     indexes: Vec<Arc<dyn KeyIndex>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+enum PhysicalSlot {
+    Live(RowId),
+    Deleted(RowId),
+}
+
+fn missing_physical_slots() -> Vec<PhysicalSlot> {
+    vec![PhysicalSlot::Deleted(RowId::MAX)]
+}
+
+impl PhysicalSlot {
+    fn row_id(self) -> RowId {
+        match self {
+            Self::Live(id) | Self::Deleted(id) => id,
+        }
+    }
+    fn live(self) -> Option<RowId> {
+        match self {
+            Self::Live(id) => Some(id),
+            Self::Deleted(_) => None,
+        }
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -108,9 +132,15 @@ impl Snapshot {
     ) -> Result<Self> {
         for table in state.tables.values_mut() {
             let table = Arc::make_mut(table);
-            if table.physical_slots.is_empty() && table.next_id != 0 {
+            if table.physical_slots == missing_physical_slots() {
                 table.physical_slots = (0..table.next_id)
-                    .map(|id| table.rows.contains_key(&id).then_some(id))
+                    .map(|id| {
+                        if table.rows.contains_key(&id) {
+                            PhysicalSlot::Live(id)
+                        } else {
+                            PhysicalSlot::Deleted(id)
+                        }
+                    })
                     .collect();
             }
         }
@@ -144,7 +174,11 @@ impl Snapshot {
         let mut compacted = self.clone();
         for table in compacted.tables.values_mut() {
             let table = Arc::make_mut(table);
-            table.physical_slots = table.rows.keys().copied().map(Some).collect();
+            table.physical_slots = table
+                .physical_slots
+                .iter()
+                .filter_map(|slot| slot.live().map(PhysicalSlot::Live))
+                .collect();
         }
         compacted
     }
@@ -201,11 +235,15 @@ impl Snapshot {
             let live_slots = table
                 .physical_slots
                 .iter()
-                .filter_map(|slot| *slot)
+                .filter_map(|slot| slot.live())
                 .collect::<Vec<_>>();
             if live_slots.len() != table.rows.len()
                 || live_slots.iter().copied().collect::<HashSet<_>>().len() != live_slots.len()
                 || live_slots.iter().any(|id| !table.rows.contains_key(id))
+                || table
+                    .physical_slots
+                    .iter()
+                    .any(|slot| slot.row_id() >= table.next_id)
             {
                 return Err(Error::Corrupt("invalid physical row slots".into()));
             }
@@ -529,7 +567,7 @@ impl TableStorageMut for Snapshot {
                 .checked_add(1)
                 .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
             next.rows.insert(id, row);
-            next.physical_slots.push(Some(id));
+            next.physical_slots.push(PhysicalSlot::Live(id));
         }
         next.validate(
             self.indexes.as_ref(),
@@ -576,9 +614,9 @@ impl TableStorageMut for Snapshot {
                 let slot = next
                     .physical_slots
                     .iter_mut()
-                    .find(|slot| **slot == Some(*id))
+                    .find(|slot| matches!(slot, PhysicalSlot::Live(row_id) if row_id == id))
                     .ok_or_else(|| Error::Internal("live row has no physical slot".into()))?;
-                *slot = None;
+                *slot = PhysicalSlot::Deleted(*id);
                 count += 1;
             }
         }

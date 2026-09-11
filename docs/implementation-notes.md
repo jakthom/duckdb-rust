@@ -7,9 +7,10 @@ counts or a second status dashboard. Work ownership is in the
 
 ## Retained defaults
 
-`ColumnDefinition.default` still contains a Value. `StoredExpression`, selected
-binding/evaluation and the independent native parsed-expression codec are useful
-prerequisites, but the production eager-default path is not full DEFAULT support.
+`ColumnDefinition.default` is an `Option<StoredExpression>`: absence differs from
+an explicit typed `DEFAULT NULL`. Catalog validation and private snapshots retain
+the owned syntax and provenance. Complete DDL capture and native parsed-expression
+integration are still required before this is full DEFAULT support.
 Independent Base64 (`DEFAULT from_base64('AP8=')`) and calendar function defaults
 expose this difference. A Rust-produced file can appear to work because the writer
 stored the evaluated value instead of retaining the default's semantics.
@@ -23,7 +24,9 @@ startup, statements, checkpoint encoding and recovery. Do not create a hidden
 built-in registry inside a decoder when the selected context is unavailable.
 
 Binding and evaluation demand are different. CREATE/SET DEFAULT must not eagerly
-execute expressions that the reference defers until INSERT or ADD backfill.
+execute expressions that the reference defers until INSERT or ADD backfill. The
+core snapshot ADD path resolves each retained physical slot once and reuses those
+values for transaction-current and catalog-basis state.
 ADD with a failing default can still fail when a table has zero *visible* rows:
 development evaluates over retained physical deleted rows. After CHECKPOINT
 reclaims fully deleted row groups, the same ADD can succeed. VACUUM is not an

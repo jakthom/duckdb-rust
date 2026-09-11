@@ -79,35 +79,6 @@ impl Serialize for RowView<'_> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Rows {
-    pub fn add_column(
-        &mut self,
-        data_type: &DataType,
-        value: &Value,
-        context: &QueryContext,
-    ) -> Result<()> {
-        context.check()?;
-        match self {
-            Self::Writable(rows) => {
-                for row in rows.values_mut() {
-                    context.check()?;
-                    row.push(value.clone());
-                }
-            }
-            Self::Published { data, types, .. } => {
-                let mut columns = data.columns().to_vec();
-                columns.push(Vector::constant(
-                    data_type.clone(),
-                    value.clone(),
-                    data.len(),
-                )?);
-                *data = DataChunk::new(columns, data.len())?;
-                let mut next = types.to_vec();
-                next.push(data_type.clone());
-                *types = next.into();
-            }
-        }
-        Ok(())
-    }
     pub fn add_column_values(
         &mut self,
         data_type: &DataType,

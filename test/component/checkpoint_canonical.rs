@@ -19,7 +19,10 @@ fn snapshot(
     let name = TableName::main("canonical");
     let mut column = ColumnDefinition::new("v", value.data_type());
     if default {
-        column.default = value.clone();
+        column.default = Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+            value.data_type(),
+            value.clone(),
+        ));
     }
     let mut result = Snapshot::new(types.clone());
     result.create_table(
@@ -147,7 +150,11 @@ fn canonical_layout_rejects_equal_sql_values_with_different_native_content() -> 
             1 => definition.columns[0].nullable = false,
             _ => {
                 definition.columns[0].data_type = DataType::Integer;
-                definition.columns[0].default = Value::Integer(1);
+                definition.columns[0].default =
+                    Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+                        DataType::Integer,
+                        Value::Integer(1),
+                    ));
             }
         }
         let mut decoded = Snapshot::default();
@@ -335,13 +342,16 @@ fn selected_exact_rejection_precedes_publication_and_preserves_live_log_session(
     c.execute("INSERT INTO t VALUES(2,'logged'); DELETE FROM t WHERE i=1")?;
     let before = fs::read(&path)?;
     let log = fs::read(path.with_extension("duckdb.wal"))?;
-    // Recovery preparation compares two defaults and two cells. Reject both
-    // that first check and the subsequent live-logical rebase check separately.
-    for call in [1, 5] {
+    // Recovery preparation and the subsequent live-logical rebase each compare
+    // two cells. Absent defaults are metadata and do not call value equivalence.
+    for call in [1, 4] {
         calls.store(0, Ordering::Relaxed);
         reject_at.store(call, Ordering::Relaxed);
+        let result = c.checkpoint();
         assert!(
-            matches!(c.checkpoint(), Err(Error::Resource(message)) if message == "selected exact checkpoint rejection")
+            matches!(&result, Err(Error::Resource(message)) if message == "selected exact checkpoint rejection"),
+            "call={call}, observed={}, result={result:?}",
+            calls.load(Ordering::Relaxed),
         );
         assert_eq!(calls.load(Ordering::Relaxed), call);
         assert!(fs::read(&path)? == before);

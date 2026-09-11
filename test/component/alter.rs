@@ -1,18 +1,161 @@
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
-    catalog::{Catalog, CatalogMut, ColumnDefinition, TableAlteration, TableDefinition, TableName},
+    catalog::{
+        Catalog, CatalogMut, ColumnDefinition, TableAlteration, TableDefinition, TableName,
+        expression::{
+            StoredArgument, StoredArgumentStyle, StoredExpression, StoredExpressionEvaluator,
+            StoredExpressionKind, StoredOperator,
+        },
+    },
     execution::{
         Executor, MaterializingExecutor, PullExecutor,
         index::{BTreeIndexFactory, HashIndexFactory, IndexFactory},
     },
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
     parallel::{InterruptHandle, QueryContext},
-    storage::{TableStorage, TableStorageMut, table::Snapshot},
+    storage::{
+        TableStorage, TableStorageMut,
+        checkpoint::{Durability, MemoryDurability},
+        format::{JsonSnapshotFormat, SnapshotFormat},
+        log::Commit,
+        table::Snapshot,
+    },
+    transaction::{SnapshotTransactions, TransactionManager},
 };
-use std::{fs, sync::Arc};
+use std::{
+    fs,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+};
 
 #[path = "../runner/mod.rs"]
 mod runner;
+
+struct CountingDefault(AtomicUsize);
+
+impl StoredExpressionEvaluator for CountingDefault {
+    fn evaluate(
+        &self,
+        _expression: &StoredExpression,
+        _target: &DataType,
+        _catalog: &dyn Catalog,
+        query: &QueryContext,
+    ) -> Result<Value> {
+        query.check()?;
+        Ok(Value::Integer(
+            self.0.fetch_add(1, Ordering::SeqCst) as i128 + 1,
+        ))
+    }
+}
+
+fn counted_default() -> StoredExpression {
+    StoredExpression {
+        alias: Some("retained_default".into()),
+        source_span: Some(duckdb_rust::catalog::expression::StoredSourceSpan {
+            offset: 11,
+            length: Some(7),
+        }),
+        kind: StoredExpressionKind::Function {
+            name: vec!["next_default".into()],
+            arguments: vec![],
+            is_operator: false,
+            argument_style: StoredArgumentStyle::Named,
+        },
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn private_snapshot_retains_default_absence_and_complete_expression_provenance() -> Result<()> {
+    let mut child = StoredExpression::literal(DataType::Integer, Value::Null);
+    child.alias = Some("legacy_child_name".into());
+    child.source_span = Some(duckdb_rust::catalog::expression::StoredSourceSpan {
+        offset: 29,
+        length: None,
+    });
+    let expression = StoredExpression {
+        alias: Some("root_alias".into()),
+        source_span: Some(duckdb_rust::catalog::expression::StoredSourceSpan {
+            offset: 17,
+            length: Some(31),
+        }),
+        kind: StoredExpressionKind::Function {
+            name: vec!["catalog".into(), "schema".into(), "function".into()],
+            arguments: vec![StoredArgument {
+                name: Some("named_argument".into()),
+                expression: StoredExpression {
+                    alias: None,
+                    source_span: Some(duckdb_rust::catalog::expression::StoredSourceSpan {
+                        offset: 41,
+                        length: Some(7),
+                    }),
+                    kind: StoredExpressionKind::Operator {
+                        kind: StoredOperator::ListConstructor,
+                        children: vec![child],
+                    },
+                },
+            }],
+            is_operator: true,
+            argument_style: StoredArgumentStyle::LegacyAliases,
+        },
+    };
+    let table = TableName::main("retained_defaults");
+    let mut snapshot = Snapshot::default();
+    snapshot.create_table(
+        TableDefinition {
+            name: table.clone(),
+            columns: vec![
+                ColumnDefinition::new("absent", DataType::Integer),
+                ColumnDefinition::new("explicit_null", DataType::Integer)
+                    .with_default(StoredExpression::literal(DataType::Integer, Value::Null)),
+                ColumnDefinition::new("expression", DataType::Integer)
+                    .with_default(expression.clone()),
+            ],
+            unique_keys: vec![],
+        },
+        false,
+    )?;
+    let format = JsonSnapshotFormat;
+    let restored = format.decode(
+        format.encode(&snapshot)?,
+        duckdb_rust::common::type_registry::builtin_types(),
+    )?;
+    let columns = restored.table(&table)?.columns;
+    assert_eq!(columns[0].default, None);
+    assert!(matches!(
+        columns[1]
+            .default
+            .as_ref()
+            .and_then(StoredExpression::as_literal),
+        Some((DataType::Integer, Value::Null))
+    ));
+    assert_eq!(columns[2].default, Some(expression));
+
+    let mut legacy = serde_json::to_value(ColumnDefinition::new("legacy", DataType::Integer))
+        .map_err(|error| Error::Execution(error.to_string()))?;
+    legacy["default"] = serde_json::to_value(Value::Integer(7))
+        .map_err(|error| Error::Execution(error.to_string()))?;
+    let legacy: ColumnDefinition =
+        serde_json::from_value(legacy).map_err(|error| Error::Execution(error.to_string()))?;
+    assert!(matches!(
+        legacy
+            .default
+            .as_ref()
+            .and_then(StoredExpression::as_literal),
+        Some((DataType::Integer, Value::Integer(7)))
+    ));
+    let mut legacy_null =
+        serde_json::to_value(ColumnDefinition::new("legacy_null", DataType::Integer))
+            .map_err(|error| Error::Execution(error.to_string()))?;
+    legacy_null["default"] =
+        serde_json::to_value(Value::Null).map_err(|error| Error::Execution(error.to_string()))?;
+    let legacy_null: ColumnDefinition =
+        serde_json::from_value(legacy_null).map_err(|error| Error::Execution(error.to_string()))?;
+    assert_eq!(legacy_null.default, None);
+    Ok(())
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
@@ -80,13 +223,6 @@ fn catalog_alter_is_atomic_preserves_ids_and_retained_snapshots() -> Result<()> 
             column: "j".into(),
             name: "i".into(),
         },
-        TableAlteration::SetDefault {
-            column: "i".into(),
-            expression: Some(duckdb_rust::catalog::expression::StoredExpression::literal(
-                DataType::Integer,
-                Value::Varchar("bad integer".into()),
-            )),
-        },
         TableAlteration::SetNullability {
             column: "j".into(),
             nullable: false,
@@ -144,6 +280,168 @@ fn catalog_alter_is_atomic_preserves_ids_and_retained_snapshots() -> Result<()> 
     );
     assert_eq!(retained.table(&table)?, original);
     assert_eq!(retained.scan(&table, &query)?, original_rows);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn transaction_add_resolves_physical_defaults_once_for_snapshot_and_catalog_basis() -> Result<()> {
+    let calls = Arc::new(CountingDefault(AtomicUsize::new(0)));
+    let query = QueryContext::background().with_stored_expressions(calls.clone());
+    let manager = SnapshotTransactions::configured_with_context(
+        Arc::new(MemoryDurability),
+        Arc::new(HashIndexFactory),
+        &query,
+    )?;
+    let table = TableName::main("once");
+    let mut transaction = manager.begin()?;
+    transaction.catalog_mut()?.create_table(
+        TableDefinition {
+            name: table.clone(),
+            columns: vec![ColumnDefinition::new("i", DataType::Integer)],
+            unique_keys: vec![],
+        },
+        false,
+    )?;
+    transaction.storage_mut()?.insert(
+        &table,
+        vec![vec![Value::Integer(10)], vec![Value::Integer(20)]],
+        &query,
+    )?;
+    transaction.commit()?;
+
+    let mut transaction = manager.begin()?;
+    transaction.storage_mut()?.delete(&table, &[0], &query)?;
+    transaction
+        .storage_mut()?
+        .insert(&table, vec![vec![Value::Integer(30)]], &query)?;
+    transaction.catalog_mut()?.alter_table(
+        &table,
+        &TableAlteration::AddColumn {
+            column: ColumnDefinition::new("d", DataType::Integer).with_default(counted_default()),
+            if_not_exists: false,
+        },
+        &query,
+    )?;
+    assert_eq!(calls.0.load(Ordering::SeqCst), 3);
+    transaction.commit()?;
+
+    let transaction = manager.begin()?;
+    assert_eq!(
+        transaction.storage().scan(&table, &query)?,
+        vec![
+            (1, vec![Value::Integer(20), Value::Integer(2)]),
+            (2, vec![Value::Integer(30), Value::Integer(3)]),
+        ]
+    );
+    Ok(())
+}
+
+struct ControlledCheckpoint {
+    fail: Arc<AtomicBool>,
+}
+
+impl Durability for ControlledCheckpoint {
+    fn name(&self) -> &'static str {
+        "controlled-checkpoint"
+    }
+    fn load(
+        &self,
+        types: Arc<duckdb_rust::common::type_registry::TypeRegistry>,
+    ) -> Result<Snapshot> {
+        Ok(Snapshot::new(types))
+    }
+    fn publish(&self, _commit: Commit<'_>) -> Result<()> {
+        Ok(())
+    }
+    fn checkpoint(&self, _snapshot: &Snapshot, query: &QueryContext) -> Result<()> {
+        query.check()?;
+        if self.fail.load(Ordering::SeqCst) {
+            Err(Error::Execution("injected checkpoint failure".into()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn checkpoint_reclaims_only_after_success_and_old_snapshots_keep_physical_demand() -> Result<()> {
+    let calls = Arc::new(CountingDefault(AtomicUsize::new(0)));
+    let query = QueryContext::background().with_stored_expressions(calls.clone());
+    let fail = Arc::new(AtomicBool::new(true));
+    let manager = SnapshotTransactions::configured_with_context(
+        Arc::new(ControlledCheckpoint { fail: fail.clone() }),
+        Arc::new(HashIndexFactory),
+        &query,
+    )?;
+    let table = TableName::main("checkpoint_demand");
+    let mut seed = manager.begin()?;
+    seed.catalog_mut()?.create_table(
+        TableDefinition {
+            name: table.clone(),
+            columns: vec![ColumnDefinition::new("i", DataType::Integer)],
+            unique_keys: vec![],
+        },
+        false,
+    )?;
+    seed.storage_mut()?.insert(
+        &table,
+        vec![vec![Value::Integer(10)], vec![Value::Integer(20)]],
+        &query,
+    )?;
+    seed.storage_mut()?.delete(&table, &[0], &query)?;
+    seed.commit()?;
+
+    let mut writer_started_before_failure = manager.begin()?;
+    assert!(manager.checkpoint(&query).is_err());
+    let mut failed_probe = manager.begin()?;
+    failed_probe.catalog_mut()?.alter_table(
+        &table,
+        &TableAlteration::AddColumn {
+            column: ColumnDefinition::new("failed_probe", DataType::Integer)
+                .with_default(counted_default()),
+            if_not_exists: false,
+        },
+        &query,
+    )?;
+    assert_eq!(calls.0.load(Ordering::SeqCst), 2);
+    drop(failed_probe);
+    writer_started_before_failure.storage_mut()?.insert(
+        &table,
+        vec![vec![Value::Integer(30)]],
+        &query,
+    )?;
+    writer_started_before_failure.commit()?;
+
+    calls.0.store(0, Ordering::SeqCst);
+    let mut old = manager.begin()?;
+    fail.store(false, Ordering::SeqCst);
+    manager.checkpoint(&query)?;
+    old.catalog_mut()?.alter_table(
+        &table,
+        &TableAlteration::AddColumn {
+            column: ColumnDefinition::new("old", DataType::Integer).with_default(counted_default()),
+            if_not_exists: false,
+        },
+        &query,
+    )?;
+    assert_eq!(calls.0.load(Ordering::SeqCst), 3);
+    drop(old);
+
+    calls.0.store(0, Ordering::SeqCst);
+    let mut current = manager.begin()?;
+    current.catalog_mut()?.alter_table(
+        &table,
+        &TableAlteration::AddColumn {
+            column: ColumnDefinition::new("current", DataType::Integer)
+                .with_default(counted_default()),
+            if_not_exists: false,
+        },
+        &query,
+    )?;
+    assert_eq!(calls.0.load(Ordering::SeqCst), 2);
+    current.commit()?;
     Ok(())
 }
 
@@ -386,7 +684,7 @@ fn independent_duckdb_alter_wal_replays_with_both_index_adapters() -> Result<()>
         let definition = snapshot.table(&table)?;
         assert_eq!(definition.columns[1].data_type, DataType::SmallInt);
         assert!(definition.columns[1].nullable);
-        assert_eq!(definition.columns[1].default, Value::Null);
+        assert_eq!(definition.columns[1].default, None);
         assert_eq!(
             snapshot
                 .scan(&table, &context)?

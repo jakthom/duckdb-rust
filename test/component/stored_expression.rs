@@ -66,7 +66,10 @@ fn stored_nested_operator_preflight_preserves_identity_and_bounds_all_children()
     ] {
         let expression = StoredExpression {
             alias: Some("retained".into()),
-            source_span: None,
+            source_span: Some(duckdb_rust::catalog::expression::StoredSourceSpan {
+                offset: 17,
+                length: Some(9),
+            }),
             kind: StoredExpressionKind::Operator {
                 kind,
                 children: vec![literal.clone(), literal.clone()],

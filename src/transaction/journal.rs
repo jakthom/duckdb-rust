@@ -23,9 +23,12 @@ impl CatalogMut for SnapshotTransaction {
         alteration: &crate::catalog::TableAlteration,
         context: &QueryContext,
     ) -> Result<bool> {
+        let prepared = self.snapshot.prepare_alter(name, alteration, context)?;
         let mut basis = self.catalog_basis.clone();
-        basis.alter_table(name, alteration, context)?;
-        let changed = self.snapshot.alter_table(name, alteration, context)?;
+        basis.apply_prepared_alter(name, alteration, &prepared, context)?;
+        let changed = self
+            .snapshot
+            .apply_prepared_alter(name, alteration, &prepared, context)?;
         if changed {
             self.catalog_basis = basis;
             self.record(TransactionChange::AlterTable {

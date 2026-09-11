@@ -21,12 +21,12 @@ results through the connection, preserving cancellation and statement lifecycle.
 
 | Boundary | Existing implementations / location | Important limit |
 | --- | --- | --- |
-| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs) | No general object/dependency/multi-catalog model; defaults store Value |
+| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs) | No general object/dependency/multi-catalog model; defaults retain the initial stored-expression subset |
 | Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs) | Every intervening writer conflicts, even disjoint writes |
 | Values/types | [type/value definitions](../src/common/types.rs), [registry](../src/common/type_registry.rs) | Broad scalar/temporal/nested foundation; function and consumer coverage incomplete |
 | Vectors | [flat/constant/dictionary vectors and chunks](../src/common/vector.rs) | Immutable owned/shared data; not complete native or Arrow vector parity |
 | Expressions | [scalar/batched evaluators](../src/execution/expression_executor.rs), [registered functions](../src/function/mod.rs) | Full overload/effect/default semantics remain open |
-| Stored expressions | [owned trees](../src/catalog/expression.rs), [selected evaluator](../src/planner/stored.rs) | Native-codec prerequisites exist; production retained DEFAULT integration is unfinished |
+| Stored expressions | [owned trees](../src/catalog/expression.rs), [selected evaluator](../src/planner/stored.rs) | Catalog/private snapshots retain defaults; complete DDL, native and effect semantics remain open |
 | Optimization | [identity/configurable pipeline](../src/optimizer/mod.rs) | Default simplify/equality-lookup/EXISTS passes; no cost model |
 | Joins/subqueries | [join operators](../src/execution/operator/join.rs), [subquery adapters](../src/execution/subquery.rs) | Hash/nested-loop and streaming/materializing variants; broader SQL remains open |
 | Aggregation/windows | [aggregate](../src/execution/operator/aggregate.rs), [window](../src/execution/operator/window.rs) | Grouping sets and core windows exist; catalog/frame completeness remains open |
