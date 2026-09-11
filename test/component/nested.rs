@@ -16,6 +16,8 @@ mod concat;
 mod map_literals;
 #[path = "nested/native.rs"]
 mod native;
+#[path = "nested/native_unbound.rs"]
+mod native_unbound;
 #[path = "nested/object.rs"]
 mod object;
 #[path = "nested/publication.rs"]

@@ -126,6 +126,206 @@ fn decode(bytes: &[u8], version: u64, query: &QueryContext) -> Result<(DataType,
     Ok(result)
 }
 
+#[derive(Clone)]
+enum RawTypeArgument {
+    Type {
+        alias: Option<String>,
+        name: String,
+        children: Vec<RawTypeArgument>,
+    },
+    Integer(i64),
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl RawTypeArgument {
+    fn ty(name: &str, children: Vec<Self>) -> Self {
+        Self::Type {
+            alias: None,
+            name: name.into(),
+            children,
+        }
+    }
+
+    fn field(alias: &str, name: &str, children: Vec<Self>) -> Self {
+        Self::Type {
+            alias: Some(alias.into()),
+            name: name.into(),
+            children,
+        }
+    }
+
+    fn write(&self, output: &mut Encoder) -> Result<()> {
+        match self {
+            Self::Type {
+                alias,
+                name,
+                children,
+            } => {
+                output.property(100, 21);
+                output.property(101, 207);
+                if let Some(alias) = alias {
+                    output.field(102);
+                    output.string(alias)?;
+                }
+                output.field(202);
+                output.string(name)?;
+                if !children.is_empty() {
+                    output.property(203, children.len() as u64);
+                    for child in children {
+                        output.boolean(true);
+                        child.write(output)?;
+                    }
+                }
+                output.end();
+            }
+            Self::Integer(value) => {
+                output.property(100, 7);
+                output.property(101, 75);
+                output.field(200);
+                output.field(100);
+                output.property(100, 14);
+                output.end();
+                output.field(101);
+                output.boolean(false);
+                output.field(102);
+                output.signed(*value);
+                output.end();
+                output.end();
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn unbound_null(root: &RawTypeArgument) -> Result<Vec<u8>> {
+    let mut output = Encoder::default();
+    output.field(100);
+    output.property(100, 4);
+    output.field(101);
+    output.boolean(true);
+    output.property(100, 7);
+    output.field(204);
+    output.boolean(true);
+    root.write(&mut output)?;
+    output.end();
+    output.end();
+    output.field(101);
+    output.boolean(true);
+    output.end();
+    Ok(output.0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn unbound_literal_types_resolve_nested_shapes_and_reject_invalid_metadata() -> Result<()> {
+    let query = QueryContext::background();
+    let integer = || RawTypeArgument::ty("INTEGER", vec![]);
+    let cases = [
+        (
+            RawTypeArgument::ty("LIST", vec![integer()]),
+            NestedType::List(DataType::Integer).data_type(),
+        ),
+        (
+            RawTypeArgument::ty("ARRAY", vec![integer(), RawTypeArgument::Integer(3)]),
+            NestedType::Array {
+                element: DataType::Integer,
+                length: 3,
+            }
+            .data_type(),
+        ),
+        (
+            RawTypeArgument::ty(
+                "STRUCT",
+                vec![
+                    RawTypeArgument::field(
+                        "amount",
+                        "DECIMAL",
+                        vec![RawTypeArgument::Integer(12), RawTypeArgument::Integer(2)],
+                    ),
+                    RawTypeArgument::field(
+                        "items",
+                        "LIST",
+                        vec![RawTypeArgument::ty("TIMESTAMP_NS", vec![])],
+                    ),
+                ],
+            ),
+            NestedType::Struct(vec![
+                (
+                    "amount".into(),
+                    DataType::Decimal {
+                        width: 12,
+                        scale: 2,
+                    },
+                ),
+                (
+                    "items".into(),
+                    NestedType::List(DataType::TimestampNs).data_type(),
+                ),
+            ])
+            .data_type(),
+        ),
+    ];
+    for (raw, expected) in cases {
+        assert_eq!(
+            decode(&unbound_null(&raw)?, 69, &query)?,
+            (expected, Value::Null)
+        );
+    }
+
+    let zero_array = RawTypeArgument::ty("ARRAY", vec![integer(), RawTypeArgument::Integer(0)]);
+    assert!(matches!(
+        decode(&unbound_null(&zero_array)?, 69, &query),
+        Err(Error::Bind(_))
+    ));
+    let unnamed_struct = RawTypeArgument::ty("STRUCT", vec![integer()]);
+    assert!(matches!(
+        decode(&unbound_null(&unnamed_struct)?, 69, &query),
+        Err(Error::Unsupported(_))
+    ));
+    let mut missing_metadata = unbound_null(&integer())?;
+    assert_eq!(&missing_metadata[..8], &[100, 0, 100, 0, 4, 101, 0, 1]);
+    missing_metadata[7] = 0;
+    assert!(matches!(
+        decode(&missing_metadata, 69, &query),
+        Err(Error::Corrupt(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn unbound_literal_types_share_value_budgets_depth_and_cancellation() -> Result<()> {
+    let raw = RawTypeArgument::ty("INTEGER", vec![]);
+    let bytes = unbound_null(&raw)?;
+    let query = QueryContext::background();
+    let mut codec = ValueCodec::new(69, query.types(), &query)?;
+    codec.state.bytes = 6;
+    assert!(matches!(
+        codec.read_typed(&mut Reader::new(bytes.clone())),
+        Err(Error::Resource(_))
+    ));
+
+    let mut deep = raw;
+    for _ in 0..65 {
+        deep = RawTypeArgument::ty("LIST", vec![deep]);
+    }
+    assert!(matches!(
+        decode(&unbound_null(&deep)?, 69, &query),
+        Err(Error::Resource(_))
+    ));
+
+    let interrupt = crate::parallel::InterruptHandle::default();
+    let query = QueryContext::new(interrupt.clone(), None, 2048, usize::MAX)?;
+    let mut codec = ValueCodec::new(69, query.types(), &query)?;
+    interrupt.interrupt();
+    assert!(matches!(
+        codec.read_typed(&mut Reader::new(bytes)),
+        Err(Error::Interrupted)
+    ));
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn typed_null_and_inherited_children_round_trip_without_casts() -> Result<()> {

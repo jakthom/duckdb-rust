@@ -1,5 +1,5 @@
 mod constant;
-mod unbound;
+pub(super) mod unbound;
 
 use super::{
     binary::{Reader, corrupt},

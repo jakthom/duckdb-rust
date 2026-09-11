@@ -108,6 +108,21 @@ impl<'a> State<'a> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl super::catalog::unbound::Limits for State<'_> {
+    fn visit(&mut self, depth: usize) -> Result<()> {
+        Self::visit(self, depth)
+    }
+
+    fn count(&mut self, count: usize) -> Result<()> {
+        self.charge_nodes(count)
+    }
+
+    fn string(&mut self, reader: &mut Reader) -> Result<String> {
+        Self::string(self, reader)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Decode a root with explicit metadata. Children may inherit the declared
 /// parent type; explicit old-format child types remain accepted and checked.
 pub(in crate::storage::duckdb) fn read_typed(
@@ -161,8 +176,9 @@ impl<'a> ValueCodec<'a> {
         }
         Ok(())
     }
-    /// Resolved CAST metadata shares this root's type/payload budget. UNBOUND
-    /// parsed type expressions remain unsupported here, not eagerly resolved.
+    /// CAST metadata shares this root's type/payload budget. A native UNBOUND
+    /// wrapper is resolved only from its retained, side-effect-free type tree;
+    /// no unresolved pseudo-type escapes into planning or table metadata.
     pub(in crate::storage::duckdb) fn read_type(
         &mut self,
         reader: &mut Reader,

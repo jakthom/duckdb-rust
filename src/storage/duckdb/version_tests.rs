@@ -275,6 +275,21 @@ fn parsed_native_types_resolve_known_names_without_executing_or_erasing_metadata
         output.field(202);
         output.string(name)?;
         output.property(203, children);
+        if children == 1 {
+            output.boolean(true);
+            output.property(100, 7); // ConstantExpression
+            output.property(101, 75); // VALUE_CONSTANT
+            output.field(200);
+            output.field(100);
+            output.property(100, 14); // BIGINT
+            output.end();
+            output.field(101);
+            output.boolean(false);
+            output.field(102);
+            output.signed(1);
+            output.end();
+            output.end();
+        }
         output.field(204);
         output.property(100, 3);
         output.string("")?;

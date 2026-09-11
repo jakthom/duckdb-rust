@@ -144,6 +144,9 @@ fn read_at(
     }
     let ty = match id {
         1 => DataType::Null,
+        4 => {
+            super::super::catalog::unbound::read_with_limits(reader, depth + 1, type_nodes, state)?
+        }
         10 => DataType::Boolean,
         11 => DataType::TinyInt,
         12 => DataType::SmallInt,

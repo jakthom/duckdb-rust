@@ -314,13 +314,12 @@ fn independent_cpp_parsed_expression_fixtures_remain_unevaluated() -> Result<()>
         exported.push(record);
     }
     eprintln!("parsed fixtures: {passed} supported, unsupported: {unsupported:?}");
-    assert_eq!(passed, 129);
-    assert_eq!(unsupported.len(), 71);
+    assert_eq!(passed, 186);
+    assert_eq!(unsupported.len(), 14);
     assert!(
         unsupported
             .iter()
-            .all(|message| message.contains("native literal logical type 4")
-                || message.contains("native retained expression class 4, kind 203"))
+            .all(|message| message.contains("native retained expression class 4, kind 203"))
     );
     if let Some(path) = std::env::var_os("DUCKDB_NATIVE_PARSED_CODEC_EXPORT") {
         let mut file = std::fs::OpenOptions::new()
