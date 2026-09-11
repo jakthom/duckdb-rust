@@ -1,0 +1,291 @@
+{
+  "recorded_at": "2026-09-11T00:32:49.633511+00:00",
+  "source_sha256": "defec4314138d31a8165b827dd4dc5a2c2aa2644e47afc9049bc965e9728973b",
+  "rust_binary_sha256": "63febbf4bc5330036ba8c5c3d094a7d5fb3bfc03b3d6b82fb8cfa72e857a7939",
+  "script_sha256": "a9317dacff0bfff3ed213503608ef69a0b3da18a6075d43233068a0301c49eb7",
+  "references": {
+    "release": {
+      "target": "release",
+      "required_version": "1.5.5",
+      "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+      "reported_source_id": "d8cdaa33fd",
+      "version": "v1.5.5 (Variegata) d8cdaa33fd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+      "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+    },
+    "development": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    }
+  },
+  "cases": [
+    {
+      "name": "release-64",
+      "producer": "release",
+      "version": 64,
+      "query": "SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t",
+      "rowids": {
+        "rows": [
+          {
+            "lo": 0,
+            "hi": 8191,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "groups": {
+        "rows": [
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          }
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "n": 6142,
+            "lo": 0,
+            "hi": 8191,
+            "total": "23059438",
+            "amount": "230594.38"
+          }
+        ]
+      },
+      "rust": {
+        "rows": [
+          {
+            "amount": "230594.38",
+            "hi": 8191,
+            "lo": 0,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "passed": true,
+      "fixture": {
+        "path": "test/data/native-deletion-identity/release-64.duckdb.gz",
+        "sha256": "2d1893ffa3af203d0450c551e49d4242665da59acc40e248c9db764a79e1081d"
+      }
+    },
+    {
+      "name": "release-68",
+      "producer": "release",
+      "version": 68,
+      "query": "SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t",
+      "rowids": {
+        "rows": [
+          {
+            "lo": 0,
+            "hi": 8191,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "groups": {
+        "rows": [
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          }
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "n": 6142,
+            "lo": 0,
+            "hi": 8191,
+            "total": "23059438",
+            "amount": "230594.38"
+          }
+        ]
+      },
+      "rust": {
+        "rows": [
+          {
+            "amount": "230594.38",
+            "hi": 8191,
+            "lo": 0,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "passed": true,
+      "fixture": {
+        "path": "test/data/native-deletion-identity/release-68.duckdb.gz",
+        "sha256": "26dde26582c7b7d506fb7b002c0c8080723d031765b3049b3e9ea53e1344f87c"
+      }
+    },
+    {
+      "name": "development-64",
+      "producer": "development",
+      "version": 64,
+      "query": "SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t",
+      "rowids": {
+        "rows": [
+          {
+            "lo": 0,
+            "hi": 8191,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "groups": {
+        "rows": [
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 1,
+            "start": 0,
+            "count": 4096
+          }
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "n": 6142,
+            "lo": 0,
+            "hi": 8191,
+            "total": "23059438",
+            "amount": "230594.38"
+          }
+        ]
+      },
+      "rust": {
+        "rows": [
+          {
+            "amount": "230594.38",
+            "hi": 8191,
+            "lo": 0,
+            "n": 6142,
+            "total": "23059438"
+          }
+        ]
+      },
+      "passed": true,
+      "fixture": {
+        "path": "test/data/native-deletion-identity/development-64.duckdb.gz",
+        "sha256": "defd164a1a9fa0a4de9246e944b25fa53c8aba061e6f8d86d8ddcaaa8666be75"
+      }
+    },
+    {
+      "name": "development-69",
+      "producer": "development",
+      "version": 69,
+      "query": "SELECT count(*) AS n,min(id) AS lo,max(id) AS hi,sum(id)::VARCHAR AS total,sum(amount)::VARCHAR AS amount FROM t",
+      "rowids": {
+        "rows": [
+          {
+            "lo": 6144,
+            "hi": 8191,
+            "n": 2047,
+            "total": "14672879"
+          }
+        ]
+      },
+      "groups": {
+        "rows": [
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          },
+          {
+            "row_group_id": 0,
+            "start": 0,
+            "count": 4096
+          }
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "n": 2047,
+            "lo": 6144,
+            "hi": 8191,
+            "total": "14672879",
+            "amount": "146728.79"
+          }
+        ]
+      },
+      "rust": {
+        "rows": [
+          {
+            "amount": "146728.79",
+            "hi": 8191,
+            "lo": 6144,
+            "n": 2047,
+            "total": "14672879"
+          }
+        ]
+      },
+      "passed": true,
+      "fixture": {
+        "path": "test/data/native-deletion-identity/development-69.duckdb.gz",
+        "sha256": "4753b381c53ea29021708dba13af7e9d7b9e3eb641effc077b29e36421bfa784"
+      }
+    }
+  ],
+  "full_parity": false,
+  "scope": "Retain independent row-group-relative deletion masks from both C++ pins.",
+  "reuse_fixtures": true,
+  "source_unchanged": true,
+  "passed": true
+}

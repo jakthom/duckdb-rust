@@ -27,8 +27,8 @@ rebasing validate canonical values before publication. Actual storage 68 carries
 VARIANT, and 69 additionally carries TUPLE/empty STRUCT, including nested children.
 The initial six-version bidirectional WAL campaign passes all seven stages each;
 15 independently produced C++ commit/rollback boundaries also survive writable
-Rust recovery. Full workspace/tracing/exploratory Kani validation follows this
-integrated increment. The ninth checkpoint remains the latest measured performance
+Rust recovery. The tenth integrated checkpoint below validates this increment.
+The ninth checkpoint remains the latest measured performance
 and full-upstream acceptance; no new follow-up push has occurred.
 
 Scalar full-width inference and temporal physical-constant provenance continue
@@ -36,6 +36,46 @@ in separate worker increments. Their shared defaulted interfaces are integrated;
 their family implementations and directly affected COALESCE/NULLIF behavior need
 the next combined regression checkpoint. Stored DEFAULT expressions, native
 non-NULL nested defaults and the broader milestone remain open.
+
+## Tenth integrated implementation checkpoint
+
+Frozen engine `f9c0911` passes full workspace check/tests and all-target clippy
+with warnings denied. The same two external-CLI analytics tests remain ignored.
+Library 67, compatibility 19, numeric 40, nested 42, contracts 33, DATE 11,
+temporal 29, casts 12, types 20, checkpointing 18 and recovery 14 pass. The full
+recovery-tail sweep took 69.34 seconds. Instrumentation coverage reports 337
+files, 3,143 functions and 224 interface methods, none missing. Traced all-target
+check passes in 92.414 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted. Instrumented durations are not performance acceptance.
+
+Full `python3 scripts/verify_kani.py`, Kani 0.67.0, passes all six maintained
+harnesses with zero failures: TIMETZ packing 49.152 s, unsigned keys 0.860 s,
+dense offsets 0.511 s, ROWS clipping 2.359 s, uniform bounds 2.917 s and packed
+byte counts 90.950 s. Caller-location (1) and foreign-function (2) warnings
+remain unreachable; atomic fences (4) and subtracts (5) are modeled sequentially.
+These bounded proofs do not establish canonical VARIANT equivalence, selected
+format validation, native codec/recovery protocols, general expressions or
+concurrent durability. Connected tests and independent file readers are separate
+evidence for the new storage paths.
+
+The production [checkpoint campaign](fresh-native-values-checkpoint10.json)
+passes all six versions and all five stages per version. The production
+[WAL campaign](fresh-native-wal-checkpoint10.json) passes all six versions and
+all seven stages, including initial/final checkpoints, rollback, Rust and C++
+mutations, and Rust mutation after a C++ checkpoint. Every development twin is
+also read by Rust. Release agrees for storage 64–68; its storage-69 rejection
+remains an explicit version limit. The production
+[deletion-mask campaign](native-deletion-identity-checkpoint10.json) passes all
+four retained independent fixtures. All three reports record unchanged source
+`defec4314138d31a8165b827dd4dc5a2c2aa2644e47afc9049bc965e9728973b`
+and production shell binary
+`63febbf4bc5330036ba8c5c3d094a7d5fb3bfc03b3d6b82fb8cfa72e857a7939`.
+
+This closes the current integrated versioned-WAL validation stage, not the
+value-and-expression milestone. New performance and full-upstream regression
+campaigns have not run on this source; checkpoint nine remains the latest
+follow-up pushed after those gates. Worker numeric/temporal reports remain
+source-specific until their complete repaired increments are integrated.
 
 ## Ninth integrated implementation checkpoint
 
