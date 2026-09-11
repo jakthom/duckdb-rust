@@ -409,7 +409,8 @@ impl Binder for OrdinaryBinder {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
-fn stored_trees_reject_malformed_metadata_limits_effects_and_missing_capabilities() -> Result<()> {
+fn stored_trees_allow_closed_effects_and_reject_malformed_metadata_limits_and_missing_capabilities()
+-> Result<()> {
     let query = QueryContext::background();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut functions = FunctionRegistry::builtins();
@@ -426,8 +427,8 @@ fn stored_trees_reject_malformed_metadata_limits_effects_and_missing_capabilitie
         )
     };
     assert!(matches!(
-        check(&call("stored_function", vec![])),
-        Err(Error::Unsupported(_))
+        check(&call("stored_function", vec![]))?.kind,
+        ExprKind::Scalar(_, _)
     ));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     let literal = StoredExpression::literal(DataType::Integer, Value::Integer(1));
@@ -485,10 +486,9 @@ fn stored_trees_reject_malformed_metadata_limits_effects_and_missing_capabilitie
                 _ => *is_operator = true,
             }
         }
-        if kind == 1 {
-            assert!(matches!(check(&expression), Err(Error::Bind(_))));
-        } else {
-            assert!(matches!(check(&expression), Err(Error::Unsupported(_))));
+        match kind {
+            0 => assert!(matches!(check(&expression), Err(Error::Catalog(_)))),
+            _ => assert!(matches!(check(&expression), Err(Error::Bind(_)))),
         }
     }
     let interrupt = InterruptHandle::default();
@@ -655,7 +655,7 @@ fn stored_service_validates_replacement_boundaries_before_evaluation() -> Result
     let effects = Arc::new(AtomicUsize::new(0));
     let mut effectful = BoundExpr::literal(Value::Integer(1));
     effectful.kind = ExprKind::Scalar(Arc::new(SelectedFunction(9, true, effects.clone())), vec![]);
-    for bound in [bad_literal, column, effectful] {
+    for bound in [bad_literal, column] {
         let service = SelectedStoredExpressions::new(
             Arc::new(ReturnedBinder(bound)),
             CastRegistry::builtins(),
@@ -671,6 +671,18 @@ fn stored_service_validates_replacement_boundaries_before_evaluation() -> Result
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(effects.load(Ordering::SeqCst), 0);
     }
+    let service = SelectedStoredExpressions::new(
+        Arc::new(ReturnedBinder(effectful)),
+        CastRegistry::builtins(),
+        OperatorRegistry::builtins(),
+        FunctionRegistry::builtins(),
+        Arc::new(ScalarEvaluator),
+    );
+    assert_eq!(
+        service.evaluate(&literal, &DataType::Integer, &catalog, &query)?,
+        Value::Integer(9)
+    );
+    assert_eq!(effects.load(Ordering::SeqCst), 1);
     for (value, valid) in [
         (Value::Integer(42), true),
         (Value::Varchar("invalid result".into()), false),
