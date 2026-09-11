@@ -447,9 +447,6 @@ impl ExpressionEvaluator for ScalarEvaluator {
                         ) =>
                     {
                         if constant_null_expression(right) {
-                            if literal_cast_expression(left) {
-                                self.evaluate_with_provenance(left, row, context)?;
-                            }
                             return checked_evaluated(Value::Null, &expression.data_type, true);
                         }
                         let mut right_value = if right.is_pure_and_total() && !row_dependent(right)

@@ -487,6 +487,8 @@ fn conjunction_comparison_and_like_preserve_pinned_demand() -> Result<()> {
             "SELECT CAST(error('lhs') AS VARCHAR) LIKE NULL::VARCHAR",
             "SELECT NULL::VARCHAR NOT LIKE CAST(error('rhs') AS VARCHAR)",
             "SELECT CAST(error('lhs') AS VARCHAR) NOT LIKE NULL::VARCHAR",
+            "SELECT CAST(CAST('bad' AS INTEGER) AS VARCHAR) LIKE NULL::VARCHAR",
+            "SELECT CAST(CAST('bad' AS INTEGER) AS VARCHAR) NOT LIKE NULL::VARCHAR",
         ] {
             assert_eq!(
                 connection.query(sql)?.rows,
@@ -655,6 +657,20 @@ fn retained_predicate_defaults_share_ordinary_demand() -> Result<()> {
             Value::Boolean(false),
             Value::Boolean(true),
         ]]
+    );
+
+    connection.execute(
+        "CREATE TABLE reverse_like_cast(
+            like_value BOOLEAN DEFAULT
+                CAST(CAST('bad' AS INTEGER) AS VARCHAR) LIKE NULL::VARCHAR,
+            not_like_value BOOLEAN DEFAULT
+                CAST(CAST('bad' AS INTEGER) AS VARCHAR) NOT LIKE NULL::VARCHAR
+        );
+        INSERT INTO reverse_like_cast DEFAULT VALUES",
+    )?;
+    assert_eq!(
+        connection.query("SELECT * FROM reverse_like_cast")?.rows,
+        vec![vec![Value::Null, Value::Null]]
     );
 
     calls.store(0, Ordering::SeqCst);
