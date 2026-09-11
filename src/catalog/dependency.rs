@@ -119,6 +119,38 @@ impl DependencyGraph {
         self.subjects_by_dependent.values().map(BTreeMap::len).sum()
     }
 
+    /// Return the exact flags for one checked edge.
+    pub fn dependency_flags(
+        &self,
+        dependent: ObjectIdentity,
+        subject: ObjectIdentity,
+    ) -> Result<Option<(DependentFlags, SubjectFlags)>> {
+        self.validate()?;
+        validate_endpoints(dependent, subject)?;
+        Ok(self
+            .subjects_by_dependent
+            .get(&dependent)
+            .and_then(|subjects| subjects.get(&subject))
+            .map(|edge| (edge.dependent, edge.subject)))
+    }
+
+    /// Check that every graph endpoint is owned by the surrounding catalog.
+    /// The graph cannot establish this invariant without that catalog.
+    pub fn validate_object_set(
+        &self,
+        mut contains: impl FnMut(ObjectIdentity) -> bool,
+    ) -> Result<()> {
+        self.validate()?;
+        for (dependent, subjects) in &self.subjects_by_dependent {
+            if !contains(*dependent) || subjects.keys().any(|subject| !contains(*subject)) {
+                return Err(Error::Internal(
+                    "dependency graph references an absent catalog object".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn add_dependency(
         &mut self,
         dependent: ObjectIdentity,
