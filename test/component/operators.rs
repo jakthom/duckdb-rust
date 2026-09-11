@@ -407,10 +407,15 @@ fn numeric_overloads_preserve_literal_widths_division_and_overflow() -> Result<(
         c.query("SELECT TRY_CAST(127::TINYINT+1 AS BIGINT)"),
         Err(Error::Execution(_))
     ));
+    c.execute("CREATE TABLE overflow(v INTEGER DEFAULT -((-128)::TINYINT))")?;
     assert!(matches!(
-        c.execute("CREATE TABLE overflow(v INTEGER DEFAULT -((-128)::TINYINT))"),
+        c.execute("INSERT INTO overflow DEFAULT VALUES"),
         Err(Error::Execution(_))
     ));
+    assert_eq!(
+        c.query("SELECT count(*) FROM overflow")?.rows,
+        vec![vec![Value::Integer(0)]]
+    );
     Ok(())
 }
 
