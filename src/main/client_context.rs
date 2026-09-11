@@ -2,6 +2,135 @@ use super::*;
 
 const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
+#[derive(Debug)]
+struct InsertDefaults {
+    input: Arc<dyn crate::execution::physical_plan::PhysicalOperator>,
+    schema: Schema,
+    columns: Vec<crate::catalog::ColumnDefinition>,
+    source_ordinals: Vec<Option<usize>>,
+}
+
+impl InsertDefaults {
+    fn new(
+        input: Arc<dyn crate::execution::physical_plan::PhysicalOperator>,
+        definition: &crate::catalog::TableDefinition,
+        source_columns: &[usize],
+    ) -> Result<Self> {
+        if input.schema().len() != source_columns.len() {
+            return Err(Error::Internal(
+                "INSERT source width differs from its column mapping".into(),
+            ));
+        }
+        let mut source_ordinals = vec![None; definition.columns.len()];
+        for (source, &target) in source_columns.iter().enumerate() {
+            let ordinal = source_ordinals
+                .get_mut(target)
+                .ok_or_else(|| Error::Internal("INSERT target column is out of range".into()))?;
+            if ordinal.replace(source).is_some() {
+                return Err(Error::Internal("duplicate INSERT target column".into()));
+            }
+        }
+        Ok(Self {
+            input,
+            schema: definition
+                .columns
+                .iter()
+                .map(|column| Field::new(column.name.clone(), column.data_type.clone()))
+                .collect(),
+            columns: definition.columns.clone(),
+            source_ordinals,
+        })
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl crate::execution::physical_plan::PhysicalOperator for InsertDefaults {
+    fn schema(&self) -> &Schema {
+        &self.schema
+    }
+    fn delivery(&self) -> crate::execution::physical_plan::DeliveryMode {
+        self.input.delivery()
+    }
+    fn open<'a>(
+        &'a self,
+        context: &'a ExecutionContext<'a>,
+    ) -> Result<crate::execution::stream::Stream<'a>> {
+        let mut input = crate::execution::stream::open(self.input.as_ref(), context)?;
+        let mut ready = Vec::new();
+        let mut ready_offset = 0;
+        let mut source_done = false;
+        let mut source_rows = 0usize;
+        Ok(crate::execution::stream::from_fn(move |max_rows| {
+            if ready_offset == ready.len() {
+                ready.clear();
+                ready_offset = 0;
+                // Defaults are a projection above the INSERT source in
+                // DuckDB: finish one standard source vector, then evaluate
+                // each omitted column over that vector.
+                let mut source_vector = Vec::new();
+                while source_vector.len() < DUCKDB_STANDARD_VECTOR_SIZE && !source_done {
+                    let remaining = DUCKDB_STANDARD_VECTOR_SIZE - source_vector.len();
+                    let remaining_limit = context
+                        .query
+                        .max_intermediate_rows()
+                        .saturating_sub(source_rows)
+                        .saturating_add(1);
+                    let demand = remaining.min(remaining_limit);
+                    let Some(batch) = input.next(demand)? else {
+                        source_done = true;
+                        break;
+                    };
+                    source_rows = source_rows
+                        .checked_add(batch.len())
+                        .ok_or_else(|| Error::Resource("result row count overflow".into()))?;
+                    context.query.check_rows(source_rows)?;
+                    source_vector.extend(batch.rows());
+                }
+                if source_vector.is_empty() {
+                    return Ok(None);
+                }
+
+                ready.reserve(source_vector.len());
+                for source in source_vector {
+                    context.query.check()?;
+                    let mut row = vec![Value::Null; self.columns.len()];
+                    for (target, source_ordinal) in self.source_ordinals.iter().enumerate() {
+                        if let Some(source_ordinal) = source_ordinal {
+                            row[target] = source[*source_ordinal].clone();
+                        }
+                    }
+                    ready.push(row);
+                }
+                for (ordinal, column) in self.columns.iter().enumerate() {
+                    if self.source_ordinals[ordinal].is_some() {
+                        continue;
+                    }
+                    for row in &mut ready {
+                        context.query.check()?;
+                        row[ordinal] =
+                            column
+                                .default
+                                .as_ref()
+                                .map_or(Ok(Value::Null), |expression| {
+                                    context.query.stored_expressions()?.evaluate(
+                                        expression,
+                                        &column.data_type,
+                                        context.transaction.catalog(),
+                                        context.query,
+                                    )
+                                })?;
+                    }
+                }
+            }
+
+            let end = ready.len().min(ready_offset.saturating_add(max_rows));
+            let chunk = crate::execution::stream::chunk(&self.schema, &ready[ready_offset..end])?;
+            ready_offset = end;
+            Ok(chunk)
+        }))
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Services {
     fn execution_context<'a>(
@@ -156,48 +285,27 @@ impl Services {
                 source,
             } => {
                 let definition = transaction.catalog().table(&table)?;
-                let input = self.query(source, transaction, query)?;
-                let mut rows = Vec::with_capacity(input.rows.len());
-                for input in input.rows {
-                    query.check()?;
-                    let mut row = vec![Value::Null; definition.columns.len()];
-                    for (&column, value) in columns.iter().zip(input) {
-                        row[column] = value;
-                    }
-                    rows.push(row);
-                }
-                let mut supplied = vec![false; definition.columns.len()];
-                for &column in &columns {
-                    supplied[column] = true;
-                }
-                // DuckDB finishes each omitted column within one standard
-                // vector, then advances to the next vector. Keep every vector
-                // staged until the whole statement succeeds.
-                for vector in rows.chunks_mut(DUCKDB_STANDARD_VECTOR_SIZE) {
-                    for (ordinal, column) in definition.columns.iter().enumerate() {
-                        if supplied[ordinal] {
-                            continue;
-                        }
-                        for row in vector.iter_mut() {
-                            query.check()?;
-                            row[ordinal] =
-                                column
-                                    .default
-                                    .as_ref()
-                                    .map_or(Ok(Value::Null), |expression| {
-                                        query.stored_expressions()?.evaluate(
-                                            expression,
-                                            &column.data_type,
-                                            transaction.catalog(),
-                                            query,
-                                        )
-                                    })?;
-                        }
-                    }
-                }
-                Ok(QueryResult::command(
-                    transaction.storage_mut()?.insert(&table, rows, query)?,
-                ))
+                let source = self.optimize(source, transaction, query)?;
+                let source = self.physical_planner.plan(&source)?;
+                let plan = InsertDefaults::new(source, &definition, &columns)?;
+                // Defaults stay inside the physical pipeline so pull and eager
+                // executors observe the same effect order. Storage still sees
+                // rows only after the complete statement succeeds.
+                let mut sink = CollectingSink {
+                    rows: RowCollection::new(plan.schema.len()),
+                    query,
+                };
+                let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
+                self.executor.execute(
+                    &plan,
+                    &self.execution_context(transaction, query, &subquery_plans),
+                    &mut sink,
+                )?;
+                Ok(QueryResult::command(transaction.storage_mut()?.insert(
+                    &table,
+                    sink.rows.into_rows(),
+                    query,
+                )?))
             }
             BoundStatement::Update {
                 table,

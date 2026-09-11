@@ -344,6 +344,75 @@ fn insert_defaults_advance_by_duckdb_standard_vectors() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn insert_source_and_defaults_share_duckdb_vector_pipeline() -> Result<()> {
+    use duckdb_rust::execution::{Executor, MaterializingExecutor, PullExecutor};
+
+    for executor in [
+        Arc::new(PullExecutor) as Arc<dyn Executor>,
+        Arc::new(MaterializingExecutor),
+    ] {
+        let state = Arc::new(EffectState::default());
+        let mut registry = FunctionRegistry::builtins();
+        registry.register_scalar(Arc::new(OrderedDefault(state.clone())))?;
+        let mut connection = DatabaseBuilder::new()
+            .functions(registry)
+            .executor(executor)
+            .batch_size(7)
+            .build()?
+            .connect();
+        connection.execute("SET SESSION default_order='DESC'")?;
+        connection.execute(
+            "CREATE TABLE vector_source(
+                id INTEGER,
+                source VARCHAR,
+                first VARCHAR DEFAULT ordered_default('first'),
+                second VARCHAR DEFAULT ordered_default('second')
+            );
+            INSERT INTO vector_source(id,source)
+            SELECT range::INTEGER,ordered_default('source') FROM range(2050)",
+        )?;
+        assert_eq!(state.calls.load(Ordering::SeqCst), 6150);
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT * FROM vector_source
+                     WHERE id IN (0,2047,2048,2049)
+                     ORDER BY id ASC"
+                )?
+                .rows,
+            vec![
+                vec![
+                    integer(0),
+                    string("DESC:source:1"),
+                    string("DESC:first:2049"),
+                    string("DESC:second:4097")
+                ],
+                vec![
+                    integer(2047),
+                    string("DESC:source:2048"),
+                    string("DESC:first:4096"),
+                    string("DESC:second:6144")
+                ],
+                vec![
+                    integer(2048),
+                    string("DESC:source:6145"),
+                    string("DESC:first:6147"),
+                    string("DESC:second:6149")
+                ],
+                vec![
+                    integer(2049),
+                    string("DESC:source:6146"),
+                    string("DESC:first:6148"),
+                    string("DESC:second:6150")
+                ],
+            ]
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn prepared_omissions_use_execution_settings_and_failed_rows_remain_atomic() -> Result<()> {
     let state = Arc::new(EffectState::default());
     let mut connection = DatabaseBuilder::new()
