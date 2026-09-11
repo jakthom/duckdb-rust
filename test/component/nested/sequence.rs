@@ -2,6 +2,7 @@ use super::*;
 use duckdb_rust::execution::expression_executor::{
     BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator,
 };
+use duckdb_rust::optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer};
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
@@ -197,6 +198,56 @@ fn sequence_mechanics_cross_parameters_and_multi_vector_batches() -> Result<()> 
                     Value::Varchar(format!("[{index}, {}, {}]", index + 2, index + 2)),
                     Value::Varchar(format!("[{}, NULL, {index}]", index + 1)),
                 ]
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn sequence_aliases_and_constant_null_demand_match_pinned_functions() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            let mut connection = DatabaseBuilder::new()
+                .expressions(expressions.clone())
+                .optimizer(optimizer)
+                .build()?
+                .connect();
+            assert_eq!(
+                connection
+                    .query(
+                        "SELECT
+                            array_contains([1,2]::INTEGER[2],2),
+                            array_has([1,2]::INTEGER[2],3),
+                            array_resize([1,2]::INTEGER[2],4,9)::VARCHAR,
+                            typeof(array_resize([1,2]::INTEGER[2],3))",
+                    )?
+                    .rows,
+                vec![vec![
+                    Value::Boolean(true),
+                    Value::Boolean(false),
+                    Value::Varchar("[1, 2, 9, 9]".into()),
+                    Value::Varchar("INTEGER[]".into()),
+                ]],
+            );
+            assert_eq!(
+                connection
+                    .query(
+                        "SELECT
+                            list_contains(NULL::INTEGER[],'bad'::INTEGER),
+                            list_contains(['bad'::INTEGER],NULL::INTEGER),
+                            list_select(NULL::INTEGER[],['bad'::BIGINT]),
+                            list_select(['bad'::INTEGER],NULL::BIGINT[])"
+                    )?
+                    .rows,
+                vec![vec![Value::Null, Value::Null, Value::Null, Value::Null]],
             );
         }
     }

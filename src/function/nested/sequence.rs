@@ -1,6 +1,7 @@
 //! Non-lambda LIST/ARRAY search, selection, resize, and reversal mechanics.
 use super::*;
 use crate::common::{cast::CastMode, type_registry::BoundType};
+use crate::function::ArgumentEvaluation;
 
 const MAX_SEQUENCE_CHILDREN: usize = 16_777_216;
 
@@ -27,6 +28,7 @@ struct BoundSequenceFunction {
     modes: Vec<CastMode>,
     result: BoundType,
     child: Option<BoundType>,
+    known_null: bool,
 }
 
 struct SequenceBinding {
@@ -41,6 +43,8 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     for (name, operation) in [
         ("list_contains", SequenceOperation::Contains),
         ("list_has", SequenceOperation::Contains),
+        ("array_contains", SequenceOperation::Contains),
+        ("array_has", SequenceOperation::Contains),
         ("list_position", SequenceOperation::Position),
         ("list_indexof", SequenceOperation::Position),
         ("array_position", SequenceOperation::Position),
@@ -48,6 +52,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         ("list_select", SequenceOperation::Select),
         ("array_select", SequenceOperation::Select),
         ("list_resize", SequenceOperation::Resize),
+        ("array_resize", SequenceOperation::Resize),
         ("list_reverse", SequenceOperation::Reverse),
         ("array_reverse", SequenceOperation::Reverse),
     ] {
@@ -83,6 +88,18 @@ impl ScalarFunction for SequenceFunction {
             SequenceOperation::Resize => bind_resize(arguments, &actual, query)?,
             SequenceOperation::Reverse => bind_reverse(&actual, query)?,
         };
+        let mut known_null = false;
+        if matches!(
+            self.operation,
+            SequenceOperation::Contains | SequenceOperation::Select
+        ) {
+            for index in 0..arguments.len() {
+                if arguments.is_provably_null(index)? {
+                    known_null = true;
+                    break;
+                }
+            }
+        }
         let bound_arguments = binding
             .arguments
             .iter()
@@ -99,6 +116,7 @@ impl ScalarFunction for SequenceFunction {
                 .as_ref()
                 .map(|data_type| query.types().bind(data_type))
                 .transpose()?,
+            known_null,
         })))
     }
 
@@ -121,6 +139,19 @@ impl ScalarFunction for SequenceFunction {
 impl ScalarFunction for BoundSequenceFunction {
     fn name(&self) -> &str {
         self.name
+    }
+
+    fn argument_evaluation(&self) -> ArgumentEvaluation {
+        if self.known_null {
+            ArgumentEvaluation::TypeOnly
+        } else if matches!(
+            self.operation,
+            SequenceOperation::Contains | SequenceOperation::Select
+        ) {
+            ArgumentEvaluation::NullOnConstant
+        } else {
+            ArgumentEvaluation::Eager
+        }
     }
 
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
@@ -162,6 +193,11 @@ impl ScalarFunction for BoundSequenceFunction {
 
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
+        if self.known_null {
+            let result = Value::Null;
+            self.result.validate(&result, query)?;
+            return Ok(result);
+        }
         if arguments.len() != self.arguments.len() {
             return Err(Error::Internal(format!(
                 "{} argument count differs from binding",
