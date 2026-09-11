@@ -46,7 +46,54 @@ tracing and exploratory Kani run below. Native DEFAULT decoding/catalog migratio
 non-NULL nested defaults and the larger milestone remain open. The twelfth
 checkpoint integrates NULLIF, its comparison-runtime and expansion-resource
 repairs, calendar grids, and selected stored-expression startup/recovery context.
+The following checkpoints integrate full timestamp payload validity, native
+typed-Value metadata prerequisites and selected native decode/encode context.
 No new follow-up push has occurred.
+
+## Fourteenth integrated validation checkpoint
+
+Frozen engine `abf7eed` integrates selected native decoding (`b4a9c9b`) and
+fresh/bound/recovery-successor encoding (`3e1452c`), the distinct recognized-input
+NotImplemented category and VALUES repair, temporal cast costs, generic selected
+overload requests and named/nested stored-tree metadata. Calendar rejection
+categories are repaired; the calendar overload and nested constructor consumers
+are still queued worker increments, not part of this frozen source.
+
+Full workspace check/tests and all-target clippy with warnings denied pass. Only
+the same two external-CLI analytics tests are ignored. Library 78, compatibility
+19, contracts 71, numeric 51, temporal 38, nested 42, DATE 11, casts 13, types 24,
+execution 51, checkpointing 18, logging 7 and recovery 14 pass. The exhaustive
+recovery-tail sweep took 75.17 seconds. Coverage reports 373 files, 3,596 functions
+and 239 interface methods, none missing. Traced all-target check passes in
+83.533 seconds with zero errors, panics or open spans; temporary telemetry was
+deleted. The five native-context contracts cover real recursive decoding,
+selected callbacks, encoding limits, cancellation and unchanged files before
+publication. They do not establish native parsed DEFAULT support.
+
+Full `python3 scripts/verify_kani.py`, Kani 0.67.0, passes all six maintained
+harnesses: TIMETZ packing 29.897 s, unsigned keys 0.853 s, dense offsets 0.501 s,
+ROWS clipping 2.393 s, uniform bounds 3.984 s and packed byte counts 84.951 s.
+There are zero failures. Warnings now list caller-location (1) and foreign
+functions (4), unreachable in these verified harnesses; atomic fences (4) and
+subtracts (5) remain sequential, and the vendor-parser warning remains. These
+proofs do not establish context/publication protocols, stored-expression
+semantics, overload correctness or general concurrency.
+
+All 40 Python verification tests pass, including the generated SQLite transaction
+and predicate-partition comparisons and a production test-worker build. An initial
+two-module invocation from the repository root had import-path errors; rerunning
+from scripts passed 21 tests, then normal discovery passed all 40. No oracle or
+engine change was made to repair that invocation.
+
+The [default-demand investigation](stored-expressions.md) now distinguishes
+deleted physical rows before and after CHECKPOINT: development demands a failing
+ADD default before checkpoint, but succeeds after dropping the deleted storage.
+Neither visible cardinality nor a historical row-ID high-water mark is sufficient
+to model this lifecycle. Retained defaults and prepared-plan binding settings
+remain lead-owned correctness gaps. No new performance/native-file/full-upstream
+acceptance or follow-up push occurred. A fresh fetch found 44 local commits and
+no incoming commits; README still matches origin/main and the user's stash is
+untouched. Checkpoint nine remains the pushed performance/upstream baseline.
 
 ## Thirteenth integrated validation checkpoint
 

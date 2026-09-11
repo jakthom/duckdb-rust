@@ -116,7 +116,8 @@ default hooks preserve legacy callbacks and propagate cancellation. The first
 test compile attempted a private compacted-layout helper; the contiguous test
 source now correctly uses its public identity layout. Check, all-target clippy
 and coverage pass (373 files/3,596 functions/239 methods, none missing). Tracing
-and Kani are pending the next frozen integrated checkpoint. These context repairs
+and all six maintained Kani harnesses now pass at the
+[fourteenth integrated checkpoint](value-expression-progress.md). These context repairs
 do not implement native parsed DEFAULTs, retained catalog defaults, or cooperative
 checks within every catalog/ART/checksum operation.
 
@@ -254,3 +255,22 @@ why deleted slots can still demand it. The current Rust snapshot retains row-ID
 high-water metadata, but how that should preserve backfill demand through live
 snapshots, compaction and independent recovery remains implementation work.
 Do not treat a passing zero-visible-row shortcut as parity for this path.
+
+The next [raw in-memory CLI probes](default-demand-maintenance-probes.json), on
+the same two pins, further distinguish physical lifecycle from append identity:
+
+| Sequence before ADD of the failing default | Development | Release |
+| --- | --- | --- |
+| CREATE, INSERT one row, DELETE all, CHECKPOINT | Success, zero rows | Success, zero rows |
+| CREATE, INSERT one row, DELETE all, VACUUM | Conversion error | Success, zero rows |
+| CREATE, BEGIN, INSERT one row, ROLLBACK | Success, zero rows | Success, zero rows |
+
+Each complete SQL string, exit code and raw output is retained. These are
+reference-only observations, not newly passing Rust DEFAULT cases. Development
+[RowGroupCollection::InitializeVacuumState](../../duckdb/src/storage/table/row_group_collection.cpp)
+drops eligible fully deleted row groups during checkpoint; subsequent collection
+reconstruction skips those groups and recalculates physical counts. That code
+supports the observed CHECKPOINT distinction. The Rust implementation must
+model the relevant lifecycle across snapshots, checkpoint/reopen and rollback;
+using historical next_row_id alone would incorrectly demand this default after
+the observed checkpoint. VACUUM is not interchangeable with CHECKPOINT here.

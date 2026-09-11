@@ -1,0 +1,43 @@
+{
+  "description": "In-memory pinned CLI default-demand probes; no Rust parity acceptance.",
+  "development_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+  "release_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+  "results": [
+    {
+      "pin": "development",
+      "sql": "CREATE TABLE t(i INTEGER); INSERT INTO t VALUES(1); DELETE FROM t; CHECKPOINT; ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER); SELECT count(*) FROM t;",
+      "exit_code": 0,
+      "output": "┌─────────┐\n│ Success │\n│ boolean │\n└─────────┘\n  0 rows \n┌──────────────┐\n│ count_star() │\n│    int64     │\n├──────────────┤\n│            0 │\n└──────────────┘\n"
+    },
+    {
+      "pin": "development",
+      "sql": "CREATE TABLE t(i INTEGER); INSERT INTO t VALUES(1); DELETE FROM t; VACUUM; ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER); SELECT count(*) FROM t;",
+      "exit_code": 1,
+      "output": "Conversion Error: Could not convert string 'bad' to INT32\n"
+    },
+    {
+      "pin": "development",
+      "sql": "CREATE TABLE t(i INTEGER); BEGIN; INSERT INTO t VALUES(1); ROLLBACK; ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER); SELECT count(*) FROM t;",
+      "exit_code": 0,
+      "output": "┌──────────────┐\n│ count_star() │\n│    int64     │\n├──────────────┤\n│            0 │\n└──────────────┘\n"
+    },
+    {
+      "pin": "release",
+      "sql": "CREATE TABLE t(i INTEGER); INSERT INTO t VALUES(1); DELETE FROM t; CHECKPOINT; ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER); SELECT count(*) FROM t;",
+      "exit_code": 0,
+      "output": "┌─────────┐\n│ Success │\n│ boolean │\n└─────────┘\n  0 rows \n┌──────────────┐\n│ count_star() │\n│    int64     │\n├──────────────┤\n│            0 │\n└──────────────┘\n"
+    },
+    {
+      "pin": "release",
+      "sql": "CREATE TABLE t(i INTEGER); INSERT INTO t VALUES(1); DELETE FROM t; VACUUM; ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER); SELECT count(*) FROM t;",
+      "exit_code": 0,
+      "output": "┌──────────────┐\n│ count_star() │\n│    int64     │\n├──────────────┤\n│            0 │\n└──────────────┘\n"
+    },
+    {
+      "pin": "release",
+      "sql": "CREATE TABLE t(i INTEGER); BEGIN; INSERT INTO t VALUES(1); ROLLBACK; ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER); SELECT count(*) FROM t;",
+      "exit_code": 0,
+      "output": "┌──────────────┐\n│ count_star() │\n│    int64     │\n├──────────────┤\n│            0 │\n└──────────────┘\n"
+    }
+  ]
+}
