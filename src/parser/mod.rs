@@ -1,6 +1,7 @@
 use crate::common::{Error, Result};
 mod date_call;
 mod dialect;
+mod nullif_call;
 mod parameters;
 
 /// Shared SQL syntax interchange; only the SQL binder consumes this AST.

@@ -69,6 +69,9 @@ impl Dialect for RewriteDialect {
         DuckDbDialect.parse_infix(parser, expr, precedence)
     }
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
+        if let Some(expression) = super::nullif_call::parse(parser) {
+            return Some(expression);
+        }
         if let Some(expression) = super::date_call::parse(parser) {
             return Some(expression);
         }

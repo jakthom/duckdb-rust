@@ -247,3 +247,16 @@ The pinned development fixed-unit truncation kernel uses unchecked multiplicatio
 at the lower timestamp boundary. The rewrite explicitly models the observed
 modular result without Rust overflow or undefined behavior; retained release
 errors remain disagreements, not a reason to change correctness authority.
+
+## Reserved NULLIF syntax
+
+Unquoted, unqualified `NULLIF` additionally has reserved parser syntax with
+exactly two expression arguments in development's PEG grammar. Its transformer
+still emits an ordinary `nullif` FunctionExpression; syntax recognition must not
+force the builtin expansion when the catalog selects an ordinary replacement.
+The rewrite emits the same ordinary call AST and leaves quoted/qualified names
+on the normal function grammar. Arity errors, extra commas and function modifiers
+on reserved syntax are Parser errors, not late Binder errors. This does not claim
+general quoted/qualified catalog resolution or macro argument completeness.
+Sources: `src/parser/peg/grammar/statements/expression.gram:309` and
+`TransformNullIfExpression` in `src/parser/peg/transformer/transform_expression.cpp`.

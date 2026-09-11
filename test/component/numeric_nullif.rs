@@ -8,6 +8,48 @@ use duckdb_rust::{
 
 #[derive(Debug)]
 struct Occurrence(Arc<std::sync::atomic::AtomicUsize>);
+
+#[derive(Debug)]
+struct OrdinaryNullIf;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for OrdinaryNullIf {
+    fn name(&self) -> &str {
+        "nullif"
+    }
+    fn return_type(
+        &self,
+        _: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        Ok(DataType::Integer)
+    }
+    fn evaluate(&self, _: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        Ok(Value::Integer(42))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn nullif_reserved_syntax_retains_selected_ordinary_catalog_replacement() -> Result<()> {
+    let mut functions = FunctionRegistry::default();
+    functions.register_scalar(Arc::new(OrdinaryNullIf))?;
+    let mut c = DatabaseBuilder::new()
+        .functions(functions)
+        .build()?
+        .connect();
+    assert_eq!(
+        c.query("SELECT nullif(1,1)")?.rows,
+        vec![vec![Value::Integer(42)]]
+    );
+    for args in ["", "1", "1,2,3", "1,2,"] {
+        assert!(matches!(
+            c.query(&format!("SELECT nullif({args})")),
+            Err(Error::Parse(_))
+        ));
+    }
+    Ok(())
+}
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for Occurrence {
     fn name(&self) -> &str {

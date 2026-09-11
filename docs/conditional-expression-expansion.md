@@ -151,3 +151,27 @@ constraint-owned indexes, prepared insertion of max UHUGEINT, atomic failed
 mutation, rollback and native WAL/checkpoint reopen. Standalone CREATE INDEX is
 still unsupported; the test uses real UNIQUE/PRIMARY KEY-owned indexes rather
 than implying that additional SQL catalog feature is implemented.
+
+## Reserved NULLIF parser boundary
+
+The reserved unquoted/unqualified spelling now parses exactly two expressions
+and emits an ordinary function AST. Extra/missing arguments, trailing commas,
+named/ordered/distinct arguments and FILTER/OVER syntax are rejected by parsing.
+Quoted and qualified names remain on the ordinary function grammar, matching the
+source grammar distinction; this is not general qualified catalog resolution.
+An initial token-only prototype incorrectly rejected `main.nullif()` with
+`expected statement delimiter, found (`. Differential parsing against stock
+sqlparser identified this as a new-change regression, not an existing gap:
+compound-name parsing re-enters the prefix hook after a dot. The repaired hook
+checks the previous non-whitespace token without changing parser state and
+declines reserved syntax after `.`. Qualified NULLIF with zero/three arguments,
+intervening comments, qualified CEIL/FLOOR/DATE and field identifiers are retained
+as parser regression checks. Generic qualified/quoted catalog lookup is separate.
+A selected ordinary `nullif` replacement returning 42 still returns 42 for
+`nullif(1,1)`, proving that syntax did not force the builtin CASE expansion.
+
+The original three expected Binder categories in the first report are corrected
+to independently observed Parser categories only in the follow-up driver/report.
+The first raw report and all case identities remain intact. Broader macro/catalog
+support and remaining generic argument diagnostics (including star arguments)
+are not covered by this bounded syntax correction.
