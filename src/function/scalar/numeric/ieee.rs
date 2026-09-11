@@ -55,6 +55,7 @@ impl Math {
             .map(|&count| ScalarSignature {
                 arguments: vec![DataType::Double; count],
                 return_type: DataType::Double,
+                argument_names: None,
             })
             .collect()
     }
