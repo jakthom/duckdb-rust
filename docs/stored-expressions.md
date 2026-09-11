@@ -50,6 +50,23 @@ still open; the maintained proofs do not cover that path or this stored tree.
 
 ## Remaining connected path
 
+The next internal increment adds `StoredExpressionEvaluator` and the explicitly
+composed `SelectedStoredExpressions` bundle. It validates replacement-binder
+output as closed/effect-free, applies the selected assignment cast, executes the
+selected evaluator once, and validates the physical result against the declared
+target. Query contexts can retain this capability; missing composition returns
+Unsupported rather than constructing built-ins. Two additional contracts exercise
+selected assignment/function/evaluator retention, invalid replacement trees and
+results, effects, missing capabilities and cancellation. All five stored-tree
+contracts, ordinary workspace check, all-target clippy and coverage pass
+(349 files, 3,317 functions, 229 interface methods, no missing instrumentation).
+Initial test-only failures were a missing Debug implementation and an attempted
+duplicate built-in cast registration; the probe now supplies its own registry.
+Database construction and recovery context propagation are the next integration
+step; this increment alone does not change native DEFAULT support. The full Kani
+suite will run at the next substantial integrated checkpoint, not be inferred
+from the preceding checkpoint's result.
+
 - Retain expressions in column defaults instead of eagerly evaluating SQL or
   native parsed expressions; preserve backward decoding of existing private
   snapshots. Binding and assignment use the selected statement services.

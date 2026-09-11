@@ -441,7 +441,7 @@ impl State<'_, '_> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn constant_expression(expression: &BoundExpr) -> bool {
+pub(super) fn constant_expression(expression: &BoundExpr) -> bool {
     match &expression.kind {
         ExprKind::Literal(_) | ExprKind::Parameter(_) => true,
         ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => constant_expression(inner),

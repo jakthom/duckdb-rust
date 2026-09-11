@@ -3,6 +3,7 @@ mod binder;
 pub mod expression;
 pub mod logical;
 mod recursive;
+pub mod stored;
 mod validation;
 
 pub use binder::SqlBinder;

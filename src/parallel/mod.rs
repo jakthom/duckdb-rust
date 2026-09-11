@@ -29,10 +29,28 @@ pub struct QueryContext {
     max_intermediate_rows: usize,
     types: Arc<crate::common::type_registry::TypeRegistry>,
     settings: crate::main::settings::SettingsSnapshot,
+    stored_expressions: Option<Arc<dyn crate::catalog::expression::StoredExpressionEvaluator>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl QueryContext {
+    pub fn with_stored_expressions(
+        mut self,
+        expressions: Arc<dyn crate::catalog::expression::StoredExpressionEvaluator>,
+    ) -> Self {
+        self.stored_expressions = Some(expressions);
+        self
+    }
+    /// Missing composition is a capability error, never a request to construct
+    /// ambient builtin functions/casts in a decoder or recovery implementation.
+    pub fn stored_expressions(
+        &self,
+    ) -> Result<&dyn crate::catalog::expression::StoredExpressionEvaluator> {
+        self.check()?;
+        self.stored_expressions
+            .as_deref()
+            .ok_or_else(|| Error::Unsupported("no catalog expression evaluator selected".into()))
+    }
     pub fn settings(&self) -> &crate::main::settings::SettingsSnapshot {
         &self.settings
     }
@@ -74,6 +92,7 @@ impl QueryContext {
             max_intermediate_rows: usize::MAX,
             types: crate::common::type_registry::builtin_types(),
             settings: crate::main::settings::SettingsSnapshot::default(),
+            stored_expressions: None,
         }
     }
     pub fn new(
@@ -94,6 +113,7 @@ impl QueryContext {
             max_intermediate_rows,
             types: crate::common::type_registry::builtin_types(),
             settings: crate::main::settings::SettingsSnapshot::default(),
+            stored_expressions: None,
         })
     }
     pub fn check(&self) -> Result<()> {

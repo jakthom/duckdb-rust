@@ -382,6 +382,25 @@ impl LogicalPlan {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundExpr {
+    /// Validate an independently bound catalog expression before execution.
+    /// Closedness is distinct from totality: valid expressions may still raise
+    /// selected conversion/execution errors when they are demanded.
+    pub fn validate_closed(&self, catalog: &dyn Catalog, query: &QueryContext) -> Result<()> {
+        self.validate_at(
+            &[],
+            0,
+            &ValidationScope {
+                catalog,
+                query,
+                outer: &[],
+                recursive: &[],
+            },
+        )?;
+        require(
+            super::binder::constant_expression(self),
+            "catalog expression is not closed and effect-free",
+        )
+    }
     fn validate_at(
         &self,
         input: &[DataType],

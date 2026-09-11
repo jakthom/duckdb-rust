@@ -12,10 +12,10 @@ mod argument_combination;
 mod argument_provenance;
 #[path = "component/closed_argument.rs"]
 mod closed_argument;
-#[path = "component/stored_expression.rs"]
-mod stored_expression;
 #[path = "component/scalar_expansion.rs"]
 mod scalar_expansion;
+#[path = "component/stored_expression.rs"]
+mod stored_expression;
 #[path = "component/typed_constant.rs"]
 mod typed_constant;
 #[path = "component/value_binding.rs"]

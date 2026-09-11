@@ -48,6 +48,24 @@ pub enum StoredArgumentStyle {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Explicitly composed execution of a closed catalog expression. Implementations
+/// bind using the supplied catalog snapshot and query settings/types, apply the
+/// declared assignment target through selected casts, and validate their result.
+/// They must reject row/subquery dependencies and volatile/external effects,
+/// preserve fatal failures and cancellation, and perform no I/O or publication.
+/// The owned result belongs to this operation; callers must not silently repeat
+/// execution while copying catalog state or preparing a log.
+pub trait StoredExpressionEvaluator: Send + Sync {
+    fn evaluate(
+        &self,
+        expression: &StoredExpression,
+        target: &DataType,
+        catalog: &dyn super::Catalog,
+        query: &QueryContext,
+    ) -> Result<Value>;
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl StoredExpression {
     pub fn literal(data_type: DataType, value: Value) -> Self {
         Self {

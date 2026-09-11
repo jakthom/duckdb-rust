@@ -430,3 +430,204 @@ fn stored_trees_reject_malformed_metadata_limits_effects_and_missing_capabilitie
     );
     Ok(())
 }
+
+struct ReturnedBinder(BoundExpr);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Binder for ReturnedBinder {
+    fn name(&self) -> &'static str {
+        "stored-returned-binder"
+    }
+    fn bind(
+        &self,
+        _: &duckdb_rust::parser::Statement,
+        _: &BindContext<'_>,
+    ) -> Result<BoundStatement> {
+        Err(Error::Unsupported(
+            "ordinary binding on returned binder".into(),
+        ))
+    }
+    fn bind_stored_expression(
+        &self,
+        _: &StoredExpression,
+        _: &BindContext<'_>,
+    ) -> Result<BoundExpr> {
+        Ok(self.0.clone())
+    }
+}
+
+struct ReturnedEvaluator(Value, Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ExpressionEvaluator for ReturnedEvaluator {
+    fn name(&self) -> &'static str {
+        "stored-returned-evaluator"
+    }
+    fn evaluate(
+        &self,
+        _: &BoundExpr,
+        row: &duckdb_rust::common::Row,
+        context: &dyn duckdb_rust::execution::expression_executor::EvaluationContext,
+    ) -> Result<Value> {
+        context.query().check()?;
+        assert!(row.is_empty());
+        self.1.fetch_add(1, Ordering::SeqCst);
+        Ok(self.0.clone())
+    }
+}
+
+#[derive(Debug)]
+struct AssignmentCast(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for AssignmentCast {
+    fn name(&self) -> &'static str {
+        "stored-assignment-cast"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Integer
+            && spec.target == DataType::Varchar
+            && spec.mode == CastMode::Assignment
+    }
+    fn cast(&self, _: &Value, spec: &CastSpec, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        assert_eq!(spec.mode, CastMode::Assignment);
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(Value::Varchar("selected assignment".into()))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn stored_service_retains_selected_assignment_and_evaluates_once() -> Result<()> {
+    use duckdb_rust::planner::stored::SelectedStoredExpressions;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let cast_calls = Arc::new(AtomicUsize::new(0));
+    let mut functions = FunctionRegistry::default();
+    functions.register_scalar(Arc::new(SelectedFunction(7, false, calls.clone())))?;
+    let mut casts = CastRegistry::default();
+    casts.register(
+        CastSpec {
+            source: DataType::Integer,
+            target: DataType::Varchar,
+            mode: CastMode::Assignment,
+        },
+        Arc::new(AssignmentCast(cast_calls.clone())),
+    )?;
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let service = Arc::new(SelectedStoredExpressions::new(
+            Arc::new(SqlBinder),
+            casts.clone(),
+            OperatorRegistry::builtins(),
+            functions.clone(),
+            evaluator,
+        ));
+        let query = QueryContext::background().with_stored_expressions(service);
+        let catalog = Snapshot::new(query.type_registry());
+        let previous = calls.load(Ordering::SeqCst);
+        let previous_casts = cast_calls.load(Ordering::SeqCst);
+        let expression = call("stored_function", vec![]);
+        assert_eq!(
+            query.stored_expressions()?.evaluate(
+                &expression,
+                &DataType::Varchar,
+                &catalog,
+                &query
+            )?,
+            Value::Varchar("selected assignment".into())
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), previous + 1);
+        assert_eq!(cast_calls.load(Ordering::SeqCst), previous_casts + 1);
+        let cloned = query.clone();
+        assert_eq!(
+            cloned.stored_expressions()?.evaluate(
+                &expression,
+                &DataType::Integer,
+                &catalog,
+                &cloned
+            )?,
+            Value::Integer(7)
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), previous + 2);
+        assert_eq!(cast_calls.load(Ordering::SeqCst), previous_casts + 1);
+    }
+    assert!(matches!(
+        QueryContext::background().stored_expressions(),
+        Err(Error::Unsupported(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn stored_service_validates_replacement_boundaries_before_evaluation() -> Result<()> {
+    use duckdb_rust::{
+        catalog::expression::StoredExpressionEvaluator, planner::stored::SelectedStoredExpressions,
+    };
+    let query = QueryContext::background();
+    let catalog = Snapshot::new(query.type_registry());
+    let literal = StoredExpression::literal(DataType::Integer, Value::Integer(1));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut bad_literal = BoundExpr::literal(Value::Integer(1));
+    bad_literal.data_type = DataType::Varchar;
+    let mut column = BoundExpr::literal(Value::Integer(1));
+    column.kind = ExprKind::Column(0);
+    let effects = Arc::new(AtomicUsize::new(0));
+    let mut effectful = BoundExpr::literal(Value::Integer(1));
+    effectful.kind = ExprKind::Scalar(Arc::new(SelectedFunction(9, true, effects.clone())), vec![]);
+    for bound in [bad_literal, column, effectful] {
+        let service = SelectedStoredExpressions::new(
+            Arc::new(ReturnedBinder(bound)),
+            CastRegistry::builtins(),
+            OperatorRegistry::builtins(),
+            FunctionRegistry::builtins(),
+            Arc::new(ReturnedEvaluator(Value::Integer(42), calls.clone())),
+        );
+        assert!(
+            service
+                .evaluate(&literal, &DataType::Integer, &catalog, &query)
+                .is_err()
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(effects.load(Ordering::SeqCst), 0);
+    }
+    for (value, valid) in [
+        (Value::Integer(42), true),
+        (Value::Varchar("invalid result".into()), false),
+    ] {
+        let service = SelectedStoredExpressions::new(
+            Arc::new(SqlBinder),
+            CastRegistry::builtins(),
+            OperatorRegistry::builtins(),
+            FunctionRegistry::builtins(),
+            Arc::new(ReturnedEvaluator(value.clone(), calls.clone())),
+        );
+        let result = service.evaluate(&literal, &DataType::Integer, &catalog, &query);
+        if valid {
+            assert_eq!(result?, value);
+        } else {
+            assert!(matches!(result, Err(Error::Internal(_))));
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    let service = SelectedStoredExpressions::new(
+        Arc::new(OrdinaryBinder),
+        CastRegistry::builtins(),
+        OperatorRegistry::builtins(),
+        FunctionRegistry::builtins(),
+        Arc::new(ReturnedEvaluator(Value::Integer(42), calls.clone())),
+    );
+    assert!(matches!(
+        service.evaluate(&literal, &DataType::Integer, &catalog, &query),
+        Err(Error::Unsupported(_))
+    ));
+    let interrupt = InterruptHandle::default();
+    let cancelled = QueryContext::new(interrupt.clone(), None, 1, 1)?;
+    interrupt.interrupt();
+    assert!(matches!(
+        service.evaluate(&literal, &DataType::Integer, &catalog, &cancelled),
+        Err(Error::Interrupted)
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    Ok(())
+}
