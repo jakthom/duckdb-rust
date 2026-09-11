@@ -1,0 +1,4 @@
+test/upstream/duckdb/source.tar.gz binary
+test/upstream/duckdb/** linguist-vendored
+docs/*.json linguist-generated=true
+docs/*.jsonl linguist-generated=true

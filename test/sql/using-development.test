@@ -1,0 +1,5 @@
+# Development exposes an alias on the whole parenthesized join. v1.5.5 rejects it.
+query III
+SELECT j.* FROM ((VALUES(1,10))a(k,v) JOIN (VALUES(1,20))b(k,w) USING(k))j
+----
+1	10	20

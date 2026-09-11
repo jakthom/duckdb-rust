@@ -1,0 +1,7 @@
+# Correlated window expressions are supported by pinned development 99063af2bd, but rejected by v1.5.5.
+query II
+SELECT i,(SELECT sum(i) OVER ()) FROM range(3)t(i) ORDER BY i
+----
+0	0
+1	1
+2	2

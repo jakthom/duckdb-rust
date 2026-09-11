@@ -53,6 +53,18 @@ Prefer the smallest structural changes that establish real seams, preserve usefu
 
 Keep the default analytical path efficient through suitable composition and dispatch choices. Establish measured overhead and regression budgets before accepting structural changes. No particular dispatch mechanism, zero-overhead claim, latency target, or production-readiness claim is settled by this principle.
 
+The user subsequently set the [acceptance requirement](testing/parity.md) to
+zero performance regressions against the C++ implementation and complete DuckDB
+test parity. Earlier measured 1.25 allowances are historical evidence, not active
+acceptance criteria. Work on performance should address regressions, without
+expanding into unrelated performance improvements.
+
+The 2026-09-10 clarification separates correctness from performance baseline
+selection: when pinned release and development behavior disagree, development
+is authoritative. For each comparable workload, performance must match or beat
+the faster of the two references. Preserve both outcomes and all known
+divergences; the detailed rules are in the acceptance requirement linked above.
+
 ### Interfaces are full contracts
 
 Each interface must specify the types and semantic invariants callers rely on, ownership and lifetimes, error behavior, concurrency and ordering, cancellation, resource accounting, configuration, and supported capabilities. Applicable contracts must also cover transaction visibility, durability, effects, serialization, and compatibility/version negotiation.
@@ -78,6 +90,13 @@ File-format interfaces must describe schema and metadata access, reads and write
 AI functionality must be optional and attach through declared interfaces at the appropriate stage, including parsing, logical planning, optimization, or execution. Its contracts must expose relevant effects, nondeterminism, batching, cancellation, resource limits, and external access. No particular model provider or AI runtime becomes a mandatory engine dependency.
 
 ### Verification and acceptance
+
+Each substantial Rust implementation chunk must run and report a [Kani
+checkpoint](testing/kani.md) before it is declared complete. During exploration,
+proof success is not a stage-completion condition. Investigate counterexamples
+and record tool limitations without forcing implementation choices to suit the
+verifier. Ordinary edit/test passes use the normal checks. Formal proof coverage
+and acceptance requirements can be established once the design settles.
 
 The interface is the primary conformance-test surface. Built-in and alternative adapters must run the same applicable contract tests. Adapter-specific tests supplement, rather than replace, those checks. Fuzzing, failure injection, and benchmarks must select implementations through the declared seams.
 

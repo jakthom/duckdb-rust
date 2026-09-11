@@ -6,6 +6,9 @@ Source baseline: DuckDB `99063af2bd7092aff02e14184a20e24699d34d71` (2026-09-08).
 
 The repository has a native correctness runner, a process orchestration layer, specialized independent harnesses, and CI/build gates. A test corpus is an input to a harness; it is not a separate runner merely because it has its own directory.
 
+The rewrite now has an explicit [full test parity and zero-regression acceptance
+requirement](parity.md). The source inventory below does not establish that goal.
+
 For the rewrite, [principle #1: pluggable by construction](../rewrite-principles.md#1-pluggable-by-construction) requires shared interface-conformance suites for built-in and alternative adapters, plus configurable fuzzing, fault-injection, and benchmark harnesses. This requirement guides future verification design; the inventory below describes existing DuckDB harnesses, not completed rewrite tests.
 
 The separate [rewrite workload conformance specification](rewrite-workloads.md) adds future verification requirements for format interchange, OLAP preservation, OLTP, graph, random access, and mixed workloads. It is not part of the source-baseline harness register below and does not claim those capabilities are implemented.

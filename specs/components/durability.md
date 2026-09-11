@@ -8,7 +8,7 @@ Source baseline: DuckDB `99063af2bd7092aff02e14184a20e24699d34d71` (2026-09-08).
 
 The [write-ahead log](../../../duckdb/src/storage/write_ahead_log.cpp) records durable changes; [wal_replay.cpp](../../../duckdb/src/storage/wal_replay.cpp) reconstructs committed state during recovery. Checkpoint code serializes catalog/table metadata and table storage into durable blocks and advances the database's root/header state.
 
-Checkpointing has full, concurrent, and in-memory/vacuum-related decisions. Other active readers, update/catalog undo requirements, writer locks, and storage configuration influence which path is valid. The storage manager can transition to a `.checkpoint.wal` while a checkpoint is in progress and reconcile concurrent writes afterward. Therefore, “checkpoint always runs with no other activity” is not an accurate model of this revision.
+Checkpointing has full, concurrent, and in-memory/vacuum-related decisions. Other active readers, update/catalog undo requirements, writer locks, and storage configuration influence which path is valid. The storage manager can transition to a `.wal.checkpoint` while a checkpoint is in progress and reconcile concurrent writes afterward. Therefore, “checkpoint always runs with no other activity” is not an accurate model of this revision.
 
 Sources: [checkpoint_manager.cpp](../../../duckdb/src/storage/checkpoint_manager.cpp), [checkpoint implementations](../../../duckdb/src/storage/checkpoint/), [storage_manager.cpp](../../../duckdb/src/storage/storage_manager.cpp), [single_file_block_manager.cpp](../../../duckdb/src/storage/single_file_block_manager.cpp).
 
@@ -24,12 +24,193 @@ Sources: [write_ahead_log.hpp](../../../duckdb/src/include/duckdb/storage/write_
 
 The essential durability boundary is successful completion of the storage commit protocol, not merely appending bytes to an operating-system buffer. Data blocks, WAL flushes, and metadata/header publication must follow the implementation's ordering rules. A newly published root must not depend on blocks that can be lost after the operation reports success. Conversely, blocks written speculatively before publication must not become visible as a committed transaction solely because they exist in the file.
 
-Concurrent checkpointing complicates this ordering: old checkpoint state, writes participating in the new checkpoint, and concurrent WAL activity can coexist. Rotation through `.checkpoint.wal` is part of the recovery protocol. These files must not be manually removed as disposable build artifacts while a database is active or awaiting recovery.
+Concurrent checkpointing complicates this ordering: old checkpoint state, writes participating in the new checkpoint, and concurrent WAL activity can coexist. Rotation through `.wal.checkpoint` is part of the recovery protocol. These files must not be manually removed as disposable build artifacts while a database is active or awaiting recovery.
 
 Replay must distinguish complete committed work from incomplete tails and must report malformed/incompatible data through the storage error path. Recovery and idempotence should be checked by reopening repeatedly, including after a recovery operation itself is interrupted. Exact accepted corruption/truncation cases are implementation-specific and require targeted tests rather than a blanket claim that every damaged file is recoverable.
 
 ## Fault model and verification
 
+### Truncated free-block suffixes
+
+The C++ block manager can truncate a free suffix after checkpoint header
+publication. Therefore the header's allocated-block watermark can exceed the
+file's remaining physical blocks. The Rust reader may accept only a complete
+block-aligned suffix whose every missing block is explicitly free in the
+persisted, bounded, ordered free list. Missing referenced blocks, incomplete
+blocks, malformed free identities and uncovered suffix ranges remain corrupt.
+Compute physical offsets with checked arithmetic; a forged allocation watermark
+must not cause overflow or an allocation/loop proportional to that watermark.
+This does not authorize ignoring a missing live block or repairing input bytes.
+
+Sources: `SingleFileBlockManager::{WriteHeader,LoadFreeList,Truncate}` in
+[single_file_block_manager.cpp](../../../duckdb/src/storage/single_file_block_manager.cpp)
+and checkpoint truncation ordering in
+[checkpoint_manager.cpp](../../../duckdb/src/storage/checkpoint_manager.cpp).
+
+### Retained checkpoint publication metadata
+
+The native main-header version and database-header version are different
+namespaces in older files. Main versions 64–69 and the development sentinel
+999 do not by themselves identify the active serialization layout. For legacy
+database-header values, 0–3 and historical 64 map to storage 64; values 4–7 map
+to storage 65–68. The modern database value 69 identifies v2 storage. Unknown
+versions and encryption/flag capabilities must be rejected, including when a
+caller asks only for successor encoding.
+
+Checkpoint publication must preserve the existing database identifier and
+storage compatibility and advance the generation. It must not reset these to
+fresh-file defaults simply because tables are reencoded. Any deliberate version
+upgrade requires its own capability decision; preserving a v2 header alone does
+not authorize a new type's checkpoint or WAL layout. Development additionally
+gates empty STRUCT and TUPLE table columns to storage 69 and VARIANT columns to
+storage 68, recursively through child types.
+
+Sources: [header version mapping](../../../duckdb/src/storage/single_file_block_manager.cpp)
+and [table type gates](../../../duckdb/src/catalog/catalog_entry/duck_table_entry.cpp).
+
+For the Rust rewrite, the selected format may bind a small owned checkpoint
+encoder that retains publication metadata. The file layer neither interprets
+that state nor rereads/retains all prior table bytes per commit. Construct and
+validate the successor binding before external publication; install it only
+after publication succeeds. Definite failures keep the prior binding usable.
+Uncertain outcomes block further publication until reopening. Stateful file
+durability has one transaction-manager owner; connections share that manager.
+Formats without such metadata keep their selected stateless encoder. These
+representation choices remain provisional; the identity, failure and ownership
+contracts do not depend on a particular object layout.
+
+Native snapshot serialization takes its type services from the snapshot's
+retained registry, including recursive child/statistics encoding. WAL child
+encoding uses the selected log context. Neither path may construct builtin
+type services to interpret dynamic values. Native statistics still describe
+the native physical ordering; a replacement SQL comparator cannot redefine
+the C++ file's statistics ordering. Contextual snapshot encoding preserves caller
+settings, cancellation and expression services while using the snapshot's retained
+types. Direct legacy encoding explicitly supplies a maintenance context. This
+does not promise interruptible filesystem operations or a global byte budget.
+
+The provisional native writer can explicitly select storage 64–69 for a new
+image; the legacy default remains 64. That preference does not upgrade existing
+files. Check recursive table-type capabilities before emitting data, including
+empty tables and CREATE/ALTER paths. Ordinary FileCheckpoint publication can
+write canonical unshredded VARIANT at storage 68 or newer, and positional TUPLE
+and empty STRUCT at storage 69. Reading a shredded column does not require the
+successor writer to preserve its compression or shredding strategy, but it must
+preserve exact logical content and the existing file identity/version.
+
+WAL publication has a separate capability boundary. The selected checkpoint
+encoder exposes compact, format-namespaced storage compatibility from validated
+existing bytes. The file layer hands it to the selected logger without rereading
+or retaining the prior table image. Missing metadata grants no newer capability;
+fresh-file preferences are not a substitute. Native sessions retain that version,
+check CREATE/ALTER recursively (including empty tables), and reject a changed
+version during checkpoint rebasing before replacing the live session. Legacy
+log adapters preserve their existing callback through a defaulted start hook.
+With actual storage 69 and the existing positional codecs, TUPLE and empty
+STRUCT can enter the WAL. At actual storage 68 or newer, VARIANT uses the native
+four-child vector codec and format-owned exact canonical validation during
+recovery/checkpoint publication. Unknown version metadata still rejects newer
+types recursively. SQL equality
+is not sufficient: equal numeric values with different tags, widths or floating
+bits are not interchangeable durable payloads. Remaining codec/default limits
+are not a reduced target for the value-and-expression milestone.
+
+Strict physical layout validation must compare floating-point bits recursively,
+not just in top-level columns. It must accept identical nested NaN payloads and
+reject changed payload bits or zero signs. Container metadata, ordering, union
+tags and child NULLs remain exact. The current bounded comparison uses borrowed
+row views, checks cancellation, and limits each row to 16 million logical values
+and depth 64; shared allocations do not waive the logical visit count. This
+physical check does not authorize native VARIANT canonicalization or SQL equality
+as a substitute for format-owned content validation.
+
+The format-aware layout entry point keeps these identity/catalog checks in the
+shared validator. A defaulted, pure selected-format value hook can describe exact
+canonical content; declining retains physical equality. Native DuckDB delegates
+only declared VARIANT leaves, including inside static nested types. It may erase
+documented wrapper distinctions but must retain scalar tags/widths, decimal
+metadata, IEEE bits, ordered exact object names and child NULL presence. Bind
+declared types once from the source snapshot's retained registry, not the decoded
+snapshot or ambient query. Validate selected values and preserve callback errors.
+Compare catalog defaults through this same path, including empty tables, without
+reevaluating SQL. Check schemas, names, declared types, column order/nullability
+and unique-key metadata separately and exactly.
+
+The provisional implementation preflights each complete logical row (and table's
+defaults) before delegating subtrees, so per-leaf codec budgets cannot reset outer
+depth/visit accounting. Native exact comparison additionally bounds variable
+scalar/key bytes. Both recovered-to-published and live-logical-to-rebased checks
+use the actual selected format and finish before I/O or session replacement.
+This seam alone does not enable a wire codec, version, or unsupported non-NULL
+nested DEFAULT serialization.
+
+Development storage 69 can persist noncontiguous row groups. Catalog property
+105 carries `next_row_id`, defaulting to total physical rows when absent; it is
+not redundant row-count metadata. Restore each stored row-group start and the
+append high-water mark independently of live/physical cardinality. Check ordered,
+nonoverlapping ranges, arithmetic bounds and version capability before restoring
+rows or applying a WAL. The append watermark must equal the final physical group
+end; a table with no groups has watermark zero. Interior gaps are supported,
+unexplained trailing gaps are not. Source: [table data writer](../../../duckdb/src/storage/checkpoint/table_data_writer.cpp),
+[checkpoint reader](../../../duckdb/src/storage/checkpoint_manager.cpp), and
+[row-group collection](../../../duckdb/src/storage/table/row_group_collection.cpp).
+
+Deletion masks are addressed by their serialized vector index relative to the
+row group, not by the retained `ChunkInfo.start` compatibility field. Historical
+v1.3 files stored absolute starts; both pinned current readers preserve those
+values while new vectors use relative starts. C++ commit `f386370785` removed
+RowVersionManager's base start and move normalization without removing the wire
+field. Consume that fixed-width field but do not use it as a second mask address
+or infer its origin from the storage version. Validate vector counts, unique
+in-range indices, checked offsets, mask encodings/indices and truncation. A
+VECTOR_INFO mask must contain both deleted and alive bits across the serialized
+vector, matching development's corruption checks; wholly deleted vectors have
+their own encoding. See [row-version manager](../../../duckdb/src/storage/table/row_version_manager.cpp)
+and [chunk info](../../../duckdb/src/storage/table/chunk_info.cpp).
+
 Three complementary test classes are required: ordinary close/reopen and checkpoint tests; process-interruption/WAL replay tests; and injected file-write or synchronization failures. The native storage fuzzer performs operation sequences with one-shot filesystem faults and verifies the next reopen against the last expected state. It is not a general malformed-database-byte generator.
 
 Assertions should separate acknowledged commits, rejected commits, and indeterminate external failures. Check table contents, catalog objects, indexes, and future database usability, not just whether opening succeeds. Historical storage files and cross-version readers add a separate format-compatibility obligation described in [compatibility testing](../testing/compatibility.md). Relevant code and execution limitations for fault campaigns are in [fuzzing](../testing/fuzzer.md) and [stress](../testing/stress.md).
+
+## Selected stored-expression context (Rust integration contract)
+
+Database composition must select closed-expression binding, casts, functions and
+evaluation explicitly before default transaction-manager recovery. Validate the
+initial settings snapshot before that recovery can publish files. Runtime query
+contexts use their session snapshot; recovery and commit maintenance retain the
+startup context, while explicit checkpoints use the requesting query context.
+This does not authorize log encoding to reevaluate already resolved defaults.
+
+The defaulted `Durability::load_with_context` and
+`SnapshotFormat::decode_with_context` hooks preserve legacy adapter callbacks and
+check cancellation at the boundary. FileCheckpoint, FileWal and native recovery
+must forward the selected context instead of creating expression registries.
+Legacy direct construction has no stored-expression capability unless the caller
+composes it. A custom transaction manager remains responsible for its own initial
+recovery; DatabaseBuilder does not retroactively reload it or replace its types.
+
+The default decode hook does not imply cooperative cancellation inside a legacy
+decoder. Native decoding overrides it: one selected request context follows
+catalog loading, scalar/nested/VARIANT child decoding, compression adapters and
+row restoration. Row-group and descendant-column allocations honor that context's
+intermediate-row limit; decoder callbacks retain its types, settings, cancellation
+and expression capability without invoking the latter. The legacy direct decode
+API explicitly supplies an unlimited maintenance context with the caller's types.
+This is not complete allocator accounting or interruption of every metadata/checksum
+operation. Native constant-default metadata still takes the old eager path.
+Retained native DEFAULT expression
+serialization remains part of the unfinished connected implementation.
+
+Defaulted contextual fresh, bound and successor encoding hooks preserve each
+selected legacy callback, checking cancellation before and after it. The native
+format overrides all three: snapshot validation and recursive value/statistics
+encoding use the supplied context with the snapshot's retained type registry.
+FileCheckpoint retains its load context with the publication-state binding;
+ordinary commits use that context, and check again after encoder rebinding before
+file replacement. Preparation cancellation leaves the previous binding usable.
+Do not check cancellation after a completed durable replace and report it as a
+definite non-commit. Native recovery passes its caller context into successor
+preparation; explicit WAL checkpoints therefore keep their requesting context.
+Some catalog/default metadata, ART construction and checksum loops are still
+bounded but not individually cooperative. No arbitrary function evaluation is
+authorized by serialization or by retaining the expression capability.

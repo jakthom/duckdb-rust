@@ -1,0 +1,12 @@
+/target/
+# Generated validation evidence belongs under target/, not documentation.
+/docs/*.json
+/docs/**/*.json
+/docs/*.jsonl
+/docs/**/*.jsonl
+/docs/*.log
+/docs/**/*.log
+*.ddb
+*.ddb.lock
+__pycache__/
+*.py[cod]

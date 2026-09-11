@@ -1,0 +1,219 @@
+{
+  "nested_variant_shredded": {
+    "writer": "v1.5.5 (Variegata) d8cdaa33fd",
+    "reference_identity": {
+      "target": "release",
+      "required_version": "1.5.5",
+      "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+      "reported_source_id": "d8cdaa33fd",
+      "version": "v1.5.5 (Variegata) d8cdaa33fd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+      "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+    },
+    "size": 798720,
+    "sha256": "47c2518bb1d29141c856d9605d7e7ed3f0778f2d428c1dcc22608c3b49d03ff2",
+    "observed_compression": [
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "16"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "DECIMAL(12,2)",
+        "compression": "Constant",
+        "n": "8"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "DECIMAL(12,2)",
+        "compression": "Uncompressed",
+        "n": "8"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "TIMESTAMP_NS",
+        "compression": "Constant",
+        "n": "16"
+      },
+      {
+        "column_name": "s",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "48"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "BLOB",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "DECIMAL(12,2)",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "INTEGER",
+        "compression": "Uncompressed",
+        "n": "30"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "INTEGER[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "STRUCT(keys_index UINTEGER, values_index UINTEGER)[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "STRUCT(type_id UTINYINT, byte_offset UINTEGER)[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "UINTEGER",
+        "compression": "Constant",
+        "n": "70"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "UINTEGER",
+        "compression": "Uncompressed",
+        "n": "34"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "UTINYINT",
+        "compression": "Uncompressed",
+        "n": "12"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "86"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": "318"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "VARCHAR",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "v",
+        "segment_type": "VARCHAR[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "BLOB",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "DECIMAL(12,2)",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "INTEGER",
+        "compression": "Uncompressed",
+        "n": "23"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "INTEGER[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "STRUCT(keys_index UINTEGER, values_index UINTEGER)[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "STRUCT(type_id UTINYINT, byte_offset UINTEGER)[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "UINTEGER",
+        "compression": "Constant",
+        "n": "67"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "UINTEGER",
+        "compression": "Uncompressed",
+        "n": "25"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "UTINYINT",
+        "compression": "Uncompressed",
+        "n": "6"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": "75"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": "311"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "VARCHAR",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "VARCHAR[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      },
+      {
+        "column_name": "xs",
+        "segment_type": "VARIANT[]",
+        "compression": "Uncompressed",
+        "n": "16"
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='uncompressed';\n        SET variant_minimum_shredding_size=0;\n        CREATE TABLE t(id INTEGER PRIMARY KEY,v VARIANT,s STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs VARIANT[]);\n        INSERT INTO t(id,v) VALUES\n          (0,{'a':1,'items':[1,2],'d':12.50::DECIMAL(12,2)}::VARIANT),\n          (1,{'a':2,'items':[3,NULL],'d':1.25::DECIMAL(12,2)}::VARIANT),\n          (2,{'a':NULL,'items':[],'d':NULL}::VARIANT),\n          (3,{'a':'str','items':[4,5],'extra':'leftover'}::VARIANT),\n          (4,{'items':[6],'d':2.50::DECIMAL(12,2)}::VARIANT),\n          (5,NULL),(6,'scalar leftover'::VARIANT),\n          (7,[1::VARIANT,'str'::VARIANT,NULL]::VARIANT);\n        UPDATE t SET s={'d':id::DECIMAL(12,2),'ts':TIMESTAMP_NS '2000-01-01 00:00:00.123456789'},xs=[v,NULL];\n        CHECKPOINT;",
+    "storage_version": "v1.5.0"
+  }
+}

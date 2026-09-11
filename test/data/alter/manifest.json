@@ -1,0 +1,38 @@
+{
+  "generator": "/opt/homebrew/Cellar/duckdb/1.3.0/bin/duckdb",
+  "version": "v1.3.0 71c5c07cdd",
+  "setup": "CREATE TABLE t(id INTEGER PRIMARY KEY,v INTEGER); INSERT INTO t VALUES(1,10),(2,NULL),(3,30); CHECKPOINT",
+  "mutations": "\nPRAGMA disable_checkpoint_on_shutdown;\nBEGIN;\nALTER TABLE t ADD COLUMN extra SMALLINT DEFAULT 8;\nALTER TABLE t RENAME COLUMN v TO value;\nALTER TABLE t ALTER COLUMN extra SET DEFAULT 9;\nALTER TABLE t ALTER COLUMN extra SET NOT NULL;\nALTER TABLE t RENAME TO renamed;\nCOMMIT;\nINSERT INTO renamed(id,value) VALUES(4,40);\nBEGIN;\nALTER TABLE renamed ALTER COLUMN extra DROP NOT NULL;\nALTER TABLE renamed ALTER COLUMN extra DROP DEFAULT;\nALTER TABLE renamed DROP COLUMN value;\nCOMMIT;\nINSERT INTO renamed(id) VALUES(5);\n",
+  "expected": [
+    {
+      "id": 1,
+      "extra": 8
+    },
+    {
+      "id": 2,
+      "extra": 8
+    },
+    {
+      "id": 3,
+      "extra": 8
+    },
+    {
+      "id": 4,
+      "extra": 9
+    },
+    {
+      "id": 5,
+      "extra": null
+    }
+  ],
+  "files": {
+    "native.duckdb": {
+      "sha256": "f58c872ea09bf2f10f56341431ada4edff069782ab7f5c48465d42bc1f01cf53",
+      "bytes": 798720
+    },
+    "native.wal": {
+      "sha256": "dbc66cf8dd574f485a40eb5eeb9c131d8f0e3fe2d1fdaf6f66962c5fdc1927db",
+      "bytes": 970
+    }
+  }
+}

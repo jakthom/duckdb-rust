@@ -1,0 +1,126 @@
+# Recursive input observes the preceding generation, including multiple scans.
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM t WHERE x<3) SELECT * FROM t
+----
+1
+2
+3
+
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 UNION SELECT a.x+b.x FROM t a, t b WHERE a.x<3) SELECT * FROM t ORDER BY x
+----
+1
+2
+4
+
+# Global UNION distinct reaches a fixed point on a cycle.
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 UNION SELECT x FROM t) SELECT * FROM t
+----
+1
+
+query I
+WITH RECURSIVE t(x) AS (SELECT NULL::INTEGER UNION SELECT x FROM t) SELECT * FROM t
+----
+NULL
+
+query I
+WITH RECURSIVE t(x) AS ((VALUES (1),(1)) UNION SELECT x+1 FROM t WHERE x<3) SELECT * FROM t ORDER BY x
+----
+1
+2
+3
+
+query I
+WITH RECURSIVE t(x) AS ((VALUES (1),(1)) UNION ALL SELECT x+1 FROM t WHERE x<2) SELECT * FROM t ORDER BY x
+----
+1
+1
+2
+2
+
+query IT
+WITH RECURSIVE t(x,s) AS (SELECT 1,'a' UNION ALL SELECT x+1,s||'b' FROM t WHERE x<3) SELECT * FROM t
+----
+1	a
+2	ab
+3	abb
+
+# An uncorrelated scalar subquery still depends on the current iteration.
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT (SELECT max(x) FROM t)+1 FROM t WHERE x<4) SELECT * FROM t
+----
+1
+2
+3
+4
+
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT x+(SELECT 1) FROM t WHERE x<3) SELECT * FROM t
+----
+1
+2
+3
+
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 WHERE false UNION ALL SELECT x+1 FROM t) SELECT * FROM t
+----
+
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT 2) SELECT * FROM t ORDER BY x
+----
+1
+2
+
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM t WHERE x<3) SELECT a.x FROM t a JOIN t b ON a.x=b.x ORDER BY a.x
+----
+1
+2
+3
+
+query I
+WITH RECURSIVE a(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM a WHERE x<2), b(y) AS (SELECT x FROM a UNION SELECT y+1 FROM b WHERE y<3) SELECT * FROM b ORDER BY y
+----
+1
+2
+3
+
+query I
+WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT sum(x+1) FROM t WHERE x<3 GROUP BY x) SELECT * FROM t
+----
+1
+2
+3
+
+# Recursive CTEs retain correlated query scope.
+query II
+SELECT i,(WITH RECURSIVE t(x) AS (SELECT i UNION ALL SELECT x+1 FROM t WHERE x<i+2) SELECT sum(x) FROM t) FROM range(3) r(i) ORDER BY i
+----
+0	3
+1	6
+2	9
+
+# Canonical equality treats signed zero and NaNs as duplicate UNION values.
+query I
+WITH RECURSIVE t(x) AS ((VALUES (-0.0::DOUBLE),(0.0::DOUBLE),('NaN'::DOUBLE)) UNION SELECT x FROM t) SELECT count(*) FROM t
+----
+2
+
+statement ok
+CREATE TABLE recursive_result AS WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM t WHERE x<3) SELECT * FROM t
+
+query I
+SELECT sum(x) FROM recursive_result
+----
+6
+
+statement error
+WITH RECURSIVE t(x) AS (SELECT 1 UNION ALL SELECT x,x+1 FROM t) SELECT * FROM t
+----
+UNION column counts differ
+
+statement error
+WITH RECURSIVE t(x) AS (SELECT 1), t(x) AS (SELECT 2) SELECT * FROM t
+----
+duplicate CTE name

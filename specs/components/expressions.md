@@ -28,6 +28,105 @@ CASE and Boolean selection must preserve SQL NULL behavior and only evaluate the
 
 `EvaluateScalar` folds an eligible expression into a `Value`; `TryEvaluateScalar` reports failure without propagating the evaluation exception. The `allow_unfoldable` parameter is explicit. A caller cannot infer that an arbitrary expression is safe to execute during planning simply because it has scalar output. Prepared parameters and context-dependent functions also complicate reuse of previously evaluated values.
 
+Development's scalar-function binder selects an overload before examining
+constant NULL arguments and before argument coercion. For default NULL handling,
+it replaces such a call with a constant: the complete declared return type when
+available, otherwise SQL NULL. BLOB and VARCHAR concatenation use the latter
+template behavior. Release resolves these selected cases to INTEGER instead;
+development governs correctness. SQL NULL's type spelling is `"NULL"` (distinct
+from the value spelling `NULL`). Source:
+[function binder](../../../duckdb/src/function/function_binder.cpp).
+
+The provisional Rust operator contract exposes selected constant-NULL result
+metadata independently of the runtime signature and preserves it on replacement.
+Only closed, effect-free input evaluation can establish NULL; unsuccessful data
+conversions do not establish it, and infrastructure/adapter errors remain errors.
+The binder does not discard expressions declaring volatility or external access.
+This is not a general nullability inference or permission to change ordinary
+fixed-type arithmetic results. CTAS still normalizes SQL NULL at storage boundaries.
+
+## Ordered collection literal binding
+
+Development lowers `MAP {key: value, ...}` to the selected `map` function with
+ordered key/value `list_value` arguments. Template inference visits arguments
+left to right, skips later untyped NULLs, and retains a binding when the next
+template type is exactly equal. String-literal identity is therefore observable:
+`['1', NULL, '2', 3]` infers INTEGER[], but `[NULL, '1', 3]` rejects concrete
+VARCHAR/INTEGER combination. Explicit VARCHAR casts, columns and parameters
+must not gain this literal privilege. Common-type proposals remain selected
+registry behavior; combination casts do not widen ordinary function overloads.
+
+Integer-literal identity also includes the literal value. `[1, 2::TINYINT]` and
+`[1, 1, 3::TINYINT]` infer TINYINT[], while `[1, 2, 3::TINYINT]` infers INTEGER[].
+These source observations require a selected literal-aware inference contract;
+they are not permission to bypass a registered type adapter with a hardcoded
+width rule. The initial Rust MAP/string-literal slice does not implement this
+integer-literal distinction.
+
+The follow-up Rust sequence binder now carries the existing literal-provenance
+hint through ordered inference and calls the selected integer-literal common-type
+hook. Repeated equal values with equal underlying types retain the hint; unequal
+literals, casts, computed expressions, parameters and actual type combinations
+do not. Later untyped NULLs preserve the hint, whereas an initial NULL combines
+with the first integer literal to produce a concrete type. No expression is
+evaluated to discover literal identity. Assignment and ordinary scalar-function
+coercion policies remain separate from this collection-template context.
+
+CASE result inference has a different ordered policy: children bind in source
+order, then the ELSE type combines with each THEN type in source order. Every
+pair invokes normal selected combination, so repeated integer/string literals
+and later NULLs normalize their pseudo-type identity. Collection shortcuts must
+not leak into this path. The provisional rewrite shares ordered inference with
+an explicit context, preserving literal provenance and selected type/cast
+services without evaluating result branches. Pruned CASE expressions still
+retain CASE identity for enclosing function overloads. Source:
+`src/planner/binder/expression/bind_case_expression.cpp` and the selected
+combination rules referenced below.
+
+VALUES inference has its own initial condition: each column starts as SQL NULL,
+then combines each bound row's expression return type in row order. The initial
+pair normalizes the first literal; each later expression still supplies its own
+literal hint. Thus `(1::UHUGEINT),(2),(NULL)` infers UHUGEINT, but reversing the
+first two rows or casting `2` explicitly to INTEGER infers BIGINT. This differs
+from collection templates that retain identical pseudo-types. The rewrite reuses
+the selected ordered combination helper with an explicit VALUES policy and NULL
+seed; it does not evaluate arguments, infer hints from parameter values, or change
+INSERT's destination-owned Assignment casts. Source:
+[VALUES binding](../../../duckdb/src/planner/binder/tableref/bind_expressionlistref.cpp).
+
+MAP constructor NULL/duplicate keys are invalid input. Converted MAP keys also
+need validation, but the cast records its own rejection provenance so TRY_CAST
+can NULL the entire result for an invalid or duplicate converted key without
+swallowing child validation, cancellation or infrastructure failures.
+
+Sources: [MAP lowering](../../../duckdb/src/parser/peg/transformer/transform_expression.cpp),
+[template inference](../../../duckdb/src/function/function_binder.cpp),
+[combination rules](../../../duckdb/src/function/combine_types_rules.cpp),
+[MAP validation](../../../duckdb/src/common/vector/map_vector.cpp),
+[MAP casts](../../../duckdb/src/function/cast/map_cast.cpp).
+
+## Rewrite ordinary-comparison constant NULL boundary
+
+Development binds the six ordinary comparisons as scalar functions with default
+NULL handling. Its function executor visits children in order and returns a
+constant NULL when an executed child has CONSTANT_VECTOR encoding and is NULL,
+before evaluating later children. This also governs the equality inside NULLIF's
+CASE expansion. It is not a rule for DISTINCT comparisons, AND/OR, observed equal
+values in flat/dictionary columns, or bind-time closedness. Sources:
+[comparison registration](../../../duckdb/src/function/scalar/comparison/comparison.cpp),
+[function execution](../../../duckdb/src/execution/expression_executor/execute_function.cpp).
+
+The rewrite consumes the selected evaluator's actual execution provenance in
+scalar, column, dictionary-cache and predicate paths. A right constant NULL may
+produce a constant result only after the left operand's required evaluation and
+validation. The selected operand and output metadata remain checked; malformed
+logical output is Internal while infrastructure and cancellation failures remain
+fatal. NULL payload validity itself is universal at the BoundType boundary.
+An ordinary replacement evaluator keeps Unknown unless it explicitly supplies
+provenance. Dictionary caching preserves the complete root result's provenance
+and validates every produced value before constant normalization; equal values
+do not establish the claim. No NULLIF-only shortcut or private comparator exists.
+
 ## Ownership, errors, and performance
 
 Result vectors may reference input data when an expression is a simple reference. Callers must retain underlying buffers if results escape input reuse. Expression executors typically belong to local operator/task state; sharing mutable evaluation state between workers is not implied by sharing an immutable physical expression tree. Scratch vectors and selections should be reused across chunks while their sizes and validity are reset correctly.

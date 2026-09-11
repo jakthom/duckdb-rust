@@ -1,0 +1,16 @@
+{
+  "writer": {
+    "target": "development",
+    "required_version": "2.0.0-dev84019",
+    "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "reported_source_id": "99063af2bd",
+    "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+    "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+  },
+  "storage_version": "v1.5.0",
+  "sql": "\nCREATE TABLE reference_list_defaults(\n    id INTEGER PRIMARY KEY,\n    list_default INTEGER[] DEFAULT [3,NULL,1],\n    array_cast_default INTEGER[] DEFAULT [3,NULL,1]::INTEGER[3],\n    sorted_default INTEGER[] DEFAULT list_sort([3,NULL,1],'ASC','NULLS LAST'),\n    array_sorted_default INTEGER[] DEFAULT array_sort([3,NULL,1]::INTEGER[3],'DESC','NULLS FIRST')\n);\nINSERT INTO reference_list_defaults(id) VALUES (1);\nCHECKPOINT;\n",
+  "checkpoint_bytes": 798720,
+  "checkpoint_sha256": "e65d5add3282a372e3c859b3c6b803af3b72eac9d72755a45e808f0f8cb3079c",
+  "fixture_sha256": "dab84869939bbfb8717307f94fbcbccb32759cc4ed210b635070cea639aa8287"
+}

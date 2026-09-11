@@ -1,0 +1,402 @@
+{
+  "indexes": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "CREATE TABLE t(id INTEGER PRIMARY KEY, u VARCHAR UNIQUE, a INTEGER, b VARCHAR, UNIQUE(a,b));\n        INSERT INTO t SELECT i, CASE WHEN i%11=0 THEN NULL ELSE 'prefix-' || chr(0) || chr(1) || i END, i%32, 'part-' || i//32 FROM range(6000) r(i);\n        CHECKPOINT;",
+    "size": 1585152,
+    "sha256": "86c25badf76c0ea44e75fea381a3858f2d0f590f0b3ff4002d6fbb767cc5718f"
+  },
+  "deletions": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "CREATE TABLE t AS SELECT i::INTEGER id FROM range(130000) r(i);\n        CHECKPOINT;\n        DELETE FROM t WHERE id=1 OR (id>=2048 AND id<4096) OR (id>=4096 AND id<6144 AND id%2=0) OR (id>=6144 AND id<8192 AND id<>7000) OR id=125000;\n        CHECKPOINT;",
+    "size": 536576,
+    "sha256": "06ec4ba347ca34a0817e90194c2965cc27b0a7d1fc847b4cb0259be5522e4b66"
+  },
+  "schemas": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "CREATE SCHEMA empty;\n        CREATE SCHEMA nested;\n        CREATE TABLE nested.extra(i INTEGER);\n        INSERT INTO nested.extra VALUES (99);\n        CREATE TABLE t(i INTEGER);\n        INSERT INTO t VALUES (1);\n        CHECKPOINT;",
+    "size": 274432,
+    "sha256": "173b4734aa4a6123d7a8ca28fe7be66dfe8e79780506f1a8af201661dbf96dc3"
+  },
+  "rowgroups": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "SET force_compression='uncompressed';\n        CREATE TABLE t AS SELECT i::BIGINT id FROM range(125000) r(i);\n        CHECKPOINT;",
+    "size": 1323008,
+    "sha256": "e2d90589efa289eb8f6e41b16aa8ee09be735992d85384c553c42aa1fa190a5f"
+  },
+  "scalar": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "SET force_compression='uncompressed';\n        CREATE TABLE t(id INTEGER, name VARCHAR, value DOUBLE, active BOOLEAN);\n        INSERT INTO t VALUES (1,'one',1.5,true),(2,NULL,2.5,false),(3,'three',NULL,NULL);\n        CHECKPOINT;",
+    "size": 536576,
+    "sha256": "310b24b5db483166b141b0432a35562f56fe92532f7b5d007310ce4387d27e7f"
+  },
+  "bitpacking": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "CREATE TABLE t AS SELECT i::INTEGER id, (i % 7)::BIGINT k FROM range(10000) r(i);\n        CHECKPOINT;",
+    "size": 536576,
+    "sha256": "9dcc221f629e29a48597e6a5466877923770c1ea2a2a840177ac6a57266eea80"
+  },
+  "rle": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "SET force_compression='rle';\n        CREATE TABLE t AS SELECT (i // 100)::INTEGER id FROM range(10000) r(i);\n        CHECKPOINT;",
+    "size": 536576,
+    "sha256": "ee057db8b3cc79f6238c4c2d1d4605d05bde2ed1f7c6244560af3d6b17016146"
+  },
+  "dictionary": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "SET force_compression='dictionary';\n        CREATE TABLE t AS SELECT CASE WHEN i%11=0 THEN NULL ELSE 'category-' || (i%7) END AS text FROM range(10000) r(i);\n        CHECKPOINT;",
+    "size": 536576,
+    "sha256": "77a61c34aa4b8f4724480c016a7102582f75de36b999e35fafa7e7367c2a6067"
+  },
+  "fsst": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "SET force_compression='fsst';\n        CREATE TABLE t AS SELECT CASE WHEN i%11=0 THEN NULL ELSE repeat('duckdb-',10) || i END AS text FROM range(10000) r(i);\n        CHECKPOINT;",
+    "size": 536576,
+    "sha256": "44ffadc56bbd950a022cb8b78bf7c098bc3b391bf449f53b519a9b658d055e10"
+  },
+  "overflow": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "SET force_compression='uncompressed';\n        CREATE TABLE t(id INTEGER, text VARCHAR);\n        INSERT INTO t VALUES (1,repeat('a',8000)),(2,repeat('b',300000)),(3,''),(4,NULL);\n        CHECKPOINT;",
+    "size": 1060864,
+    "sha256": "63b530280f834e6b6d3376a42a89c9a712adec39e56a99bc4dd9c3563df46e1e"
+  },
+  "defaults": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "CREATE TABLE t(a TINYINT DEFAULT -128, b SMALLINT DEFAULT 32767, c INTEGER DEFAULT -2147483648, d BIGINT DEFAULT 9223372036854775807, e HUGEINT DEFAULT '-170141183460469231731687303715884105728'::HUGEINT, f DOUBLE DEFAULT 5e-1, g VARCHAR DEFAULT 'quack''\ud83e\udd86', h BOOLEAN DEFAULT true, n INTEGER DEFAULT NULL);\n        INSERT INTO t DEFAULT VALUES;\n        CHECKPOINT;",
+    "size": 536576,
+    "sha256": "e91e3ccbe814b76b631ea59dd5c69ed0edea8d6130f295c4c2c2b8c55afa67af"
+  },
+  "alp": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "sql": "SET force_compression='alp';\n        CREATE TABLE t AS SELECT i::INTEGER id,\n          CASE WHEN i%29=0 THEN NULL WHEN i%1001=1 THEN 'NaN'::DOUBLE WHEN i%1001=2 THEN 'Infinity'::DOUBLE WHEN i%1001=3 THEN '-Infinity'::DOUBLE WHEN i%1001=4 THEN 1.7976931348623157e308 WHEN i%1001=5 THEN 4.9406564584124654e-324 ELSE (i-65000)::DOUBLE / 100 END AS value,\n          (1000000000000000 + i%13)::DOUBLE AS large,\n          (i%1000)::DOUBLE / 1e18 AS tiny\n        FROM range(125013) r(i);\n        CHECKPOINT;",
+    "size": 1323008,
+    "sha256": "7a5c52a1b4f41cda50ed639e7298f63437749839c3d6ed772363ea8ad9304399",
+    "observed_compression": [
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "BitPacking",
+        "n": 125013
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 125013
+      },
+      {
+        "column_name": "large",
+        "segment_type": "DOUBLE",
+        "compression": "ALP",
+        "n": 125013
+      },
+      {
+        "column_name": "large",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 125013
+      },
+      {
+        "column_name": "tiny",
+        "segment_type": "DOUBLE",
+        "compression": "ALP",
+        "n": 125013
+      },
+      {
+        "column_name": "tiny",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 125013
+      },
+      {
+        "column_name": "value",
+        "segment_type": "DOUBLE",
+        "compression": "ALP",
+        "n": 125013
+      },
+      {
+        "column_name": "value",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 125013
+      }
+    ]
+  },
+  "alprd": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "size": 2109440,
+    "sha256": "2a7a991f4533d628a7f92a27f5f0940169845d14084b8a197d0fb9041364594f",
+    "observed_compression": [
+      {
+        "column_name": "d",
+        "segment_type": "DOUBLE",
+        "compression": "ALPRD",
+        "n": 125013
+      },
+      {
+        "column_name": "d",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 125013
+      },
+      {
+        "column_name": "f",
+        "segment_type": "FLOAT",
+        "compression": "ALPRD",
+        "n": 125013
+      },
+      {
+        "column_name": "f",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 125013
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "BitPacking",
+        "n": 125013
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 125013
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='alprd';\n    CREATE TABLE t AS SELECT i::INTEGER id,\n      CASE WHEN i%29=0 THEN NULL WHEN i%1001=1 THEN 'NaN'::DOUBLE WHEN i%1001=2 THEN 'Infinity'::DOUBLE WHEN i%1001=3 THEN '-Infinity'::DOUBLE WHEN i%1001=4 THEN 1.7976931348623157e308 WHEN i%1001=5 THEN 4.9406564584124654e-324 WHEN i%1001=6 THEN '-0'::DOUBLE ELSE (i-65000)::DOUBLE / 17 END AS d,\n      CASE WHEN i%29=0 THEN NULL WHEN i%1001=1 THEN 'NaN'::FLOAT WHEN i%1001=2 THEN 'Infinity'::FLOAT WHEN i%1001=3 THEN '-Infinity'::FLOAT WHEN i%1001=4 THEN 3.4028234663852886e38::FLOAT WHEN i%1001=5 THEN 1.401298464324817e-45::FLOAT WHEN i%1001=6 THEN '-0'::FLOAT ELSE (i-65000)::FLOAT / 17::FLOAT END AS f\n    FROM range(125013) r(i);\n    CHECKPOINT;",
+    "query": "SELECT id, d, f::DOUBLE AS f FROM t"
+  },
+  "alp_float": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "size": 2109440,
+    "sha256": "ee8992d80c10fe65460ed1c0228c70848a194beaa0390de6da9122cbea0c9ef3",
+    "observed_compression": [
+      {
+        "column_name": "d",
+        "segment_type": "DOUBLE",
+        "compression": "ALP",
+        "n": 125013
+      },
+      {
+        "column_name": "d",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 125013
+      },
+      {
+        "column_name": "f",
+        "segment_type": "FLOAT",
+        "compression": "ALP",
+        "n": 125013
+      },
+      {
+        "column_name": "f",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 125013
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "BitPacking",
+        "n": 125013
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 125013
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='alp';\n    CREATE TABLE t AS SELECT i::INTEGER id,\n      CASE WHEN i%29=0 THEN NULL WHEN i%1001=1 THEN 'NaN'::DOUBLE WHEN i%1001=2 THEN 'Infinity'::DOUBLE WHEN i%1001=3 THEN '-Infinity'::DOUBLE WHEN i%1001=4 THEN 1.7976931348623157e308 WHEN i%1001=5 THEN 4.9406564584124654e-324 WHEN i%1001=6 THEN '-0'::DOUBLE ELSE (i-65000)::DOUBLE / 17 END AS d,\n      CASE WHEN i%29=0 THEN NULL WHEN i%1001=1 THEN 'NaN'::FLOAT WHEN i%1001=2 THEN 'Infinity'::FLOAT WHEN i%1001=3 THEN '-Infinity'::FLOAT WHEN i%1001=4 THEN 3.4028234663852886e38::FLOAT WHEN i%1001=5 THEN 1.401298464324817e-45::FLOAT WHEN i%1001=6 THEN '-0'::FLOAT ELSE (i-65000)::FLOAT / 17::FLOAT END AS f\n    FROM range(125013) r(i);\n    CHECKPOINT;",
+    "query": "SELECT id, d, f::DOUBLE AS f FROM t"
+  },
+  "chimp": {
+    "writer": "historical DuckDB artifact; original writer revision unrecorded",
+    "size": 1847296,
+    "sha256": "b156dcc05e29825751684f674611893e018bbad8b871d2d5f9318aa12b29ac36",
+    "observed_compression": [
+      {
+        "column_name": "temperature",
+        "segment_type": "DOUBLE",
+        "compression": "Chimp",
+        "n": 245000
+      },
+      {
+        "column_name": "temperature",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 245000
+      }
+    ],
+    "observed_table": "temperatures_double",
+    "reference_reader": "v1.3.0 71c5c07cdd",
+    "source": "duckdb/test/sql/storage/compression/chimp/chimp.db",
+    "source_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "query": "SELECT temperature::DOUBLE AS value FROM temperatures_double UNION ALL SELECT temperature::DOUBLE AS value FROM temperatures_float"
+  },
+  "patas": {
+    "writer": "historical DuckDB artifact; original writer revision unrecorded",
+    "size": 1847296,
+    "sha256": "d042826dbb20be5f452181cc5f05ffa0fdc8f9c94858b33107df253da399013e",
+    "observed_compression": [
+      {
+        "column_name": "temperature",
+        "segment_type": "DOUBLE",
+        "compression": "Patas",
+        "n": 245000
+      },
+      {
+        "column_name": "temperature",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 245000
+      }
+    ],
+    "observed_table": "temperatures_double",
+    "reference_reader": "v1.3.0 71c5c07cdd",
+    "source": "duckdb/test/sql/storage/compression/patas/patas.db",
+    "source_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "query": "SELECT temperature::DOUBLE AS value FROM temperatures_double UNION ALL SELECT temperature::DOUBLE AS value FROM temperatures_float"
+  },
+  "dates_scalar": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "size": 536576,
+    "sha256": "9a808d8fd44d2903b7cc6e06ec8c567a01d8588c7b77cc0ee49e406d8b47f73d",
+    "observed_compression": [
+      {
+        "column_name": "c",
+        "segment_type": "DATE",
+        "compression": "Constant",
+        "n": 10
+      },
+      {
+        "column_name": "c",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 10
+      },
+      {
+        "column_name": "d",
+        "segment_type": "DATE",
+        "compression": "Uncompressed",
+        "n": 10
+      },
+      {
+        "column_name": "d",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 10
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "Uncompressed",
+        "n": 10
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 10
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='uncompressed';\n        CREATE TABLE t(id INTEGER, d DATE, c DATE DEFAULT DATE '2000-02-29');\n        INSERT INTO t(id,d) VALUES (0,DATE '-infinity'),(1,DATE 'infinity'),\n          (2,DATE '5877642-06-25 (BC)'),(3,DATE '5881580-07-10'),\n          (4,DATE '0001-01-01 (BC)'),(5,DATE '0001-01-01'),\n          (6,DATE '1969-12-31'),(7,DATE '1970-01-01'),(8,DATE '2000-02-29'),(9,NULL);\n        CHECKPOINT;",
+    "query": "SELECT id, d::VARCHAR AS d, c::VARCHAR AS c FROM t ORDER BY id"
+  },
+  "dates_bitpacking": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "size": 536576,
+    "sha256": "892a4b4a64a029ccf82440fffe76598847e7af99101cabb516b6653592417cdd",
+    "observed_compression": [
+      {
+        "column_name": "c",
+        "segment_type": "DATE",
+        "compression": "Constant",
+        "n": 125013
+      },
+      {
+        "column_name": "c",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 125013
+      },
+      {
+        "column_name": "d",
+        "segment_type": "DATE",
+        "compression": "BitPacking",
+        "n": 125013
+      },
+      {
+        "column_name": "d",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 125013
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "BitPacking",
+        "n": 125013
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 125013
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='bitpacking';\n        CREATE TABLE t AS SELECT i::INTEGER id,\n          CASE WHEN i%29=0 THEN NULL ELSE DATE '1800-01-01' + i::INTEGER END AS d,\n          CASE WHEN i%31=0 THEN NULL ELSE DATE '2000-02-29' END AS c\n        FROM range(125013) r(i);\n        CHECKPOINT;",
+    "query": "SELECT id, d::VARCHAR AS d, c::VARCHAR AS c FROM t ORDER BY id"
+  },
+  "dates_rle": {
+    "writer": "v1.3.0 71c5c07cdd",
+    "size": 536576,
+    "sha256": "eabe4617017ee2fb627d70571a3525a60296e4de54ac9c86ee419c2b352d00ad",
+    "observed_compression": [
+      {
+        "column_name": "c",
+        "segment_type": "DATE",
+        "compression": "RLE",
+        "n": 10000
+      },
+      {
+        "column_name": "c",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 10000
+      },
+      {
+        "column_name": "d",
+        "segment_type": "DATE",
+        "compression": "RLE",
+        "n": 10000
+      },
+      {
+        "column_name": "d",
+        "segment_type": "VALIDITY",
+        "compression": "Uncompressed",
+        "n": 10000
+      },
+      {
+        "column_name": "id",
+        "segment_type": "INTEGER",
+        "compression": "RLE",
+        "n": 10000
+      },
+      {
+        "column_name": "id",
+        "segment_type": "VALIDITY",
+        "compression": "Constant",
+        "n": 10000
+      }
+    ],
+    "observed_table": "t",
+    "sql": "SET force_compression='rle';\n        CREATE TABLE t AS SELECT i::INTEGER id,\n          CASE WHEN i%1000<100 THEN NULL ELSE DATE '1960-01-01' + (i//100)::INTEGER END AS d,\n          DATE 'infinity' AS c\n        FROM range(10000) r(i);\n        CHECKPOINT;",
+    "query": "SELECT id, d::VARCHAR AS d, c::VARCHAR AS c FROM t ORDER BY id"
+  }
+}

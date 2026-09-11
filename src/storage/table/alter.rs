@@ -1,0 +1,219 @@
+use super::*;
+use crate::{catalog::TableAlteration, common::Value};
+use std::collections::BTreeMap;
+
+pub(crate) struct PreparedTableAlteration {
+    definition: Option<TableDefinition>,
+    /// One result per current physical slot, including deleted slots. Applying
+    /// the same preparation to the transaction's catalog basis consumes its
+    /// corresponding prefix without evaluating the expression again.
+    add_values: Option<Vec<(PhysicalSlot, Value)>>,
+}
+
+impl PreparedTableAlteration {
+    fn live_add_values(&self, before: &TableData) -> Result<Option<BTreeMap<RowId, Value>>> {
+        let Some(resolved) = &self.add_values else {
+            return Ok(None);
+        };
+        if resolved.len() < before.physical_slots.len() {
+            return Err(Error::Internal(
+                "ADD COLUMN preparation omits physical slots".into(),
+            ));
+        }
+        let mut values = BTreeMap::new();
+        for (slot, (resolved_slot, value)) in before.physical_slots.iter().zip(resolved) {
+            if slot.row_id() != resolved_slot.row_id() {
+                return Err(Error::Internal(
+                    "ADD COLUMN physical slot identity changed after preparation".into(),
+                ));
+            }
+            if let Some(id) = slot.live() {
+                values.insert(id, value.clone());
+            }
+        }
+        Ok(Some(values))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Snapshot {
+    pub(super) fn alter(
+        &mut self,
+        name: &TableName,
+        alteration: &TableAlteration,
+        context: &QueryContext,
+    ) -> Result<bool> {
+        let prepared = self.prepare_alter(name, alteration, context)?;
+        self.apply_prepared_alter(name, alteration, &prepared, context)
+    }
+
+    pub(crate) fn prepare_alter(
+        &self,
+        name: &TableName,
+        alteration: &TableAlteration,
+        context: &QueryContext,
+    ) -> Result<PreparedTableAlteration> {
+        let context = &context.clone().with_types(self.types.clone());
+        context.check()?;
+        let before = self.get(name)?;
+        let Some(definition) = alteration.definition(&before.definition)? else {
+            return Ok(PreparedTableAlteration {
+                definition: None,
+                add_values: None,
+            });
+        };
+        validate_definition(&definition, &self.types)?;
+        if definition.name != *name && self.tables.contains_key(&definition.name.key()) {
+            return Err(Error::Catalog(format!(
+                "table {} already exists",
+                definition.name
+            )));
+        }
+        let add_values = if let TableAlteration::AddColumn { column, .. } = alteration {
+            let mut values = Vec::with_capacity(before.physical_slots.len());
+            let visible_only = column
+                .default
+                .as_ref()
+                .is_some_and(|expression| !expression.is_simple_default());
+            for &slot in &before.physical_slots {
+                context.check()?;
+                let value = if visible_only && slot.live().is_none() {
+                    // DuckDB rewrites non-simple ADD defaults to ADD NULL,
+                    // UPDATE visible rows, SET DEFAULT. Deleted physical slots
+                    // therefore neither observe effects nor raise failures.
+                    Value::Null
+                } else {
+                    match &column.default {
+                        Some(expression) => match expression.as_literal() {
+                            Some((data_type, value)) if data_type == &column.data_type => {
+                                value.clone()
+                            }
+                            _ => context.stored_expressions()?.evaluate(
+                                expression,
+                                &column.data_type,
+                                self,
+                                context,
+                            )?,
+                        },
+                        None => Value::Null,
+                    }
+                };
+                if !(visible_only && slot.live().is_none()) {
+                    self.types
+                        .bind(&column.data_type)?
+                        .validate(&value, context)?;
+                    if value.is_null() && !column.nullable {
+                        return Err(not_null(name, &column.name));
+                    }
+                }
+                values.push((slot, value));
+            }
+            Some(values)
+        } else {
+            None
+        };
+        Ok(PreparedTableAlteration {
+            definition: Some(definition),
+            add_values,
+        })
+    }
+
+    /// Copy the already-resolved ADD result before catalog mutation. A durability
+    /// journal can then encode the exact rows without another default evaluation.
+    pub(crate) fn prepared_add_rows(
+        &self,
+        name: &TableName,
+        prepared: &PreparedTableAlteration,
+        context: &QueryContext,
+    ) -> Result<Option<Vec<(RowId, Row)>>> {
+        context.check()?;
+        let before = self.get(name)?;
+        let Some(values) = prepared.live_add_values(before)? else {
+            return Ok(None);
+        };
+        let mut rows = Vec::with_capacity(before.rows.len());
+        for (&id, row) in before.rows.iter() {
+            context.check()?;
+            let mut row = row.to_owned();
+            row.push(values.get(&id).cloned().ok_or_else(|| {
+                Error::Internal("ADD COLUMN preparation omits a live row".into())
+            })?);
+            rows.push((id, row));
+        }
+        Ok(Some(rows))
+    }
+
+    pub(crate) fn apply_prepared_alter(
+        &mut self,
+        name: &TableName,
+        alteration: &TableAlteration,
+        prepared: &PreparedTableAlteration,
+        context: &QueryContext,
+    ) -> Result<bool> {
+        let context = &context.clone().with_types(self.types.clone());
+        context.check()?;
+        let before = self.get(name)?;
+        let Some(definition) = &prepared.definition else {
+            return Ok(false);
+        };
+        let identity = self
+            .registry
+            .lookup_table(name)?
+            .ok_or_else(|| Error::Internal("runtime registry lost altered table".into()))?;
+        let mut registry = self.registry.clone();
+        if definition.name != *name {
+            registry.rename(
+                identity,
+                crate::catalog::CatalogObjectName::table(&definition.name)?,
+            )?;
+        } else {
+            registry.alter(identity)?;
+        }
+        let mut after = before.clone();
+        match alteration {
+            TableAlteration::AddColumn { column, .. } => {
+                let values = prepared.live_add_values(before)?.ok_or_else(|| {
+                    Error::Internal("ADD COLUMN has no prepared default values".into())
+                })?;
+                after
+                    .rows
+                    .add_column_values(&column.data_type, &values, context)?;
+            }
+            TableAlteration::DropColumn { column, .. } => {
+                after
+                    .rows
+                    .drop_column(before.definition.column_index(column)?, context)?;
+            }
+            TableAlteration::SetNullability {
+                column,
+                nullable: false,
+            } => {
+                let index = before.definition.column_index(column)?;
+                for row in before.rows.values() {
+                    context.check()?;
+                    if matches!(row[index], Value::Null) {
+                        return Err(not_null(name, column));
+                    }
+                }
+            }
+            _ => {}
+        }
+        // These operations preserve every indexed column's ordinal and type.
+        // Existing immutable indexes and unaffected vectors can be retained.
+        after.definition = definition.clone();
+        context.check()?;
+        self.tables.remove(&name.key());
+        self.tables
+            .insert(after.definition.name.key(), Arc::new(after));
+        self.registry = registry;
+        Ok(true)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn not_null(table: &TableName, column: &str) -> Error {
+    Error::Constraint(format!(
+        "NOT NULL constraint failed: {}.{column}",
+        table.name
+    ))
+}

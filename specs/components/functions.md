@@ -48,3 +48,335 @@ Table-in/out functions can produce multiple outputs for one input and can requir
 ## Verification requirements
 
 Test binding errors separately from execution errors; vary argument types, NULL patterns, constant/dictionary vectors, parallelism, repeated preparation, and serialization. Aggregate tests need empty input, partial-state combination, DISTINCT/FILTER where supported, and cleanup after failure. Table functions need projection/filter pushdown equivalence and accurate end-of-stream behavior. Native registration tests, C v1/v2 callback tests, and extension ABI checks are separate families in [component/API testing](../testing/component-api.md) and [compatibility](../testing/compatibility.md).
+
+## Rewrite selected typed-constant requests
+
+This section is a provisional rewrite interface contract, separate from the
+source-system description above. A scalar specialization may request
+`ScalarBindArguments::constant_as(index, target, mode)` when closed argument
+values determine result metadata, such as DECIMAL rounding precision.
+
+The language frontend owns that request. It must reject missing positions and
+arguments with relational dependencies or declared effects before evaluation.
+It must use the selected cast registry and expression evaluator, including the
+ordinary argument-cast mode and literal-identity policy, and validate the returned
+logical value. SQL string literals and fitting integer literals may receive the
+SQL frontend's explicit-cast privilege only for an Implicit request. Explicit
+and Assignment requests retain their selected mode; typed API parameters are
+not SQL literals. Identity conversion follows the same ordinary expression path.
+
+The returned Value is owned, including owned/shared immutable child payloads;
+it does not borrow a binder, registry or evaluator. NULL remains a typed request
+result that the selected function must interpret explicitly. This is not an
+ambient default cast, expression serialization format, or permission to evaluate
+volatile functions during catalog loading. Prepared execution must bind against
+its supplied parameter values and selected statement services.
+
+Cast, validation, evaluator, resource and cancellation failures propagate.
+Malformed adapter/evaluator output is an Internal contract failure, not a
+legitimate NULL or recoverable conversion. No fallback may call `Value::cast`
+or a private built-in registry. Frontends that do not implement typed constant
+requests explicitly return Unsupported; existing metadata and untyped constant
+requests remain separate capabilities. The ordinary scalar call path and typed
+constant path share one cast-mode selection helper so their policies cannot
+silently diverge.
+
+`constant_if_closed(index)` is a separate optional request. SQL returns None
+without evaluating row-dependent or effectful expressions, and Some(value) for
+closed/effect-free expressions evaluated and validated through selected services.
+It does not turn evaluation errors into None. Required and optional requests
+share the same dependency/effect classification. Other frontends validate the
+index then explicitly reject this capability if they cannot provide it. Known
+NULL values remain distinct from unavailable constants and from failed evaluation.
+
+`is_provably_null(index)` is an explicitly speculative NULL-template probe,
+separate from either constant request. The SQL frontend shares the operator
+template probe, first checks cancellation and closed/effect-free eligibility,
+then uses its selected evaluator. Conversion, Execution, OutOfRange and
+InvalidInput evaluation failures make this probe unsuccessful; Resource,
+Interrupted and Internal failures propagate. Logical output validation occurs
+outside this speculative error boundary and remains fatal. The default validates
+the argument index then reports Unsupported. This capability does not weaken
+required constant evaluation or permit a scalar adapter to swallow failures.
+
+## Rewrite execution argument provenance
+
+`ArgumentProvenance` describes already executed input in its actual batch scope.
+Constant is a physical encoding claim, not bound-expression closedness, equal
+values, or a one-row relation. Unknown includes ordinary flat/dictionary inputs
+and selected frontends that cannot supply this metadata.
+
+The selected scalar callback `evaluate_with_provenance` receives one metadata
+entry per already evaluated value. Its default checks cardinality and delegates
+the existing callback. The selected expression evaluator has a separate owned
+result callback; its default evaluates once through that adapter and reports
+Unknown. Replacement evaluators therefore do not inherit another evaluator's
+encoding claims. Query contexts default input/subquery provenance to Unknown.
+No hook authorizes child reevaluation, changed lazy-branch demand, lost errors
+or effects, bypassed logical validation, or a private adapter lookup.
+
+Development's expression executor explicitly converts a non-volatile function
+result to CONSTANT_VECTOR when all executed arguments are constant. This is
+execution metadata, distinct from the binder's foldability classification.
+Source: [function execution](../../../duckdb/src/execution/expression_executor/execute_function.cpp).
+
+`is_closed(index)` is metadata only. SQL uses the same selected bound-expression
+dependency/effect classification as the constant requests, with cancellation and
+index validation, but does not invoke an evaluator, cast, or function. A closed
+expression can still fail when later evaluated; this request cannot establish a
+NULL value or discard that failure. Typed parameters are closed in the current
+binding, whereas columns, subqueries and expressions with declared volatile or
+external effects are not. The returned Boolean is owned statement-local metadata,
+not a claim about a later plan's constant-vector encoding. Frontends without this
+capability validate the index and return Unsupported. This keeps lazy branches
+lazy when a selected function needs provenance rather than a computed constant.
+
+## Rewrite selected combination requests
+
+`collection_combination(indices)` is a separate metadata-only request with the
+same ordered-index and selected-result validation. It applies the collection
+template policy: later untyped NULLs and identical literal pseudo-types preserve
+the current template. It must not silently use the pair-normalizing `combination`
+policy. Unsupported frontends reject the request after validating indices.
+
+`ScalarBindArguments::combination(indices)` is a provisional metadata-only
+request for a nonempty, strictly increasing list of argument positions. SQL
+infers a common type from those retained expressions in source order, with
+pairwise normalization and exact full-width literal provenance, then chooses
+each mode through the same selected Implicit-if-available, otherwise Explicit
+rule used by CASE combination casts. It does not evaluate any child, infer
+constants from values, or broaden ordinary implicit conversion.
+
+The owned `ArgumentCombination` contains one result DataType and one CastMode
+per requested position. Its validation rejects malformed metadata, a changed
+cardinality or Assignment modes. Selected function specializations must validate
+and retain the proposal, then expose its modes through ordinary argument binding.
+Other frontends validate indices and explicitly return Unsupported unless they
+implement this capability; no built-in registry or evaluator fallback exists.
+
+`ScalarFunction::argument_literal_coercion(index)` defaults to true, preserving
+ordinary SQL literal privilege. False means the selected argument mode is final,
+not that literal inputs are forbidden. Combination specializations disable the
+additional rewrite so a selected Implicit cast is not replaced by an Explicit
+cast merely because the source is a fitting literal. Existing Explicit and
+Assignment policies remain unchanged. A future single typed cast-policy object
+can replace these provisional hooks if shared use warrants it.
+
+## Rewrite named argument metadata prerequisite
+
+`ScalarBindArguments::argument_name(index)` exposes an explicit argument name;
+`argument_alias(index)` exposes retained child aliases separately. Both defaults
+validate bounds and return None. `ScalarFunction::accepts_named_arguments()`
+defaults to false. Frontends reject explicit names for a selected adapter without
+this capability before expansion or specialization. An opt-in grants neither
+argument reordering nor implicit conversion privileges.
+
+Native legacy function calls retain their argument names as positional child
+aliases. Modern explicit names remain explicit. An alias-capturing constructor
+can request aliases; an ordinary replacement function can ignore them. The
+catalog representation and native codec must not interpret names according to
+a hardcoded function spelling, erase provenance, or evaluate child expressions
+to recover metadata. These defaulted hooks are an internal prerequisite; their
+presence alone does not establish named SQL or persisted-default support.
+
+## Rewrite physical provenance propagation
+
+The built-in evaluators now propagate this provenance while evaluating each
+requested row and child once in ordinary order. Literal/parameter projections
+and already materialized statement-local subquery reductions supply Constant;
+flat VALUES inputs do not, even for one row or repeated equal values. Unknown
+and correlated subquery results are not promoted. Selection preserves an
+existing constant encoding; selection of equal flat rows stays dictionary.
+Materializing operators can erase constant encoding. A result's Constant claim
+is a selected-evaluator invariant, like declared effects; all produced physical
+and logical values are validated before normalization can discard later payloads.
+No SQL equality scan creates or checks the claim.
+
+`ArgumentEvaluation::NullOnConstant` is a separate opt-in execution policy.
+Evaluate children in order until an executed Constant NULL establishes the typed
+NULL result; validate that child's selected type and the selected output type,
+then skip later children and the callback. Already executed children keep their
+effects/errors. Unknown/flat NULL does not short-circuit. Eager and FirstNonNull
+adapters retain their existing behavior. This policy currently serves the
+development date-difference overloads; it does not infer generic NULL handling
+from a function name or weaken conversion/validation failure provenance.
+
+Development's projected constant-NULL date-difference calls return NULL before
+parsing a bad specifier or evaluating later failing children. Release retains
+those errors. Development governs these disagreements. Ordinary VALUES NULL
+arguments remain nonconstant and preserve the function's existing dispatch/error
+order. The family differential retains both outcomes rather than weakening its
+exact result/error comparator.
+
+## Rewrite selected scalar expansion
+
+The provisional `ScalarFunction::expansion` capability returns an optional owned
+expression template before ordinary scalar specialization. Default None keeps
+the selected ordinary function unchanged. SQL lowers a returned template through
+its selected comparison and CASE/type/cast services, without runtime child
+evaluation or private casts inside the scalar adapter. The selected callback
+constructing the template retains ordinary binding requests: eligible closed
+constants may be evaluated through the existing selected constant-request checks.
+Returned-template validation precedes lowering and CASE pruning, not the callback
+that constructs it. No effectful-source bypass is permitted by those requests.
+An adapter that requires expansion
+must explicitly reject ordinary bind/evaluate in a frontend that does not
+support expansion. This is not general macro or catalog completeness.
+
+Templates contain a child-before-parent node list with Argument, Null, Equal and
+Case nodes; the final node is the root. Reusing a node is another expression
+occurrence, not a cached value. Argument occurrences retain the bound expression,
+including its literal/parameter identity, selected adapters and effects. CASE
+inference remains ELSE-first while child lowering follows source order. Required
+comparison/cast failures and lazy branch behavior follow those ordinary paths.
+
+The complete template is validated before lowering or pruning: nonempty shape,
+argument bounds, child order and acyclicity, at most 1,024 nodes, depth 64 and
+4,096 expanded occurrences. These provisional limits bound metadata expansion,
+not scalar-value domains. Validation checks cancellation and rejects malformed
+graphs explicitly. A flat owned representation avoids recursively owned foreign
+template drop. SQL additionally preflights the actual retained argument subtrees
+before cloning, lowering or pruning: a bound-tree budget of 4,096 nodes and depth
+128 includes each occurrence's full argument subtree, with one possible ordinary
+cast reserved per template child edge. Thus nested selected expansions cannot
+amplify already-expanded arguments past the budget. Traversal borrows children,
+checks cancellation and bounds its own pending stack. Shared relational plans
+are not cloned; their scalar needle is conservatively counted. These provisional
+limits do not bound payload bytes or general query memory.
+Adapters with their own declared volatile/external effects cannot use this pure
+expansion seam. Effects of referenced argument expressions remain intact.
+
+## Rewrite core calendar grids
+
+The provisional fixed-arity overload request is
+`ScalarBindArguments::select_overload(name, candidates)`. Each owned
+`ScalarSignature` declares argument and result types; the selected adapter
+supplies its call identity and advertised candidate order explicitly. The SQL
+frontend validates every candidate, including different arities, then selects
+through retained cast availability/costs and unevaluated literal/NULL metadata.
+Full signed/unsigned integer hints are not narrowed, inferred from ranges or
+manufactured by folding. Missing frontend capability remains Unsupported.
+
+Signature metadata does not install an implementation or grant a cast. An
+advertised extension placeholder can remain unavailable when selected. The
+consumer validates the returned index and retains its chosen signature for
+ordinary selected binding; the request itself performs no casts or evaluation.
+SQL string-literal priority remains distinct from a VARCHAR column or parameter.
+Selected cost errors and cancellation propagate. No-match diagnostics list all
+advertised signatures; ambiguity lists later equal-cost candidates then the
+original best, matching development's selection algorithm. Candidate-body
+formatting does not claim complete original-SQL source-span rendering, named or
+variadic argument support, or general catalog completeness. Provisional limits
+bound 4,096 candidates/name bytes and 65,536 total signature type positions.
+
+An optional owned `ScalarSignature::argument_names` supplies advertised argument
+labels. None retains the unnamed `colN` diagnostic labels; Some must match arity
+and contain nonempty, NUL-free labels, each at most 4,096 bytes and together at
+most 65,536 bytes across the candidate set. Bounds precede label scanning and
+cancellation is checked per label. Complete validation includes inapplicable
+candidate arities. These labels affect diagnostics only; they do not enable named
+arguments, reorder calls or install function implementations.
+
+Sources: [overload selection](../../../duckdb/src/function/function_binder.cpp),
+[cast costs](../../../duckdb/src/function/cast_rules.cpp), and
+[advertised extension signatures](../../../duckdb/src/include/duckdb/main/extension_entries.hpp).
+
+The provisional temporal adapters register `date_trunc`/`datetrunc` and
+`time_bucket` through the ordinary selected function catalog. Their binding now
+uses the named overload request above, validates the selected index and arity,
+and retains argument/result metadata before any constant-NULL or statistics
+probe. Advertised ICU candidates participate in diagnostics/ranking but remain
+Unsupported if selected without an implementation; no core substitute is used.
+Selected custom casts can change availability without family type whitelists.
+The four source-recognized DATETRUNC/bucket kernel and statistics rejections use
+NotImplemented, distinct from missing rewrite capability. Truncation keeps
+DATE/TIMESTAMP results as microsecond TIMESTAMP and INTERVAL results as INTERVAL;
+unit timestamp arguments use selected casts. Calendar periods, fixed timestamp
+units and signed interval components retain their distinct algorithms. A closed
+DATE/TIMESTAMP truncation specifier is validated during binding, matching the
+reference statistics callback; the INTERVAL overload has no such callback.
+Actual Constant/Unknown input provenance still governs execution dispatch and
+the selected constant-NULL policy. Neither equal VALUES nor one row establishes
+constant encoding.
+
+Bucketing separates positive fixed-duration widths from positive pure-month
+widths and rejects mixed month/day/time widths. Default origins are Monday
+2000-01-03 for fixed widths and 2000-01-01 for month widths. Interval offsets and
+temporal origins are distinct overloads with retained bound metadata, including
+their different classification/NULL/infinity demand order. Development adds
+TIME overloads with midnight wrapping; release lacks those overloads. Calendar
+and clock arithmetic is deterministic and does not consult the host timezone.
+ICU timezone behavior, statistics/planning parity, diagnostics, native defaults
+and performance remain independently measured obligations.
+
+Sources: [truncation](../../../duckdb/extension/core_functions/scalar/date/date_trunc.cpp)
+and [bucketing](../../../duckdb/extension/core_functions/scalar/date/time_bucket.cpp).
+The pinned development fixed-unit truncation kernel uses unchecked multiplication
+at the lower timestamp boundary. The rewrite explicitly models the observed
+modular result without Rust overflow or undefined behavior; retained release
+errors remain disagreements, not a reason to change correctness authority.
+
+Core `strftime` selects and retains the advertised DATE, TIMESTAMP,
+TIMESTAMP_NS, TIMESTAMPTZ and TIMESTAMPTZ_NS signatures in either argument order.
+The selected format cast and required constant evaluation precede compilation;
+the source-backed NULL-template policy can avoid unnecessary format demand.
+Rendering supports the core directives, English names, unpadded forms and
+composite expansions without host locale or timezone state. Zoned core overloads
+render UTC; this does not imply ICU calendar support. Physical timestamp validity
+remains distinct from calendar renderability. Selected failures and fatal
+validation are not converted into text or NULL.
+
+The provisional compiler bounds format/output bytes to 16 MiB and compiled
+parts to 65,536, with cancellation checks. These are revisable safety limits,
+not claimed native limits. Both pinned native implementations misadvance the
+output pointer after a nine-digit `%n`, allowing later emissions to overwrite
+digits and leave allocation bytes uninitialized. The rewrite retains fully
+initialized nine-digit output and records the exact discrepancy instead of
+reproducing uninitialized memory. Formatted parsing, complete original-source
+diagnostics, keyword-aware advertised-label quoting, native stored defaults and
+performance remain separately measured obligations.
+
+Sources: [SQL formatted temporal binding](../../../duckdb/src/function/scalar/date/strftime.cpp)
+and [compiled format kernels](../../../duckdb/src/function/scalar/strftime_format.cpp).
+
+## Reserved NULLIF syntax
+
+Unquoted, unqualified `NULLIF` additionally has reserved parser syntax with
+exactly two expression arguments in development's PEG grammar. Its transformer
+still emits an ordinary `nullif` FunctionExpression; syntax recognition must not
+force the builtin expansion when the catalog selects an ordinary replacement.
+The rewrite emits the same ordinary call AST and leaves quoted/qualified names
+on the normal function grammar. Arity errors, extra commas and function modifiers
+on reserved syntax are Parser errors, not late Binder errors. This does not claim
+general quoted/qualified catalog resolution or macro argument completeness.
+Sources: `src/parser/peg/grammar/statements/expression.gram:309` and
+`TransformNullIfExpression` in `src/parser/peg/transformer/transform_expression.cpp`.
+
+## IEEE-dependent numeric binding
+
+Development's `ieee_floating_point_ops` is a nullable BOOLEAN setting with a true
+default and session-default scope, supporting both session and global overrides.
+The stored NULL remains observable through current_setting; the typed native
+getter uses true when it encounters NULL. Math binding selects and retains the
+IEEE or strict callback, rather than reading a possibly changed setting during
+execution. The selected sqrt, ln, log/log10, log2 and pow/power signatures use
+DOUBLE arguments/results; log advertises one- and two-argument candidates.
+
+Default-NULL function binding first selects an overload, then speculatively
+probes foldable children in order. A later proven NULL can suppress an earlier
+recoverable failed probe and yields a typed NULL before the math bind callback.
+This is distinct from physical Constant-NULL execution in child order. The
+rewrite family reuses selected overload, NULL-probe and TypeOnly capabilities;
+it does not weaken required evaluation, cancellation or fatal adapter validation.
+
+Strict square root rejects negative inputs, and strict logarithms reject
+negative inputs and zero. Strict based logarithm validates its base before its
+value and rejects a zero base logarithm. Strict power rejects only zero to a
+negative power; negative fractional powers and overflowing results can still
+produce NaN and infinity. IEEE math follows the floating operation directly.
+This family does not establish prepared-plan retention, IEEE division/remainder,
+null_on_division_by_zero, the broader math catalog or performance parity.
+
+Sources: `extension/core_functions/scalar/math/numeric.cpp:23–43,1255–1528`,
+`src/function/function_binder.cpp:614–651`, and
+`src/include/duckdb/main/settings.hpp` (`Settings::Get`, `IeeeFloatingPointOpsSetting`).

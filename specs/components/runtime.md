@@ -68,4 +68,23 @@ The context lock protects session coordination, not all database activity. Diffe
 
 ## Verification obligations
 
+### Rust rejection categories (provisional implementation contract)
+
+The rewrite distinguishes a recognized operation's source-confirmed rejection
+(`Error::NotImplemented`, displayed as `Not implemented Error: ...`) from a
+missing rewrite or selected-adapter capability (`Error::Unsupported`, displayed
+as `Not implemented: ...`). The latter remains explicitly unsupported in test
+transport and must not satisfy a supported expected-error assertion. The former
+may be used only after implementing the relevant rejection semantics; it must
+not reclassify an absent implementation as parity. Development's
+[`LogicalType::MaxLogicalType`](../../../duckdb/src/common/types.cpp) provides
+one source example of a recognized incompatible-type rejection.
+
+Error category does not grant TRY_CAST recovery. Neither category is a
+recoverable conversion-input error, including when a selected adapter attempts
+to label it as invalid input. Raw messages and exact harness assertions remain
+unchanged; the distinction does not authorize prefix or message normalization.
+
+### Lifecycle checks
+
 Changes here require lifecycle cases as well as SQL correctness: close a connection with live results, destroy pending work, interrupt during execution, exercise commit failure, use multiple connections, bind while a result is live, and detach a connected catalog. Cover native C++ and public handle ownership separately using the [component/API harnesses](../testing/component-api.md). The [transaction](transactions.md), [scheduler](scheduler.md), and [API](apis.md) specs define the downstream cleanup boundaries.

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE t AS SELECT i FROM range(50000) t(i); CREATE TABLE keyed(i BIGINT PRIMARY KEY); INSERT INTO keyed SELECT i FROM range(50000) t(i); CREATE TABLE u AS SELECT i FROM range(32) u(i)",
+  "workloads": [
+    {"name":"scan","sql":"SELECT i FROM t","rows":50000,"sum":"1249975000"},
+    {"name":"filter","sql":"SELECT i FROM t WHERE i%2=0","rows":25000,"sum":"624975000"},
+    {"name":"aggregate","sql":"SELECT sum(i) FROM t","rows":1,"sum":"1249975000"},
+    {"name":"point","sql":"SELECT i FROM keyed WHERE i=25000","rows":1,"sum":"25000"},
+    {"name":"limit","sql":"SELECT i FROM t LIMIT 256","rows":256,"sum":"32640"},
+    {"name":"correlated_exists","sql":"SELECT count(*) FROM t WHERE EXISTS(SELECT 1 FROM u WHERE u.i=t.i%64)","rows":1,"sum":"25008"},
+    {"name":"recursive_linear","sql":"WITH RECURSIVE r(i) AS (SELECT 0::BIGINT UNION ALL SELECT i+1 FROM r WHERE i<999) SELECT count(*),sum(i) FROM r","rows":1,"sum":"500500"},
+    {"name":"recursive_cycle","sql":"WITH RECURSIVE r(i) AS (SELECT 0::BIGINT UNION SELECT (i+1)%257 FROM r) SELECT i FROM r","rows":257,"sum":"32896"},
+    {"name":"recursive_correlated","sql":"SELECT (WITH RECURSIVE r(i) AS (SELECT j UNION ALL SELECT i+1 FROM r WHERE i<j+8) SELECT sum(i) FROM r) FROM range(16) x(j)","rows":16,"sum":"1656"},
+    {"name":"alter_add_column","sql":"ALTER TABLE t ADD COLUMN added BIGINT DEFAULT 7","reset":"ALTER TABLE t DROP COLUMN IF EXISTS added","verify":"SELECT sum(added) FROM t","rows":1,"sum":"350000"},
+    {"name":"alter_drop_column","sql":"ALTER TABLE t DROP COLUMN added","reset":"ALTER TABLE t ADD COLUMN IF NOT EXISTS added BIGINT DEFAULT 7","verify":"SELECT * FROM t LIMIT 1","rows":1,"sum":"0"},
+    {"name":"alter_rename_table","sql":"ALTER TABLE t RENAME TO renamed","reset":"ALTER TABLE IF EXISTS renamed RENAME TO t","verify":"SELECT sum(i) FROM renamed","rows":1,"sum":"1249975000"}
+  ]
+}

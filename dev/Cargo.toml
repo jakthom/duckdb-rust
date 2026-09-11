@@ -1,0 +1,26 @@
+[package]
+name = "duckdb-dev"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Development-only operation tracing and agent feedback for duckdb-rust"
+
+[dependencies]
+duckdb-dev-macros = { path = "macros" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std"] }
+syn = { version = "2.0.117", features = ["full", "visit"] }
+proc-macro2 = { version = "1.0.106", features = ["span-locations"] }
+sha2 = "0.10.9"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
