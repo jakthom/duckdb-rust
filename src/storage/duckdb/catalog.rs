@@ -6,7 +6,10 @@ use super::{
     columns,
 };
 use crate::{
-    catalog::{CatalogMut, ColumnDefinition, TableDefinition, TableName},
+    catalog::{
+        CatalogMut, ColumnDefinition, CreateConflictPolicy, TableDefinition, TableName,
+        TypeDefinition, TypeName,
+    },
     common::{DataType, Error, Result, Value},
     storage::table::Snapshot,
 };
@@ -58,6 +61,13 @@ pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
                 snapshot.create_table(definition, false)?;
                 snapshot.restore_slots(&name, rows, next_row_id, context.query)?;
             }
+            8 => {
+                let definition = type_definition_at(&mut reader, name)?;
+                if !snapshot.create_type(definition, CreateConflictPolicy::Error)? {
+                    return Err(corrupt("duplicate checkpoint type"));
+                }
+                reader.end()?;
+            }
             _ => {
                 return Err(Error::Unsupported(format!(
                     "DuckDB catalog entry type {kind}"
@@ -105,6 +115,33 @@ pub(super) fn column_at(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
     logical_type_at(reader, 0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn type_definition_at(
+    reader: &mut Reader,
+    qualified: CreateName,
+) -> Result<TypeDefinition> {
+    let name = if reader.optional(200)? {
+        reader.string()?
+    } else {
+        return Err(corrupt("type without a name"));
+    };
+    if qualified
+        .name
+        .as_ref()
+        .is_some_and(|qualified| qualified != &name)
+    {
+        return Err(corrupt("qualified and legacy type names disagree"));
+    }
+    if qualified.schema.is_empty() || name.is_empty() {
+        return Err(corrupt("empty catalog type identity"));
+    }
+    reader.field(201)?;
+    let data_type = logical_type(reader)?;
+    reader.end()?;
+    TypeDefinition::new(TypeName::new(qualified.schema, name), data_type)
+        .map_err(|_| corrupt("unsupported or invalid named type"))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -163,8 +200,14 @@ pub(super) fn logical_type_at(reader: &mut Reader, depth: usize) -> Result<DataT
             if reader.length()? != size {
                 return Err(corrupt("ENUM dictionary size mismatch"));
             }
+            let labels_overhead = size
+                .checked_mul(super::primitive::ENUM_LABEL_OVERHEAD)
+                .ok_or_else(|| Error::Resource("ENUM metadata size overflow".into()))?;
+            if labels_overhead > super::primitive::ENUM_METADATA_BUDGET {
+                return Err(Error::Resource("ENUM metadata exceeds 16 MiB".into()));
+            }
             let mut labels = Vec::with_capacity(size);
-            let mut remaining = 16_usize * 1024 * 1024;
+            let mut remaining = super::primitive::ENUM_METADATA_BUDGET - labels_overhead;
             for _ in 0..size {
                 let label = reader.string()?;
                 remaining = remaining
@@ -371,10 +414,10 @@ pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<CreateName> 
         schema = path
             .pop()
             .ok_or_else(|| corrupt("missing qualified schema"))?;
-        if schema.is_empty() || (kind == 2 && !last.is_empty()) || (kind == 1 && last.is_empty()) {
+        if schema.is_empty() || (kind == 2 && !last.is_empty()) || (kind != 2 && last.is_empty()) {
             return Err(corrupt("invalid qualified catalog name"));
         }
-        if kind == 1 {
+        if kind != 2 {
             name = Some(last);
         }
     }

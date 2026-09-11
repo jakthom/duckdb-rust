@@ -1,8 +1,14 @@
 //! Native v2 transaction encoding with private physical row-ID translation.
-use super::super::{binary::Encoder, primitive, writer::table_definition};
+use super::super::{
+    binary::Encoder,
+    primitive,
+    writer::{table_definition, type_definition},
+};
 use super::{MAX_ENTRIES, append_frame};
 use crate::{
-    catalog::{Catalog, TableDefinition, TableName},
+    catalog::{
+        Catalog, CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName,
+    },
     common::{DataType, Error, Result, Row, Value},
     parallel::QueryContext,
     storage::{
@@ -28,6 +34,7 @@ struct TableState {
 #[derive(Clone, Default)]
 struct Session {
     tables: BTreeMap<TableName, TableState>,
+    types: BTreeMap<TypeName, TypeDefinition>,
     entries: usize,
     storage_version: Option<u64>,
 }
@@ -74,6 +81,15 @@ impl DuckDbTransactionLog {
             storage_version: version,
             ..Session::default()
         };
+        for definition in snapshot.named_types()? {
+            definition.validate()?;
+            if version.is_none() {
+                super::super::write_support::wal_type(&definition.data_type)?;
+            } else {
+                super::super::write_support::wal_type_at(&definition.data_type, version)?;
+            }
+            session.types.insert(definition.name.clone(), definition);
+        }
         for definition in snapshot.tables()? {
             for column in &definition.columns {
                 if version.is_none() {
@@ -145,6 +161,21 @@ impl LogSession for Session {
         }
         let mut next = self.clone();
         next.storage_version = Some(version);
+        let logical_types: BTreeMap<_, _> = checkpoint
+            .logical
+            .named_types()?
+            .into_iter()
+            .map(|definition| (definition.name.clone(), definition))
+            .collect();
+        let physical_types: BTreeMap<_, _> = checkpoint
+            .physical
+            .named_types()?
+            .into_iter()
+            .map(|definition| (definition.name.clone(), definition))
+            .collect();
+        if logical_types != next.types || physical_types != logical_types {
+            return Err(invalid("checkpoint named-type catalog changed"));
+        }
         let mut logical_layout = CheckpointLayout::default();
         if checkpoint.logical.tables()?.len() != next.tables.len()
             || checkpoint.layout.tables.len() != next.tables.len()
@@ -211,10 +242,41 @@ impl LogSession for Session {
         for change in changes {
             context.check()?;
             match change {
-                TransactionChange::CreateType { .. } | TransactionChange::DropType(_) => {
-                    return Err(Error::Unsupported(
-                        "native named-type transaction log encoding".into(),
-                    ));
+                TransactionChange::CreateType {
+                    definition,
+                    conflict,
+                } => {
+                    definition.validate()?;
+                    super::super::write_support::wal_type_at(
+                        &definition.data_type,
+                        next.storage_version,
+                    )?;
+                    let existing = next.types.contains_key(&definition.name);
+                    match (existing, conflict) {
+                        (true, CreateConflictPolicy::Error) => {
+                            return Err(invalid("duplicate type"));
+                        }
+                        (true, CreateConflictPolicy::Ignore) => {
+                            return Err(invalid("no-op type creation in journal"));
+                        }
+                        (true, CreateConflictPolicy::Replace) => {
+                            output.push(named_type(14, &definition.name, next.storage_version)?)?;
+                        }
+                        (false, _) => {}
+                    }
+                    let mut entry = record(13);
+                    entry.field(101);
+                    entry.boolean(true);
+                    type_definition(&mut entry, definition, next.storage_version.unwrap_or(64))?;
+                    output.push(entry)?;
+                    next.types
+                        .insert(definition.name.clone(), definition.clone());
+                }
+                TransactionChange::DropType(name) => {
+                    if next.types.remove(name).is_none() {
+                        return Err(invalid("missing dropped type"));
+                    }
+                    output.push(named_type(14, name, next.storage_version)?)?;
                 }
                 TransactionChange::CreateSchema(name) | TransactionChange::DropSchema(name) => {
                     let mut record =
@@ -496,6 +558,24 @@ fn named(kind: u64, name: &TableName) -> Result<Encoder> {
     Ok(e)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn named_type(kind: u64, name: &TypeName, version: Option<u64>) -> Result<Encoder> {
+    let mut e = record(kind);
+    if version.is_some_and(|version| version >= 69) {
+        e.field(103);
+        e.property(100, 2);
+        e.string(&name.schema)?;
+        e.string(&name.name)?;
+        e.end();
+    } else {
+        e.field(101);
+        e.string(&name.schema)?;
+        e.field(102);
+        e.string(&name.name)?;
+    }
+    Ok(e)
+}
+
 struct Records {
     bytes: Vec<u8>,
     entries: usize,
@@ -658,6 +738,153 @@ impl Records {
             self.push(e)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)] // Exercises private session framing beside `Records`.
+mod type_tests {
+    use super::*;
+    use crate::storage::duckdb::binary::{Reader, u64_at};
+
+    fn type_(label: &str) -> TypeDefinition {
+        TypeDefinition::enumeration(TypeName::main("mood"), vec![label.into()]).unwrap()
+    }
+
+    fn session(version: u64, definitions: Vec<TypeDefinition>) -> Session {
+        Session {
+            types: definitions
+                .into_iter()
+                .map(|definition| (definition.name.clone(), definition))
+                .collect(),
+            storage_version: Some(version),
+            ..Session::default()
+        }
+    }
+
+    fn payloads(bytes: &[u8]) -> Result<Vec<&[u8]>> {
+        let mut position = 0;
+        let mut result = Vec::new();
+        while position < bytes.len() {
+            let size = usize::try_from(u64_at(bytes, position)?)
+                .map_err(|_| Error::Corrupt("test WAL frame size".into()))?;
+            let begin = position + 16;
+            let end = begin + size;
+            result.push(
+                bytes
+                    .get(begin..end)
+                    .ok_or_else(|| Error::Corrupt("test WAL frame truncation".into()))?,
+            );
+            position = end;
+        }
+        Ok(result)
+    }
+
+    fn kind(payload: &[u8]) -> Result<u64> {
+        let mut reader = Reader::new(payload.to_vec());
+        reader.field(100)?;
+        reader.unsigned()
+    }
+
+    #[test]
+    fn named_enum_wal_create_drop_and_replace_follow_native_record_order() -> Result<()> {
+        let query = QueryContext::background();
+        let created = session(69, vec![]).prepare(
+            &[TransactionChange::CreateType {
+                definition: type_("new"),
+                conflict: CreateConflictPolicy::Error,
+            }],
+            &query,
+        )?;
+        assert_eq!(
+            payloads(&created.bytes)?
+                .into_iter()
+                .map(kind)
+                .collect::<Result<Vec<_>>>()?,
+            [13, 100]
+        );
+
+        let replaced = session(69, vec![type_("old")]).prepare(
+            &[TransactionChange::CreateType {
+                definition: type_("new"),
+                conflict: CreateConflictPolicy::Replace,
+            }],
+            &query,
+        )?;
+        assert_eq!(
+            payloads(&replaced.bytes)?
+                .into_iter()
+                .map(kind)
+                .collect::<Result<Vec<_>>>()?,
+            [14, 13, 100]
+        );
+
+        let dropped = session(68, vec![type_("old")]).prepare(
+            &[TransactionChange::DropType(TypeName::main("mood"))],
+            &query,
+        )?;
+        assert_eq!(
+            payloads(&dropped.bytes)?
+                .into_iter()
+                .map(kind)
+                .collect::<Result<Vec<_>>>()?,
+            [14, 100]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn named_enum_wal_drop_names_switch_at_storage_69() -> Result<()> {
+        for version in [68, 69] {
+            let append = session(version, vec![type_("old")]).prepare(
+                &[TransactionChange::DropType(TypeName::main("mood"))],
+                &QueryContext::background(),
+            )?;
+            let payload = payloads(&append.bytes)?[0];
+            let mut reader = Reader::new(payload.to_vec());
+            reader.field(100)?;
+            assert_eq!(reader.unsigned()?, 14);
+            if version < 69 {
+                reader.field(101)?;
+                assert_eq!(reader.string()?, "main");
+                reader.field(102)?;
+                assert_eq!(reader.string()?, "mood");
+            } else {
+                reader.field(103)?;
+                reader.field(100)?;
+                assert_eq!(reader.length()?, 2);
+                assert_eq!(reader.string()?, "main");
+                assert_eq!(reader.string()?, "mood");
+                reader.end()?;
+            }
+            reader.end()?;
+            assert!(reader.finished());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn named_enum_wal_rejects_impossible_journal_transitions() {
+        let query = QueryContext::background();
+        assert!(
+            session(69, vec![type_("old")])
+                .prepare(
+                    &[TransactionChange::CreateType {
+                        definition: type_("new"),
+                        conflict: CreateConflictPolicy::Ignore,
+                    }],
+                    &query,
+                )
+                .is_err()
+        );
+        assert!(
+            session(69, vec![])
+                .prepare(
+                    &[TransactionChange::DropType(TypeName::main("missing"))],
+                    &query,
+                )
+                .is_err()
+        );
     }
 }
 

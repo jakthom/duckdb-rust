@@ -1,5 +1,8 @@
 use super::binary::{corrupt, u32_at, u64_at};
 use crate::common::{DataType, Error, Result, Value};
+
+pub(super) const ENUM_METADATA_BUDGET: usize = 16 * 1024 * 1024;
+pub(super) const ENUM_LABEL_OVERHEAD: usize = std::mem::size_of::<String>();
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn width(data_type: &DataType) -> Result<usize> {
     match data_type {
@@ -188,6 +191,17 @@ pub(super) fn write_type(output: &mut super::binary::Encoder, data_type: &DataTy
         output.end();
     }
     if let DataType::Enum(metadata) = data_type {
+        let size = metadata
+            .labels
+            .iter()
+            .try_fold(0_usize, |size, label| {
+                size.checked_add(ENUM_LABEL_OVERHEAD)?
+                    .checked_add(label.len())
+            })
+            .ok_or_else(|| Error::Resource("ENUM metadata size overflow".into()))?;
+        if size > ENUM_METADATA_BUDGET {
+            return Err(Error::Resource("ENUM metadata exceeds 16 MiB".into()));
+        }
         output.field(101);
         output.boolean(true);
         output.property(100, 6); // ENUM_TYPE_INFO

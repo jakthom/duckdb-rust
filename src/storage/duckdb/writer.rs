@@ -8,7 +8,7 @@ use crate::{
     parallel::QueryContext,
     storage::table::Snapshot,
 };
-pub(super) use catalog::{column_definition, table_definition};
+pub(super) use catalog::{column_definition, table_definition, type_definition};
 
 const ALLOCATION: usize = 262144;
 const PAYLOAD: usize = ALLOCATION - 8;
@@ -221,6 +221,12 @@ fn encode_checkpoint(
     let context = context.clone().with_types(snapshot.type_registry());
     context.check()?;
     let tables = snapshot.tables()?;
+    let named_types = snapshot.named_types()?;
+    for definition in &named_types {
+        context.check()?;
+        definition.validate()?;
+        super::write_support::checkpoint_type(&definition.data_type, version)?;
+    }
     for table in &tables {
         context.check()?;
         for column in &table.columns {
@@ -230,7 +236,13 @@ fn encode_checkpoint(
     let schemas = snapshot.schemas()?;
     let mut arena = Arena::default();
     let mut catalog = Encoder::default();
-    catalog.property(100, (tables.len() + schemas.len()) as u64);
+    let catalog_entries = tables
+        .len()
+        .checked_add(named_types.len())
+        .and_then(|count| count.checked_add(schemas.len()))
+        .filter(|count| *count <= 16_777_216)
+        .ok_or_else(|| Error::Resource("checkpoint catalog exceeds 16 million entries".into()))?;
+    catalog.property(100, catalog_entries as u64);
     for schema in schemas {
         context.check()?;
         catalog.property(99, 2);
@@ -241,6 +253,17 @@ fn encode_checkpoint(
         catalog.string(&schema)?;
         catalog.property(105, 0);
         catalog.end();
+        catalog.end();
+    }
+    // DuckDB checkpoints restore named types before binding table entries.
+    // Table columns still retain their concrete ENUM dictionaries and never
+    // acquire a runtime link to the current same-name catalog type.
+    for definition in named_types {
+        context.check()?;
+        catalog.property(99, 8);
+        catalog.field(100);
+        catalog.boolean(true);
+        type_definition(&mut catalog, &definition, version)?;
         catalog.end();
     }
     for table in tables {

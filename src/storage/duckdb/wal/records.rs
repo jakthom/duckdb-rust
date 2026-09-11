@@ -6,7 +6,9 @@ use super::{
     chunk,
 };
 use crate::{
-    catalog::{Catalog, TableDefinition, TableName},
+    catalog::{
+        Catalog, CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName,
+    },
     common::{DataType, Error, Result, Value},
     parallel::QueryContext,
     storage::{RowId, recovery::RecoveredChange as Change},
@@ -15,6 +17,7 @@ use std::collections::BTreeMap;
 
 pub(super) struct RecordState {
     tables: BTreeMap<TableName, TableDefinition>,
+    types: BTreeMap<TypeName, TypeDefinition>,
     selected: Option<TableName>,
     storage_version: u64,
 }
@@ -28,6 +31,11 @@ impl RecordState {
                 .into_iter()
                 .map(|t| (t.name.clone(), t))
                 .collect(),
+            types: catalog
+                .named_types()?
+                .into_iter()
+                .map(|definition| (definition.name.clone(), definition))
+                .collect(),
             selected: None,
             storage_version,
         })
@@ -39,6 +47,29 @@ impl RecordState {
         context: &QueryContext,
     ) -> Result<Option<Change>> {
         let change = match kind {
+            13 => {
+                reader.field(101)?;
+                if !reader.boolean()? {
+                    return Err(corrupt("NULL WAL create type"));
+                }
+                let qualified = catalog::create_base(reader, 8)?;
+                let definition = catalog::type_definition_at(reader, qualified)?;
+                self.types
+                    .entry(definition.name.clone())
+                    .or_insert_with(|| definition.clone());
+                // DuckDB deliberately replays CREATE_TYPE with IF NOT EXISTS.
+                Some(Change::CreateType {
+                    definition,
+                    conflict: CreateConflictPolicy::Ignore,
+                })
+            }
+            14 => {
+                let type_name = type_name(reader)?;
+                if self.types.remove(&type_name).is_none() {
+                    return Err(corrupt("WAL drops missing type"));
+                }
+                Some(Change::DropType(type_name))
+            }
             1 => {
                 reader.field(101)?;
                 if !reader.boolean()? {
@@ -206,7 +237,7 @@ impl RecordState {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn name(reader: &mut Reader) -> Result<TableName> {
+fn qualified_name(reader: &mut Reader) -> Result<(String, String)> {
     let legacy_schema = if reader.optional(101)? {
         Some(reader.string()?)
     } else {
@@ -242,7 +273,19 @@ fn name(reader: &mut Reader) -> Result<TableName> {
     if schema.is_empty() || table.is_empty() {
         return Err(corrupt("empty WAL table identity"));
     }
-    Ok(TableName::new(schema, table))
+    Ok((schema, table))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn name(reader: &mut Reader) -> Result<TableName> {
+    let (schema, name) = qualified_name(reader)?;
+    Ok(TableName::new(schema, name))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn type_name(reader: &mut Reader) -> Result<TypeName> {
+    let (schema, name) = qualified_name(reader)?;
+    Ok(TypeName::new(schema, name))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -306,6 +349,131 @@ fn update_path(data_type: &DataType, path: &[usize]) -> Result<(Vec<usize>, Data
 mod tests {
     use super::super::super::binary::Encoder;
     use super::*;
+
+    struct CatalogFixture {
+        types: Vec<TypeDefinition>,
+    }
+
+    impl Catalog for CatalogFixture {
+        fn schemas(&self) -> Result<Vec<String>> {
+            Ok(vec!["main".into()])
+        }
+
+        fn table(&self, _: &TableName) -> Result<TableDefinition> {
+            Err(Error::Unsupported("fixture table".into()))
+        }
+
+        fn tables(&self) -> Result<Vec<TableDefinition>> {
+            Ok(Vec::new())
+        }
+
+        fn named_type(&self, name: &TypeName) -> Result<TypeDefinition> {
+            self.types
+                .iter()
+                .find(|definition| definition.name == *name)
+                .cloned()
+                .ok_or_else(|| Error::Unsupported("fixture type".into()))
+        }
+
+        fn named_types(&self) -> Result<Vec<TypeDefinition>> {
+            Ok(self.types.clone())
+        }
+    }
+
+    fn enum_type(label: &str) -> TypeDefinition {
+        TypeDefinition::enumeration(TypeName::main("mood"), vec![label.into()]).unwrap()
+    }
+
+    fn create_type_record(definition: &TypeDefinition, version: u64) -> Result<Vec<u8>> {
+        let mut output = Encoder::default();
+        output.property(100, 13);
+        output.field(101);
+        output.boolean(true);
+        super::super::super::writer::type_definition(&mut output, definition, version)?;
+        output.end();
+        Ok(output.0)
+    }
+
+    fn drop_type_record(version: u64) -> Result<Vec<u8>> {
+        let mut output = Encoder::default();
+        output.property(100, 14);
+        if version < 69 {
+            output.field(101);
+            output.string("main")?;
+            output.field(102);
+            output.string("mood")?;
+        } else {
+            output.field(103);
+            output.property(100, 2);
+            output.string("main")?;
+            output.string("mood")?;
+            output.end();
+        }
+        output.end();
+        Ok(output.0)
+    }
+
+    fn read_record(
+        state: &mut RecordState,
+        bytes: Vec<u8>,
+        query: &QueryContext,
+    ) -> Result<Option<Change>> {
+        let mut reader = Reader::new(bytes);
+        reader.field(100)?;
+        let kind = reader.unsigned()?;
+        let change = state.read(kind, &mut reader, query)?;
+        if !reader.finished() {
+            return Err(corrupt("trailing fixture WAL bytes"));
+        }
+        Ok(change)
+    }
+
+    #[test]
+    fn named_enum_wal_records_decode_release_and_development_contracts() -> Result<()> {
+        let query = QueryContext::background();
+        for version in [68, 69] {
+            let definition = enum_type("new");
+            let mut state = RecordState::new(&CatalogFixture { types: vec![] }, version)?;
+            let Some(Change::CreateType {
+                definition: recovered,
+                conflict,
+            }) = read_record(
+                &mut state,
+                create_type_record(&definition, version)?,
+                &query,
+            )?
+            else {
+                panic!("expected recovered type creation")
+            };
+            assert_eq!(recovered, definition);
+            assert_eq!(conflict, CreateConflictPolicy::Ignore);
+            assert_eq!(state.types.get(&definition.name), Some(&definition));
+            assert!(matches!(
+                read_record(&mut state, drop_type_record(version)?, &query)?,
+                Some(Change::DropType(name)) if name == TypeName::main("mood")
+            ));
+            assert!(state.types.is_empty());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn named_enum_wal_reader_rejects_truncation_and_invalid_transitions() -> Result<()> {
+        let query = QueryContext::background();
+        for version in [68, 69] {
+            let record = create_type_record(&enum_type("new"), version)?;
+            for end in 0..record.len() {
+                let mut state = RecordState::new(&CatalogFixture { types: vec![] }, version)?;
+                assert!(
+                    read_record(&mut state, record[..end].to_vec(), &query).is_err(),
+                    "v{version} end {end}"
+                );
+            }
+            let mut state = RecordState::new(&CatalogFixture { types: vec![] }, version)?;
+            assert!(read_record(&mut state, drop_type_record(version)?, &query).is_err());
+        }
+        Ok(())
+    }
 
     #[test]
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
