@@ -55,8 +55,8 @@ impl ScalarFunction for SequenceSlice {
                 return Err(Error::Bind(format!("{} requires a LIST or ARRAY", self.0)));
             }
         };
-        let begin_empty = empty_bound(arguments, 1)?;
-        let end_empty = empty_bound(arguments, 2)?;
+        let begin_empty = omitted_bound(arguments, 1)?;
+        let end_empty = omitted_bound(arguments, 2)?;
         let mut required = Vec::with_capacity(arguments.len());
         required.push(result.clone());
         required.push(if begin_empty {
@@ -95,33 +95,15 @@ impl ScalarFunction for SequenceSlice {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn empty_bound(arguments: &dyn ScalarBindArguments, index: usize) -> Result<bool> {
+fn omitted_bound(arguments: &dyn ScalarBindArguments, index: usize) -> Result<bool> {
+    if arguments.is_omitted_slice_bound(index)? {
+        return Ok(true);
+    }
     let data_type = arguments.data_type(index)?;
-    let DataType::Nested(metadata) = data_type else {
-        return Ok(false);
-    };
-    let NestedType::List(child) = metadata.as_ref() else {
-        return Err(Error::Bind(
-            "slice bounds must be BIGINT or an omitted-bound marker".into(),
-        ));
-    };
-    if child != &DataType::Integer {
+    if matches!(data_type, DataType::Nested(_)) {
         return Err(Error::Bind("slice bounds must be BIGINT".into()));
     }
-    let Value::Nested(value) = arguments.constant(index)? else {
-        return Err(Error::Bind(
-            "slice bound marker must be an empty LIST".into(),
-        ));
-    };
-    let NestedPayload::Sequence(values) = &value.payload else {
-        return Err(Error::Bind(
-            "slice bound marker must be an empty LIST".into(),
-        ));
-    };
-    if !values.is_empty() {
-        return Err(Error::Bind("slice bounds must be BIGINT".into()));
-    }
-    Ok(true)
+    Ok(false)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

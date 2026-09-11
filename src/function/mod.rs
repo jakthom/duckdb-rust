@@ -121,6 +121,13 @@ pub trait ScalarBindArguments {
     fn argument_alias(&self, index: usize) -> Result<Option<&str>> {
         self.data_type(index).map(|_| None)
     }
+    /// True only for a slice bound omitted by subscript syntax. This is
+    /// frontend provenance, not a value property: a user-written empty list
+    /// must never acquire omitted-bound behavior merely because it evaluates
+    /// to the same payload as an internal parser marker.
+    fn is_omitted_slice_bound(&self, index: usize) -> Result<bool> {
+        self.data_type(index).map(|_| false)
+    }
     /// Select from the named adapter's owned advertised signatures without
     /// evaluating arguments. SQL preserves ordered literal/NULL metadata and
     /// selected cast availability/costs. Signature metadata alone does not

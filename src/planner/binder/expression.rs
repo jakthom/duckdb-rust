@@ -65,9 +65,31 @@ impl State<'_, '_> {
         names: Option<&[Option<String>]>,
         aliases: Option<&[Option<String>]>,
     ) -> Result<BoundExpr> {
+        self.scalar_call_with_metadata(function_impl, arguments, names, aliases, None)
+    }
+
+    fn scalar_slice_call(
+        &self,
+        name: &str,
+        arguments: Vec<BoundExpr>,
+        omitted_bounds: &[bool],
+    ) -> Result<BoundExpr> {
+        let function_impl = self.context.functions.scalar(name)?;
+        self.scalar_call_with_metadata(function_impl, arguments, None, None, Some(omitted_bounds))
+    }
+
+    fn scalar_call_with_metadata(
+        &self,
+        function_impl: std::sync::Arc<dyn crate::function::ScalarFunction>,
+        arguments: Vec<BoundExpr>,
+        names: Option<&[Option<String>]>,
+        aliases: Option<&[Option<String>]>,
+        omitted_slice_bounds: Option<&[bool]>,
+    ) -> Result<BoundExpr> {
         self.context.query.check()?;
         if names.is_some_and(|names| names.len() != arguments.len())
             || aliases.is_some_and(|aliases| aliases.len() != arguments.len())
+            || omitted_slice_bounds.is_some_and(|bounds| bounds.len() != arguments.len())
         {
             return Err(Error::Internal("scalar argument metadata count".into()));
         }
@@ -85,6 +107,7 @@ impl State<'_, '_> {
                 context: self.context,
                 names,
                 aliases,
+                omitted_slice_bounds,
             },
             self.context.query,
         )? {
@@ -109,6 +132,7 @@ impl State<'_, '_> {
                     context: self.context,
                     names,
                     aliases,
+                    omitted_slice_bounds,
                 },
                 self.context.query,
             )?
@@ -465,26 +489,27 @@ impl State<'_, '_> {
                             upper_bound,
                             stride,
                         }) => {
-                            let omitted = || {
-                                crate::common::NestedValue::value(
-                                    crate::common::NestedType::List(DataType::Integer).data_type(),
-                                    crate::common::NestedPayload::Sequence(Vec::new()),
-                                )
-                                .map(BoundExpr::literal)
-                            };
                             let mut arguments = vec![value];
+                            let mut omitted_bounds = vec![false];
                             arguments.push(match lower_bound {
                                 Some(bound) => recurse(bound)?,
-                                None => omitted()?,
+                                None => BoundExpr::literal(Value::Null),
                             });
+                            omitted_bounds.push(lower_bound.is_none());
                             arguments.push(match upper_bound {
                                 Some(bound) => recurse(bound)?,
-                                None => omitted()?,
+                                None => BoundExpr::literal(Value::Null),
                             });
+                            omitted_bounds.push(upper_bound.is_none());
                             if let Some(stride) = stride {
                                 arguments.push(recurse(stride)?);
+                                omitted_bounds.push(false);
                             }
-                            value = self.scalar_call("array_slice", arguments)?;
+                            value = self.scalar_slice_call(
+                                "array_slice",
+                                arguments,
+                                &omitted_bounds,
+                            )?;
                         }
                         _ => return Err(unsupported("nested accessor")),
                     }
@@ -791,6 +816,7 @@ struct FunctionArguments<'a, 'b> {
     context: &'a BindContext<'b>,
     names: Option<&'a [Option<String>]>,
     aliases: Option<&'a [Option<String>]>,
+    omitted_slice_bounds: Option<&'a [bool]>,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
@@ -817,6 +843,12 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
     fn argument_alias(&self, index: usize) -> Result<Option<&str>> {
         self.data_type(index)?;
         Ok(self.aliases.and_then(|aliases| aliases[index].as_deref()))
+    }
+    fn is_omitted_slice_bound(&self, index: usize) -> Result<bool> {
+        self.data_type(index)?;
+        Ok(self
+            .omitted_slice_bounds
+            .is_some_and(|bounds| bounds[index]))
     }
     fn is_string_literal(&self, index: usize) -> Result<bool> {
         self.arguments

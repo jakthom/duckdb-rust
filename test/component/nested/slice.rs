@@ -77,6 +77,8 @@ fn list_and_array_slice_match_pinned_bounds_steps_and_nulls() -> Result<()> {
             for sql in [
                 "SELECT list_slice([1,2,3],1,3,0)",
                 "SELECT list_slice([1,2,3],[],2)",
+                "SELECT list_slice([1,2,3],[]::INTEGER[],2)",
+                "SELECT list_slice([1,2,3],CASE WHEN true THEN []::INTEGER[] ELSE []::INTEGER[] END,2)",
                 "SELECT list_slice(1,1,2)",
                 "SELECT list_slice([1,2],1)",
             ] {
