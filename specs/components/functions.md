@@ -328,3 +328,32 @@ on reserved syntax are Parser errors, not late Binder errors. This does not clai
 general quoted/qualified catalog resolution or macro argument completeness.
 Sources: `src/parser/peg/grammar/statements/expression.gram:309` and
 `TransformNullIfExpression` in `src/parser/peg/transformer/transform_expression.cpp`.
+
+## IEEE-dependent numeric binding
+
+Development's `ieee_floating_point_ops` is a nullable BOOLEAN setting with a true
+default and session-default scope, supporting both session and global overrides.
+The stored NULL remains observable through current_setting; the typed native
+getter uses true when it encounters NULL. Math binding selects and retains the
+IEEE or strict callback, rather than reading a possibly changed setting during
+execution. The selected sqrt, ln, log/log10, log2 and pow/power signatures use
+DOUBLE arguments/results; log advertises one- and two-argument candidates.
+
+Default-NULL function binding first selects an overload, then speculatively
+probes foldable children in order. A later proven NULL can suppress an earlier
+recoverable failed probe and yields a typed NULL before the math bind callback.
+This is distinct from physical Constant-NULL execution in child order. The
+rewrite family reuses selected overload, NULL-probe and TypeOnly capabilities;
+it does not weaken required evaluation, cancellation or fatal adapter validation.
+
+Strict square root rejects negative inputs, and strict logarithms reject
+negative inputs and zero. Strict based logarithm validates its base before its
+value and rejects a zero base logarithm. Strict power rejects only zero to a
+negative power; negative fractional powers and overflowing results can still
+produce NaN and infinity. IEEE math follows the floating operation directly.
+This family does not establish prepared-plan retention, IEEE division/remainder,
+null_on_division_by_zero, the broader math catalog or performance parity.
+
+Sources: `extension/core_functions/scalar/math/numeric.cpp:23–43,1255–1528`,
+`src/function/function_binder.cpp:614–651`, and
+`src/include/duckdb/main/settings.hpp` (`Settings::Get`, `IeeeFloatingPointOpsSetting`).

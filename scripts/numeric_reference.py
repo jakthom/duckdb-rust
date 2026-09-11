@@ -297,6 +297,46 @@ def persistence(rust, cpp, directory):
     return outcomes
 
 
+def math_persistence(rust, cpp, directory):
+    """Carry selected math results through both producers and native mutation.
+
+    The input operations agree in either IEEE mode so release remains an
+    independent physical-file witness without changing its default setting.
+    """
+    definition = "CREATE TABLE ieee_math(k INTEGER PRIMARY KEY,x DOUBLE,r DOUBLE); INSERT INTO ieee_math VALUES(1,-4,sqrt(4)),(2,0,log(1)),(3,9,power(3,2)),(4,'inf'::DOUBLE,pow(1e308,2)),(5,'nan'::DOUBLE,sqrt('nan'::DOUBLE)),(6,NULL,NULL),(7,'-0.0'::DOUBLE,sqrt('-0.0'::DOUBLE))"
+    query = "SELECT k,x::VARCHAR AS x,r::VARCHAR AS r,sqrt(abs(x))::VARCHAR AS root_value,ln(abs(x)+1)::VARCHAR AS ln_value,log2(abs(x)+1)::VARCHAR AS log2_value FROM ieee_math ORDER BY k"
+    rust_mutation = "BEGIN; DELETE FROM ieee_math; ROLLBACK; UPDATE ieee_math SET r=pow(sqrt(abs(x)),2) WHERE k=1; INSERT INTO ieee_math VALUES(8,16,sqrt(16))"
+    cpp_mutation = "UPDATE ieee_math SET r=log(2,16) WHERE k=8; CHECKPOINT"
+    outcomes = []
+    for label, producer in [('cpp', cpp), ('rust-checkpoint', rust), ('rust-wal', Engine(rust.binary, True, ('--durability', 'wal')))]:
+        result = {'family': 'ieee-math', 'producer': label, 'passed': False,
+                  'definition': definition, 'query': query,
+                  'rust_mutation': rust_mutation, 'cpp_mutation': cpp_mutation}
+        outcomes.append(result)
+        try:
+            path = directory / ('ieee-math-' + label + '.duckdb')
+            command(producer, path, definition)
+            result['checkpoint_sha256'] = digest(path)
+            wal = Path(str(path) + '.wal')
+            if wal.exists():
+                result['wal_sha256'] = digest(wal)
+            for stage, mutation, actor, count in [
+                    ('initial', None, None, 7),
+                    ('rust-mutated', rust_mutation, rust, 8),
+                    ('cpp-mutated', cpp_mutation, cpp, 8)]:
+                if mutation is not None:
+                    command(actor, path, mutation)
+                expected = command(cpp, path, query, json_output=True, readonly=True)
+                actual = command(rust, path, query, json_output=True, readonly=True)
+                result.setdefault('stages', []).append({'stage': stage, 'cpp': expected, 'rust': actual})
+                if actual != expected or len(actual) != count:
+                    raise AssertionError({'stage': stage, 'cpp': expected, 'rust': actual})
+            result['passed'] = True
+        except Exception as error:
+            result['error'] = str(error)
+    return outcomes
+
+
 # Selected COALESCE is source-ordered combination, distinct from ordinary
 # implicit function coercion. Keep the earlier 803 case identities unchanged.
 for signed in ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT'):
@@ -452,10 +492,15 @@ for expression in ('sqrt(-1)', "sqrt('-inf'::DOUBLE)", 'ln(-1)', 'ln(0)',
                    'pow(0,-1)', "power('-0.0'::DOUBLE,-3)"):
     ERROR_CASES.append((f'SET ieee_floating_point_ops=false; SELECT {expression}', 'Out of Range Error'))
 ERROR_CASES += [
-    ("SET ieee_floating_point_ops=true; SELECT pow(CAST('bad' AS DOUBLE),NULL::DOUBLE)", 'Conversion Error'),
     ("SET ieee_floating_point_ops=true; SELECT pow(x,CAST('bad' AS DOUBLE)) FROM(VALUES(NULL::DOUBLE),(1::DOUBLE))t(x)", 'Conversion Error'),
     # Retain this known shared SET cast-origin category gap explicitly.
     ("SET ieee_floating_point_ops='bad'", 'Invalid Input Error'),
+]
+SQL += [
+    "SET ieee_floating_point_ops=true; SELECT pow(CAST('bad' AS DOUBLE),NULL::DOUBLE)",
+    "SET ieee_floating_point_ops=false; SELECT log(CAST('bad' AS DOUBLE),NULL::DOUBLE)",
+    "SET ieee_floating_point_ops=false; SELECT log(NULL::DOUBLE,CAST('bad' AS DOUBLE))",
+    "SET ieee_floating_point_ops=false; SELECT pow(NULL::DOUBLE,CAST('bad' AS DOUBLE))",
 ]
 
 
@@ -499,6 +544,7 @@ def main():
                     actual.close()
                     cpp.close()
                 trial['persistence'] = persistence(rust,Engine(cpp_path,False,serialize_json_rows=selected.serialize_json_rows),Path(scratch))
+                trial['persistence'] += math_persistence(rust,Engine(cpp_path,False,serialize_json_rows=selected.serialize_json_rows),Path(scratch))
             trial['passed'] = all(r['passed'] for r in trial['sql']+trial['persistence'])
         except Exception as error:
             trial['error'] = str(error)

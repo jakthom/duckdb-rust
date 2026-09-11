@@ -17,6 +17,7 @@ struct Math {
     name: &'static str,
     operation: Operation,
     binding: Option<(bool, ScalarSignature)>,
+    known_null: bool,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -35,6 +36,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
                 name,
                 operation,
                 binding: None,
+                known_null: false,
             }))
             .expect("unique IEEE math function");
     }
@@ -71,7 +73,11 @@ impl ScalarFunction for Math {
         self.name
     }
     fn argument_evaluation(&self) -> ArgumentEvaluation {
-        ArgumentEvaluation::NullOnConstant
+        if self.known_null {
+            ArgumentEvaluation::TypeOnly
+        } else {
+            ArgumentEvaluation::NullOnConstant
+        }
     }
     fn bind(
         &self,
@@ -88,18 +94,34 @@ impl ScalarFunction for Math {
                 "IEEE overload changed argument count".into(),
             ));
         }
-        let ieee = match query.settings().get("ieee_floating_point_ops", query)? {
-            Value::Boolean(value) => *value,
-            // Native Settings::Get<Boolean> uses the declared default for NULL
-            // without rewriting the stored/current_setting value.
-            Value::Null => true,
-            _ => return Err(Error::Internal("IEEE setting is not BOOLEAN".into())),
+        // Native default-NULL binding probes inputs after overload selection,
+        // before the IEEE bind callback. A failed recoverable probe can precede
+        // a later proven NULL. The selected frontend owns those exact limits.
+        let mut known_null = false;
+        for index in 0..arguments.len() {
+            if arguments.is_provably_null(index)? {
+                known_null = true;
+                break;
+            }
+        }
+        let ieee = if known_null {
+            // Unused: native binding never reads the setting for this path.
+            true
+        } else {
+            match query.settings().get("ieee_floating_point_ops", query)? {
+                Value::Boolean(value) => *value,
+                // Native Settings::Get<Boolean> uses the declared default for NULL
+                // without rewriting the stored/current_setting value.
+                Value::Null => true,
+                _ => return Err(Error::Internal("IEEE setting is not BOOLEAN".into())),
+            }
         };
         query.check()?;
         Ok(Some(Arc::new(Self {
             name: self.name,
             operation: self.operation,
             binding: Some((ieee, signature)),
+            known_null,
         })))
     }
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
@@ -123,6 +145,14 @@ impl ScalarFunction for Math {
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
         let (ieee, signature) = self.bound()?;
+        if self.known_null {
+            if !arguments.is_empty() {
+                return Err(Error::Internal(
+                    "constant NULL IEEE function received arguments".into(),
+                ));
+            }
+            return Ok(Value::Null);
+        }
         if arguments.len() != signature.arguments.len()
             || arguments
                 .iter()

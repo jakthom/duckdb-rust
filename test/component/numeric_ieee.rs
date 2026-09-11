@@ -162,6 +162,7 @@ fn ieee_math_uses_selected_double_overloads_and_source_mode_error_boundaries() -
 struct Metadata {
     count: usize,
     selected: usize,
+    known_null: bool,
 }
 
 struct Unselected;
@@ -174,6 +175,7 @@ impl ScalarBindArguments for Unselected {
         Metadata {
             count: 1,
             selected: 0,
+            known_null: false,
         }
         .data_type(index)
     }
@@ -198,6 +200,10 @@ impl ScalarBindArguments for Metadata {
     }
     fn select_overload(&self, _: &str, _: &[ScalarSignature]) -> Result<usize> {
         Ok(self.selected)
+    }
+    fn is_provably_null(&self, index: usize) -> Result<bool> {
+        self.data_type(index)?;
+        Ok(self.known_null)
     }
 }
 
@@ -229,6 +235,7 @@ fn ieee_bound_callbacks_keep_selected_mode_without_ambient_rebinding_or_argument
     let args = Metadata {
         count: 1,
         selected: 0,
+        known_null: false,
     };
     let bound_on = sqrt.bind(&args, &on)?.unwrap();
     let bound_off = sqrt.bind(&args, &off)?.unwrap();
@@ -259,7 +266,8 @@ fn ieee_bound_callbacks_keep_selected_mode_without_ambient_rebinding_or_argument
         sqrt.bind(
             &Metadata {
                 count: 1,
-                selected: 9
+                selected: 9,
+                known_null: false,
             },
             &on
         ),
@@ -269,7 +277,8 @@ fn ieee_bound_callbacks_keep_selected_mode_without_ambient_rebinding_or_argument
         sqrt.bind(
             &Metadata {
                 count: 2,
-                selected: 0
+                selected: 0,
+                known_null: false,
             },
             &on
         ),
@@ -277,6 +286,23 @@ fn ieee_bound_callbacks_keep_selected_mode_without_ambient_rebinding_or_argument
     ));
     assert!(matches!(
         bound_on.evaluate(&[Value::Integer(4)], &on),
+        Err(Error::Internal(_))
+    ));
+    // A proven NULL bypasses the native IEEE bind callback/settings read, but
+    // still requires the selected signature and correct TypeOnly invocation.
+    let known_null = sqrt
+        .bind(
+            &Metadata {
+                count: 1,
+                selected: 0,
+                known_null: true,
+            },
+            &QueryContext::background(),
+        )?
+        .unwrap();
+    assert_eq!(known_null.evaluate(&[], &on)?, Value::Null);
+    assert!(matches!(
+        known_null.evaluate(&[Value::Null], &on),
         Err(Error::Internal(_))
     ));
     let interrupt = InterruptHandle::default();
@@ -303,7 +329,7 @@ impl CastFunction for SelectedDouble {
     fn supports(&self, spec: &CastSpec) -> bool {
         spec.source == DataType::Integer
             && spec.target == DataType::Double
-            && spec.mode == CastMode::Implicit
+            && matches!(spec.mode, CastMode::Implicit | CastMode::Explicit)
     }
     fn cast(&self, _: &Value, _: &CastSpec, query: &QueryContext) -> Result<Value> {
         query.check()?;
@@ -332,6 +358,14 @@ fn ieee_math_retains_selected_casts_and_constant_null_demand_in_both_evaluators(
                 },
                 Arc::new(SelectedDouble(fail)),
             )?;
+            casts.replace(
+                CastSpec {
+                    source: DataType::Integer,
+                    target: DataType::Double,
+                    mode: CastMode::Explicit,
+                },
+                Arc::new(SelectedDouble(fail)),
+            )?;
             let mut c = DatabaseBuilder::new()
                 .expressions(evaluator.clone())
                 .casts(casts)
@@ -348,10 +382,27 @@ fn ieee_math_retains_selected_casts_and_constant_null_demand_in_both_evaluators(
                     .rows,
                 vec![vec![Value::Null]]
             );
-            assert!(matches!(
-                c.query("SELECT pow(CAST('bad' AS DOUBLE),NULL::DOUBLE)"),
-                Err(Error::Conversion(_))
-            ));
+            assert_eq!(
+                c.query("SELECT pow(CAST('bad' AS DOUBLE),NULL::DOUBLE)")?
+                    .rows,
+                vec![vec![Value::Null]]
+            );
+            assert_eq!(
+                c.query("SELECT log(CAST('bad' AS DOUBLE),NULL::DOUBLE)")?
+                    .rows,
+                vec![vec![Value::Null]]
+            );
+            let selected_probe = c.query("SELECT pow(4::DOUBLE,NULL::DOUBLE)");
+            if fail {
+                assert!(matches!(selected_probe, Err(Error::Resource(_))));
+            } else {
+                assert_eq!(selected_probe?.rows, vec![vec![Value::Null]]);
+            }
+            // TypeOnly does not invoke a cast inserted after the NULL probe.
+            assert_eq!(
+                c.query("SELECT pow(4::INTEGER,NULL::DOUBLE)")?.rows,
+                vec![vec![Value::Null]]
+            );
             assert!(matches!(c.query("SELECT pow(a,CAST('bad' AS DOUBLE)) FROM(VALUES(NULL::DOUBLE),(NULL::DOUBLE))t(a)"),Err(Error::Conversion(_))));
         }
     }

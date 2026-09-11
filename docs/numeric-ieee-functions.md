@@ -159,3 +159,18 @@ this earlier binding boundary. The repair will use the existing selected
 failure rules, inventing literal values or creating a new shared interface.
 This initial evidence remains immutable, including its incorrect expected-error
 annotation, for comparison with the repaired campaign.
+
+The family now performs that selected probe after validating its overload and
+retains a TypeOnly NULL specialization when it succeeds. No ambient IEEE setting
+is read for that path, matching the source's skipped function callback. The
+original nonconstant path still retains its mode and Constant-NULL execution
+boundary. Tests now expect the independently observed NULL for failed-cast-first
+pow/log, retain Conversion for flat nullable VALUES with a failing later child,
+and preserve selected Resource failures while probing an explicit cast. An
+implicit cast inserted after a successful NULL probe is retained but not executed.
+Direct specialization tests validate empty TypeOnly input and reject malformed
+payloads. No shared probe/error/evaluator contract changed. Check, four focused
+math tests and all-target clippy pass; coverage is 380 files / 3,695 functions /
+239 interface methods, missing 0. The first narrow test command used the wrong
+module filter and ran zero tests; the corrected `cargo test --test numeric ieee`
+executed and passed all four before this result was recorded.
