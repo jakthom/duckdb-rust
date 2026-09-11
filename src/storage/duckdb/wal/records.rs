@@ -16,11 +16,12 @@ use std::collections::BTreeMap;
 pub(super) struct RecordState {
     tables: BTreeMap<TableName, TableDefinition>,
     selected: Option<TableName>,
+    storage_version: u64,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RecordState {
-    pub fn new(catalog: &dyn Catalog) -> Result<Self> {
+    pub fn new(catalog: &dyn Catalog, storage_version: u64) -> Result<Self> {
         Ok(Self {
             tables: catalog
                 .tables()?
@@ -28,6 +29,7 @@ impl RecordState {
                 .map(|t| (t.name.clone(), t))
                 .collect(),
             selected: None,
+            storage_version,
         })
     }
     pub fn read(
@@ -43,7 +45,7 @@ impl RecordState {
                     return Err(corrupt("NULL WAL create table"));
                 }
                 let schema = catalog::create_base(reader, 1)?;
-                let table = catalog::table_definition(reader, schema)?;
+                let table = catalog::table_definition_at(reader, schema, self.storage_version, context)?;
                 if self
                     .tables
                     .insert(table.name.clone(), table.clone())

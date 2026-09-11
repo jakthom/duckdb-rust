@@ -106,6 +106,16 @@ pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
     })
 }
 
+/// Version/context are explicit at native catalog boundaries so retained
+/// expressions can select a compatible wire conversion without ambient state.
+pub(super) fn column_at(
+    reader: &mut Reader,
+    _version: u64,
+    _query: &crate::parallel::QueryContext,
+) -> Result<ColumnDefinition> {
+    column(reader)
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn logical_type(reader: &mut Reader) -> Result<DataType> {
     logical_type_at(reader, 0)
@@ -424,4 +434,13 @@ pub(super) fn table_definition(
     }
     reader.end()?;
     Ok(definition)
+}
+
+pub(super) fn table_definition_at(
+    reader: &mut Reader,
+    qualified: CreateName,
+    _version: u64,
+    _query: &crate::parallel::QueryContext,
+) -> Result<TableDefinition> {
+    table_definition(reader, qualified)
 }

@@ -124,7 +124,7 @@ fn replay(
         return Ok(snapshot);
     }
     let mut changes = Vec::new();
-    let mut state = records::RecordState::new(&snapshot)?;
+    let mut state = records::RecordState::new(&snapshot, identity.storage_version())?;
     for frame in &scan.frames {
         context.check()?;
         let mut reader = Reader::new(log[frame.clone()].to_vec());
