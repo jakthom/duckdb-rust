@@ -45,7 +45,8 @@ impl RecordState {
                     return Err(corrupt("NULL WAL create table"));
                 }
                 let schema = catalog::create_base(reader, 1)?;
-                let table = catalog::table_definition_at(reader, schema, self.storage_version, context)?;
+                let table =
+                    catalog::table_definition_at(reader, schema, self.storage_version, context)?;
                 if self
                     .tables
                     .insert(table.name.clone(), table.clone())
@@ -83,7 +84,8 @@ impl RecordState {
                 None
             }
             20 => {
-                let (table, mut alteration) = super::alter::read(reader, self.storage_version, context)?;
+                let (table, mut alteration) =
+                    super::alter::read(reader, self.storage_version, context)?;
                 let before = self
                     .tables
                     .get(&table)

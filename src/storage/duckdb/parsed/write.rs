@@ -78,7 +78,12 @@ pub(super) fn expression(
             if n >= 2 {
                 state.write_name(output, 201, Some(&name[n - 2]))?;
             }
-            let legacy = *argument_style == StoredArgumentStyle::LegacyAliases;
+            // Pre-69 native records retain child aliases rather than modern
+            // argument objects. Positional SQL-origin arguments (and named
+            // arguments whose name exactly matches the child alias) convert
+            // without inventing provenance; contradictions reject below.
+            let legacy = *argument_style == StoredArgumentStyle::LegacyAliases
+                || (state.version < 69 && !arguments.is_empty());
             if legacy && arguments.is_empty() {
                 return Err(Error::Unsupported(
                     "empty legacy argument provenance has no native representation".into(),
@@ -95,13 +100,6 @@ pub(super) fn expression(
                     output.boolean(true);
                     self::expression(output, &argument.expression, depth + 1, state)?;
                 }
-            } else if state.version < 69 && !arguments.is_empty() {
-                // Downgrading even positional arguments changes retained binding
-                // provenance. The catalog owner must explicitly choose a
-                // language-aware conversion, not ask the wire codec to guess.
-                return Err(Error::Unsupported(
-                    "modern argument provenance requires storage 69".into(),
-                ));
             }
             // C++ ordinarily supplies an empty, non-NULL OrderModifier.
             output.field(204);

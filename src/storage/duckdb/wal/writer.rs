@@ -287,7 +287,13 @@ impl LogSession for Session {
                         pending.insert(definition.name.clone(), changes);
                     }
                     let mut entry = record(20);
-                    super::alter::write(&mut entry, &state.definition, alteration, next.storage_version.unwrap_or(64), context)?;
+                    super::alter::write(
+                        &mut entry,
+                        &state.definition,
+                        alteration,
+                        next.storage_version.unwrap_or(64),
+                        context,
+                    )?;
                     output.push(entry)?;
                     state.definition = definition;
                     next.tables.insert(state.definition.name.clone(), state);

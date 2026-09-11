@@ -46,7 +46,9 @@ pub(super) fn write(
             output.field(401);
             output.string(name)?;
         }
-        TableAlteration::AddColumn { column, .. } => writer::column_definition(output, column, version, context)?,
+        TableAlteration::AddColumn { column, .. } => {
+            writer::column_definition(output, column, version, context)?
+        }
         TableAlteration::DropColumn { column, .. }
         | TableAlteration::SetNullability { column, .. } => output.string(column)?,
         TableAlteration::SetDefault { column, expression } => {
@@ -63,7 +65,11 @@ pub(super) fn write(
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn read(reader: &mut Reader, version: u64, context: &crate::parallel::QueryContext) -> Result<(TableName, TableAlteration)> {
+pub(super) fn read(
+    reader: &mut Reader,
+    version: u64,
+    context: &crate::parallel::QueryContext,
+) -> Result<(TableName, TableAlteration)> {
     reader.field(101)?;
     if !reader.boolean()? {
         return Err(corrupt("NULL WAL ALTER"));
