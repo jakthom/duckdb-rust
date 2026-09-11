@@ -84,7 +84,10 @@ pub struct FileCheckpoint {
 
 enum PublicationState {
     Unloaded,
-    Ready(Option<Box<dyn super::format::CheckpointEncoder>>),
+    Ready {
+        encoder: Option<Box<dyn super::format::CheckpointEncoder>>,
+        context: crate::parallel::QueryContext,
+    },
     Uncertain,
 }
 
@@ -135,8 +138,11 @@ impl FileCheckpoint {
             .lock()
             .map_err(|_| Error::Internal("checkpoint publication mutex poisoned".into()))?;
         let version = match &*publication {
-            PublicationState::Ready(Some(encoder)) => encoder.storage_version(),
-            PublicationState::Ready(None) => None,
+            PublicationState::Ready {
+                encoder: Some(encoder),
+                ..
+            } => encoder.storage_version(),
+            PublicationState::Ready { encoder: None, .. } => None,
             PublicationState::Unloaded => {
                 return Err(Error::Internal("checkpoint has not been loaded".into()));
             }
@@ -206,7 +212,10 @@ impl Durability for FileCheckpoint {
             let encoder = self.format.checkpoint_encoder(&checkpoint)?;
             let snapshot = self.format.decode_with_context(checkpoint, context)?;
             context.check()?;
-            *publication = PublicationState::Ready(encoder);
+            *publication = PublicationState::Ready {
+                encoder,
+                context: context.clone(),
+            };
             return Ok(snapshot);
         }
         let recovery = self.recovery.as_ref().ok_or_else(|| {
@@ -235,12 +244,18 @@ impl Durability for FileCheckpoint {
                 }
                 return Err(error);
             }
-            *publication = PublicationState::Ready(encoder);
+            *publication = PublicationState::Ready {
+                encoder,
+                context: context.clone(),
+            };
             Ok(prepared.snapshot)
         } else {
             let snapshot = recovery.recover(input, self.format.as_ref(), context)?;
             context.check()?;
-            *publication = PublicationState::Ready(None);
+            *publication = PublicationState::Ready {
+                encoder: None,
+                context: context.clone(),
+            };
             Ok(snapshot)
         }
     }
@@ -252,8 +267,8 @@ impl Durability for FileCheckpoint {
             .publication
             .lock()
             .map_err(|_| Error::Internal("checkpoint publication mutex poisoned".into()))?;
-        let encoder = match &*publication {
-            PublicationState::Ready(encoder) => encoder,
+        let (encoder, context) = match &*publication {
+            PublicationState::Ready { encoder, context } => (encoder, context),
             PublicationState::Unloaded => {
                 return Err(Error::Internal("checkpoint has not been loaded".into()));
             }
@@ -264,17 +279,22 @@ impl Durability for FileCheckpoint {
             }
         };
         let bytes = match encoder {
-            Some(encoder) => encoder.encode(commit.snapshot)?,
-            None => self.format.encode(commit.snapshot)?,
+            Some(encoder) => encoder.encode_with_context(commit.snapshot, context)?,
+            None => self.format.encode_with_context(commit.snapshot, context)?,
         };
         let next = self.format.checkpoint_encoder(&bytes)?;
+        context.check()?;
+        let context = context.clone();
         if let Err(error) = self.file.replace(&bytes) {
             if matches!(error, Error::CommitUnknown(_)) {
                 *publication = PublicationState::Uncertain;
             }
             return Err(error);
         }
-        *publication = PublicationState::Ready(next);
+        *publication = PublicationState::Ready {
+            encoder: next,
+            context,
+        };
         Ok(())
     }
 }

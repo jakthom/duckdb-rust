@@ -108,6 +108,14 @@ impl SnapshotFormat for DuckDbFormat {
             CheckpointIdentity::read(bytes)?,
         ))))
     }
+    fn encode_with_context(
+        &self,
+        snapshot: &Snapshot,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Vec<u8>> {
+        snapshot.validate_with_context(query)?;
+        writer::encode_version_with_context(snapshot, self.new_file_version, query)
+    }
     fn checkpoint_value_equivalent(
         &self,
         selected: &crate::common::type_registry::BoundType,
@@ -135,6 +143,24 @@ impl SnapshotFormat for DuckDbFormat {
     fn supports_successor(&self) -> bool {
         true
     }
+    fn encode_successor_with_context(
+        &self,
+        snapshot: &Snapshot,
+        previous: &[u8],
+        query: &crate::parallel::QueryContext,
+    ) -> Result<super::layout::CheckpointImage> {
+        snapshot.validate_with_context(query)?;
+        let image = super::layout::CheckpointImage {
+            bytes: writer::encode_successor_with_context(
+                snapshot,
+                CheckpointIdentity::read(previous)?,
+                query,
+            )?,
+            layout: super::layout::CheckpointLayout::compacted(snapshot)?,
+        };
+        query.check()?;
+        Ok(image)
+    }
 }
 
 struct NativeCheckpointEncoder(CheckpointIdentity);
@@ -150,6 +176,14 @@ impl super::format::CheckpointEncoder for NativeCheckpointEncoder {
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>> {
         snapshot.validate()?;
         writer::encode_successor(snapshot, self.0)
+    }
+    fn encode_with_context(
+        &self,
+        snapshot: &Snapshot,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Vec<u8>> {
+        snapshot.validate_with_context(query)?;
+        writer::encode_successor_with_context(snapshot, self.0, query)
     }
 }
 

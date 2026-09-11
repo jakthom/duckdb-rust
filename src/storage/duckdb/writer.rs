@@ -174,8 +174,18 @@ pub(super) fn encode(snapshot: &Snapshot) -> Result<Vec<u8>> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn encode_version(snapshot: &Snapshot, version: u64) -> Result<Vec<u8>> {
+    encode_version_with_context(snapshot, version, &QueryContext::background())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn encode_version_with_context(
+    snapshot: &Snapshot,
+    version: u64,
+    context: &QueryContext,
+) -> Result<Vec<u8>> {
+    context.check()?;
     super::write_support::new_headers(version)?;
-    encode_checkpoint(snapshot, None, version)
+    encode_checkpoint(snapshot, None, version, context)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -183,7 +193,21 @@ pub(super) fn encode_successor(
     snapshot: &Snapshot,
     previous: super::CheckpointIdentity,
 ) -> Result<Vec<u8>> {
-    encode_checkpoint(snapshot, Some(previous), previous.storage_version())
+    encode_successor_with_context(snapshot, previous, &QueryContext::background())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn encode_successor_with_context(
+    snapshot: &Snapshot,
+    previous: super::CheckpointIdentity,
+    context: &QueryContext,
+) -> Result<Vec<u8>> {
+    encode_checkpoint(
+        snapshot,
+        Some(previous),
+        previous.storage_version(),
+        context,
+    )
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -191,10 +215,15 @@ fn encode_checkpoint(
     snapshot: &Snapshot,
     previous: Option<super::CheckpointIdentity>,
     version: u64,
+    context: &QueryContext,
 ) -> Result<Vec<u8>> {
-    let context = QueryContext::background().with_types(snapshot.type_registry());
+    // Physical values belong to the snapshot's retained type registry. Keep
+    // every other selected caller service, setting and cancellation token.
+    let context = context.clone().with_types(snapshot.type_registry());
+    context.check()?;
     let tables = snapshot.tables()?;
     for table in &tables {
+        context.check()?;
         for column in &table.columns {
             super::write_support::checkpoint_type(&column.data_type, version)?;
         }
@@ -204,6 +233,7 @@ fn encode_checkpoint(
     let mut catalog = Encoder::default();
     catalog.property(100, (tables.len() + schemas.len()) as u64);
     for schema in schemas {
+        context.check()?;
         catalog.property(99, 2);
         catalog.field(100);
         catalog.boolean(true);
@@ -258,7 +288,9 @@ fn encode_checkpoint(
         *used &= !(1u64 << (root >> 56));
         root = replacement;
     }
-    arena.finish(root, previous, version)
+    let bytes = arena.finish(root, previous, version)?;
+    context.check()?;
+    Ok(bytes)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

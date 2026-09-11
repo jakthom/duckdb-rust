@@ -25,6 +25,18 @@ pub struct StorageVersion {
 /// caller binds the returned image's successor state before publishing bytes.
 pub trait CheckpointEncoder: Send + Sync {
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>>;
+    /// Pure contextual preparation. Legacy adapters keep their selected encode
+    /// callback, with cancellation checked before and after that callback.
+    fn encode_with_context(
+        &self,
+        snapshot: &Snapshot,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<Vec<u8>> {
+        context.check()?;
+        let bytes = self.encode(snapshot)?;
+        context.check()?;
+        Ok(bytes)
+    }
     /// Compact metadata already bound from validated bytes. None grants no
     /// version-dependent log capability. Never retain/reread the old table image.
     fn storage_version(&self) -> Option<StorageVersion> {
@@ -65,6 +77,16 @@ pub trait SnapshotFormat: Send + Sync {
         Ok(snapshot)
     }
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>>;
+    fn encode_with_context(
+        &self,
+        snapshot: &Snapshot,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<Vec<u8>> {
+        context.check()?;
+        let bytes = self.encode(snapshot)?;
+        context.check()?;
+        Ok(bytes)
+    }
     /// Compare a declared value after this format's documented canonicalization.
     /// None retains exact physical comparison, including floating-point bits.
     /// This hook cannot waive catalog or row-identity checks. The caller retains
@@ -98,6 +120,17 @@ pub trait SnapshotFormat: Send + Sync {
     /// occurs. Formats without this protocol reject it before publication.
     fn encode_successor(&self, _snapshot: &Snapshot, _previous: &[u8]) -> Result<CheckpointImage> {
         Err(Error::Unsupported("successor checkpoint encoding".into()))
+    }
+    fn encode_successor_with_context(
+        &self,
+        snapshot: &Snapshot,
+        previous: &[u8],
+        context: &crate::parallel::QueryContext,
+    ) -> Result<CheckpointImage> {
+        context.check()?;
+        let image = self.encode_successor(snapshot, previous)?;
+        context.check()?;
+        Ok(image)
     }
 }
 

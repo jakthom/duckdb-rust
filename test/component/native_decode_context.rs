@@ -1,4 +1,6 @@
 //! Real native column decoding, including recursively encoded child streams.
+#[path = "native_encode_context.rs"]
+mod encoding;
 use super::*;
 use duckdb_rust::{
     catalog::{

@@ -19,7 +19,7 @@ pub(super) fn prepare(
         layout = crate::storage::layout::CheckpointLayout::identity(&snapshot)?;
         RecoveryPublication::RetireLog
     } else {
-        let image = format.encode_successor(&snapshot, &input.checkpoint)?;
+        let image = format.encode_successor_with_context(&snapshot, &input.checkpoint, context)?;
         let checkpoint = image.bytes;
         layout = image.layout;
         context.check()?;

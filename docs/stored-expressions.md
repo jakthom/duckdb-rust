@@ -99,6 +99,27 @@ collects the rows explicitly. The next integrated checkpoint will run tracing
 and the full Kani suite. The native constant-default decoder, contextual encoding
 and retained catalog/default execution are still separate open work.
 
+The next lead increment closes the contextual encoding handoff for fresh, bound
+and recovery-successor checkpoints. Native validation and recursive value/statistics
+encoding retain caller settings/services/cancellation and snapshot-owned types.
+FileCheckpoint stores the load context alongside the format-owned encoder and
+checks it after preparing the next binding, before durable replacement. Native
+recovery forwards the requesting context to successor encoding. Legacy adapters
+keep their own callbacks through defaulted before/after checks; no private format
+or function implementation is substituted.
+
+Three additional contracts pass (five native context tests total): all three
+native encoding entry points honor request row limits/cancellation; stateless
+and bound selected encoders receive startup settings/services, and cancellation
+after returning bytes leaves files unchanged and the previous binding usable;
+default hooks preserve legacy callbacks and propagate cancellation. The first
+test compile attempted a private compacted-layout helper; the contiguous test
+source now correctly uses its public identity layout. Check, all-target clippy
+and coverage pass (373 files/3,596 functions/239 methods, none missing). Tracing
+and Kani are pending the next frozen integrated checkpoint. These context repairs
+do not implement native parsed DEFAULTs, retained catalog defaults, or cooperative
+checks within every catalog/ART/checksum operation.
+
 - Retain expressions in column defaults instead of eagerly evaluating SQL or
   native parsed expressions; preserve backward decoding of existing private
   snapshots. Binding and assignment use the selected statement services.

@@ -84,9 +84,10 @@ retained registry, including recursive child/statistics encoding. WAL child
 encoding uses the selected log context. Neither path may construct builtin
 type services to interpret dynamic values. Native statistics still describe
 the native physical ordering; a replacement SQL comparator cannot redefine
-the C++ file's statistics ordering. The current synchronous snapshot encoder
-has a background maintenance context, not a new promise of interruptible
-filesystem operations or a global byte budget.
+the C++ file's statistics ordering. Contextual snapshot encoding preserves caller
+settings, cancellation and expression services while using the snapshot's retained
+types. Direct legacy encoding explicitly supplies a maintenance context. This
+does not promise interruptible filesystem operations or a global byte budget.
 
 The provisional native writer can explicitly select storage 64–69 for a new
 image; the legacy default remains 64. That preference does not upgrade existing
@@ -196,6 +197,20 @@ intermediate-row limit; decoder callbacks retain its types, settings, cancellati
 and expression capability without invoking the latter. The legacy direct decode
 API explicitly supplies an unlimited maintenance context with the caller's types.
 This is not complete allocator accounting or interruption of every metadata/checksum
-operation. Native constant-default metadata still takes the old eager path, and
-the encoder still has background-context work. Retained native DEFAULT expression
+operation. Native constant-default metadata still takes the old eager path.
+Retained native DEFAULT expression
 serialization remains part of the unfinished connected implementation.
+
+Defaulted contextual fresh, bound and successor encoding hooks preserve each
+selected legacy callback, checking cancellation before and after it. The native
+format overrides all three: snapshot validation and recursive value/statistics
+encoding use the supplied context with the snapshot's retained type registry.
+FileCheckpoint retains its load context with the publication-state binding;
+ordinary commits use that context, and check again after encoder rebinding before
+file replacement. Preparation cancellation leaves the previous binding usable.
+Do not check cancellation after a completed durable replace and report it as a
+definite non-commit. Native recovery passes its caller context into successor
+preparation; explicit WAL checkpoints therefore keep their requesting context.
+Some catalog/default metadata, ART construction and checksum loops are still
+bounded but not individually cooperative. No arbitrary function evaluation is
+authorized by serialization or by retaining the expression capability.
