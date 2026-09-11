@@ -76,3 +76,35 @@ internal registration step. The existing successful NULLIF tests do not claim
 that skipped-error/effect boundary is already implemented. Its shared follow-up
 will use actual execution provenance and cover scalar, batch and predicate paths,
 including Unknown/flat NULL inputs and required fatal validation.
+
+## Shared comparison execution follow-up
+
+The six ordinary comparison nodes now consume actual Constant/Unknown provenance
+at execution. A left constant NULL returns a typed constant NULL before the right
+child. A right constant NULL retains the already executed left child's effects,
+errors and selected validation. This applies to scalar, batch and predicate paths;
+dictionary root caching retains provenance and validates produced values before
+normalizing the result. A value-only evaluator replacement still supplies Unknown.
+
+The connected comparison contract matrix spans both evaluators and optimizers,
+batch sizes 1/2/5, all six comparison operators, projected constants versus flat
+VALUES NULLs, prepared NULL/non-NULL parameters, scalar subqueries, skipped and
+required volatile calls, selected total casts that raise Resource, dictionary
+inputs, malformed retained metadata and selected result/earlier-value validation
+failures. The initial custom NULL-payload rejection test was invalid: BoundType
+universally accepts NULL, so the corrected test exercises actual metadata and
+nonnull logical-value validation boundaries instead. No validator behavior was
+weakened to satisfy that test.
+
+A direct development CLI sequence probe independently returns these exact CSV
+lines for nonmatching, matching and constant-NULL first arguments, in order:
+`2,2`, `NULL,3`, `NULL,3`. The second column is `currval`; therefore nonmatching
+NULLIF evaluates its first argument twice, matching evaluates it once, and a
+constant NULL first argument does not advance the second argument's sequence.
+The sequence catalog itself remains outside this scalar implementation; Rust
+contract adapters provide the equivalent counted volatile occurrence witness.
+
+Routine workspace checks and the paired report are recorded in the follow-up
+evidence commit. Kani remains assigned to the substantial integrated checkpoint;
+neither the comparison/expansion invariants nor general NULLIF/macro completeness
+are claimed formally proved by this internal delivery.

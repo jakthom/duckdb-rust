@@ -48,9 +48,24 @@ impl ExpressionEvaluator for BatchedEvaluator {
         if matches!(op, BinaryOp::And | BinaryOp::Or) {
             return Ok(None);
         }
+        let declared_left = &left.data_type;
         let Some(left) = input.columns().get(*index) else {
             return Err(Error::Internal("comparison column outside input".into()));
         };
+        if matches!(left.constant_value(), Some(Value::Null)) {
+            if left.data_type() != declared_left || left.len() != input.len() {
+                return Err(Error::Internal(
+                    "comparison input differs from its bound metadata".into(),
+                ));
+            }
+            validate_comparison_null(
+                left.data_type(),
+                &expression.data_type,
+                data_type,
+                context.query(),
+            )?;
+            return Ok(Some(false));
+        }
         let right = Vector::constant(right.data_type.clone(), value.clone(), input.len())?;
         use std::cmp::Ordering;
         let predicate = crate::common::type_registry::ComparisonPredicate {
@@ -116,20 +131,32 @@ impl ExpressionEvaluator for BatchedEvaluator {
                 (&left.kind, right.constant_value())
             {
                 let inner = evaluate_columns(inner, input, context)?;
-                if let Some(selected) = cast.select_integer_comparison(
-                    &inner,
-                    value,
-                    predicate,
-                    data_type,
-                    context.query(),
-                )? {
+                if !matches!(inner.constant_value(), Some(Value::Null))
+                    && !value.is_null()
+                    && let Some(selected) = cast.select_integer_comparison(
+                        &inner,
+                        value,
+                        predicate,
+                        data_type,
+                        context.query(),
+                    )?
+                {
                     return Ok(selected);
                 }
                 cast.apply_batch(&inner, context.query())?
             } else {
                 evaluate_columns(left, input, context)?
             };
+            if constant_null_comparison(&left, expression, data_type, context.query())? {
+                return Ok(Vec::new());
+            }
             let right = evaluate_columns(right, input, context)?;
+            if constant_null_comparison(&right, expression, data_type, context.query())? {
+                data_type
+                    .validate_vector(&left, context.query())
+                    .map_err(comparison_validation_error)?;
+                return Ok(Vec::new());
+            }
             return data_type.select_comparison(&left, &right, predicate, context.query());
         }
         select_boolean(
@@ -166,6 +193,11 @@ fn dictionary_expression(
     let mut initialized = vec![false; dictionary.len()];
     let mut values = vec![Value::Null; dictionary.len()];
     let mut row = vec![Value::Null; input.columns().len()];
+    let context = BatchContext {
+        parent: context,
+        input,
+    };
+    let mut all_constant = true;
     for (offset, &index) in selection.iter().enumerate() {
         if offset % 1024 == 0 {
             context.query().check()?;
@@ -175,11 +207,27 @@ fn dictionary_expression(
                 .get(index)
                 .expect("checked dictionary index")
                 .clone();
-            values[index] = ScalarEvaluator.evaluate(expression, &row, context)?;
+            let result = ScalarEvaluator.evaluate_with_provenance(expression, &row, &context)?;
+            all_constant &= result.provenance == ArgumentProvenance::Constant;
+            values[index] = result.value;
             initialized[index] = true;
         }
     }
     context.query().check()?;
+    if all_constant && !selection.is_empty() {
+        return result_column(
+            expression.data_type.clone(),
+            selection
+                .iter()
+                .map(|&index| EvaluatedValue {
+                    value: values[index].clone(),
+                    provenance: ArgumentProvenance::Constant,
+                })
+                .collect(),
+            context.query(),
+        )
+        .map(Some);
+    }
     Ok(Some(
         std::sync::Arc::new(Vector::flat(expression.data_type.clone(), values)?)
             .select(selection.to_vec())?,
@@ -338,7 +386,20 @@ fn evaluate_columns(
         }
         ExprKind::Binary(op, left, right, data_type) => {
             let left = eval(left)?;
+            if ordinary_comparison(*op)
+                && constant_null_comparison(&left, expression, data_type, context.query())?
+            {
+                return Vector::constant(expression.data_type.clone(), Value::Null, input.len());
+            }
             let right = eval(right)?;
+            if ordinary_comparison(*op)
+                && constant_null_comparison(&right, expression, data_type, context.query())?
+            {
+                data_type
+                    .validate_vector(&left, context.query())
+                    .map_err(comparison_validation_error)?;
+                return Vector::constant(expression.data_type.clone(), Value::Null, input.len());
+            }
             let values = data_type
                 .compare_batch(&left, &right, context.query())?
                 .into_iter()
@@ -362,4 +423,18 @@ fn evaluate_columns(
     }
     context.query().check()?;
     Ok(output)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn constant_null_comparison(
+    column: &Vector,
+    expression: &BoundExpr,
+    operand: &crate::common::type_registry::BoundType,
+    query: &QueryContext,
+) -> Result<bool> {
+    if !matches!(column.constant_value(), Some(Value::Null)) {
+        return Ok(false);
+    }
+    validate_comparison_null(column.data_type(), &expression.data_type, operand, query)?;
+    Ok(true)
 }

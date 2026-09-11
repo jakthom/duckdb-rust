@@ -94,6 +94,28 @@ Sources: [MAP lowering](../../../duckdb/src/parser/peg/transformer/transform_exp
 [MAP validation](../../../duckdb/src/common/vector/map_vector.cpp),
 [MAP casts](../../../duckdb/src/function/cast/map_cast.cpp).
 
+## Rewrite ordinary-comparison constant NULL boundary
+
+Development binds the six ordinary comparisons as scalar functions with default
+NULL handling. Its function executor visits children in order and returns a
+constant NULL when an executed child has CONSTANT_VECTOR encoding and is NULL,
+before evaluating later children. This also governs the equality inside NULLIF's
+CASE expansion. It is not a rule for DISTINCT comparisons, AND/OR, observed equal
+values in flat/dictionary columns, or bind-time closedness. Sources:
+[comparison registration](../../../duckdb/src/function/scalar/comparison/comparison.cpp),
+[function execution](../../../duckdb/src/execution/expression_executor/execute_function.cpp).
+
+The rewrite consumes the selected evaluator's actual execution provenance in
+scalar, column, dictionary-cache and predicate paths. A right constant NULL may
+produce a constant result only after the left operand's required evaluation and
+validation. The selected operand and output metadata remain checked; malformed
+logical output is Internal while infrastructure and cancellation failures remain
+fatal. NULL payload validity itself is universal at the BoundType boundary.
+An ordinary replacement evaluator keeps Unknown unless it explicitly supplies
+provenance. Dictionary caching preserves the complete root result's provenance
+and validates every produced value before constant normalization; equal values
+do not establish the claim. No NULLIF-only shortcut or private comparator exists.
+
 ## Ownership, errors, and performance
 
 Result vectors may reference input data when an expression is a simple reference. Callers must retain underlying buffers if results escape input reuse. Expression executors typically belong to local operator/task state; sharing mutable evaluation state between workers is not implied by sharing an immutable physical expression tree. Scratch vectors and selections should be reused across chunks while their sizes and validity are reset correctly.

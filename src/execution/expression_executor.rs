@@ -259,22 +259,54 @@ impl ExpressionEvaluator for ScalarEvaluator {
                 }
             }
             ExprKind::Binary(op, left, right, operand_type) => {
-                let left = eval(left)?;
-                if *op == BinaryOp::And && left.as_bool()? == Some(false) {
+                let left_value = eval(left)?;
+                if ordinary_comparison(*op) && left_value.is_null() && constant.get() {
+                    validate_comparison_null(
+                        &left.data_type,
+                        &expression.data_type,
+                        operand_type,
+                        query,
+                    )?;
+                    return checked_evaluated(Value::Null, &expression.data_type, true);
+                }
+                if *op == BinaryOp::And && left_value.as_bool()? == Some(false) {
                     return checked_evaluated(
                         Value::Boolean(false),
                         &expression.data_type,
                         constant.get(),
                     );
                 }
-                if *op == BinaryOp::Or && left.as_bool()? == Some(true) {
+                if *op == BinaryOp::Or && left_value.as_bool()? == Some(true) {
                     return checked_evaluated(
                         Value::Boolean(true),
                         &expression.data_type,
                         constant.get(),
                     );
                 }
-                evaluate_binary(*op, left, eval(right)?, operand_type, query)?
+                let right_value = self.evaluate_with_provenance(right, row, context)?;
+                constant
+                    .set(constant.get() && right_value.provenance == ArgumentProvenance::Constant);
+                if ordinary_comparison(*op)
+                    && right_value.value.is_null()
+                    && right_value.provenance == ArgumentProvenance::Constant
+                {
+                    if &left.data_type != operand_type.data_type() {
+                        return Err(Error::Internal(
+                            "comparison operand metadata mismatch".into(),
+                        ));
+                    }
+                    operand_type
+                        .validate(&left_value, query)
+                        .map_err(comparison_validation_error)?;
+                    validate_comparison_null(
+                        &right.data_type,
+                        &expression.data_type,
+                        operand_type,
+                        query,
+                    )?;
+                    return checked_evaluated(Value::Null, &expression.data_type, true);
+                }
+                evaluate_binary(*op, left_value, right_value.value, operand_type, query)?
             }
             ExprKind::Operator(function, arguments) => {
                 let effects = function.effects();
@@ -379,6 +411,49 @@ impl ExpressionEvaluator for ScalarEvaluator {
             }
         };
         checked_evaluated(value, &expression.data_type, constant.get())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn ordinary_comparison(op: BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+    )
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn validate_comparison_null(
+    child: &crate::DataType,
+    result: &crate::DataType,
+    operand: &crate::common::type_registry::BoundType,
+    query: &QueryContext,
+) -> Result<()> {
+    query.check()?;
+    if child != operand.data_type() || *result != crate::DataType::Boolean {
+        return Err(Error::Internal(
+            "constant NULL comparison metadata mismatch".into(),
+        ));
+    }
+    // Keep the selected operand adapter, not a fresh built-in validation path.
+    operand
+        .validate(&Value::Null, query)
+        .and_then(|()| query.types().bind(result)?.validate(&Value::Null, query))
+        .map_err(comparison_validation_error)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn comparison_validation_error(error: Error) -> Error {
+    match error {
+        Error::Conversion(_) => {
+            Error::Internal("constant NULL comparison failed selected validation".into())
+        }
+        other => other,
     }
 }
 

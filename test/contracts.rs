@@ -12,6 +12,8 @@ mod argument_combination;
 mod argument_provenance;
 #[path = "component/closed_argument.rs"]
 mod closed_argument;
+#[path = "component/comparison_nulls.rs"]
+mod comparison_nulls;
 #[path = "component/scalar_expansion.rs"]
 mod scalar_expansion;
 #[path = "component/stored_expression.rs"]
