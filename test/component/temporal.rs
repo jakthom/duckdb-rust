@@ -26,6 +26,7 @@ use std::sync::{
 
 mod temporal_calendar;
 mod temporal_difference;
+mod temporal_epoch_extra;
 mod temporal_format;
 mod temporal_minimum;
 mod temporal_provenance;

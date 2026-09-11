@@ -11,6 +11,7 @@ use crate::{
 use std::sync::Arc;
 mod bucket;
 mod difference;
+mod epoch_extra;
 mod formatting;
 mod truncation;
 mod units;
@@ -25,6 +26,7 @@ struct TemporalFunction {
 pub(super) fn register(registry: &mut FunctionRegistry) {
     difference::register(registry);
     bucket::register(registry);
+    epoch_extra::register(registry);
     truncation::register(registry);
     formatting::register(registry);
     for name in [
