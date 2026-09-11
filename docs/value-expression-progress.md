@@ -50,6 +50,32 @@ The following checkpoints integrate full timestamp payload validity, native
 typed-Value metadata prerequisites and selected native decode/encode context.
 No new follow-up push has occurred.
 
+## Fifteenth integrated validation checkpoint
+
+Frozen engine `81e49d2` adds the selected calendar overload and nested constructor
+consumers, advertised argument labels, nullable IEEE setting, syntax-only nested
+capture, and the shared native Value codec session. Full workspace check/tests,
+all-target clippy with warnings denied and traced all-target check pass. The same
+two external-CLI analytics tests remain ignored. Coverage reports 378 files,
+3,666 functions and 239 interface methods, none missing. Tracing completes in
+55.236 seconds with zero errors, panics or open spans; temporary telemetry is
+deleted. One captured test-output chunk was truncated, so this report does not
+reconstruct every individual suite count; the chained commands completed with
+exit status zero.
+
+Full `python3 scripts/verify_kani.py`, Kani 0.67.0, passes all six maintained
+harnesses: TIMETZ packing 21.469 s, unsigned keys 0.844 s, dense offsets 0.494 s,
+ROWS clipping 2.325 s, uniform bounds 2.771 s and packed byte counts 64.890 s.
+There are zero failures. Caller-location (1) and foreign-function (4) warnings
+remain unreachable in these proofs; atomic fences (4) and subtracts (5) remain
+sequential, and the vendor-parser warning remains. These narrow proofs do not
+establish retained DEFAULT semantics, codec budgets, overloads or concurrency.
+
+The catalog/native expression path and prepared-plan settings retention remain
+open. Worker math/formatter/membership increments are not part of this frozen
+source. No new performance, full-upstream or production file campaign, or push,
+is claimed. README still matches origin/main and the user's stash is untouched.
+
 ## Increments after checkpoint fourteen
 
 The queued calendar overload consumer (`0101221`), selected ordinary/stored nested
