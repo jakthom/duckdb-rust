@@ -326,29 +326,44 @@ Sources: `src/function/{aggregate,window}.rs`, `src/planner/window.rs`,
 
 **Current:** Catalog columns and private snapshots retain optional `StoredExpression`
 trees, including absence, declared literal type and syntax provenance. SQL
-CREATE/SET/ADD captures and binds closed defaults without executing them. INSERT and
-ADD demand are deferred; ADD evaluates once in retained physical-slot order and a
-successful explicit checkpoint reclaims only the current snapshot's slots. Native
-checkpoint/WAL expression codecs are connected. Representable built-in FUNCTION
-defaults now have bidirectional checkpoint/WAL acceptance against the pinned
-development process. Automatic-policy in-memory reclamation remains open.
+CREATE/SET/ADD captures and binds closed defaults without executing them. Omitted
+INSERT defaults run column-major within each fixed 2,048-row DuckDB vector, while
+the full row set remains staged so failure publishes no partial insert. ADD follows
+the pinned development behavior where the references diverge: a constant or one non-TRY
+cast around a constant is simple, while v1.5.5 treats only the bare constant as
+simple. Non-simple ADD evaluates visible rows only; simple ADD evaluates retained
+physical slots, including deleted slots, until checkpoint reclamation.
+
+Physical order follows regular versus relocating updates: indexed-column and
+unsupported nested updates retain a deleted old slot and append the replacement.
+Successful manual and automatic checkpoints reclaim only the current acknowledged
+snapshot; failed checkpoints leave slots, generation and the durable image unchanged,
+and older snapshots retain their holes.
+Native checkpoint/WAL expression codecs preserve selected function/default metadata,
+including absent versus explicit `DEFAULT NULL`, with bidirectional acceptance
+against the pinned development process.
 
 - **G09.1 Retain catalog expressions — implemented core.** Optional owned expressions
   now retain declared types, aliases/argument provenance, qualification, operators
   and source spans through catalog alteration and private snapshot round trips.
   Closed CASE, NULL-test, BETWEEN, IN and LIKE defaults share ordinary binding;
   conditional ADD no-ops are resolved before type/default binding.
-- **G09.2 Connect DDL and evaluation demand — implemented core.** Capture CREATE/SET/ADD defaults without
-  eager execution. Evaluate omitted INSERT values and ADD backfill at the reference
-  demand point, including deleted physical rows and checkpoint reclamation.
-- **G09.3 Connect native serialization — implemented representable core.** Integrate the existing parsed/value codecs,
-  unresolved/named type binding, private format, native checkpoints and WAL. Support
-  reference-valid version conversions and reject unrepresentable conversions explicitly.
+- **G09.2 Connect DDL and evaluation demand — implemented core.** Capture
+  CREATE/SET/ADD defaults without eager execution. Evaluate omitted INSERT values
+  column-major per standard vector. Resolve ADD backfill once in the applicable
+  live-only or retained-physical demand order and reuse it across catalog-basis,
+  current-snapshot and WAL paths.
+- **G09.3 Connect native serialization — implemented representable core.** Integrate
+  parsed/value codecs, unresolved/named type binding, private format, native
+  checkpoints and WAL. Selected FUNCTION defaults and absence/explicit-NULL metadata
+  pass independent exchange. Reject unrepresentable legacy argument provenance;
+  native CASE/predicate-tree coverage remains a final gate rather than a completed claim.
 - **G09.4 Finish lifetime/effect semantics (selected lifecycle implemented).** Closed
   retained binding permits volatile/external effects. Prepared omitted INSERT uses
-  execution-time settings; tests cover per-row order, failed-statement atomicity,
-  CREATE/SET rollback, old catalog snapshots, reopen and deferred error timing.
-  Built-in current-time/sequence defaults remain with G04/G10; coordinate CHECK and
+  execution-time settings; tests cover vector boundaries, failed-statement atomicity,
+  CREATE/SET rollback, old catalog snapshots, update relocation, manual/automatic
+  reclamation, reopen and deferred error timing. Built-in current-time defaults
+  remain with G04, sequences with G10, and row-level explicit `DEFAULT`, CHECK and
   generated expressions with G11.
 
 **Exit:** independent C++ function-default files and Rust-origin files work through
@@ -437,7 +452,8 @@ checkpoint policies and process interruption tests exist. WAL v1 is explicitly r
   boundaries, index/default metadata and committed-versus-aborted changes.
 - **G13.2 Complete maintenance lifecycle.** Match automatic/manual/forced/concurrent
   checkpoints, sidecar reconciliation, truncation, restart and repeated recovery.
-  Coordinate actual physical row reclamation with default/backfill demand.
+  Extend the selected physical-order reclamation contract to remaining concurrent,
+  compaction and vacuum histories without changing default/backfill demand.
 - **G13.3 Verify publication failures.** Extend truncation/corruption/process-kill
   tests to new operations, short writes, sync/rename failures and compound faults.
   Distinguish definite failure from unknown commit and safe recovery-required states.

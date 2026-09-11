@@ -9,8 +9,11 @@ counts or a second status dashboard. Work ownership is in the
 
 `ColumnDefinition.default` is an `Option<StoredExpression>`: absence differs from
 an explicit typed `DEFAULT NULL`. Catalog validation and private snapshots retain
-the owned syntax and provenance. Complete DDL capture and native parsed-expression
-integration are still required before this is full DEFAULT support.
+the owned syntax and provenance. SQL CREATE/SET/ADD capture and selected native
+checkpoint/WAL integration are connected for closed representable trees. Native
+CASE/predicate-tree coverage still needs its final gate. Row-level explicit
+`DEFAULT`, CHECK and generated expressions remain G11 work; current-time defaults
+remain G04 work and sequence-backed defaults remain G10 work.
 Independent Base64 (`DEFAULT from_base64('AP8=')`) and calendar function defaults
 expose this difference. A Rust-produced file can appear to work because the writer
 stored the evaluated value instead of retaining the default's semantics.
@@ -24,15 +27,32 @@ startup, statements, checkpoint encoding and recovery. Do not create a hidden
 built-in registry inside a decoder when the selected context is unavailable.
 
 Binding and evaluation demand are different. CREATE/SET DEFAULT must not eagerly
-execute expressions that the reference defers until INSERT or ADD backfill. The
-core snapshot ADD path resolves each retained physical slot once and reuses those
-values for transaction-current and catalog-basis state.
-ADD with a failing default can still fail when a table has zero *visible* rows:
-development evaluates over retained physical deleted rows. After CHECKPOINT
-reclaims fully deleted row groups, the same ADD can succeed. VACUUM is not an
-interchangeable operation, and an insertion that is rolled back does not establish
-the same retained state. Neither visible cardinality nor historical next_row_id
-alone captures the required lifetime. Test all three histories across reopen.
+execute expressions that the reference defers until INSERT or ADD backfill. INSERT
+evaluates omitted defaults column-major within each fixed 2,048-row standard DuckDB
+vector, then advances to the next vector. Explicitly supplied columns bypass their
+defaults. All rows remain staged until evaluation and validation succeed, so a
+later default failure publishes no partial insert; empty input has no effects and
+`DEFAULT VALUES` supplies one row.
+
+For ADD, the pinned development behavior wins the known reference divergence.
+Development treats a constant, or one non-TRY cast directly around a constant, as
+simple; v1.5.5 treats only a bare constant as simple. A non-simple ADD is modeled as
+ADD NULL, UPDATE and SET DEFAULT, so it evaluates only visible rows. A simple ADD
+evaluates every retained physical slot, including deleted slots, and can therefore
+fail when visible cardinality is zero. The core path resolves the applicable slot
+stream once and reuses its values for transaction-current, catalog-basis and WAL
+state. After a successful checkpoint reclaims deleted slots, the same ADD can
+succeed. VACUUM is not interchangeable, and a rolled-back insertion does not
+establish retained state.
+
+Physical slots also retain update order. Regular scalar updates stay in place;
+updates that name indexed columns or require delete-insert handling for nested data
+mark the old slot deleted and append the replacement in encounter order. Native WAL
+recovery, logical scans, checkpoint row streams and checkpoint layout mappings use
+that same order. A successful manual or automatic checkpoint compacts the current
+acknowledged snapshot only. Failure leaves generation, slots and durable state
+unchanged, while older reader snapshots retain their holes and pending writers keep
+their own valid basis.
 
 The pinned 1.5.5 release cannot replay a SET DEFAULT FUNCTION record from its
 own WAL during startup (`GetDefaultDatabase` is unavailable at that phase). Use
@@ -40,11 +60,15 @@ the pinned development process for FUNCTION-default WAL interoperability; the
 release remains valid for checkpoint-origin cases.
 `scripts/default_interoperability_reference.py` owns the bidirectional process
 check, and `scripts/generate_default_function_fixture.py` owns the checked-in
-pinned-development checkpoint used by the focused Rust regression.
+pinned-development checkpoint used by the focused Rust regression. The process
+checks retained FUNCTION behavior and deferred failures in both directions, plus
+DuckDB metadata for an absent default versus explicit `DEFAULT NULL` across Rust
+checkpoint and WAL origins.
 
-Relevant sources: Rust `src/catalog/expression.rs`, `src/planner/binder/stored.rs`,
-`src/planner/stored.rs`, `src/storage/duckdb/catalog/constant.rs`; upstream
-`src/planner/binder/statement/bind_create_table.cpp`,
+Relevant sources: Rust `src/catalog/expression.rs`, `src/main/client_context.rs`,
+`src/planner/binder/{capture,stored}.rs`, `src/planner/stored.rs`,
+`src/storage/table/{alter,recovery}.rs`, `src/storage/duckdb/{catalog,parsed}/`;
+upstream `src/planner/binder/statement/bind_create_table.cpp`,
 `src/catalog/catalog_entry/duck_table_entry.cpp`,
 `src/storage/table/{row_group,row_group_collection}.cpp`.
 
@@ -62,7 +86,9 @@ Development accepts legacy child aliases as names and modern named arguments as
 distinct binding provenance. Nonempty modern qualification replaces legacy names
 when the source permits it. Preserve qualification and reject contradictory or
 unrepresentable conversions; silently dropping names is not compatibility.
-The codec's existing downgrade restrictions need integration-level resolution.
+Pre-v2 native output accepts only the positional Named-to-Legacy case with no names
+or aliases; genuinely named arguments require the modern representation and an
+ambiguous downgrade is rejected before publication.
 
 CAST target metadata and materialized Value support have different version gates:
 a type can be a valid CAST target in a version that cannot store that Value payload.

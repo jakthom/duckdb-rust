@@ -1,6 +1,6 @@
 # Rust implementation map
 
-Source-checked 2026-09-10 at `20c8214`. This is a navigation map, not a parity
+Source-checked 2026-09-11 at `0b30fa8`. This is a navigation map, not a parity
 claim. Current work and dependencies live in the [parity backlog](parity-backlog.md);
 the [rewrite principles](../specs/rewrite-principles.md) define required replaceability.
 
@@ -21,12 +21,12 @@ results through the connection, preserving cancellation and statement lifecycle.
 
 | Boundary | Existing implementations / location | Important limit |
 | --- | --- | --- |
-| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs) | No general object/dependency/multi-catalog model; defaults retain the initial stored-expression subset |
+| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs) | No general object/dependency/multi-catalog model; defaults retain selected owned expression trees |
 | Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs) | Every intervening writer conflicts, even disjoint writes |
 | Values/types | [type/value definitions](../src/common/types.rs), [registry](../src/common/type_registry.rs) | Broad scalar/temporal/nested foundation; function and consumer coverage incomplete |
 | Vectors | [flat/constant/dictionary vectors and chunks](../src/common/vector.rs) | Immutable owned/shared data; not complete native or Arrow vector parity |
 | Expressions | [scalar/batched evaluators](../src/execution/expression_executor.rs), [registered functions](../src/function/mod.rs) | Full overload/effect/default semantics remain open |
-| Stored expressions | [owned trees](../src/catalog/expression.rs), [selected evaluator](../src/planner/stored.rs) | Catalog/private snapshots retain defaults; complete DDL, native and effect semantics remain open |
+| Stored expressions | [owned trees](../src/catalog/expression.rs), [capture](../src/planner/binder/capture.rs), [binding](../src/planner/binder/stored.rs), [selected evaluator](../src/planner/stored.rs) | Selected default DDL/demand/native lifecycle exists; native predicate trees and broader G04/G10/G11 consumers remain open |
 | Optimization | [identity/configurable pipeline](../src/optimizer/mod.rs) | Default simplify/equality-lookup/EXISTS passes; no cost model |
 | Joins/subqueries | [join operators](../src/execution/operator/join.rs), [subquery adapters](../src/execution/subquery.rs) | Hash/nested-loop and streaming/materializing variants; broader SQL remains open |
 | Aggregation/windows | [aggregate](../src/execution/operator/aggregate.rs), [window](../src/execution/operator/window.rs) | Grouping sets and core windows exist; catalog/frame completeness remains open |
@@ -54,6 +54,24 @@ interruption tests. These do not imply incremental storage, universal backward
 compatibility, encrypted files, all catalog objects or every concurrent history.
 The physical format, catalog/default representation and selected services must
 agree before publication. See [implementation notes](implementation-notes.md).
+
+INSERT materialization evaluates omitted default effects column-major inside fixed
+2,048-row DuckDB vectors and retains all rows until statement success. Snapshot
+tables separately retain physical slot order: regular updates remain in place,
+while indexed-column and unsupported nested updates leave a deleted slot and append
+their replacement. Manual and automatic checkpoint publication encode that order
+and reclaim holes only from the successfully acknowledged current snapshot; a
+failed checkpoint leaves slots, generation and the durable image unchanged, while
+older reader snapshots retain their prior state. ADD classification follows the
+development pin when it diverges: one non-TRY cast directly around a constant is
+simple in development but not in v1.5.5.
+
+The native default boundary retains absence separately from explicit `DEFAULT NULL`
+and carries selected function identity, qualification and argument provenance through
+checkpoint and WAL exchange. Ambiguous named-to-legacy conversion is rejected.
+Independent development-reference fixtures cover representable FUNCTION defaults;
+native CASE/predicate-tree completion remains a pending gate, not implied by the
+general stored-expression model.
 
 ## Finding the right evidence
 
