@@ -269,6 +269,14 @@ formatting does not claim complete original-SQL source-span rendering, named or
 variadic argument support, or general catalog completeness. Provisional limits
 bound 4,096 candidates/name bytes and 65,536 total signature type positions.
 
+An optional owned `ScalarSignature::argument_names` supplies advertised argument
+labels. None retains the unnamed `colN` diagnostic labels; Some must match arity
+and contain nonempty, NUL-free labels, each at most 4,096 bytes and together at
+most 65,536 bytes across the candidate set. Bounds precede label scanning and
+cancellation is checked per label. Complete validation includes inapplicable
+candidate arities. These labels affect diagnostics only; they do not enable named
+arguments, reorder calls or install function implementations.
+
 Sources: [overload selection](../../../duckdb/src/function/function_binder.cpp),
 [cast costs](../../../duckdb/src/function/cast_rules.cpp), and
 [advertised extension signatures](../../../duckdb/src/include/duckdb/main/extension_entries.hpp).

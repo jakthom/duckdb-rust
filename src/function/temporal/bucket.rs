@@ -58,6 +58,7 @@ fn candidates() -> Vec<ScalarSignature> {
     ]
     .into_iter()
     .map(|arguments| ScalarSignature {
+        argument_names: None,
         return_type: arguments[1].clone(),
         arguments,
     })

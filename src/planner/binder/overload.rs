@@ -147,7 +147,13 @@ fn diagnostic<'a>(
             .arguments
             .iter()
             .enumerate()
-            .map(|(index, kind)| format!("col{index} {}", type_name(kind)))
+            .map(|(index, kind)| {
+                let name = candidate
+                    .argument_names
+                    .as_ref()
+                    .map_or_else(|| format!("col{index}"), |names| names[index].clone());
+                format!("{name} {}", type_name(kind))
+            })
             .collect::<Vec<_>>()
             .join(", ");
         message.push_str(&format!(

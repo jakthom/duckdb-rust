@@ -77,9 +77,83 @@ impl ScalarFunction for Unread {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn signature(kind: DataType) -> ScalarSignature {
     ScalarSignature {
+        argument_names: None,
         arguments: vec![kind.clone()],
         return_type: kind,
     }
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn advertised_argument_labels_are_owned_bounded_and_not_named_call_resolution() -> Result<()> {
+    let query = QueryContext::background();
+    let labeled = ScalarSignature {
+        argument_names: Some(vec!["data".into()]),
+        ..signature(DataType::Date)
+    };
+    let functions = registry("labeled_overload", vec![labeled.clone()])?;
+    let mut c = DatabaseBuilder::new()
+        .functions(functions)
+        .build()?
+        .connect();
+    let Err(Error::Bind(body)) = c.query("SELECT labeled_overload(true)") else {
+        panic!("expected candidate error");
+    };
+    assert_eq!(
+        body,
+        "No function matches the given name and argument types 'labeled_overload(BOOLEAN)'. You might need to add explicit type casts.\n\tCandidate functions:\n\tlabeled_overload(data DATE) -> DATE\n"
+    );
+    for names in [
+        vec![],
+        vec!["".into()],
+        vec!["bad\0name".into()],
+        vec!["a".into(), "b".into()],
+    ] {
+        let invalid = ScalarSignature {
+            argument_names: Some(names),
+            ..labeled.clone()
+        };
+        assert!(matches!(
+            ScalarSignature::validate_candidates("labels", &[invalid], &query),
+            Err(Error::Internal(_))
+        ));
+    }
+    let large = ScalarSignature {
+        argument_names: Some(vec!["x".repeat(4097)]),
+        ..labeled.clone()
+    };
+    assert!(matches!(
+        ScalarSignature::validate_candidates("labels", &[large], &query),
+        Err(Error::Resource(_))
+    ));
+    let bounded = ScalarSignature {
+        argument_names: Some(vec!["x".repeat(4096)]),
+        ..labeled
+    };
+    ScalarSignature::validate_candidates("labels", &vec![bounded.clone(); 16], &query)?;
+    assert!(matches!(
+        ScalarSignature::validate_candidates("labels", &vec![bounded; 17], &query),
+        Err(Error::Resource(_))
+    ));
+    // An arity-inapplicable candidate is still completely validated.
+    let invalid = ScalarSignature {
+        arguments: vec![DataType::Date; 2],
+        return_type: DataType::Date,
+        argument_names: Some(vec!["one".into()]),
+    };
+    let functions = registry(
+        "invalid_labels",
+        vec![signature(DataType::Integer), invalid],
+    )?;
+    assert!(matches!(
+        DatabaseBuilder::new()
+            .functions(functions)
+            .build()?
+            .connect()
+            .query("SELECT invalid_labels(1)"),
+        Err(Error::Internal(_))
+    ));
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -285,6 +359,7 @@ fn overload_ranking_retains_selected_cost_errors_and_validates_every_candidate()
         vec![
             signature(DataType::Integer),
             ScalarSignature {
+                argument_names: None,
                 arguments: vec![DataType::Integer; 2],
                 return_type: DataType::Decimal { width: 0, scale: 0 },
             },

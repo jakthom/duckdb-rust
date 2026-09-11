@@ -34,6 +34,7 @@ fn candidates() -> Vec<ScalarSignature> {
     [Date, Interval, Timestamp, TimestampTz]
         .into_iter()
         .map(|kind| ScalarSignature {
+            argument_names: None,
             return_type: if kind == Date {
                 Timestamp
             } else {
