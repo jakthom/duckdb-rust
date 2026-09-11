@@ -121,6 +121,104 @@ fn wide_case_and_list_inference_preserve_literal_identity_and_arithmetic_ranking
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn values_literal_inference_keeps_null_seed_source_order_and_connected_nullif_results() -> Result<()>
+{
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            let mut c = DatabaseBuilder::new()
+                .expressions(evaluator.clone())
+                .optimizer(optimizer)
+                .batch_size(2)
+                .build()?
+                .connect();
+            for (values, ty) in [
+                ("(1::UHUGEINT),(2),(NULL)", "UHUGEINT"),
+                ("(1::UHUGEINT),(2::INTEGER),(NULL)", "BIGINT"),
+                ("(2),(1::UHUGEINT)", "BIGINT"),
+                ("(NULL),(1::UHUGEINT),(2)", "UHUGEINT"),
+                ("(340282366920938463463374607431768211455),(1)", "UHUGEINT"),
+                ("(1),(340282366920938463463374607431768211455)", "BIGINT"),
+                ("(1::UTINYINT),(2),(NULL)", "UTINYINT"),
+                ("(1),('2')", "INTEGER"),
+            ] {
+                // VALUES materializes its rows before projection; retain the
+                // conversion failure instead of bypassing it through typeof.
+                if values == "(1),(340282366920938463463374607431768211455)" {
+                    assert!(matches!(
+                        c.query(&format!("SELECT a FROM(VALUES {values})t(a)")),
+                        Err(Error::Conversion(_))
+                    ));
+                } else {
+                    let rows = c
+                        .query(&format!("SELECT typeof(a) FROM(VALUES {values})t(a)"))?
+                        .rows;
+                    assert!(
+                        rows.iter().all(|row| row == [Value::Varchar(ty.into())]),
+                        "{values}: {rows:?}"
+                    );
+                }
+            }
+            assert!(matches!(
+                c.query("SELECT a FROM(VALUES('1'),(2))t(a)"),
+                Err(Error::Bind(_))
+            ));
+            let rows=c.query("SELECT nullif(a,b),count(*) FROM(VALUES(1::UHUGEINT,1::INTEGER),(2,9),(NULL,NULL))t(a,b) GROUP BY nullif(a,b) ORDER BY 1")?;
+            assert_eq!(rows.columns[0].data_type, DataType::UHugeInt);
+            assert_eq!(
+                rows.rows,
+                vec![
+                    vec![Value::Unsigned(2), Value::Integer(1)],
+                    vec![Value::Null, Value::Integer(2)]
+                ]
+            );
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("values-literal-native.duckdb");
+    {
+        let mut c = Database::open(&path)?.connect();
+        c.execute("CREATE TABLE inferred AS SELECT * FROM (VALUES(1,1::UHUGEINT),(2,2),(3,NULL))v(k,u); CREATE TABLE t(k INTEGER PRIMARY KEY,u UHUGEINT UNIQUE); INSERT INTO t SELECT * FROM inferred")?;
+        let insert = c.prepare("INSERT INTO t VALUES($1,$2)")?;
+        c.execute_prepared(&insert, &[Value::Integer(4), Value::Unsigned(u128::MAX)])?;
+        c.execute("BEGIN; UPDATE t SET u=5 WHERE k=2; ROLLBACK")?;
+        assert!(matches!(
+            c.execute("UPDATE t SET u=1 WHERE k=2"),
+            Err(Error::Constraint(_))
+        ));
+    }
+    let mut c = Database::open(&path)?.connect();
+    assert_eq!(
+        c.query("SELECT typeof(u) FROM inferred WHERE k=1")?.rows,
+        vec![vec![Value::Varchar("UHUGEINT".into())]]
+    );
+    assert_eq!(
+        c.query("SELECT typeof(u),u FROM t WHERE k=4")?.rows,
+        vec![vec![
+            Value::Varchar("UHUGEINT".into()),
+            Value::Unsigned(u128::MAX)
+        ]]
+    );
+    assert_eq!(c.query("SELECT sum(nullif(u,1::UHUGEINT)) OVER(ORDER BY k ROWS UNBOUNDED PRECEDING) FROM t WHERE k<4 ORDER BY k")?.rows,vec![vec![Value::Null],vec![Value::Double(2.0)],vec![Value::Double(2.0)]]);
+    c.execute("CHECKPOINT")?;
+    drop(c);
+    assert_eq!(
+        Database::open(&path)?
+            .connect()
+            .query("SELECT u FROM t WHERE u=340282366920938463463374607431768211455")?
+            .rows,
+        vec![vec![Value::Unsigned(u128::MAX)]]
+    );
+    Ok(())
+}
+
 #[derive(Debug)]
 struct SelectedWideCast(bool);
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

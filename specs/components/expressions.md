@@ -83,6 +83,17 @@ retain CASE identity for enclosing function overloads. Source:
 `src/planner/binder/expression/bind_case_expression.cpp` and the selected
 combination rules referenced below.
 
+VALUES inference has its own initial condition: each column starts as SQL NULL,
+then combines each bound row's expression return type in row order. The initial
+pair normalizes the first literal; each later expression still supplies its own
+literal hint. Thus `(1::UHUGEINT),(2),(NULL)` infers UHUGEINT, but reversing the
+first two rows or casting `2` explicitly to INTEGER infers BIGINT. This differs
+from collection templates that retain identical pseudo-types. The rewrite reuses
+the selected ordered combination helper with an explicit VALUES policy and NULL
+seed; it does not evaluate arguments, infer hints from parameter values, or change
+INSERT's destination-owned Assignment casts. Source:
+[VALUES binding](../../../duckdb/src/planner/binder/tableref/bind_expressionlistref.cpp).
+
 MAP constructor NULL/duplicate keys are invalid input. Converted MAP keys also
 need validation, but the cast records its own rejection provenance so TRY_CAST
 can NULL the entire result for an invalid or duplicate converted key without

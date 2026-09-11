@@ -183,17 +183,19 @@ impl State<'_, '_> {
             }
             types.to_vec()
         } else {
-            let mut types = vec![DataType::Null; width];
-            for row in &rows {
-                for (data_type, expression) in types.iter_mut().zip(row) {
-                    *data_type = self
-                        .context
-                        .query
-                        .types()
-                        .common_type(data_type, &expression.data_type)?;
-                }
-            }
-            types
+            // Development's VALUES binder seeds each column with SQL NULL and
+            // combines GetExpressionReturnType for every row, including first.
+            // The seed normalizes that first literal; later literals retain
+            // their own hints until the next selected pair is combined.
+            let initial = BoundExpr::literal(Value::Null);
+            (0..width)
+                .map(|index| {
+                    self.ordered_combination_type(
+                        std::iter::once(&initial).chain(rows.iter().map(|row| &row[index])),
+                        super::coercion::CombinationSequence::Values,
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?
         };
         for row in &mut rows {
             for (expression, data_type) in row.iter_mut().zip(&types) {

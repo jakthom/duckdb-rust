@@ -135,3 +135,19 @@ compatibility and 38 Python harness tests pass. A focused final-source SQL trace
 returns `NULL,1,UHUGEINT` with 59,338 completed operations, zero error returns,
 zero panics and zero open spans. Temporary telemetry was deleted. No acceptance
 timings were run; integrated Kani remains pending for this continuing slice.
+
+## VALUES inference dependency repair
+
+The VALUES binder now combines columns through the selected full-literal path,
+starting from SQL NULL exactly as development's ExpressionListRef binder does.
+Every pair normalizes the current type; it does not reuse collection skip rules.
+Direct reference witnesses cover forward/reverse unsigned/literal order, explicit
+INTEGER, first max-UHUGEINT literal and a later fitting literal. Typed parameters
+remain nonliteral, selected replacement proposals stay authoritative, and INSERT
+destination Assignment binding does not perform unrelated common-type inference.
+
+Connected tests retain inferred UHUGEINT through NULLIF grouping/windows, CTAS,
+constraint-owned indexes, prepared insertion of max UHUGEINT, atomic failed
+mutation, rollback and native WAL/checkpoint reopen. Standalone CREATE INDEX is
+still unsupported; the test uses real UNIQUE/PRIMARY KEY-owned indexes rather
+than implying that additional SQL catalog feature is implemented.

@@ -12,6 +12,8 @@ pub(super) enum CombinationSequence {
     Case,
     /// A selected scalar requests left-to-right pair normalization.
     Ordered,
+    /// VALUES starts from SQL NULL and normalizes every row's contribution.
+    Values,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -151,6 +153,7 @@ pub(super) fn ordered_combination_type<'b>(
                 CombinationSequence::Case => "CASE expression",
                 CombinationSequence::Collection => "sequence children",
                 CombinationSequence::Ordered => "function arguments",
+                CombinationSequence::Values => "VALUES column",
             };
             return Err(Error::Bind(format!(
                 "Cannot combine {context} of type {child} and {}",

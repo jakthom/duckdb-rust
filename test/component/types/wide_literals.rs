@@ -393,3 +393,54 @@ fn sql_case_and_collection_binding_pass_full_hints_to_selected_families() -> Res
     }
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn values_binding_retains_selected_full_hints_but_not_parameter_or_assignment_privilege()
+-> Result<()> {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut types = TypeRegistry::builtins();
+    for family in ["builtin.integer", "builtin.uhugeint"] {
+        types.replace(
+            family,
+            Arc::new(Full(
+                Legacy {
+                    calls: calls.clone(),
+                    target: DataType::Double,
+                },
+                false,
+            )),
+        )?;
+    }
+    let mut c = DatabaseBuilder::new()
+        .types(Arc::new(types))
+        .build()?
+        .connect();
+    assert_eq!(c.query("SELECT typeof(a) FROM (VALUES(1::INTEGER),(340282366920938463463374607431768211455))t(a)")?.rows,vec![vec![Value::Varchar("DOUBLE".into())];2]);
+    let wide = Some(IntegerLiteral::Unsigned(u128::MAX));
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![
+            Call::Full(DataType::Integer, DataType::UHugeInt, None, wide),
+            Call::Full(DataType::UHugeInt, DataType::Integer, wide, None)
+        ]
+    );
+    let p = c.prepare("SELECT typeof(a) FROM (VALUES(1::INTEGER),($1))t(a)")?;
+    calls.lock().unwrap().clear();
+    assert_eq!(
+        c.execute_prepared(&p, &[Value::Unsigned(u128::MAX)])?.rows,
+        vec![vec![Value::Varchar("DOUBLE".into())]; 2]
+    );
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![
+            Call::Ordinary(DataType::Integer, DataType::UHugeInt),
+            Call::Ordinary(DataType::UHugeInt, DataType::Integer)
+        ]
+    );
+    c.execute("CREATE TABLE assigned(u UHUGEINT)")?;
+    calls.lock().unwrap().clear();
+    c.execute("INSERT INTO assigned VALUES(1),(340282366920938463463374607431768211455)")?;
+    assert!(calls.lock().unwrap().is_empty());
+    Ok(())
+}
