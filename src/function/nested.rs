@@ -14,6 +14,7 @@ mod constructor;
 mod map;
 mod sequence;
 mod slice;
+mod sort;
 mod variant;
 pub(super) use concat::bind_concat;
 
@@ -356,6 +357,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     map::register(registry);
     sequence::register(registry);
     slice::register(registry);
+    sort::register(registry);
     variant::register(registry);
     for name in [
         "list_extract",
