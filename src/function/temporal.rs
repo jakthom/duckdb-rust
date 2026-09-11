@@ -11,6 +11,7 @@ use crate::{
 use std::sync::Arc;
 mod bucket;
 mod difference;
+mod formatting;
 mod truncation;
 mod units;
 
@@ -25,6 +26,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     difference::register(registry);
     bucket::register(registry);
     truncation::register(registry);
+    formatting::register(registry);
     for name in [
         "year",
         "month",

@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 mod temporal_calendar;
 mod temporal_difference;
+mod temporal_format;
 mod temporal_minimum;
 mod temporal_provenance;
 mod temporal_variant;

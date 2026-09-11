@@ -316,6 +316,29 @@ at the lower timestamp boundary. The rewrite explicitly models the observed
 modular result without Rust overflow or undefined behavior; retained release
 errors remain disagreements, not a reason to change correctness authority.
 
+Core `strftime` selects and retains the advertised DATE, TIMESTAMP,
+TIMESTAMP_NS, TIMESTAMPTZ and TIMESTAMPTZ_NS signatures in either argument order.
+The selected format cast and required constant evaluation precede compilation;
+the source-backed NULL-template policy can avoid unnecessary format demand.
+Rendering supports the core directives, English names, unpadded forms and
+composite expansions without host locale or timezone state. Zoned core overloads
+render UTC; this does not imply ICU calendar support. Physical timestamp validity
+remains distinct from calendar renderability. Selected failures and fatal
+validation are not converted into text or NULL.
+
+The provisional compiler bounds format/output bytes to 16 MiB and compiled
+parts to 65,536, with cancellation checks. These are revisable safety limits,
+not claimed native limits. Both pinned native implementations misadvance the
+output pointer after a nine-digit `%n`, allowing later emissions to overwrite
+digits and leave allocation bytes uninitialized. The rewrite retains fully
+initialized nine-digit output and records the exact discrepancy instead of
+reproducing uninitialized memory. Formatted parsing, complete original-source
+diagnostics, keyword-aware advertised-label quoting, native stored defaults and
+performance remain separately measured obligations.
+
+Sources: [SQL formatted temporal binding](../../../duckdb/src/function/scalar/date/strftime.cpp)
+and [compiled format kernels](../../../duckdb/src/function/scalar/strftime_format.cpp).
+
 ## Reserved NULLIF syntax
 
 Unquoted, unqualified `NULLIF` additionally has reserved parser syntax with
