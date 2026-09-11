@@ -168,6 +168,35 @@ impl Snapshot {
     pub fn row_ids(&self, table: &TableName) -> Result<Vec<RowId>> {
         Ok(self.get(table)?.rows.keys().copied().collect())
     }
+    /// Live logical IDs in retained physical scan order. Native checkpoint
+    /// encoding uses this stream so delete-plus-insert updates do not revert to
+    /// logical-ID order when the file is compacted.
+    pub(crate) fn physical_row_ids(&self, table: &TableName) -> Result<Vec<RowId>> {
+        Ok(self
+            .get(table)?
+            .physical_slots
+            .iter()
+            .filter_map(|slot| slot.live())
+            .collect())
+    }
+    pub(crate) fn scan_physical(
+        &self,
+        table: &TableName,
+        context: &QueryContext,
+    ) -> Result<Vec<(RowId, Row)>> {
+        let ids = self.physical_row_ids(table)?;
+        context.check_rows(ids.len())?;
+        let table = self.get(table)?;
+        ids.into_iter()
+            .map(|id| {
+                context.check()?;
+                let row = table.rows.get(&id).ok_or_else(|| {
+                    Error::Internal("physical slot references an invisible row".into())
+                })?;
+                Ok((id, row.to_owned()))
+            })
+            .collect()
+    }
     /// Return a snapshot with checkpoint-reclaimed physical slots. Existing
     /// clones remain unchanged and continue to represent their older demand.
     pub(crate) fn reclaim_for_checkpoint(&self) -> Self {

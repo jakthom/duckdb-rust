@@ -6,7 +6,7 @@ use crate::{
     catalog::{Catalog, TableDefinition},
     common::{DataType, Error, Result, Row, Value},
     parallel::QueryContext,
-    storage::{TableStorage, table::Snapshot},
+    storage::table::Snapshot,
 };
 pub(super) use catalog::{column_definition, table_definition};
 
@@ -245,7 +245,7 @@ fn encode_checkpoint(
     }
     for table in tables {
         let rows: Vec<Row> = snapshot
-            .scan(&table.name, &context)?
+            .scan_physical(&table.name, &context)?
             .into_iter()
             .map(|(_, row)| row)
             .collect();

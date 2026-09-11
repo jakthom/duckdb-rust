@@ -30,14 +30,18 @@ impl CheckpointLayout {
     pub fn identity(snapshot: &Snapshot) -> Result<Self> {
         Self::from_snapshot(snapshot, false)
     }
-    /// Layout of the native writer's ascending source-ID, compacted row stream.
+    /// Layout of the native writer's retained physical-order, compacted row stream.
     pub(crate) fn compacted(snapshot: &Snapshot) -> Result<Self> {
         Self::from_snapshot(snapshot, true)
     }
     fn from_snapshot(snapshot: &Snapshot, compact: bool) -> Result<Self> {
         let mut tables = BTreeMap::new();
         for table in snapshot.tables()? {
-            let ids = snapshot.row_ids(&table.name)?;
+            let ids = if compact {
+                snapshot.physical_row_ids(&table.name)?
+            } else {
+                snapshot.row_ids(&table.name)?
+            };
             let next_row_id = if compact {
                 ids.len() as u64
             } else {
