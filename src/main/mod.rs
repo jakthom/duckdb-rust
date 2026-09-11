@@ -44,6 +44,7 @@ struct Services {
     physical_planner: Arc<dyn PhysicalPlanner>,
     executor: Arc<dyn Executor>,
     expressions: Arc<dyn ExpressionEvaluator>,
+    stored_expressions: Arc<dyn crate::catalog::expression::StoredExpressionEvaluator>,
     subqueries: Arc<dyn SubqueryExecutor>,
     scheduler: Arc<dyn Scheduler>,
     configuration: Arc<dyn settings::Configuration>,

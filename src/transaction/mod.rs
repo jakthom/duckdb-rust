@@ -105,9 +105,23 @@ impl SnapshotTransactions {
         indexes: Arc<dyn IndexFactory>,
         types: Arc<crate::common::type_registry::TypeRegistry>,
     ) -> Result<Self> {
+        Self::configured_with_context(
+            durability,
+            indexes,
+            &QueryContext::background().with_types(types),
+        )
+    }
+    /// Compose recovery with the same explicitly selected services as startup.
+    pub fn configured_with_context(
+        durability: Arc<dyn Durability>,
+        indexes: Arc<dyn IndexFactory>,
+        context: &QueryContext,
+    ) -> Result<Self> {
+        context.check()?;
         let snapshot = durability
-            .load(types.clone())?
-            .with_indexes(indexes.clone(), &QueryContext::background())?;
+            .load_with_context(context)?
+            .with_indexes(indexes.clone(), context)?;
+        context.check()?;
         Ok(Self {
             state: Arc::new(Mutex::new(Committed {
                 generation: 0,
@@ -116,7 +130,7 @@ impl SnapshotTransactions {
             })),
             durability,
             indexes,
-            types,
+            types: context.type_registry(),
         })
     }
 }

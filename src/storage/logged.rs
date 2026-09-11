@@ -167,6 +167,10 @@ impl Durability for FileWal {
         true
     }
     fn load(&self, types: Arc<TypeRegistry>) -> Result<Snapshot> {
+        self.load_with_context(&QueryContext::background().with_types(types))
+    }
+    fn load_with_context(&self, context: &QueryContext) -> Result<Snapshot> {
+        context.check()?;
         let mut state = self
             .state
             .lock()
@@ -176,16 +180,16 @@ impl Durability for FileWal {
                 "transaction logger already loaded; share its transaction manager".into(),
             ));
         }
-        let snapshot = self.checkpoint.load(types.clone())?;
-        let context = QueryContext::background().with_types(types);
+        let snapshot = self.checkpoint.load_with_context(context)?;
         let start =
             self.encoder
-                .start_at(&snapshot, self.checkpoint.storage_version()?, &context)?;
+                .start_at(&snapshot, self.checkpoint.storage_version()?, context)?;
+        context.check()?;
         *state = State::Ready(Ready {
             session: start.session,
             length: 0,
             header: start.header,
-            context,
+            context: context.clone(),
             commits: 0,
         });
         Ok(snapshot)

@@ -87,7 +87,9 @@ impl Connection {
             self.services.batch_size,
             self.services.max_intermediate_rows,
         )?;
-        let context = context.with_types(self.services.transactions.types());
+        let context = context
+            .with_types(self.services.transactions.types())
+            .with_stored_expressions(self.services.stored_expressions.clone());
         let settings = self.configuration.snapshot(&context)?;
         Ok(context.with_settings(settings))
     }

@@ -12,7 +12,7 @@ pub(super) fn prepare(
         header,
         scan,
     } = inspect(&input, format, context)?;
-    let snapshot = format.decode(input.checkpoint.clone(), context.type_registry())?;
+    let snapshot = format.decode_with_context(input.checkpoint.clone(), context)?;
     let mut snapshot = replay(snapshot, &input.log, &scan, identity, context)?;
     let layout;
     let publication = if scan.checkpoint == Some(identity.root) || scan.frames.is_empty() {
@@ -35,7 +35,7 @@ pub(super) fn prepare(
         }
         // Publication compacts rows. Return the published physical identities
         // so a subsequent transaction logger can address this checkpoint.
-        let decoded = format.decode(checkpoint.clone(), context.type_registry())?;
+        let decoded = format.decode_with_context(checkpoint.clone(), context)?;
         snapshot.validate_checkpoint_layout_for(&decoded, &layout, format, context)?;
         snapshot = decoded;
         // Reconstruct only committed frames, excluding a previous checkpoint

@@ -138,19 +138,35 @@ impl DatabaseBuilder {
                 "select durability, indexes and types through the custom transaction manager's own composition".into(),
             ));
         }
+        let types = self
+            .transactions
+            .as_ref()
+            .map(|manager| manager.types())
+            .or(self.types)
+            .unwrap_or_else(crate::common::type_registry::builtin_types);
+        let stored_expressions = Arc::new(crate::planner::stored::SelectedStoredExpressions::new(
+            self.binder.clone(),
+            self.casts.clone(),
+            self.operators.clone(),
+            self.functions.clone(),
+            self.expressions.clone(),
+        ));
+        let query = QueryContext::background()
+            .with_types(types)
+            .with_stored_expressions(stored_expressions.clone());
+        // Validate initial configuration before recovery can publish any files.
+        let settings = self.configuration.connect().snapshot(&query)?;
+        settings.ordering(None, None, &query)?;
+        let query = query.with_settings(settings);
         let transactions = match self.transactions {
             Some(manager) => manager,
-            None => Arc::new(SnapshotTransactions::configured(
+            None => Arc::new(SnapshotTransactions::configured_with_context(
                 self.durability
                     .unwrap_or_else(|| Arc::new(MemoryDurability)),
                 self.indexes.unwrap_or_else(|| Arc::new(HashIndexFactory)),
-                self.types
-                    .unwrap_or_else(crate::common::type_registry::builtin_types),
+                &query,
             )?),
         };
-        let query = QueryContext::background().with_types(transactions.types());
-        let settings = self.configuration.connect().snapshot(&query)?;
-        settings.ordering(None, None, &query)?;
         Ok(Database {
             services: Arc::new(Services {
                 transactions,
@@ -160,6 +176,7 @@ impl DatabaseBuilder {
                 physical_planner: self.physical_planner,
                 executor: self.executor,
                 expressions: self.expressions,
+                stored_expressions,
                 subqueries: self.subqueries,
                 scheduler: self.scheduler,
                 configuration: self.configuration,

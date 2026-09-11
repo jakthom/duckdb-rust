@@ -25,6 +25,14 @@ pub trait Durability: Send + Sync {
         true
     }
     fn load(&self, types: Arc<crate::common::type_registry::TypeRegistry>) -> Result<Snapshot>;
+    /// Startup/recovery receives explicitly selected types, settings and closed
+    /// expression services. Legacy adapters retain their own load capability.
+    fn load_with_context(&self, context: &crate::parallel::QueryContext) -> Result<Snapshot> {
+        context.check()?;
+        let snapshot = self.load(context.type_registry())?;
+        context.check()?;
+        Ok(snapshot)
+    }
     fn requires_journal(&self) -> bool {
         false
     }
@@ -179,6 +187,10 @@ impl Durability for FileCheckpoint {
         self.file.writable()
     }
     fn load(&self, types: Arc<crate::common::type_registry::TypeRegistry>) -> Result<Snapshot> {
+        self.load_with_context(&crate::parallel::QueryContext::background().with_types(types))
+    }
+    fn load_with_context(&self, context: &crate::parallel::QueryContext) -> Result<Snapshot> {
+        context.check()?;
         let mut publication = self
             .publication
             .lock()
@@ -192,7 +204,8 @@ impl Durability for FileCheckpoint {
         let log = self.file.read_log()?;
         if log.is_empty() {
             let encoder = self.format.checkpoint_encoder(&checkpoint)?;
-            let snapshot = self.format.decode(checkpoint, types)?;
+            let snapshot = self.format.decode_with_context(checkpoint, context)?;
+            context.check()?;
             *publication = PublicationState::Ready(encoder);
             return Ok(snapshot);
         }
@@ -200,19 +213,19 @@ impl Durability for FileCheckpoint {
             Error::Unsupported("no recovery adapter selected for nonempty log".into())
         })?;
         let input = RecoveryInput { checkpoint, log };
-        let context = crate::parallel::QueryContext::background().with_types(types);
         if self.writable() {
             if !self.file.supports_recovery_publication() {
                 return Err(Error::Unsupported(
                     "recovery publication on this storage".into(),
                 ));
             }
-            let prepared = recovery.prepare(input, self.format.as_ref(), &context)?;
+            let prepared = recovery.prepare(input, self.format.as_ref(), context)?;
             let bytes = match &prepared.publication {
                 super::recovery::RecoveryPublication::Replace { checkpoint, .. } => checkpoint,
                 super::recovery::RecoveryPublication::RetireLog => &prepared.basis.checkpoint,
             };
             let encoder = self.format.checkpoint_encoder(bytes)?;
+            context.check()?;
             if let Err(error) = self
                 .file
                 .publish_recovery(&prepared.basis, &prepared.publication)
@@ -225,7 +238,8 @@ impl Durability for FileCheckpoint {
             *publication = PublicationState::Ready(encoder);
             Ok(prepared.snapshot)
         } else {
-            let snapshot = recovery.recover(input, self.format.as_ref(), &context)?;
+            let snapshot = recovery.recover(input, self.format.as_ref(), context)?;
+            context.check()?;
             *publication = PublicationState::Ready(None);
             Ok(snapshot)
         }

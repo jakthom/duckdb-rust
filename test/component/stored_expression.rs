@@ -1,4 +1,6 @@
 //! The stored-tree prerequisite is not yet catalog/default persistence support.
+#[path = "stored_context.rs"]
+mod context;
 use super::*;
 use duckdb_rust::{
     catalog::expression::{

@@ -51,6 +51,19 @@ pub trait SnapshotFormat: Send + Sync {
         bytes: Vec<u8>,
         types: std::sync::Arc<crate::common::type_registry::TypeRegistry>,
     ) -> Result<Snapshot>;
+    /// Contextual decoding keeps caller-selected services available to formats
+    /// that retain catalog expressions. The legacy default delegates without
+    /// constructing expression services; it checks cancellation at its boundary.
+    fn decode_with_context(
+        &self,
+        bytes: Vec<u8>,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<Snapshot> {
+        context.check()?;
+        let snapshot = self.decode(bytes, context.type_registry())?;
+        context.check()?;
+        Ok(snapshot)
+    }
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>>;
     /// Compare a declared value after this format's documented canonicalization.
     /// None retains exact physical comparison, including floating-point bits.

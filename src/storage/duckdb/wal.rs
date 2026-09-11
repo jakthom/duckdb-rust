@@ -59,7 +59,7 @@ impl Recovery for DuckDbWalRecovery {
             header: _,
             scan,
         } = inspect(&input, format, context)?;
-        let snapshot = format.decode(input.checkpoint, context.type_registry())?;
+        let snapshot = format.decode_with_context(input.checkpoint, context)?;
         replay(snapshot, &input.log, &scan, identity, context)
     }
     fn prepare(

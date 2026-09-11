@@ -170,3 +170,25 @@ and [chunk info](../../../duckdb/src/storage/table/chunk_info.cpp).
 Three complementary test classes are required: ordinary close/reopen and checkpoint tests; process-interruption/WAL replay tests; and injected file-write or synchronization failures. The native storage fuzzer performs operation sequences with one-shot filesystem faults and verifies the next reopen against the last expected state. It is not a general malformed-database-byte generator.
 
 Assertions should separate acknowledged commits, rejected commits, and indeterminate external failures. Check table contents, catalog objects, indexes, and future database usability, not just whether opening succeeds. Historical storage files and cross-version readers add a separate format-compatibility obligation described in [compatibility testing](../testing/compatibility.md). Relevant code and execution limitations for fault campaigns are in [fuzzing](../testing/fuzzer.md) and [stress](../testing/stress.md).
+
+## Selected stored-expression context (Rust integration contract)
+
+Database composition must select closed-expression binding, casts, functions and
+evaluation explicitly before default transaction-manager recovery. Validate the
+initial settings snapshot before that recovery can publish files. Runtime query
+contexts use their session snapshot; recovery and commit maintenance retain the
+startup context, while explicit checkpoints use the requesting query context.
+This does not authorize log encoding to reevaluate already resolved defaults.
+
+The defaulted `Durability::load_with_context` and
+`SnapshotFormat::decode_with_context` hooks preserve legacy adapter callbacks and
+check cancellation at the boundary. FileCheckpoint, FileWal and native recovery
+must forward the selected context instead of creating expression registries.
+Legacy direct construction has no stored-expression capability unless the caller
+composes it. A custom transaction manager remains responsible for its own initial
+recovery; DatabaseBuilder does not retroactively reload it or replace its types.
+
+The current default decode hook does not imply cooperative cancellation inside a
+legacy decoder, and the existing native encoder still has background-context
+work. Context-aware codec internals and retained native DEFAULT expression
+serialization remain part of the unfinished connected implementation.

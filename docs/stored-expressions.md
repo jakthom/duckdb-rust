@@ -62,10 +62,25 @@ contracts, ordinary workspace check, all-target clippy and coverage pass
 (349 files, 3,317 functions, 229 interface methods, no missing instrumentation).
 Initial test-only failures were a missing Debug implementation and an attempted
 duplicate built-in cast registration; the probe now supplies its own registry.
-Database construction and recovery context propagation are the next integration
-step; this increment alone does not change native DEFAULT support. The full Kani
+This increment alone does not change native DEFAULT support. The full Kani
 suite will run at the next substantial integrated checkpoint, not be inferred
 from the preceding checkpoint's result.
+
+The following integration composes that service in DatabaseBuilder before loading
+the default transaction manager, together with selected types and validated
+initial settings. Connections retain it with their session settings. Defaulted
+contextual durability/format entry points preserve replacement callbacks;
+FileCheckpoint, FileWal and native recovery forward the caller context. Four
+additional contracts cover startup/session/prepared settings, explicit missing
+binder support, unchanged files during read-only recovery, cancellation, startup
+configuration failure before durability, and the retained WAL context across
+commit, rollback, manual checkpoint and reopen. Nine stored-expression/context
+contracts pass, along with check/clippy and instrumentation coverage (354 files,
+3,399 functions, 231 interface methods, no missing entries). One initial test
+expected `ASC` for an unset setting; the existing default is `ASCENDING`, while an
+explicit SET retains `ASC`. The assertion was corrected without engine changes.
+Native parsed DEFAULT codecs and internal background decoder/encoder work remain
+open; contextual adapter plumbing is not evidence that those paths are finished.
 
 - Retain expressions in column defaults instead of eagerly evaluating SQL or
   native parsed expressions; preserve backward decoding of existing private
@@ -76,7 +91,7 @@ from the preceding checkpoint's result.
   constant Value metadata is a separately owned family codec, not function SQL.
 - Bind omitted columns and DEFAULT VALUES during statement preparation/rebinding,
   preserving required evaluation order, errors and selected result validation.
-- Compose selected expression services explicitly into maintenance/recovery.
+- Carry the composed expression context into the remaining native codec internals.
   Native decoding must not instantiate registries or execute functions itself.
 - Resolve ALTER ADD backfill once for the affected operation and retain it through
   transaction catalog/data snapshots and the logger. Re-evaluating a default at
