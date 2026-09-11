@@ -456,6 +456,9 @@ pub(super) fn constant_expression(expression: &BoundExpr) -> bool {
                 constant_expression(predicate) && constant_expression(value)
             }) && constant_expression(otherwise)
         }
+        ExprKind::InList(needle, values, ..) => {
+            constant_expression(needle) && values.iter().all(constant_expression)
+        }
         ExprKind::Operator(function, arguments) => {
             let effects = function.effects();
             !effects.volatile
@@ -486,6 +489,9 @@ pub(super) fn closed_expression(expression: &BoundExpr) -> bool {
                 .iter()
                 .all(|(predicate, value)| closed_expression(predicate) && closed_expression(value))
                 && closed_expression(otherwise)
+        }
+        ExprKind::InList(needle, values, ..) => {
+            closed_expression(needle) && values.iter().all(closed_expression)
         }
         ExprKind::Operator(_, arguments) | ExprKind::Scalar(_, arguments) => {
             arguments.iter().all(closed_expression)

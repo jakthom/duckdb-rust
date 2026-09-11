@@ -16,6 +16,8 @@ mod closed_argument;
 mod comparison_nulls;
 #[path = "component/default_lifecycle.rs"]
 mod default_lifecycle;
+#[path = "component/default_syntax.rs"]
+mod default_syntax;
 #[path = "component/native_decode_context.rs"]
 mod native_decode_context;
 #[path = "component/scalar_expansion.rs"]

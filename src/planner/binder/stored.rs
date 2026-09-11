@@ -117,6 +117,52 @@ impl State<'_, '_> {
             .map(|argument| self.stored_expression(&argument.expression))
             .collect::<Result<Vec<_>>>()?;
         let arity = arguments.len();
+        match (name.as_str(), arity) {
+            ("case_when", arity) if arity >= 3 && arity % 2 == 1 => {
+                return self.stored_case(arguments, false);
+            }
+            ("case_operand", arity) if arity >= 4 && arity % 2 == 0 => {
+                return self.stored_case(arguments, true);
+            }
+            ("is_null", 1) | ("is_not_null", 1) => {
+                let [inner]: [BoundExpr; 1] = arguments
+                    .try_into()
+                    .map_err(|_| Error::Bind("invalid stored NULL test arity".into()))?;
+                return Ok(BoundExpr {
+                    data_type: DataType::Boolean,
+                    kind: ExprKind::Unary(
+                        if name == "is_null" {
+                            UnaryOp::IsNull
+                        } else {
+                            UnaryOp::IsNotNull
+                        },
+                        Box::new(inner),
+                    ),
+                });
+            }
+            ("between", 3) | ("not_between", 3) => {
+                let [value, low, high]: [BoundExpr; 3] = arguments
+                    .try_into()
+                    .map_err(|_| Error::Bind("invalid stored BETWEEN arity".into()))?;
+                let bound = self.binary(
+                    BinaryOp::And,
+                    self.binary(BinaryOp::GreaterEqual, value.clone(), low)?,
+                    self.binary(BinaryOp::LessEqual, value, high)?,
+                )?;
+                return Ok(if name == "not_between" {
+                    BoundExpr {
+                        data_type: DataType::Boolean,
+                        kind: ExprKind::Unary(UnaryOp::Not, Box::new(bound)),
+                    }
+                } else {
+                    bound
+                });
+            }
+            ("in", arity) | ("not_in", arity) if arity >= 2 => {
+                return self.stored_in(arguments, name == "not_in");
+            }
+            _ => {}
+        }
         use crate::function::operator::Operator as O;
         let selected = match (name.as_str(), arity) {
             ("+", 1) => Some(O::Plus),
@@ -133,6 +179,8 @@ impl State<'_, '_> {
             ("|", 2) => Some(O::BitOr),
             ("<<", 2) => Some(O::ShiftLeft),
             (">>", 2) => Some(O::ShiftRight),
+            ("~~", 2) => Some(O::Like),
+            ("!~~", 2) => Some(O::NotLike),
             _ => None,
         };
         if let Some(selected) = selected {
@@ -168,5 +216,67 @@ impl State<'_, '_> {
         Err(Error::Bind(format!(
             "unsupported stored operator {name} with {arity} arguments"
         )))
+    }
+
+    fn stored_case(&self, arguments: Vec<BoundExpr>, has_operand: bool) -> Result<BoundExpr> {
+        let mut arguments = arguments.into_iter();
+        let operand = has_operand
+            .then(|| {
+                arguments
+                    .next()
+                    .ok_or_else(|| Error::Bind("stored CASE has no operand".into()))
+            })
+            .transpose()?;
+        let mut remaining = arguments.collect::<Vec<_>>();
+        let otherwise = remaining
+            .pop()
+            .ok_or_else(|| Error::Bind("stored CASE has no ELSE expression".into()))?;
+        if remaining.len() < 2 || remaining.len() % 2 != 0 {
+            return Err(Error::Bind("invalid stored CASE arity".into()));
+        }
+        let mut branches = Vec::with_capacity(remaining.len() / 2);
+        let mut remaining = remaining.into_iter();
+        while let Some(condition) = remaining.next() {
+            let value = remaining
+                .next()
+                .ok_or_else(|| Error::Bind("stored CASE has no result".into()))?;
+            let predicate = if let Some(operand) = &operand {
+                self.binary(BinaryOp::Equal, operand.clone(), condition)?
+            } else {
+                self.boolean(condition)?
+            };
+            branches.push((predicate, value));
+        }
+        self.bound_case(branches, otherwise)
+    }
+
+    fn stored_in(&self, arguments: Vec<BoundExpr>, negated: bool) -> Result<BoundExpr> {
+        let mut arguments = arguments.into_iter();
+        let value = arguments
+            .next()
+            .ok_or_else(|| Error::Bind("stored IN has no left operand".into()))?;
+        let list = arguments.collect::<Vec<_>>();
+        if list.is_empty() {
+            return Err(Error::Bind("stored IN has no values".into()));
+        }
+        let mut data_type = value.data_type.clone();
+        let mut all_literals = super::coercion::string_literal(&value);
+        for item in &list {
+            let literal = super::coercion::string_literal(item);
+            data_type =
+                self.comparison_type(&data_type, all_literals, &item.data_type, literal, true)?;
+            all_literals &= literal;
+        }
+        Ok(BoundExpr {
+            data_type: DataType::Boolean,
+            kind: ExprKind::InList(
+                Box::new(self.combination_cast(value, &data_type)?),
+                list.into_iter()
+                    .map(|expression| self.combination_cast(expression, &data_type))
+                    .collect::<Result<Vec<_>>>()?,
+                negated,
+                self.context.query.types().bind(&data_type)?.into(),
+            ),
+        })
     }
 }

@@ -51,6 +51,18 @@ impl State<'_, '_> {
                 column_position: None,
                 ..
             } => {
+                // DuckDB resolves the conditional no-op before binding the new
+                // column's type, constraints, or default. In particular, an
+                // invalid default on an already-present column must not create
+                // a dependency or report a bind error.
+                if *if_not_exists
+                    && definition
+                        .columns
+                        .iter()
+                        .any(|column| column.name.eq_ignore_ascii_case(&column_def.name.value))
+                {
+                    return Ok(BoundStatement::Noop);
+                }
                 let mut column = ColumnDefinition::new(
                     &column_def.name.value,
                     self.data_type(&column_def.data_type)?,

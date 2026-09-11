@@ -336,6 +336,8 @@ development process. Automatic-policy in-memory reclamation remains open.
 - **G09.1 Retain catalog expressions — implemented core.** Optional owned expressions
   now retain declared types, aliases/argument provenance, qualification, operators
   and source spans through catalog alteration and private snapshot round trips.
+  Closed CASE, NULL-test, BETWEEN, IN and LIKE defaults share ordinary binding;
+  conditional ADD no-ops are resolved before type/default binding.
 - **G09.2 Connect DDL and evaluation demand — implemented core.** Capture CREATE/SET/ADD defaults without
   eager execution. Evaluate omitted INSERT values and ADD backfill at the reference
   demand point, including deleted physical rows and checkpoint reclamation.

@@ -135,7 +135,7 @@ impl State<'_, '_> {
             }
         }
     }
-    fn bound_case(
+    pub(super) fn bound_case(
         &self,
         branches: Vec<(BoundExpr, BoundExpr)>,
         otherwise: BoundExpr,

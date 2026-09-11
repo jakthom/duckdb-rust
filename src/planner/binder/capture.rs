@@ -105,6 +105,70 @@ impl State<'_, '_> {
                 },
             }),
             ast::Expr::Function(function) => self.capture_stored_function(function),
+            ast::Expr::Case {
+                operand,
+                conditions,
+                else_result,
+                ..
+            } => {
+                let mut children =
+                    Vec::with_capacity(usize::from(operand.is_some()) + conditions.len() * 2 + 1);
+                if let Some(operand) = operand {
+                    children.push(self.capture_stored_expression(operand)?);
+                }
+                for condition in conditions {
+                    children.push(self.capture_stored_expression(&condition.condition)?);
+                    children.push(self.capture_stored_expression(&condition.result)?);
+                }
+                children.push(
+                    else_result
+                        .as_ref()
+                        .map(|expression| self.capture_stored_expression(expression))
+                        .transpose()?
+                        .unwrap_or_else(|| StoredExpression::literal(DataType::Null, Value::Null)),
+                );
+                Ok(stored_syntax_operator(
+                    if operand.is_some() {
+                        "case_operand"
+                    } else {
+                        "case_when"
+                    },
+                    children,
+                ))
+            }
+            ast::Expr::IsNull(expression) => {
+                self.capture_stored_operator("is_null", [expression.as_ref()])
+            }
+            ast::Expr::IsNotNull(expression) => {
+                self.capture_stored_operator("is_not_null", [expression.as_ref()])
+            }
+            ast::Expr::Between {
+                expr,
+                negated,
+                low,
+                high,
+            } => self.capture_stored_operator(
+                if *negated { "not_between" } else { "between" },
+                [expr.as_ref(), low.as_ref(), high.as_ref()],
+            ),
+            ast::Expr::InList {
+                expr,
+                list,
+                negated,
+            } => self.capture_stored_operator(
+                if *negated { "not_in" } else { "in" },
+                std::iter::once(expr.as_ref()).chain(list.iter()),
+            ),
+            ast::Expr::Like {
+                negated,
+                expr,
+                pattern,
+                escape_char: None,
+                any: false,
+            } => self.capture_stored_operator(
+                if *negated { "!~~" } else { "~~" },
+                [expr.as_ref(), pattern.as_ref()],
+            ),
             ast::Expr::BinaryOp { left, op, right } if retained_binary_operator(op).is_some() => {
                 self.capture_stored_operator(
                     retained_binary_operator(op).expect("guarded operator"),
@@ -196,24 +260,32 @@ impl State<'_, '_> {
         name: &'static str,
         children: impl IntoIterator<Item = &'a ast::Expr>,
     ) -> Result<StoredExpression> {
-        Ok(StoredExpression {
-            alias: None,
-            source_span: None,
-            kind: StoredExpressionKind::Function {
-                name: vec![name.into()],
-                arguments: children
-                    .into_iter()
-                    .map(|child| {
-                        Ok(StoredArgument {
-                            name: None,
-                            expression: self.capture_stored_expression(child)?,
-                        })
-                    })
-                    .collect::<Result<_>>()?,
-                is_operator: true,
-                argument_style: StoredArgumentStyle::Named,
-            },
-        })
+        Ok(stored_syntax_operator(
+            name,
+            children
+                .into_iter()
+                .map(|child| self.capture_stored_expression(child))
+                .collect::<Result<_>>()?,
+        ))
+    }
+}
+
+fn stored_syntax_operator(name: &'static str, children: Vec<StoredExpression>) -> StoredExpression {
+    StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Function {
+            name: vec![name.into()],
+            arguments: children
+                .into_iter()
+                .map(|expression| StoredArgument {
+                    name: None,
+                    expression,
+                })
+                .collect(),
+            is_operator: true,
+            argument_style: StoredArgumentStyle::Named,
+        },
     }
 }
 
@@ -355,8 +427,56 @@ mod tests {
             "$1",
             "sum(1)",
             "row_number() OVER ()",
+            "CASE WHEN true THEN column_name ELSE 0 END",
+            "column_name IS NULL",
+            "column_name BETWEEN 1 AND 2",
+            "1 IN (2, column_name)",
+            "column_name LIKE 'x%'",
         ] {
             assert!(matches!(capture(sql), Err(Error::Unsupported(_))), "{sql}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn captured_closed_conditional_and_predicate_syntax_binds_without_reparsing() -> Result<()> {
+        let query = QueryContext::background();
+        let catalog = Snapshot::new(query.type_registry());
+        let casts = crate::common::cast::CastRegistry::builtins();
+        let operators = OperatorRegistry::builtins();
+        let functions = FunctionRegistry::builtins();
+        let expressions = ScalarEvaluator;
+        let context = BindContext {
+            catalog: &catalog,
+            casts: &casts,
+            operators: &operators,
+            query: &query,
+            functions: &functions,
+            expressions: &expressions,
+            parameters: &[],
+        };
+        for (sql, expected) in [
+            ("CASE WHEN 1=1 THEN 7 ELSE 0 END", Value::Integer(7)),
+            (
+                "CASE 2 WHEN 1 THEN 'one' WHEN 2 THEN 'two' ELSE 'other' END",
+                Value::Varchar("two".into()),
+            ),
+            ("NULL IS NULL", Value::Boolean(true)),
+            ("NULL IS NOT NULL", Value::Boolean(false)),
+            ("2 BETWEEN 1 AND 3", Value::Boolean(true)),
+            ("2 NOT BETWEEN 1 AND 3", Value::Boolean(false)),
+            ("2 IN (1, 2, NULL)", Value::Boolean(true)),
+            ("2 NOT IN (1, 3, NULL)", Value::Null),
+            ("'duck' LIKE 'd%'", Value::Boolean(true)),
+            ("'duck' NOT LIKE 'd%'", Value::Boolean(false)),
+        ] {
+            let stored = SqlBinder.capture_stored_expression(&parsed(sql)?, &context)?;
+            let bound = SqlBinder.bind_stored_expression(&stored, &context)?;
+            assert_eq!(
+                expressions.evaluate(&bound, &Vec::new(), &query)?,
+                expected,
+                "{sql}"
+            );
         }
         Ok(())
     }
