@@ -31,11 +31,62 @@ Rust recovery. The tenth integrated checkpoint below validates this increment.
 The ninth checkpoint remains the latest measured performance
 and full-upstream acceptance; no new follow-up push has occurred.
 
-Scalar full-width inference and temporal physical-constant provenance continue
-in separate worker increments. Their shared defaulted interfaces are integrated;
-their family implementations and directly affected COALESCE/NULLIF behavior need
-the next combined regression checkpoint. Stored DEFAULT expressions, native
-non-NULL nested defaults and the broader milestone remain open.
+Scalar full-width inference, its directly affected COALESCE repair, and temporal
+physical-constant provenance are now integrated through `320000a`. The first
+combined focused check passes contracts 42, numeric 46, temporal 31, types 22,
+nested 42, execution 51, checkpointing 18 and logging 7, with workspace check and
+all-target clippy. Coverage is 343 files/3,253 functions/226 interface methods,
+none missing. The source-specific worker campaigns record development 830/830
+numeric cases and 1,288/1,289 temporal cases, with no lost prior passes; those
+do not replace a combined full-upstream or performance refresh.
+
+The lead's [stored-expression prerequisite](stored-expressions.md), `1bdf1a0`,
+and selected scalar expansion `e93a1d6` pass the eleventh combined workspace,
+tracing and exploratory Kani run below. Native DEFAULT decoding/catalog migration,
+non-NULL nested defaults, NULLIF's family/runtime follow-up and the larger
+milestone remain open. No new follow-up push has occurred.
+
+## Eleventh integrated validation checkpoint
+
+Frozen engine `e93a1d6` passes full workspace check/tests and all-target clippy
+with warnings denied. Only the same two external-CLI analytics tests are ignored.
+Library 67, compatibility 19, contracts 49, numeric 46, temporal 31, nested 42,
+DATE 11, casts 12, types 22, execution 51, checkpointing 18, logging 7 and recovery
+14 pass; the full recovery-tail sweep took 62.11 seconds. Coverage reports 348
+files, 3,302 functions and 228 interface methods, none missing. Traced all-target
+check passes in 57.059 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted. The earlier stored-binder-only pass had contracts 45,
+coverage 346/3,274/227 and a clean 69.554-second trace check.
+
+Full `python3 scripts/verify_kani.py`, Kani 0.67.0, passes all six maintained
+harnesses with zero failures: TIMETZ packing 47.055 s, unsigned keys 0.837 s,
+dense offsets 0.495 s, ROWS clipping 2.445 s, uniform bounds 2.791 s and packed
+byte counts 62.017 s. Caller-location (1) and foreign-function (2) warnings
+remain unreachable; atomic fences (4) and subtracts (5) are modeled sequentially.
+These proofs do not establish scalar expansion bounds, stored-expression
+semantics, physical vector provenance, calendar behavior or native protocols.
+
+An integration review identified an open expansion resource bug despite these
+passing checks: a template's Argument leaf counts as one node, but lowering
+clones the entire supplied bound argument. Nested duplicating calls can exceed
+the intended total bound. The scalar owner is adding actual argument subtree
+weights and combined depth/occurrence validation before cloning, with dedicated
+regressions. The checkpoint does not waive that repair or declare the expansion
+slice complete. Its NULLIF family and comparison-runtime follow-ups are also
+still worker-local.
+
+The lead additionally isolated the [raw timestamp DEFAULT mismatch](stored-expressions.md)
+to development's optimizer/planner-name behavior using independent disabled-pass
+probes and the source call chain. The physical timestamp remains valid. Native
+function DEFAULT decoding and selected catalog/runtime integration are still
+implementation work, not passing file-compatibility claims. The nested review
+found no new canonical identity/version blocker, but recorded the pre-existing
+non-cooperative successor-encoding context boundary for shared persistence work.
+
+No new production performance or full-upstream refresh was run on this source.
+Checkpoint nine remains the latest pushed faster-reference/upstream acceptance;
+checkpoint ten remains the latest production native-file campaign. README still
+matches `origin/main`, and the user's pre-sync stash is unchanged.
 
 ## Tenth integrated implementation checkpoint
 

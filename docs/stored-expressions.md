@@ -44,7 +44,9 @@ They validate bound plans before evaluation. An initial assertion used the wrong
 catalog-error spelling; the corrected assertion matches the existing exact error
 and verifies outer-function lookup precedence. These are internal contracts, not
 end-to-end DEFAULT/persistence evidence. Full integrated checks and exploratory
-Kani will be recorded at the substantial checkpoint.
+Kani pass at the [eleventh validation checkpoint](value-expression-progress.md).
+The selected-expansion total-tree resource repair identified during review is
+still open; the maintained proofs do not cover that path or this stored tree.
 
 ## Remaining connected path
 
@@ -72,3 +74,43 @@ The last items are a provisional implementation direction, not implemented
 behavior. The raw unrenderable timestamp DEFAULT witness and independently
 produced Base64/calendar function-default failures remain open. Performance and
 full-upstream acceptance must be refreshed on the eventual integrated source.
+
+## Raw timestamp DEFAULT: planning boundary investigation
+
+On unchanged pinned development `99063af2bd`, these in-memory CLI probes were
+run during the eleventh integrated checkpoint:
+
+```sql
+CREATE TABLE t(ts TIMESTAMP DEFAULT make_timestamp(-9223372036854775806));
+INSERT INTO t DEFAULT VALUES;
+SELECT epoch_us(ts) FROM t;
+```
+
+Normal execution fails with `Conversion Error: Date out of range in timestamp
+conversion`. Each of the following independent prefixes makes the same complete
+workload succeed, returning `-9223372036854775806`:
+
+- `PRAGMA disable_optimizer;`
+- `SET disabled_optimizers='expression_rewriter';`
+- `SET disabled_optimizers='join_order';`
+
+Explicit `INSERT INTO t VALUES(make_timestamp(-9223372036854775806))` also
+succeeds with ordinary optimization. This distinguishes the recorded default
+failure from physical timestamp validity and from a universally invalid default
+cast. It is not a waiver of the normal development result.
+
+The source-backed explanation is an optimizer/planner-name interaction:
+[constant folding](../../duckdb/src/optimizer/rule/constant_folding.cpp) replaces
+the call with a BoundConstantExpression; [projection statistics](../../duckdb/src/optimizer/relation_statistics/relation_statistics_helper.cpp)
+call `expression.GetName()`, including from the
+[join-order relation manager](../../duckdb/src/optimizer/join_order/relation_manager.cpp).
+[BaseExpression](../../duckdb/src/parser/base_expression.cpp) uses ToString when
+there is no alias, and [BoundConstantExpression](../../duckdb/src/planner/expression/bound_constant_expression.cpp)
+renders its Value with ToSQLString. The disabled-pass probes and this call chain
+support that explanation; no instrumented C++ stack trace was captured.
+
+The future repair must respect the selected planning/evaluation boundary and
+retain the valid physical instant, including explicit inserts and disabled-
+optimizer execution. A timestamp-domain restriction or an eager native-decoder
+cast would fix a different behavior. The existing default differential remains
+failing until the connected implementation addresses it.
