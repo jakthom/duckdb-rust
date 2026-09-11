@@ -143,3 +143,26 @@ NULLIF remains an explicit follow-up: development's default macro is
 type and can evaluate that expression again. An eager scalar that coerces both
 inputs and later casts back is not equivalent. The next selected lowering seam
 must preserve the comparison, CASE and duplicate/effectful argument behavior.
+
+The immutable [COALESCE refresh](numeric-coalesce-reference.json) passes 830/830
+development SQL cases and all three native persistence paths on unchanged source.
+All 803 preceding case identities remain passing; 27 added cases include the
+original COALESCE regression. Release passes 488/830 SQL cases and all three
+native paths, with complete disagreements retained rather than reclassified.
+Focused checks pass: numeric 46, contracts 36, types 22, nested 41, casts 12 and
+operators 10; all-target clippy and trace compatibility pass. Coverage records
+333 files, 3,140 functions and 219 interfaces with no missing annotations.
+
+A focused combined SQL trace returned BIGINT/BIGINT[] metadata and COALESCE
+rows 1, 3 and 5. It recorded 70,001 completed operations, four error returns,
+no panics and no open spans. The four errors were investigated in a smaller
+retained reproduction, `SELECT typeof([340282366920938463463374607431768211455,1])`:
+the optimizer's speculative constant-cast folding tries the unrepresentable
+UHUGEINT-to-BIGINT child, observes Conversion and retains the expression.
+The TypeOnly call then returns BIGINT[] successfully. The retained ancestry
+confirmed `SimplifyExpressions::fold` through the selected `BoundCast::apply`,
+not COALESCE row execution. The reproduction recorded 52,994 operations, the
+same four errors, no panics and no open spans. All temporary telemetry was
+deleted after inspection. These instrumented durations are not benchmark evidence.
+Maintained Kani is scheduled at the next combined lead checkpoint; these local
+checks do not claim an unexecuted proof or full scalar/function parity.
