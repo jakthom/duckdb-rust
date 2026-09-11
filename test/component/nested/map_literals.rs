@@ -513,6 +513,7 @@ fn inferred_integer_children_survive_ctas_parameters_relations_mutations_and_nat
 fn map_literal_lowering_and_sequence_coercion_use_selected_functions_types_and_casts() -> Result<()>
 {
     let mut functions = FunctionRegistry::default();
+    functions.register_scalar(FunctionRegistry::builtins().scalar("list_value")?)?;
     functions.register_scalar(Arc::new(SelectedMap))?;
     let mut c = DatabaseBuilder::new()
         .functions(functions)

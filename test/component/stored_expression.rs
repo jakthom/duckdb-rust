@@ -1,6 +1,8 @@
 //! The stored-tree prerequisite is not yet catalog/default persistence support.
 #[path = "stored_context.rs"]
 mod context;
+#[path = "stored_nested.rs"]
+mod nested;
 use super::*;
 use duckdb_rust::{
     catalog::expression::{
@@ -476,7 +478,11 @@ fn stored_trees_reject_malformed_metadata_limits_effects_and_missing_capabilitie
                 _ => *is_operator = true,
             }
         }
-        assert!(matches!(check(&expression), Err(Error::Unsupported(_))));
+        if kind == 1 {
+            assert!(matches!(check(&expression), Err(Error::Bind(_))));
+        } else {
+            assert!(matches!(check(&expression), Err(Error::Unsupported(_))));
+        }
     }
     let interrupt = InterruptHandle::default();
     let cancelled = QueryContext::new(interrupt.clone(), None, 1, 100)?;

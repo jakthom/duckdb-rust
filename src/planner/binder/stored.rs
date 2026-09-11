@@ -1,14 +1,40 @@
 //! Bind retained catalog nodes without parsing SQL or evaluating a default.
 use super::*;
-use crate::catalog::expression::{StoredExpression, StoredExpressionKind};
+use crate::catalog::expression::{
+    StoredArgumentStyle, StoredExpression, StoredExpressionKind, StoredOperator,
+};
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     pub(super) fn stored_expression(&self, expression: &StoredExpression) -> Result<BoundExpr> {
         self.context.query.check()?;
         match &expression.kind {
-            StoredExpressionKind::Operator { .. } => {
-                Err(unsupported("stored nested operator binding"))
+            StoredExpressionKind::Operator { kind, children } => {
+                let children = children
+                    .iter()
+                    .map(|child| self.stored_expression(child))
+                    .collect::<Result<Vec<_>>>()?;
+                match kind {
+                    StoredOperator::ListConstructor => self.scalar_call("list_value", children),
+                    StoredOperator::Index | StoredOperator::Field => {
+                        let [value, key]: [BoundExpr; 2] = children
+                            .try_into()
+                            .map_err(|_| Error::Bind("invalid stored accessor arity".into()))?;
+                        if *kind == StoredOperator::Field
+                            && !matches!(
+                                &value.data_type,
+                                DataType::Nested(metadata) if matches!(metadata.as_ref(),
+                                    crate::common::NestedType::Struct(_) | crate::common::NestedType::Union(_)
+                                    | crate::common::NestedType::Map { .. } | crate::common::NestedType::Variant)
+                            )
+                        {
+                            return Err(Error::Bind(
+                                "field extraction requires a named nested value".into(),
+                            ));
+                        }
+                        self.nested_access(value, key)
+                    }
+                }
             }
             StoredExpressionKind::Literal { data_type, value } => Ok(BoundExpr {
                 data_type: data_type.clone(),
@@ -37,7 +63,7 @@ impl State<'_, '_> {
                 name,
                 arguments,
                 is_operator,
-                ..
+                argument_style,
             } => {
                 if *is_operator {
                     return Err(unsupported("stored operator binding"));
@@ -47,14 +73,30 @@ impl State<'_, '_> {
                 };
                 // Match ordinary SQL's catalog-before-argument resolution.
                 let function = self.context.functions.scalar(name)?;
-                if arguments.iter().any(|argument| argument.name.is_some()) {
-                    return Err(unsupported("named stored function argument binding"));
-                }
+                let names = arguments
+                    .iter()
+                    .map(|argument| {
+                        if *argument_style == StoredArgumentStyle::Named {
+                            argument.name.clone()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let aliases = arguments
+                    .iter()
+                    .map(|argument| {
+                        argument
+                            .name
+                            .clone()
+                            .or_else(|| argument.expression.alias.clone())
+                    })
+                    .collect::<Vec<_>>();
                 let arguments = arguments
                     .iter()
                     .map(|argument| self.stored_expression(&argument.expression))
                     .collect::<Result<Vec<_>>>()?;
-                self.scalar_call_selected(function, arguments)
+                self.scalar_call_selected_named(function, arguments, Some(&names), Some(&aliases))
             }
         }
     }

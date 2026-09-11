@@ -10,42 +10,10 @@ use crate::{
 };
 use std::{collections::BTreeSet, sync::Arc};
 mod concat;
+mod constructor;
 mod map;
 mod variant;
 pub(super) use concat::bind_concat;
-
-#[derive(Debug)]
-pub struct Constructor(pub DataType);
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl ScalarFunction for Constructor {
-    fn name(&self) -> &str {
-        "nested_constructor"
-    }
-    fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
-        Ok(self.0.clone())
-    }
-    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
-        query.check()?;
-        let DataType::Nested(metadata) = &self.0 else {
-            return Err(Error::Internal("constructor metadata".into()));
-        };
-        let payload = match metadata.as_ref() {
-            NestedType::List(_) | NestedType::Array { .. } => {
-                NestedPayload::Sequence(arguments.to_vec())
-            }
-            NestedType::Struct(_) | NestedType::Tuple(_) => {
-                NestedPayload::Struct(arguments.to_vec())
-            }
-            NestedType::Union(_) if arguments.len() == 1 => NestedPayload::Union {
-                tag: 0,
-                value: arguments[0].clone(),
-            },
-            _ => return Err(Error::Internal("constructor payload".into())),
-        };
-        NestedValue::value(self.0.clone(), payload)
-    }
-}
 
 #[derive(Debug)]
 struct NestedFunction {
@@ -151,17 +119,7 @@ impl ScalarFunction for NestedFunction {
             key,
         })))
     }
-    fn argument_types(
-        &self,
-        arguments: &[DataType],
-        types: &TypeRegistry,
-    ) -> Result<Vec<DataType>> {
-        if matches!(self.name, "list_value" | "array_value") {
-            let child = arguments
-                .iter()
-                .try_fold(DataType::Null, |a, b| types.common_type(&a, b))?;
-            return Ok(vec![child; arguments.len()]);
-        }
+    fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
         if matches!(self.name, "list_extract" | "array_extract") && arguments.len() == 2 {
             return Ok(vec![arguments[0].clone(), DataType::BigInt]);
         }
@@ -172,7 +130,6 @@ impl ScalarFunction for NestedFunction {
             return Ok(result.clone());
         }
         match self.name {
-            "row" => Ok(NestedType::Tuple(arguments.to_vec()).data_type()),
             "struct_values" | "struct_keys" if arguments.len() == 1 => match &arguments[0] {
                 DataType::Nested(metadata) => match metadata.as_ref() {
                     NestedType::Struct(fields) => Ok(if self.name == "struct_values" {
@@ -203,15 +160,6 @@ impl ScalarFunction for NestedFunction {
                 },
                 _ => Err(Error::Bind("union_tag requires UNION".into())),
             },
-            "list_value" => Ok(NestedType::List(
-                arguments.first().cloned().unwrap_or(DataType::Null),
-            )
-            .data_type()),
-            "array_value" if !arguments.is_empty() => Ok(NestedType::Array {
-                element: arguments[0].clone(),
-                length: arguments.len(),
-            }
-            .data_type()),
             "list_extract" | "array_extract" if arguments.len() == 2 => match &arguments[0] {
                 DataType::Nested(metadata) => match metadata.as_ref() {
                     NestedType::List(child) | NestedType::Array { element: child, .. } => {
@@ -249,9 +197,6 @@ impl ScalarFunction for NestedFunction {
             .result
             .as_ref()
             .ok_or_else(|| Error::Internal("nested function was not bound".into()))?;
-        if matches!(self.name, "list_value" | "array_value" | "row") {
-            return Constructor(result.clone()).evaluate(arguments, query);
-        }
         if arguments.iter().any(Value::is_null) {
             return Ok(Value::Null);
         }
@@ -405,18 +350,16 @@ impl ScalarFunction for NestedFunction {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     concat::register(registry);
+    constructor::register(registry);
     map::register(registry);
     variant::register(registry);
     for name in [
-        "list_value",
-        "array_value",
         "list_extract",
         "array_extract",
         "struct_extract",
         "struct_extract_at",
         "struct_values",
         "struct_keys",
-        "row",
         "union_extract",
         "union_tag",
         "map",

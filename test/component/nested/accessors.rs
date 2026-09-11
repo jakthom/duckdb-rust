@@ -24,6 +24,9 @@ impl duckdb_rust::function::ScalarFunction for SelectedListExtract {
 #[test]
 fn subscript_syntax_uses_the_selected_scalar_catalog() -> Result<()> {
     let mut functions = duckdb_rust::function::FunctionRegistry::default();
+    functions.register_scalar(
+        duckdb_rust::function::FunctionRegistry::builtins().scalar("list_value")?,
+    )?;
     functions.register_scalar(Arc::new(SelectedListExtract))?;
     let mut c = DatabaseBuilder::new()
         .functions(functions)

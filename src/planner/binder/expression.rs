@@ -14,10 +14,35 @@ impl State<'_, '_> {
         function_impl: std::sync::Arc<dyn crate::function::ScalarFunction>,
         arguments: Vec<BoundExpr>,
     ) -> Result<BoundExpr> {
+        self.scalar_call_selected_named(function_impl, arguments, None, None)
+    }
+    pub(super) fn scalar_call_selected_named(
+        &self,
+        function_impl: std::sync::Arc<dyn crate::function::ScalarFunction>,
+        arguments: Vec<BoundExpr>,
+        names: Option<&[Option<String>]>,
+        aliases: Option<&[Option<String>]>,
+    ) -> Result<BoundExpr> {
+        self.context.query.check()?;
+        if names.is_some_and(|names| names.len() != arguments.len())
+            || aliases.is_some_and(|aliases| aliases.len() != arguments.len())
+        {
+            return Err(Error::Internal("scalar argument metadata count".into()));
+        }
+        if names.is_some_and(|names| names.iter().any(Option::is_some))
+            && !function_impl.accepts_named_arguments()
+        {
+            return Err(Error::Bind(format!(
+                "{} does not accept named arguments",
+                function_impl.name()
+            )));
+        }
         if let Some(expansion) = function_impl.expansion(
             &FunctionArguments {
                 arguments: &arguments,
                 context: self.context,
+                names,
+                aliases,
             },
             self.context.query,
         )? {
@@ -40,6 +65,8 @@ impl State<'_, '_> {
                 &FunctionArguments {
                     arguments: &arguments,
                     context: self.context,
+                    names,
+                    aliases,
                 },
                 self.context.query,
             )?
@@ -505,58 +532,6 @@ impl State<'_, '_> {
                     ));
                 }
                 let name = function.name.to_string();
-                if name.eq_ignore_ascii_case("struct_pack")
-                    || name.eq_ignore_ascii_case("union_value")
-                {
-                    let ast::FunctionArguments::List(list) = &function.args else {
-                        return Err(Error::Bind("nested constructor requires arguments".into()));
-                    };
-                    if list.duplicate_treatment.is_some()
-                        || !list.clauses.is_empty()
-                        || function.filter.is_some()
-                    {
-                        return Err(Error::Bind("invalid nested constructor modifiers".into()));
-                    }
-                    let mut names = Vec::new();
-                    let mut arguments = Vec::new();
-                    for argument in &list.args {
-                        let ast::FunctionArg::Named {
-                            name,
-                            arg: ast::FunctionArgExpr::Expr(value),
-                            ..
-                        } = argument
-                        else {
-                            return Err(Error::Bind(
-                                "nested constructor requires named arguments".into(),
-                            ));
-                        };
-                        names.push(name.value.clone());
-                        arguments.push(recurse(value)?);
-                    }
-                    if name.eq_ignore_ascii_case("union_value") {
-                        if arguments.len() != 1 {
-                            return Err(Error::Bind(
-                                "union_value requires one named argument".into(),
-                            ));
-                        }
-                        let data_type = crate::common::NestedType::Union(vec![(
-                            names.remove(0),
-                            arguments[0].data_type.clone(),
-                        )])
-                        .data_type();
-                        self.context.query.types().bind(&data_type)?;
-                        return Ok(BoundExpr {
-                            data_type: data_type.clone(),
-                            kind: ExprKind::Scalar(
-                                std::sync::Arc::new(crate::function::nested::Constructor(
-                                    data_type,
-                                )),
-                                arguments,
-                            ),
-                        });
-                    }
-                    return self.nested_constructor(arguments, Some(names));
-                }
                 if name.eq_ignore_ascii_case("grouping") || name.eq_ignore_ascii_case("grouping_id")
                 {
                     return self.grouping_function(expr, function, fields, grouping);
@@ -626,11 +601,12 @@ impl State<'_, '_> {
                     // absent function must not become an unsupported argument
                     // construct, and retain this same selection for binding.
                     let function_impl = self.context.functions.scalar(&name)?;
-                    let arguments = function_arguments(function)?
+                    let parsed = super::nested::scalar_arguments(function)?;
+                    let arguments = parsed.expressions
                         .iter()
-                        .map(&recurse)
+                        .map(|expression| recurse(expression))
                         .collect::<Result<Vec<_>>>()?;
-                    self.scalar_call_selected(function_impl, arguments)
+                    self.scalar_call_selected_named(function_impl, arguments, Some(&parsed.names), Some(&parsed.aliases))
                 }
             }
             ast::Expr::Case {
@@ -734,6 +710,8 @@ impl State<'_, '_> {
 struct FunctionArguments<'a, 'b> {
     arguments: &'a [BoundExpr],
     context: &'a BindContext<'b>,
+    names: Option<&'a [Option<String>]>,
+    aliases: Option<&'a [Option<String>]>,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
@@ -753,6 +731,14 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
     ) -> Result<usize> {
         super::overload::select(name, candidates, self.arguments, self.context)
     }
+    fn argument_name(&self, index: usize) -> Result<Option<&str>> {
+        self.data_type(index)?;
+        Ok(self.names.and_then(|names| names[index].as_deref()))
+    }
+    fn argument_alias(&self, index: usize) -> Result<Option<&str>> {
+        self.data_type(index)?;
+        Ok(self.aliases.and_then(|aliases| aliases[index].as_deref()))
+    }
     fn is_string_literal(&self, index: usize) -> Result<bool> {
         self.arguments
             .get(index)
@@ -766,30 +752,13 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))
     }
     fn combination(&self, indices: &[usize]) -> Result<crate::function::ArgumentCombination> {
-        self.context.query.check()?;
-        crate::function::validate_combination_indices(self, indices)?;
-        let data_type = super::coercion::ordered_combination_type(
-            self.context,
-            indices.iter().map(|&index| &self.arguments[index]),
-            super::coercion::CombinationSequence::Ordered,
-        )?;
-        let cast_modes = indices
-            .iter()
-            .map(|&index| {
-                self.context.query.check()?;
-                super::coercion::combination_cast_mode(
-                    self.context,
-                    &self.arguments[index].data_type,
-                    &data_type,
-                )
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let proposal = crate::function::ArgumentCombination {
-            data_type,
-            cast_modes,
-        };
-        proposal.validate(indices.len(), self.context.query.types())?;
-        Ok(proposal)
+        self.combination_in(indices, super::coercion::CombinationSequence::Ordered)
+    }
+    fn collection_combination(
+        &self,
+        indices: &[usize],
+    ) -> Result<crate::function::ArgumentCombination> {
+        self.combination_in(indices, super::coercion::CombinationSequence::Collection)
     }
     fn constant(&self, index: usize) -> Result<Value> {
         self.evaluate_constant(self.required_constant_argument(index)?)
@@ -820,6 +789,40 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
             self.context.query.types(),
         )?;
         self.evaluate_constant(&expression)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl FunctionArguments<'_, '_> {
+    fn combination_in(
+        &self,
+        indices: &[usize],
+        sequence: super::coercion::CombinationSequence,
+    ) -> Result<crate::function::ArgumentCombination> {
+        self.context.query.check()?;
+        crate::function::validate_combination_indices(self, indices)?;
+        let data_type = super::coercion::ordered_combination_type(
+            self.context,
+            indices.iter().map(|&index| &self.arguments[index]),
+            sequence,
+        )?;
+        let cast_modes = indices
+            .iter()
+            .map(|&index| {
+                self.context.query.check()?;
+                super::coercion::combination_cast_mode(
+                    self.context,
+                    &self.arguments[index].data_type,
+                    &data_type,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let proposal = crate::function::ArgumentCombination {
+            data_type,
+            cast_modes,
+        };
+        proposal.validate(indices.len(), self.context.query.types())?;
+        Ok(proposal)
     }
 }
 
