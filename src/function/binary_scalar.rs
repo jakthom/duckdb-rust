@@ -12,7 +12,11 @@ use crate::{
 };
 
 #[derive(Debug)]
-struct BinaryFunction(&'static str, Option<DataType>);
+struct BinaryFunction {
+    name: &'static str,
+    input: Option<DataType>,
+    known_null: bool,
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
@@ -33,7 +37,11 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "from_base64",
     ] {
         registry
-            .register_scalar(Arc::new(BinaryFunction(name, None)))
+            .register_scalar(Arc::new(BinaryFunction {
+                name,
+                input: None,
+                known_null: false,
+            }))
             .expect("unique binary function");
     }
 }
@@ -41,7 +49,16 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for BinaryFunction {
     fn name(&self) -> &str {
-        self.0
+        self.name
+    }
+    fn argument_evaluation(&self) -> super::ArgumentEvaluation {
+        if self.name != "decode" {
+            super::ArgumentEvaluation::Eager
+        } else if self.known_null {
+            super::ArgumentEvaluation::TypeOnly
+        } else {
+            super::ArgumentEvaluation::NullOnConstant
+        }
     }
     fn argument_types(
         &self,
@@ -49,7 +66,7 @@ impl ScalarFunction for BinaryFunction {
         _: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Vec<DataType>> {
         if arguments.len() == 1 {
-            match self.0 {
+            match self.name {
                 "base64" | "to_base64" => return Ok(vec![DataType::Blob]),
                 "from_base64" | "unbin" | "from_binary" => {
                     return Ok(vec![DataType::Varchar]);
@@ -57,7 +74,7 @@ impl ScalarFunction for BinaryFunction {
                 _ => (),
             }
         }
-        if self.0 == "decode" {
+        if self.name == "decode" {
             return match arguments.len() {
                 1 => Ok(vec![DataType::Blob]),
                 2 => Ok(vec![DataType::Blob, DataType::Varchar]),
@@ -65,7 +82,7 @@ impl ScalarFunction for BinaryFunction {
             };
         }
         if matches!(
-            self.0,
+            self.name,
             "encode"
                 | "unbin"
                 | "from_binary"
@@ -88,8 +105,26 @@ impl ScalarFunction for BinaryFunction {
         query: &QueryContext,
     ) -> Result<Option<Arc<dyn ScalarFunction>>> {
         query.check()?;
-        if arguments.len() == 1 && matches!(self.0, "hex" | "to_hex" | "bin" | "to_binary") {
-            return Ok(Some(Arc::new(Self(self.0, Some(arguments.data_type(0)?)))));
+        if self.name == "decode" {
+            let mut known_null = false;
+            for index in 0..arguments.len() {
+                if arguments.is_provably_null(index)? {
+                    known_null = true;
+                    break;
+                }
+            }
+            return Ok(Some(Arc::new(Self {
+                name: self.name,
+                input: None,
+                known_null,
+            })));
+        }
+        if arguments.len() == 1 && matches!(self.name, "hex" | "to_hex" | "bin" | "to_binary") {
+            return Ok(Some(Arc::new(Self {
+                name: self.name,
+                input: Some(arguments.data_type(0)?),
+                known_null: false,
+            })));
         }
         Ok(None)
     }
@@ -98,16 +133,16 @@ impl ScalarFunction for BinaryFunction {
         arguments: &[DataType],
         _: &crate::common::type_registry::TypeRegistry,
     ) -> Result<DataType> {
-        if self.0 == "decode" {
+        if self.name == "decode" {
             return match arguments {
                 [DataType::Blob] | [DataType::Blob, DataType::Varchar] => Ok(DataType::Varchar),
                 _ => Err(Error::Bind("no overload for decode".into())),
             };
         }
         let [input] = arguments else {
-            return Err(Error::Bind(format!("{} requires one argument", self.0)));
+            return Err(Error::Bind(format!("{} requires one argument", self.name)));
         };
-        let (supported, output) = match self.0 {
+        let (supported, output) = match self.name {
             "encode" | "unbin" | "from_binary" | "unhex" | "from_hex" | "from_base64" => {
                 (*input == DataType::Varchar, DataType::Blob)
             }
@@ -130,12 +165,24 @@ impl ScalarFunction for BinaryFunction {
         if supported || *input == DataType::Null {
             Ok(output)
         } else {
-            Err(Error::Bind(format!("no overload for {}({input})", self.0)))
+            Err(Error::Bind(format!(
+                "no overload for {}({input})",
+                self.name
+            )))
         }
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
-        if self.0 == "decode" {
+        if self.name == "decode" {
+            if self.known_null {
+                return if arguments.is_empty() {
+                    Ok(Value::Null)
+                } else {
+                    Err(Error::Internal(
+                        "constant NULL decode received arguments".into(),
+                    ))
+                };
+            }
             return match arguments {
                 [Value::Null] | [_, Value::Null] | [Value::Null, _] => Ok(Value::Null),
                 [Value::Blob(bytes)] => codec::decode_utf8(bytes, None, query).map(Value::Varchar),
@@ -151,7 +198,7 @@ impl ScalarFunction for BinaryFunction {
         if input.is_null() {
             return Ok(Value::Null);
         }
-        match (self.0, input) {
+        match (self.name, input) {
             ("base64" | "to_base64", Value::Blob(bytes)) => {
                 base64::encode(bytes, query).map(Value::Varchar)
             }
@@ -173,7 +220,7 @@ impl ScalarFunction for BinaryFunction {
                 encode_binary(value.as_bytes(), query).map(Value::Varchar)
             }
             ("bin" | "to_binary", Value::Integer(value)) => Ok(Value::Varchar(
-                if *value < 0 && self.1 != Some(DataType::HugeInt) {
+                if *value < 0 && self.input != Some(DataType::HugeInt) {
                     format!("{:b}", *value as u64)
                 } else {
                     format!("{value:b}")
@@ -186,7 +233,7 @@ impl ScalarFunction for BinaryFunction {
                 encode_hex(text.as_bytes(), query).map(Value::Varchar)
             }
             ("hex" | "to_hex", Value::Integer(value)) => Ok(Value::Varchar(
-                if *value < 0 && self.1 != Some(DataType::HugeInt) {
+                if *value < 0 && self.input != Some(DataType::HugeInt) {
                     format!("{:X}", *value as u64)
                 } else {
                     format!("{value:X}")

@@ -389,6 +389,15 @@ fn binary_text_codecs_match_partial_bytes_and_malformed_utf8() -> Result<()> {
         ));
         assert_eq!(
             c.query(
+                "SELECT
+                   decode(NULL::BLOB,CAST(from_base64('bad') AS VARCHAR)),
+                   decode(from_base64('bad'),NULL::VARCHAR)"
+            )?
+            .rows,
+            vec![vec![Value::Null, Value::Null]]
+        );
+        assert_eq!(
+            c.query(
                 r"SELECT CASE WHEN false THEN unbin('x') ELSE unbin('1') END,
                   CASE WHEN false THEN decode('\xFF'::BLOB) ELSE decode('ok') END"
             )?
