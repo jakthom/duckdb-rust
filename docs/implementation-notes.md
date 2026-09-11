@@ -16,8 +16,8 @@ parsed-node representation. Unqualified `INTERVAL` retains the native VARCHAR-to
 INTERVAL cast, and supported qualified units retain the ordinary DOUBLE/trunc/width-
 cast/`to_*` lowering without executing it during DDL. Built-in current-date/time and
 timezone/calendar defaults remain G04 work. Real sequence objects and `nextval`,
-catalog function/object identity, search-path resolution, dependencies and prepared
-invalidation remain G10 work.
+catalog function identity, search-path resolution, plan-bound table identity,
+non-schema dependencies and prepared invalidation remain G10 work.
 DML-level explicit `DEFAULT`, CHECK constraints and generated columns remain G11 work.
 Independent Base64 (`DEFAULT from_base64('AP8=')`) and calendar function defaults
 expose this difference. A Rust-produced file can appear to work because the writer
@@ -88,6 +88,22 @@ Relevant sources: Rust `src/catalog/expression.rs`, `src/main/client_context.rs`
 upstream `src/planner/binder/statement/bind_create_table.cpp`,
 `src/catalog/catalog_entry/duck_table_entry.cpp`,
 `src/storage/table/{row_group,row_group_collection}.cpp`.
+
+## Runtime catalog identity
+
+Snapshot catalogs maintain process-local catalog/object IDs and a separate observed
+catalog version. Schema/table creation uses one version-bound prepared insertion in
+both transaction-current and catalog-basis views; replay after a catalog change is
+rejected. Rename preserves identity, drop/recreate allocates a replacement identity,
+and identified ALTER/DROP resolves the stable object rather than trusting its old
+name. Table-to-schema dependencies make restricted schema drops atomic. Private and
+native reopen rebuild fresh runtime IDs; no ID or dependency state is serialized.
+
+This is a storage/transaction foundation, not complete catalog resolution. Binder,
+logical and physical plans still carry table names. The pure search-path model is not
+connected to session settings, and exact retained-function lookup does not yet map an
+upstream-qualified `main.list_value` to the registered built-in constructor. General
+objects, attachments, temporary scope and metadata catalogs remain G10 work.
 
 ## Native parsed expressions and values
 

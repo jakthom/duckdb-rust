@@ -188,8 +188,11 @@ Sources: `src/parser/`, `src/planner/binder/`, upstream `src/parser/`,
 **Current:** signed/unsigned widths, DECIMAL, FLOAT/DOUBLE, BIT, BIGNUM, BLOB,
 UUID and anonymous ENUM have implementations. Checked factorial and signed
 BIGINT/HUGEINT GCD/LCM families, including aliases and selected casts, now work
-through scalar/batch evaluation, mutations and reopen. The remaining conversion,
-operator, math and scalar-family catalog is still incomplete.
+through scalar/batch evaluation, mutations and reopen. A second numeric slice adds
+the pinned trigonometric/hyperbolic, angle, exponential, cube-root, `even`, `pi`,
+`signbit` and `nextafter` families, including strict-IEEE signed-NaN behavior. The
+remaining conversion, operator, math and scalar-family catalog is still incomplete;
+in particular power/log/gamma/binomial/bit-count/square-root families remain open.
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -215,8 +218,10 @@ Sources: `src/common/{types,numeric,scalar,bit,bignum}.rs`, `src/common/cast/`,
 plus selected arithmetic, calendar difference/truncation/bucket/format functions.
 `to_timestamp(DOUBLE)` retains ties-even microsecond rounding and its half-open
 range; development's interval normalization carries and borrows with Euclidean,
-saturating behavior. Remaining calendar, textual, transaction-time and ICU work
-is open.
+saturating behavior. ISO/BCE-aware `era`, `isoyear`, `week`/`weekofyear`, `weekday`,
+`yearweek` and `julian` extraction now works through named and generic aliases, with
+pinned NULL-overload and invalid-specifier ordering. Fixed-offset timezone extraction,
+text parsing, transaction-time and ICU work remains open.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -241,9 +246,13 @@ Sources: `src/common/temporal/`, `src/function/temporal/`,
 and native paths. LIST/ARRAY slicing now implements pinned 1-based inclusive,
 negative, omitted-bound and stride semantics through both evaluators and reopen;
 omitted syntax is retained as binder provenance and cannot be forged by a user
-empty-list expression. String/BLOB slicing and the broader nested catalog remain
-open. Core GEOMETRY is present in the pinned C++ type enum and absent from Rust's
-built-in DataType enum; it is not solely a spatial-extension question.
+empty-list expression. LIST/ARRAY contains/position/select/resize/reverse families
+now preserve ARRAY-to-LIST results, pinned NULL demand and bounded allocation. The
+shared multi-family `contains` name, higher-order/lambda functions and the broader
+nested catalog remain open. Native files produced upstream can still qualify retained
+list constructors as `main.list_value`, which the exact stored-function lookup does
+not yet resolve. Core GEOMETRY is present in the pinned C++ type enum and absent from
+Rust's built-in DataType enum; it is not solely a spatial-extension question.
 
 - **G05.1 Complete nested semantics.** Finish slicing, constructors/accessors,
   UNION promotion, STRUCT field combination, ARRAY shapes, MAP duplicates/lookup,
@@ -402,8 +411,13 @@ Runtime catalog/object IDs now separate stable object identity from observed cat
 version, legacy adapters fail closed at identity-aware boundaries, a bidirectional
 checked dependency graph plans deterministic RESTRICT/CASCADE order, and a pure
 search-path model matches pinned parsing and implicit lookup order. These contracts
-are not yet adopted by snapshots, transactions, DDL or session settings. Three
-built-in setting definitions exist; there is no general catalog object model.
+are now adopted by snapshot schema/table DDL and transaction publication. Runtime
+registries rebuild fresh non-wire identities on reopen, enforce table-to-schema
+dependencies, preserve identity across rename, reject drop/recreate replacements and
+reuse one prepared insertion identity across transaction-current/catalog-basis views.
+The binder and logical/physical plans still carry names rather than stable bindings,
+and the pure search path is not yet connected to session resolution. Three built-in
+setting definitions exist; there is no general catalog object model.
 
 - **G10.1 Establish identity and dependencies.** Add catalog/object IDs, search paths,
   dependency tracking, invalidation, temporary object scope and transaction visibility.
