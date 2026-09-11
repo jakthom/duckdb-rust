@@ -2,6 +2,12 @@
 
 This is an in-progress part of the [value-and-expression milestone](../specs/value-expression-milestone.md), not a completed family or parity claim.
 
+The [native typed Value metadata prerequisite](nested-value-metadata.md) adds
+bounded nested literal read/write helpers and 81 independent C++ producer
+fixtures, with 157/157 exact-content reader checks. Parsed DEFAULT expression
+and catalog integration remain separate; the helper registrations stay
+test-only until the integration owner wires those callers.
+
 The [native VARIANT WAL codec increment](nested-variant-wal.md) adds bounded
 read/write vector handling and independent producer fixtures while preserving
 the separate successor/WAL publication gates.
