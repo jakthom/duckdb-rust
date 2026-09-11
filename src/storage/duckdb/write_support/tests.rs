@@ -28,6 +28,16 @@ fn write_versions_separate_raw_headers_recursive_table_gates_and_log_capabilitie
         let identity = CheckpointIdentity::read(&bytes)?;
         assert_eq!(identity.storage_version(), version);
         assert_eq!(
+            format
+                .checkpoint_encoder(&bytes)?
+                .unwrap()
+                .storage_version(),
+            Some(crate::storage::format::StorageVersion {
+                format: crate::storage::format::DUCKDB_FORMAT,
+                version,
+            })
+        );
+        assert_eq!(
             (identity.main_version, identity.database_version),
             new_headers(version)?
         );
@@ -44,6 +54,10 @@ fn write_versions_separate_raw_headers_recursive_table_gates_and_log_capabilitie
             ] {
                 assert_eq!(checkpoint_type(&ty, version).is_ok(), version >= required);
                 assert!(matches!(wal_type(&ty), Err(Error::Unsupported(_))));
+                assert_eq!(
+                    wal_type_at(&ty, Some(version)).is_ok(),
+                    required == 69 && version == 69
+                );
                 let name = TableName::main("t");
                 let mut snapshot = Snapshot::default();
                 snapshot.create_table(
@@ -100,6 +114,65 @@ fn write_versions_separate_raw_headers_recursive_table_gates_and_log_capabilitie
         ),
         Err(Error::Unsupported(_))
     ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn log_storage_compatibility_is_validated_and_cannot_change_during_rebase() -> Result<()> {
+    use crate::storage::{
+        format::{DUCKDB_FORMAT, JSON_FORMAT, StorageVersion},
+        layout::CheckpointLayout,
+        log::LogCheckpoint,
+    };
+    let log = wal::writer::DuckDbTransactionLog;
+    let snapshot = Snapshot::default();
+    let query = QueryContext::background();
+    for (format, version) in [(JSON_FORMAT, 69), (DUCKDB_FORMAT, 999), (DUCKDB_FORMAT, 0)] {
+        assert!(matches!(
+            log.start_at(&snapshot, Some(StorageVersion { format, version }), &query),
+            Err(Error::Unsupported(_))
+        ));
+    }
+    let session = log
+        .start_at(
+            &snapshot,
+            Some(StorageVersion {
+                format: DUCKDB_FORMAT,
+                version: 68,
+            }),
+            &query,
+        )?
+        .session;
+    let format = DuckDbFormat::default().with_storage_version(69)?;
+    let bytes = format.encode(&snapshot)?;
+    let layout = CheckpointLayout::identity(&snapshot)?;
+    assert!(matches!(
+        session.rebase(
+            LogCheckpoint {
+                format: &format,
+                logical: &snapshot,
+                physical: &snapshot,
+                bytes: &bytes,
+                layout: &layout,
+            },
+            &query
+        ),
+        Err(Error::Internal(_))
+    ));
+    let correct = DuckDbFormat::default()
+        .with_storage_version(68)?
+        .encode(&snapshot)?;
+    session.rebase(
+        LogCheckpoint {
+            format: &format,
+            logical: &snapshot,
+            physical: &snapshot,
+            bytes: &correct,
+            layout: &layout,
+        },
+        &query,
+    )?;
     Ok(())
 }
 

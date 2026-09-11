@@ -125,6 +125,12 @@ struct NativeCheckpointEncoder(CheckpointIdentity);
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl super::format::CheckpointEncoder for NativeCheckpointEncoder {
+    fn storage_version(&self) -> Option<super::format::StorageVersion> {
+        Some(super::format::StorageVersion {
+            format: super::format::DUCKDB_FORMAT,
+            version: self.0.storage_version(),
+        })
+    }
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>> {
         snapshot.validate()?;
         writer::encode_successor(snapshot, self.0)

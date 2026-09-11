@@ -42,17 +42,30 @@ pub(super) fn checkpoint_type(data_type: &DataType, version: u64) -> Result<()> 
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn wal_type(data_type: &DataType) -> Result<()> {
+    wal_type_at(data_type, None)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn wal_type_at(data_type: &DataType, version: Option<u64>) -> Result<()> {
+    if let Some(version) = version {
+        checkpoint_type(data_type, version)?;
+    }
     visit(data_type, |ty| {
         if let DataType::Nested(metadata) = ty {
             match metadata.as_ref() {
-                NestedType::Tuple(_) | NestedType::Variant => {
+                NestedType::Tuple(_) | NestedType::Variant if version.is_none() => {
                     return Err(Error::Unsupported(format!(
                         "native WAL publication for {ty} requires retained checkpoint capabilities"
                     )));
                 }
-                NestedType::Struct(fields) if fields.is_empty() => {
+                NestedType::Struct(fields) if fields.is_empty() && version.is_none() => {
                     return Err(Error::Unsupported(
                         "native WAL empty STRUCT requires retained checkpoint capabilities".into(),
+                    ));
+                }
+                NestedType::Variant => {
+                    return Err(Error::Unsupported(
+                        "native VARIANT WAL wire encoding".into(),
                     ));
                 }
                 _ => (),

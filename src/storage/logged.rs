@@ -178,7 +178,9 @@ impl Durability for FileWal {
         }
         let snapshot = self.checkpoint.load(types.clone())?;
         let context = QueryContext::background().with_types(types);
-        let start = self.encoder.start(&snapshot, &context)?;
+        let start =
+            self.encoder
+                .start_at(&snapshot, self.checkpoint.storage_version()?, &context)?;
         *state = State::Ready(Ready {
             session: start.session,
             length: 0,

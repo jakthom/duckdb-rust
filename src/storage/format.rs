@@ -9,6 +9,15 @@ pub struct FormatId(pub &'static str);
 pub const DUCKDB_FORMAT: FormatId = FormatId("duckdb");
 pub const JSON_FORMAT: FormatId = FormatId("duckdb-rust-json");
 
+/// Compatibility of a validated existing checkpoint, not a fresh-file preference
+/// or publication identity. The selected format defines this version namespace;
+/// a composed log must validate it before enabling version-dependent encodings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StorageVersion {
+    pub format: FormatId,
+    pub version: u64,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A selected format's owned publication state, bound from a validated image.
 /// It retains only the metadata needed to encode successors, not the previous
@@ -16,6 +25,11 @@ pub const JSON_FORMAT: FormatId = FormatId("duckdb-rust-json");
 /// caller binds the returned image's successor state before publishing bytes.
 pub trait CheckpointEncoder: Send + Sync {
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>>;
+    /// Compact metadata already bound from validated bytes. None grants no
+    /// version-dependent log capability. Never retain/reread the old table image.
+    fn storage_version(&self) -> Option<StorageVersion> {
+        None
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

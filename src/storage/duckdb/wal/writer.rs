@@ -7,7 +7,7 @@ use crate::{
     parallel::QueryContext,
     storage::{
         RowId,
-        format::{DUCKDB_FORMAT, FormatId},
+        format::{DUCKDB_FORMAT, FormatId, StorageVersion},
         log::{LogAppend, LogCheckpoint, LogSession, LogStart, TransactionChange, TransactionLog},
         table::Snapshot,
     },
@@ -29,6 +29,7 @@ struct TableState {
 struct Session {
     tables: BTreeMap<TableName, TableState>,
     entries: usize,
+    storage_version: Option<u64>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -40,11 +41,46 @@ impl TransactionLog for DuckDbTransactionLog {
         DUCKDB_FORMAT
     }
     fn start(&self, snapshot: &Snapshot, context: &QueryContext) -> Result<LogStart> {
+        Self::start_session(snapshot, None, context)
+    }
+    fn start_at(
+        &self,
+        snapshot: &Snapshot,
+        version: Option<StorageVersion>,
+        context: &QueryContext,
+    ) -> Result<LogStart> {
         context.check()?;
-        let mut session = Session::default();
+        if let Some(version) = version {
+            if version.format != DUCKDB_FORMAT {
+                return Err(Error::Unsupported(
+                    "checkpoint and transaction log format families differ".into(),
+                ));
+            }
+            super::super::write_support::new_headers(version.version)?;
+        }
+        Self::start_session(snapshot, version.map(|version| version.version), context)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl DuckDbTransactionLog {
+    fn start_session(
+        snapshot: &Snapshot,
+        version: Option<u64>,
+        context: &QueryContext,
+    ) -> Result<LogStart> {
+        context.check()?;
+        let mut session = Session {
+            storage_version: version,
+            ..Session::default()
+        };
         for definition in snapshot.tables()? {
             for column in &definition.columns {
-                super::super::write_support::wal_type(&column.data_type)?;
+                if version.is_none() {
+                    super::super::write_support::wal_type(&column.data_type)?;
+                } else {
+                    super::super::write_support::wal_type_at(&column.data_type, version)?;
+                }
             }
             let next = snapshot.next_row_id(&definition.name)?;
             session.tables.insert(
@@ -79,8 +115,16 @@ impl LogSession for Session {
                 "checkpoint and transaction log format families differ".into(),
             ));
         }
-        super::super::CheckpointIdentity::read(checkpoint.bytes)?;
+        let identity = super::super::CheckpointIdentity::read(checkpoint.bytes)?;
+        let version = identity.storage_version();
+        if self
+            .storage_version
+            .is_some_and(|previous| previous != version)
+        {
+            return Err(invalid("checkpoint storage compatibility changed"));
+        }
         let mut next = self.clone();
+        next.storage_version = Some(version);
         let mut logical_layout = CheckpointLayout::default();
         if checkpoint.logical.tables()?.len() != next.tables.len()
             || checkpoint.layout.tables.len() != next.tables.len()
@@ -160,7 +204,10 @@ impl LogSession for Session {
                 }
                 TransactionChange::CreateTable(definition) => {
                     for column in &definition.columns {
-                        super::super::write_support::wal_type(&column.data_type)?;
+                        super::super::write_support::wal_type_at(
+                            &column.data_type,
+                            next.storage_version,
+                        )?;
                     }
                     if next.tables.contains_key(&definition.name) {
                         return Err(invalid("duplicate table"));
@@ -196,7 +243,10 @@ impl LogSession for Session {
                         return Err(invalid("no-op alteration in journal"));
                     };
                     for column in &definition.columns {
-                        super::super::write_support::wal_type(&column.data_type)?;
+                        super::super::write_support::wal_type_at(
+                            &column.data_type,
+                            next.storage_version,
+                        )?;
                     }
                     if next.tables.contains_key(&definition.name) {
                         return Err(invalid("altered table collision"));

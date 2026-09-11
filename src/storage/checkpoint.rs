@@ -119,6 +119,32 @@ impl FileCheckpoint {
     pub fn recovery(&self) -> Option<&dyn Recovery> {
         self.recovery.as_deref()
     }
+    /// Hand only format-owned compatibility metadata to the selected logger.
+    /// The bound encoder was installed by load; no file is reread or cached here.
+    pub(super) fn storage_version(&self) -> Result<Option<super::format::StorageVersion>> {
+        let publication = self
+            .publication
+            .lock()
+            .map_err(|_| Error::Internal("checkpoint publication mutex poisoned".into()))?;
+        let version = match &*publication {
+            PublicationState::Ready(Some(encoder)) => encoder.storage_version(),
+            PublicationState::Ready(None) => None,
+            PublicationState::Unloaded => {
+                return Err(Error::Internal("checkpoint has not been loaded".into()));
+            }
+            PublicationState::Uncertain => {
+                return Err(Error::CommitUnknown(
+                    "previous checkpoint publication failed".into(),
+                ));
+            }
+        };
+        if version.is_some_and(|version| version.format != self.format.format_id()) {
+            return Err(Error::Internal(
+                "checkpoint compatibility format differs from its encoder".into(),
+            ));
+        }
+        Ok(version)
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -32,6 +32,8 @@ use std::{
 mod exact;
 #[path = "checkpoint_publication.rs"]
 mod publication;
+#[path = "checkpoint_versions.rs"]
+mod versions;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn seed(path: &Path) -> Result<()> {

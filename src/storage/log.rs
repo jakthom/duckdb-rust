@@ -55,6 +55,23 @@ pub trait TransactionLog: Send + Sync {
     fn name(&self) -> &'static str;
     fn format_id(&self) -> FormatId;
     fn start(&self, snapshot: &Snapshot, context: &QueryContext) -> Result<LogStart>;
+    /// Start with compatibility retained by the actual checkpoint encoder.
+    /// Legacy adapters keep their existing semantics. Ignoring metadata grants
+    /// no additional wire capability, and None is not a fresh-version default.
+    fn start_at(
+        &self,
+        snapshot: &Snapshot,
+        version: Option<super::format::StorageVersion>,
+        context: &QueryContext,
+    ) -> Result<LogStart> {
+        context.check()?;
+        if version.is_some_and(|version| version.format != self.format_id()) {
+            return Err(crate::Error::Unsupported(
+                "checkpoint and transaction log format families differ".into(),
+            ));
+        }
+        self.start(snapshot, context)
+    }
 }
 
 pub struct LogStart {

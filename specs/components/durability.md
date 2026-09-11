@@ -97,10 +97,17 @@ and empty STRUCT at storage 69. Reading a shredded column does not require the
 successor writer to preserve its compression or shredding strategy, but it must
 preserve exact logical content and the existing file identity/version.
 
-WAL publication has a separate capability boundary. Until the selected log
-session retains the actual checkpoint version and supports the matching wire
-representation, reject VARIANT, TUPLE and empty STRUCT recursively before log
-publication. VARIANT recovery checkpoint publication also remains unavailable
+WAL publication has a separate capability boundary. The selected checkpoint
+encoder exposes compact, format-namespaced storage compatibility from validated
+existing bytes. The file layer hands it to the selected logger without rereading
+or retaining the prior table image. Missing metadata grants no newer capability;
+fresh-file preferences are not a substitute. Native sessions retain that version,
+check CREATE/ALTER recursively (including empty tables), and reject a changed
+version during checkpoint rebasing before replacing the live session. Legacy
+log adapters preserve their existing callback through a defaulted start hook.
+With actual storage 69 and the existing positional codecs, TUPLE and empty
+STRUCT can enter the WAL. VARIANT remains rejected until its separate wire and
+publication integration checks complete. VARIANT recovery checkpoint publication also remains unavailable
 until layout validation can compare canonicalized content exactly. SQL equality
 is not sufficient: equal numeric values with different tags, widths or floating
 bits are not interchangeable durable payloads. These are current implementation
