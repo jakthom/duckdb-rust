@@ -4,9 +4,11 @@ use crate::common::{DataType, Error, Result, Value};
 use expression::StoredExpression;
 
 mod alter;
+mod dependency;
 pub mod expression;
 mod identity;
 pub use alter::TableAlteration;
+pub use dependency::{DependencyGraph, DependentFlags, SubjectFlags};
 pub use identity::{
     CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, DropBehavior, ObjectId,
     ObjectIdentity, ResolvedTable, TableBinding,
