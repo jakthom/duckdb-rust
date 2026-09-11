@@ -4,7 +4,9 @@ use super::*;
 mod encoding;
 mod payload;
 mod shredded;
-#[cfg(test)]
+#[allow(dead_code)] // Reached through production typed-value codec consumers.
+// Typed native values use this bridge for unshredded VARIANT payloads, including
+// retained parsed-expression literals.
 pub(in crate::storage::duckdb) mod value;
 pub(in crate::storage::duckdb) mod wal;
 // Exact content traversal is an internal prerequisite for the format owner's

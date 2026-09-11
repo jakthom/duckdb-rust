@@ -4,12 +4,13 @@ mod columns;
 pub mod compression;
 mod nested;
 mod primitive;
-// Retained parsed codec is connected with the catalog-default migration.
-#[cfg(test)]
+#[allow(dead_code)] // Catalog-default integration consumes this crate-private API next.
+// Retained parsed expressions are native catalog metadata. The catalog-facing
+// boundary stays crate-private until the default lifecycle migrates.
 mod parsed;
 mod temporal;
-// Typed literal codec prerequisite; the parsed-expression owner wires callers.
-#[cfg(test)]
+#[allow(dead_code)] // Reached through the retained parsed-expression codec.
+// Parsed expressions share the native typed-value codec in production.
 mod value;
 #[cfg(test)]
 mod version_tests;
