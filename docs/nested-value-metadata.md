@@ -14,6 +14,23 @@ write_typed(output, declared_type, value, actual_storage_version,
             selected_types, query) -> Result<()>;
 ```
 
+The integration owner has added an internal `ValueCodec` session with `new`,
+`read_typed` and `write_typed` methods. One enclosing parsed-expression root must
+use one session so all literal payloads/metadata share the existing 16-million
+visit and 64-MiB budgets and selected binding cache. The convenience functions
+above create a single-member session. A failed member poisons its session;
+subsequent calls do not consume input or append output, and budget use is not
+rolled back. Individual writes remain staged; the expression owner must also
+stage the entire enclosing expression. This prevents multiplying the allowance
+by the number of literal expression leaves once the parsed codec is connected.
+
+Two new tests lower private test budgets to demonstrate aggregate byte/node
+exhaustion across otherwise valid members, no partial append, no resumption,
+mixed declared metadata and cancellation between members. All eleven codec
+tests, check/clippy and coverage pass (377 files/3,657 functions/239 methods,
+none missing). This is still an internal parsed-codec prerequisite; the next
+substantial integrated checkpoint runs the maintained Kani suite.
+
 Both module registrations (`duckdb::value` and `variant::value`) are initially
 `cfg(test)` prerequisites so no unused production interface or publication path
 is introduced before caller integration. Remove those two guards when wiring

@@ -116,7 +116,7 @@ pub(in crate::storage::duckdb) fn read_typed(
     types: &TypeRegistry,
     query: &QueryContext,
 ) -> Result<(DataType, Value)> {
-    read::value(reader, None, 0, &mut State::new(version, types, query)?)
+    ValueCodec::new(version, types, query)?.read_typed(reader)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -129,12 +129,65 @@ pub(in crate::storage::duckdb) fn write_typed(
     types: &TypeRegistry,
     query: &QueryContext,
 ) -> Result<()> {
-    let mut state = State::new(version, types, query)?;
-    let mut staged = Encoder::default();
-    write::value(&mut staged, declared, value, true, 0, &mut state)?;
-    query.check()?;
-    output.0.extend(staged.0);
-    Ok(())
+    ValueCodec::new(version, types, query)?.write_typed(output, declared, value)
+}
+
+/// One enclosing parsed-expression root owns one session. Literal values share
+/// metadata/payload budgets and retained selected bindings instead of receiving
+/// a fresh allowance for each expression leaf. A failed session cannot resume;
+/// its owner must abandon the complete enclosing root.
+pub(in crate::storage::duckdb) struct ValueCodec<'a> {
+    state: State<'a>,
+    failed: bool,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl<'a> ValueCodec<'a> {
+    pub(in crate::storage::duckdb) fn new(
+        version: u64,
+        types: &'a TypeRegistry,
+        query: &'a QueryContext,
+    ) -> Result<Self> {
+        Ok(Self {
+            state: State::new(version, types, query)?,
+            failed: false,
+        })
+    }
+    fn active(&self) -> Result<()> {
+        if self.failed {
+            return Err(Error::Internal(
+                "cannot reuse a failed native Value codec session".into(),
+            ));
+        }
+        Ok(())
+    }
+    pub(in crate::storage::duckdb) fn read_typed(
+        &mut self,
+        reader: &mut Reader,
+    ) -> Result<(DataType, Value)> {
+        self.active()?;
+        let result = read::value(reader, None, 0, &mut self.state)
+            .and_then(|value| self.state.query.check().map(|()| value));
+        self.failed = result.is_err();
+        result
+    }
+    /// Each member stages its bytes, while the enclosing expression owner must
+    /// additionally stage the whole root. Budget use is never rolled back.
+    pub(in crate::storage::duckdb) fn write_typed(
+        &mut self,
+        output: &mut Encoder,
+        declared: &DataType,
+        value: &Value,
+    ) -> Result<()> {
+        self.active()?;
+        let mut staged = Encoder::default();
+        let result = write::value(&mut staged, declared, value, true, 0, &mut self.state)
+            .and_then(|()| self.state.query.check());
+        self.failed = result.is_err();
+        result?;
+        output.0.extend(staged.0);
+        Ok(())
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

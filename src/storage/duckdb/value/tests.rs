@@ -3,6 +3,115 @@ mod failures;
 mod fixtures;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn literal_sessions_share_budgets_and_cannot_resume_after_failure() -> Result<()> {
+    let query = QueryContext::background();
+    let ty = DataType::Varchar;
+    let value = Value::Varchar("abc".into());
+    let bytes = encode(&ty, &value, 69, &query)?;
+    for byte_limited in [false, true] {
+        let mut writer = ValueCodec::new(69, query.types(), &query)?;
+        if byte_limited {
+            writer.state.bytes = 5;
+        } else {
+            writer.state.nodes = 3;
+        }
+        let mut output = Encoder::default();
+        writer.write_typed(&mut output, &ty, &value)?;
+        assert_eq!(output.0, bytes);
+        assert!(matches!(
+            writer.write_typed(&mut output, &ty, &value),
+            Err(Error::Resource(_))
+        ));
+        assert_eq!(
+            output.0, bytes,
+            "failed member must not append a partial object"
+        );
+        assert!(matches!(
+            writer.write_typed(&mut output, &ty, &Value::Null),
+            Err(Error::Internal(_))
+        ));
+        assert_eq!(output.0, bytes);
+
+        let mut reader = Reader::new([bytes.as_slice(), bytes.as_slice()].concat());
+        let mut codec = ValueCodec::new(69, query.types(), &query)?;
+        if byte_limited {
+            codec.state.bytes = 5;
+        } else {
+            codec.state.nodes = 3;
+        }
+        assert_eq!(codec.read_typed(&mut reader)?, (ty.clone(), value.clone()));
+        assert!(matches!(
+            codec.read_typed(&mut reader),
+            Err(Error::Resource(_))
+        ));
+        let position = reader.position;
+        assert!(matches!(
+            codec.read_typed(&mut reader),
+            Err(Error::Internal(_))
+        ));
+        assert_eq!(
+            reader.position, position,
+            "failed session must not consume another member"
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn literal_sessions_retain_mixed_metadata_and_cancel_between_members() -> Result<()> {
+    let interrupt = crate::parallel::InterruptHandle::default();
+    let query = QueryContext::new(interrupt.clone(), None, 2048, usize::MAX)?;
+    let values = [
+        (DataType::UTinyInt, Value::Unsigned(255)),
+        (
+            DataType::Decimal {
+                width: 12,
+                scale: 2,
+            },
+            Value::Decimal {
+                width: 12,
+                scale: 2,
+                value: 125,
+            },
+        ),
+        (
+            NestedType::List(DataType::TimestampNs).data_type(),
+            Value::Null,
+        ),
+    ];
+    let mut writer = ValueCodec::new(69, query.types(), &query)?;
+    let mut output = Encoder::default();
+    for (ty, value) in &values {
+        writer.write_typed(&mut output, ty, value)?;
+    }
+    let mut reader = Reader::new(output.0.clone());
+    let mut codec = ValueCodec::new(69, query.types(), &query)?;
+    for value in values {
+        assert_eq!(codec.read_typed(&mut reader)?, value);
+    }
+    assert!(reader.finished());
+    let original = output.0.clone();
+    interrupt.interrupt();
+    assert!(matches!(
+        writer.write_typed(&mut output, &DataType::Integer, &Value::Integer(1)),
+        Err(Error::Interrupted)
+    ));
+    assert_eq!(output.0, original);
+    assert!(matches!(
+        codec.read_typed(&mut Reader::new(vec![])),
+        Err(Error::Interrupted)
+    ));
+    interrupt.reset();
+    assert!(matches!(
+        writer.write_typed(&mut output, &DataType::Integer, &Value::Integer(1)),
+        Err(Error::Internal(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn encode(ty: &DataType, value: &Value, version: u64, query: &QueryContext) -> Result<Vec<u8>> {
     let mut output = Encoder::default();
     write_typed(&mut output, ty, value, version, query.types(), query)?;

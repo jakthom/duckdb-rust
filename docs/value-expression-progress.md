@@ -50,6 +50,28 @@ The following checkpoints integrate full timestamp payload validity, native
 typed-Value metadata prerequisites and selected native decode/encode context.
 No new follow-up push has occurred.
 
+## Increments after checkpoint fourteen
+
+The queued calendar overload consumer (`0101221`), selected ordinary/stored nested
+constructors (`551b693`) and nullable IEEE-setting prerequisite (`5fce9f2`) are
+integrated. Combined focused checks pass at `551b693`: contracts 76, nested 42,
+numeric 51, temporal 41, settings 11, casts 13 and types 24, with workspace check
+and all-target clippy. Coverage is 377 files/3,651 functions/239 methods, none
+missing. The IEEE math consumers and prepared-binding setting retention are not
+implemented by setting registration alone. The upcoming integrated checkpoint
+will validate this new source; checkpoint fourteen's proof result is not reused
+as its acceptance.
+
+The retained [numeric repair campaign](numeric-nullif-values-errors-reference.json)
+passes 944/944 development cases, 588/944 release cases and native 3/3 per pin,
+preserving all prior development passes. Its oracle compares retained value/type
+results and declared error categories, not complete error text. The
+[calendar diagnostic campaign](temporal-diagnostics.md) passes 800/827 exact
+development cases and 700/827 release cases with no lost passes; all 19 candidate
+bodies now match, but missing source-location suffixes remain failed full-message
+cases. Broader temporal development remains 1,288/1,289. These family reports do
+not replace a combined full-upstream or faster-reference performance refresh.
+
 ## Fourteenth integrated validation checkpoint
 
 Frozen engine `abf7eed` integrates selected native decoding (`b4a9c9b`) and
