@@ -29,7 +29,7 @@ fn native_log_retains_actual_version_through_typed_mutations_checkpoint_and_reop
                 let checkpoint = FileCheckpoint::new(storage, selected.clone())
                     .with_recovery(Arc::new(DuckDbWalRecovery))?;
                 let wal = FileWal::new(checkpoint, Arc::new(DuckDbTransactionLog))?
-                    .with_checkpoint_policy(None);
+                    .with_checkpoint_policy(super::policy(preference == 69));
                 let transactions =
                     Arc::new(SnapshotTransactions::with_indexes(Arc::new(wal), indexes)?);
                 let database = DatabaseBuilder::new()
@@ -73,6 +73,35 @@ fn native_log_retains_actual_version_through_typed_mutations_checkpoint_and_reop
                         vec![vec![Value::Integer(1)], vec![Value::Integer(1)]]
                     );
                 }
+                let dynamic_expected = if version >= 68 {
+                    c.execute("CREATE TABLE dynamic_values(i INTEGER PRIMARY KEY,v VARIANT,vs VARIANT[]); INSERT INTO dynamic_values VALUES(1,CAST({'d':1.25::DECIMAL(12,2),'ts':'2024-02-29 12:34:56.123456789'::TIMESTAMP_NS,'a':[1,NULL]::INTEGER[2]} AS VARIANT),[1::VARIANT,NULL]),(2,NULL,[])")?;
+                    let value =
+                        c.query("SELECT v FROM dynamic_values WHERE i=1")?.rows[0][0].clone();
+                    let prepared = c.prepare("UPDATE dynamic_values SET v=$1 WHERE i=$2")?;
+                    c.execute_prepared(&prepared, &[value.clone(), Value::Integer(2)])?;
+                    let before_rollback = fs::read(path.with_extension("duckdb.wal"))?;
+                    c.execute("BEGIN; UPDATE dynamic_values SET v=42::VARIANT; DELETE FROM dynamic_values WHERE i=2; ROLLBACK")?;
+                    assert!(fs::read(path.with_extension("duckdb.wal"))? == before_rollback);
+                    c.execute("DELETE FROM dynamic_values WHERE i=1; CHECKPOINT; UPDATE dynamic_values SET i=12 WHERE i=2")?;
+                    c.execute_prepared(&prepared, &[value, Value::Integer(12)])?;
+                    c.execute("CHECKPOINT; INSERT INTO dynamic_values VALUES(22,NULL,NULL)")?;
+                    assert_eq!(c.query("SELECT a.i,b.i,row_number() OVER(ORDER BY a.i) FROM dynamic_values a JOIN dynamic_values b ON a.v=b.v")?.rows, vec![vec![Value::Integer(12),Value::Integer(12),Value::Integer(1)]]);
+                    assert_eq!(
+                        c.query(
+                            "SELECT count(*) FROM dynamic_values GROUP BY v ORDER BY count(*)"
+                        )?
+                        .rows,
+                        vec![vec![Value::Integer(1)], vec![Value::Integer(1)]]
+                    );
+                    Some(
+                        c.query(
+                            "SELECT i,variant_typeof(v),v::VARCHAR FROM dynamic_values ORDER BY i",
+                        )?
+                        .rows,
+                    )
+                } else {
+                    None
+                };
                 let actual = selected
                     .checkpoint_encoder(&fs::read(&path)?)?
                     .unwrap()
@@ -88,6 +117,14 @@ fn native_log_retains_actual_version_through_typed_mutations_checkpoint_and_reop
                 drop(database);
                 drop(transactions);
                 let mut readonly = Database::open_read_only(&path)?.connect();
+                if let Some(expected) = dynamic_expected {
+                    assert_eq!(
+                        readonly
+                            .query("SELECT i,variant_typeof(v),v::VARCHAR FROM dynamic_values ORDER BY i")?
+                            .rows,
+                        expected,
+                    );
+                }
                 if version == 69 {
                     assert_eq!(
                         readonly.query("SELECT i FROM t ORDER BY i")?.rows,

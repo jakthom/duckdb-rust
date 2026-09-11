@@ -157,7 +157,7 @@ fn variant_wal_vectors_preserve_exact_tags_bits_and_nested_nulls() -> Result<()>
     let after = canonical::encode(&recovered, &selected, 0, &mut { MAX_CELLS }, &query)?;
     assert_eq!(before, after); // Deterministic wire payload includes raw float bits.
     assert!(super::super::super::super::write_support::wal_type(&ty).is_err());
-    assert!(super::super::super::super::write_support::successor_type(&ty).is_err());
+    assert!(super::super::super::super::write_support::wal_type_at(&ty, Some(68)).is_ok());
     Ok(())
 }
 

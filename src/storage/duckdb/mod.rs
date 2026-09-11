@@ -106,11 +106,6 @@ impl SnapshotFormat for DuckDbFormat {
         previous: &[u8],
     ) -> Result<super::layout::CheckpointImage> {
         snapshot.validate()?;
-        for table in crate::catalog::Catalog::tables(snapshot)? {
-            for column in table.columns {
-                write_support::successor_type(&column.data_type)?;
-            }
-        }
         Ok(super::layout::CheckpointImage {
             bytes: writer::encode_successor(snapshot, CheckpointIdentity::read(previous)?)?,
             layout: super::layout::CheckpointLayout::compacted(snapshot)?,

@@ -47,3 +47,11 @@ Coverage finds no missing instrumentation across 330 files, 3,080 functions and
 217 interface methods. Traced all-target compilation passes in 48.744 seconds,
 with no errors, panics or open spans; temporary telemetry is deleted. These
 results precede the next combined workspace/exploratory Kani checkpoint.
+
+The subsequent [versioned WAL integration](wal-storage-version.md) combines this
+validator with actual checkpoint compatibility and the native VARIANT wire
+codec. Both read-only replay and writable recovery now pass the worker's 15
+independent C++ commit/rollback boundaries; the new six-version bidirectional
+campaign also passes its seven stages each. Non-NULL nested DEFAULT native
+serialization remains separately unsupported. The earlier closed-gate remarks
+above describe the prerequisite, not the current integrated capability.

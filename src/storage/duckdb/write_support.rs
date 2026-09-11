@@ -63,29 +63,10 @@ pub(super) fn wal_type_at(data_type: &DataType, version: Option<u64>) -> Result<
                         "native WAL empty STRUCT requires retained checkpoint capabilities".into(),
                     ));
                 }
-                NestedType::Variant => {
-                    return Err(Error::Unsupported(
-                        "native VARIANT WAL wire encoding".into(),
-                    ));
-                }
                 _ => (),
             }
         }
         primitive::type_id(ty).map(|_| ())
-    })
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn successor_type(data_type: &DataType) -> Result<()> {
-    visit(data_type, |ty| {
-        if matches!(ty, DataType::Nested(metadata) if matches!(metadata.as_ref(), NestedType::Variant))
-        {
-            return Err(Error::Unsupported(
-                "native VARIANT recovery publication requires exact canonical layout validation"
-                    .into(),
-            ));
-        }
-        Ok(())
     })
 }
 

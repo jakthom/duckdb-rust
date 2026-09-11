@@ -4,7 +4,8 @@ The [accepted milestone](../specs/value-expression-milestone.md) remains active.
 The integration branch combines scalar, temporal and nested worker increments;
 none of those families, or the larger milestone, is declared complete here.
 
-Latest integrated source: `27d190b`. This includes recursive bit-exact nested
+Latest pushed, fully regression-checked engine: `27d190b`, in report commit
+`9e19237`. This includes recursive bit-exact nested
 checkpoint validation, ordered CASE/collection coercion, full-width integer
 literals, ABS, calendar difference functions, native row-ID gaps/free tails and
 historical/current deletion-mask compatibility. Full workspace check/tests and
@@ -16,6 +17,25 @@ decreased passed-record prefix against the last pushed checkpoint, `135eece`
 (engine `88e9094`). This ninth checkpoint is validated for the follow-up push;
 the broader milestone remains active. Earlier sections retain historical
 results and limits.
+
+## Continuing versioned WAL integration
+
+The lead's [exact format-owned layout validation](variant-checkpoint-equivalence.md)
+and [actual storage-version handoff](wal-storage-version.md) now combine with
+the worker's native VARIANT WAL codec. Both recovery preparation and live-session
+rebasing validate canonical values before publication. Actual storage 68 carries
+VARIANT, and 69 additionally carries TUPLE/empty STRUCT, including nested children.
+The initial six-version bidirectional WAL campaign passes all seven stages each;
+15 independently produced C++ commit/rollback boundaries also survive writable
+Rust recovery. Full workspace/tracing/exploratory Kani validation follows this
+integrated increment. The ninth checkpoint remains the latest measured performance
+and full-upstream acceptance; no new follow-up push has occurred.
+
+Scalar full-width inference and temporal physical-constant provenance continue
+in separate worker increments. Their shared defaulted interfaces are integrated;
+their family implementations and directly affected COALESCE/NULLIF behavior need
+the next combined regression checkpoint. Stored DEFAULT expressions, native
+non-NULL nested defaults and the broader milestone remain open.
 
 ## Ninth integrated implementation checkpoint
 

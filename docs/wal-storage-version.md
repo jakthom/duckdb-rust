@@ -31,3 +31,31 @@ metadata and a rejected compatibility-changing rebase followed by a valid retry.
 This is not yet an independent C++ WAL-reader or performance acceptance claim.
 Combined workspace, tracing and exploratory Kani results follow integration of
 the corresponding native VARIANT wire slice and family increments.
+
+## Integrated native WAL path
+
+The integrated four-child VARIANT wire codec now enables actual storage 68+
+sessions and exact recovery/checkpoint publication. Version 69's TUPLE and empty
+STRUCT path remains independently gated. Missing compatibility metadata still
+rejects these newer types. The version-crossing test now exercises both manual
+and automatic checkpoint policies, VARIANT parameters with decimal/timestamp/
+array content, relational comparisons/groups/windows, rollback, rebasing and
+exact live-versus-reopened display/type results.
+
+The [initial bidirectional WAL campaign](fresh-native-wal-initial.json) passes
+all six versions and seven stages each using a debug Rust shell: creation,
+initial checkpoint, rollback, Rust commit, C++ commit, a subsequent Rust commit,
+and final checkpoint. Both C++ pins read storage 64–68; development also reads
+69, which release rejects as expected. Rust reads every independent development
+twin. Checkpoint identity/version and expected WAL presence/retirement are
+verified; the source fingerprint remains unchanged. These are correctness
+observations, not production timing evidence.
+
+An old test deliberately expected all newer types to be unsupported even in a
+storage-69 WAL. That assertion was updated to test real storage-64 rejection
+without byte changes; positive 68/69 paths now have connected coverage. A new
+test initially expected generic `OBJECT` and SQL NULL from `variant_typeof`;
+the established contract is ordered `OBJECT(d, ts, a)` and `VARIANT_NULL`.
+The test now compares complete live and reopened type/text rows, while the
+independent campaign supplies the development oracle. Neither required an
+engine-semantic workaround or an upstream assertion change.

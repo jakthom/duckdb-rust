@@ -217,10 +217,12 @@ fn native_version_gates_reject_empty_nested_tables_and_wal_without_changing_file
     }
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("wal.duckdb");
+    // With retained capabilities, the failure is the actual old file version,
+    // not a blanket rejection of every newer type on every native WAL.
     let checkpoint = FileCheckpoint::open(
         &path,
         OpenMode::ReadWrite,
-        Arc::new(DuckDbFormat::default().with_storage_version(69)?),
+        Arc::new(DuckDbFormat::default().with_storage_version(64)?),
     )?
     .with_recovery(Arc::new(DuckDbWalRecovery))?;
     let mut c = DatabaseBuilder::new()
@@ -236,7 +238,7 @@ fn native_version_gates_reject_empty_nested_tables_and_wal_without_changing_file
         "CREATE TABLE bad AS SELECT struct_pack() v",
     ] {
         assert!(
-            matches!(c.execute(sql), Err(Error::Unsupported(_))),
+            matches!(c.execute(sql), Err(Error::InvalidInput(_))),
             "{sql}"
         );
         assert!(!path.with_extension("duckdb.wal").exists());
@@ -245,7 +247,7 @@ fn native_version_gates_reject_empty_nested_tables_and_wal_without_changing_file
     let log = fs::read(path.with_extension("duckdb.wal"))?;
     assert!(matches!(
         c.execute("ALTER TABLE t ADD COLUMN v VARIANT"),
-        Err(Error::Unsupported(_))
+        Err(Error::InvalidInput(_))
     ));
     assert!(
         fs::read(path.with_extension("duckdb.wal"))? == log,

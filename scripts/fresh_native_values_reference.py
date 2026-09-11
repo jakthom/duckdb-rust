@@ -48,6 +48,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rust", type=Path, default=ROOT / "target/release/duckdb-rust")
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--durability", choices=("checkpoint", "wal"), default="checkpoint")
     parser.add_argument("--failure-fixtures", type=Path,
                         help="Export failed Rust/development twin images into a new fixture directory")
     args = parser.parse_args()
@@ -60,8 +61,9 @@ def main():
               "source_sha256": before, "rust_binary_sha256": digest(args.rust),
               "shell_sha256": digest(ROOT / "tools/shell/main.rs"),
               "script_sha256": digest(Path(__file__)), "references": {}, "cases": [],
-              "scope": __doc__, "full_parity": False}
+              "scope": __doc__, "durability": args.durability, "full_parity": False}
     engines = {"rust": Engine(args.rust, True)}
+    rust_writer = Engine(args.rust, True, ("--durability", args.durability))
     for target in ("development", "release"):
         require_checkout(TARGETS[target].source, target)
         binary, identity = require_reference(target=target)
@@ -75,33 +77,45 @@ def main():
             case = {"version": version, "setup": sql, "query": query, "stages": []}
             report["cases"].append(case)
             try:
-                command(Engine(args.rust, True, ("--storage-version", str(version))), path, sql)
+                command(Engine(args.rust, True, ("--storage-version", str(version), "--durability", args.durability)), path, sql)
                 command(engines["development"], Path(":memory:"),
                         f"ATTACH '{twin}' AS db (STORAGE_VERSION '{spelling}'); USE db; {sql}; CHECKPOINT")
                 initial = header(path)
                 case["header_created"] = initial
-                for label, mutation, writer in [
+                stages = [
                     ("created", "", "rust"),
                     ("rollback", "BEGIN; UPDATE t SET id=id+10; DELETE FROM t WHERE id=12; ROLLBACK", "rust"),
                     ("rust_commit", "UPDATE t SET id=id+10 WHERE id=1; DELETE FROM t WHERE id=2", "rust"),
                     ("cpp_commit", "UPDATE t SET xs=[3,NULL,4],n={'d':56.78,'ts':TIMESTAMP_NS '2025-02-03 04:05:06.987654321'} WHERE id=11; CHECKPOINT", "development"),
                     ("rust_after_cpp", "UPDATE t SET id=21,xs=[5,NULL] WHERE id=11", "rust"),
-                ]:
+                ]
+                if args.durability == "wal":
+                    stages.insert(1, ("rust_initial_checkpoint", "CHECKPOINT", "rust"))
+                    stages.append(("rust_final_checkpoint", "CHECKPOINT", "rust"))
+                for label, mutation, writer in stages:
                     previous = digest(path)
                     if mutation:
-                        command(engines[writer], path, mutation)
+                        command(rust_writer if writer == "rust" else engines[writer], path, mutation)
                         command(engines["development"], twin, mutation)
                     expected = result(engines["development"], twin, query)
                     stage = {"name": label, "mutation": mutation, "expected": expected,
                              "readers": {kind: result(engine, path, query) for kind, engine in engines.items()},
                              "rust_reads_development_twin": result(engines["rust"], twin, query),
                              "header": header(path)}
+                    if args.durability == "wal":
+                        log = path.with_suffix(path.suffix + ".wal")
+                        stage["log_bytes"] = log.stat().st_size if log.exists() else 0
+                        stage["log_sha256"] = digest(log) if log.exists() else None
+                        stage["log_publication_matches_stage"] = (
+                            stage["log_bytes"] > 0 if label in ("created", "rust_commit", "rust_after_cpp")
+                            else stage["log_bytes"] == 0)
                     stage["version_preserved"] = stage["header"]["effective"] == version
                     stage["identity_preserved"] = stage["header"]["identifier"] == initial["identifier"]
                     stage["rollback_unchanged"] = label != "rollback" or digest(path) == previous
                     stage["passed"] = ("rows" in expected and stage["readers"]["rust"] == stage["readers"]["development"] == expected
                                        and stage["rust_reads_development_twin"] == expected
-                                       and stage["version_preserved"] and stage["identity_preserved"] and stage["rollback_unchanged"])
+                                       and stage["version_preserved"] and stage["identity_preserved"] and stage["rollback_unchanged"]
+                                       and stage.get("log_publication_matches_stage", True))
                     stage["release_agrees"] = stage["readers"]["release"] == expected
                     case["stages"].append(stage)
                 case["passed"] = all(stage["passed"] for stage in case["stages"])

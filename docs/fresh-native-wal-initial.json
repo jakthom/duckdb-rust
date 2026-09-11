@@ -1,0 +1,4637 @@
+{
+  "recorded_at": "2026-09-11T00:17:49.222019+00:00",
+  "source_sha256": "175fa5a417503b4caa459465206cccf3f76b9b9c98e312774b1819c9d02ad129",
+  "rust_binary_sha256": "cb894e277960bd3ec9747e4c5f949786ccd33fe6da90cfd278cba6a03e136cef",
+  "shell_sha256": "0f51a93153a7bf9dc0a7d1610edbf88f55728de51e54991abfdbf50bd8ba0bd7",
+  "script_sha256": "efe82aa5ea156f234473eade4a1a7c2723a18ee9c43aacd0cb03853183010282",
+  "references": {
+    "development": {
+      "target": "development",
+      "required_version": "2.0.0-dev84019",
+      "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+      "reported_source_id": "99063af2bd",
+      "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+      "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+    },
+    "release": {
+      "target": "release",
+      "required_version": "1.5.5",
+      "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+      "reported_source_id": "d8cdaa33fd",
+      "version": "v1.5.5 (Variegata) d8cdaa33fd",
+      "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+      "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+    }
+  },
+  "cases": [
+    {
+      "version": 64,
+      "setup": "CREATE TABLE t(id INTEGER PRIMARY KEY,n STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs INTEGER[],b BLOB,u UHUGEINT); INSERT INTO t VALUES (1,{'d':12.34,'ts':TIMESTAMP_NS '2024-01-02 03:04:05.123456789'},[1,NULL,2],'a\\x00b'::BLOB,'340282366920938463463374607431768211455'::UHUGEINT),(2,NULL,[],''::BLOB,0)",
+      "query": "SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text FROM t ORDER BY id",
+      "stages": [
+        {
+          "name": "created",
+          "mutation": "",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 64,
+            "database": 1,
+            "effective": 64,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 1,
+            "root": 0
+          },
+          "log_bytes": 693,
+          "log_sha256": "9835fdf4ab2c2a601796ec9872d27efbd9c32dae555fd17b61f09c62a043cb72",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_initial_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 64,
+            "database": 1,
+            "effective": 64,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rollback",
+          "mutation": "BEGIN; UPDATE t SET id=id+10; DELETE FROM t WHERE id=12; ROLLBACK",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 64,
+            "database": 1,
+            "effective": 64,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_commit",
+          "mutation": "UPDATE t SET id=id+10 WHERE id=1; DELETE FROM t WHERE id=2",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 11,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 11,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 64,
+            "database": 1,
+            "effective": 64,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 490,
+          "log_sha256": "c2cde17619711d626d1322e2bbd99e20f6ede9026afac59fb8aafff6c158c9a4",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "cpp_commit",
+          "mutation": "UPDATE t SET xs=[3,NULL,4],n={'d':56.78,'ts':TIMESTAMP_NS '2025-02-03 04:05:06.987654321'} WHERE id=11; CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[3, NULL, 4]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 11,
+                  "items": "[3, NULL, 4]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 11,
+                "items": "[3, NULL, 4]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 64,
+            "database": 1,
+            "effective": 64,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 576460752303423489
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_after_cpp",
+          "mutation": "UPDATE t SET id=21,xs=[5,NULL] WHERE id=11",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 64,
+            "database": 1,
+            "effective": 64,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 576460752303423489
+          },
+          "log_bytes": 378,
+          "log_sha256": "9fdc1a814480e84df81240f37b7c90393d4823bf24d712ed04b9d7a4428ab47e",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_final_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 64,
+            "database": 1,
+            "effective": 64,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 4,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        }
+      ],
+      "header_created": {
+        "main": 64,
+        "database": 1,
+        "effective": 64,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "passed": true
+    },
+    {
+      "version": 65,
+      "setup": "CREATE TABLE t(id INTEGER PRIMARY KEY,n STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs INTEGER[],b BLOB,u UHUGEINT); INSERT INTO t VALUES (1,{'d':12.34,'ts':TIMESTAMP_NS '2024-01-02 03:04:05.123456789'},[1,NULL,2],'a\\x00b'::BLOB,'340282366920938463463374607431768211455'::UHUGEINT),(2,NULL,[],''::BLOB,0)",
+      "query": "SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text FROM t ORDER BY id",
+      "stages": [
+        {
+          "name": "created",
+          "mutation": "",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 65,
+            "database": 4,
+            "effective": 65,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 1,
+            "root": 0
+          },
+          "log_bytes": 693,
+          "log_sha256": "9835fdf4ab2c2a601796ec9872d27efbd9c32dae555fd17b61f09c62a043cb72",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_initial_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 65,
+            "database": 4,
+            "effective": 65,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rollback",
+          "mutation": "BEGIN; UPDATE t SET id=id+10; DELETE FROM t WHERE id=12; ROLLBACK",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 65,
+            "database": 4,
+            "effective": 65,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_commit",
+          "mutation": "UPDATE t SET id=id+10 WHERE id=1; DELETE FROM t WHERE id=2",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 11,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 11,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 65,
+            "database": 4,
+            "effective": 65,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 490,
+          "log_sha256": "c2cde17619711d626d1322e2bbd99e20f6ede9026afac59fb8aafff6c158c9a4",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "cpp_commit",
+          "mutation": "UPDATE t SET xs=[3,NULL,4],n={'d':56.78,'ts':TIMESTAMP_NS '2025-02-03 04:05:06.987654321'} WHERE id=11; CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[3, NULL, 4]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 11,
+                  "items": "[3, NULL, 4]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 11,
+                "items": "[3, NULL, 4]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 65,
+            "database": 4,
+            "effective": 65,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 576460752303423489
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_after_cpp",
+          "mutation": "UPDATE t SET id=21,xs=[5,NULL] WHERE id=11",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 65,
+            "database": 4,
+            "effective": 65,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 576460752303423489
+          },
+          "log_bytes": 378,
+          "log_sha256": "9fdc1a814480e84df81240f37b7c90393d4823bf24d712ed04b9d7a4428ab47e",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_final_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 65,
+            "database": 4,
+            "effective": 65,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 4,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        }
+      ],
+      "header_created": {
+        "main": 65,
+        "database": 4,
+        "effective": 65,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "passed": true
+    },
+    {
+      "version": 66,
+      "setup": "CREATE TABLE t(id INTEGER PRIMARY KEY,n STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs INTEGER[],b BLOB,u UHUGEINT); INSERT INTO t VALUES (1,{'d':12.34,'ts':TIMESTAMP_NS '2024-01-02 03:04:05.123456789'},[1,NULL,2],'a\\x00b'::BLOB,'340282366920938463463374607431768211455'::UHUGEINT),(2,NULL,[],''::BLOB,0)",
+      "query": "SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text FROM t ORDER BY id",
+      "stages": [
+        {
+          "name": "created",
+          "mutation": "",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 66,
+            "database": 5,
+            "effective": 66,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 1,
+            "root": 0
+          },
+          "log_bytes": 693,
+          "log_sha256": "9835fdf4ab2c2a601796ec9872d27efbd9c32dae555fd17b61f09c62a043cb72",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_initial_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 66,
+            "database": 5,
+            "effective": 66,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rollback",
+          "mutation": "BEGIN; UPDATE t SET id=id+10; DELETE FROM t WHERE id=12; ROLLBACK",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 66,
+            "database": 5,
+            "effective": 66,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_commit",
+          "mutation": "UPDATE t SET id=id+10 WHERE id=1; DELETE FROM t WHERE id=2",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 11,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 11,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 66,
+            "database": 5,
+            "effective": 66,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 490,
+          "log_sha256": "c2cde17619711d626d1322e2bbd99e20f6ede9026afac59fb8aafff6c158c9a4",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "cpp_commit",
+          "mutation": "UPDATE t SET xs=[3,NULL,4],n={'d':56.78,'ts':TIMESTAMP_NS '2025-02-03 04:05:06.987654321'} WHERE id=11; CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[3, NULL, 4]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 11,
+                  "items": "[3, NULL, 4]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 11,
+                "items": "[3, NULL, 4]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 66,
+            "database": 5,
+            "effective": 66,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 576460752303423489
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_after_cpp",
+          "mutation": "UPDATE t SET id=21,xs=[5,NULL] WHERE id=11",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 66,
+            "database": 5,
+            "effective": 66,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 576460752303423489
+          },
+          "log_bytes": 378,
+          "log_sha256": "9fdc1a814480e84df81240f37b7c90393d4823bf24d712ed04b9d7a4428ab47e",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_final_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 66,
+            "database": 5,
+            "effective": 66,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 4,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        }
+      ],
+      "header_created": {
+        "main": 66,
+        "database": 5,
+        "effective": 66,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "passed": true
+    },
+    {
+      "version": 67,
+      "setup": "CREATE TABLE t(id INTEGER PRIMARY KEY,n STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs INTEGER[],b BLOB,u UHUGEINT); INSERT INTO t VALUES (1,{'d':12.34,'ts':TIMESTAMP_NS '2024-01-02 03:04:05.123456789'},[1,NULL,2],'a\\x00b'::BLOB,'340282366920938463463374607431768211455'::UHUGEINT),(2,NULL,[],''::BLOB,0)",
+      "query": "SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text FROM t ORDER BY id",
+      "stages": [
+        {
+          "name": "created",
+          "mutation": "",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 67,
+            "database": 6,
+            "effective": 67,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 1,
+            "root": 0
+          },
+          "log_bytes": 693,
+          "log_sha256": "9835fdf4ab2c2a601796ec9872d27efbd9c32dae555fd17b61f09c62a043cb72",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_initial_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 67,
+            "database": 6,
+            "effective": 67,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rollback",
+          "mutation": "BEGIN; UPDATE t SET id=id+10; DELETE FROM t WHERE id=12; ROLLBACK",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 67,
+            "database": 6,
+            "effective": 67,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_commit",
+          "mutation": "UPDATE t SET id=id+10 WHERE id=1; DELETE FROM t WHERE id=2",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "id": 11,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "id": 11,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 67,
+            "database": 6,
+            "effective": 67,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 432345564227567617
+          },
+          "log_bytes": 490,
+          "log_sha256": "c2cde17619711d626d1322e2bbd99e20f6ede9026afac59fb8aafff6c158c9a4",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "cpp_commit",
+          "mutation": "UPDATE t SET xs=[3,NULL,4],n={'d':56.78,'ts':TIMESTAMP_NS '2025-02-03 04:05:06.987654321'} WHERE id=11; CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[3, NULL, 4]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 11,
+                  "items": "[3, NULL, 4]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 11,
+                "items": "[3, NULL, 4]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 67,
+            "database": 6,
+            "effective": 67,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 576460752303423489
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_after_cpp",
+          "mutation": "UPDATE t SET id=21,xs=[5,NULL] WHERE id=11",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 67,
+            "database": 6,
+            "effective": 67,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 576460752303423489
+          },
+          "log_bytes": 378,
+          "log_sha256": "9fdc1a814480e84df81240f37b7c90393d4823bf24d712ed04b9d7a4428ab47e",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_final_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 67,
+            "database": 6,
+            "effective": 67,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 4,
+            "root": 432345564227567617
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        }
+      ],
+      "header_created": {
+        "main": 67,
+        "database": 6,
+        "effective": 67,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "passed": true
+    },
+    {
+      "version": 68,
+      "setup": "CREATE TABLE t(id INTEGER PRIMARY KEY,n STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs INTEGER[],b BLOB,u UHUGEINT,v VARIANT,vs VARIANT[]); INSERT INTO t VALUES (1,{'d':12.34,'ts':TIMESTAMP_NS '2024-01-02 03:04:05.123456789'},[1,NULL,2],'a\\x00b'::BLOB,'340282366920938463463374607431768211455'::UHUGEINT,CAST({'d':12.34::DECIMAL(8,2),'ts':TIMESTAMP_NS '2024-01-02 03:04:05.123456789','items':[1,NULL,2]} AS VARIANT),[1::VARIANT,NULL]),(2,NULL,[],''::BLOB,0,NULL,[])",
+      "query": "SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,variant_typeof(v) AS dynamic_type,vs::VARCHAR AS dynamic_items FROM t ORDER BY id",
+      "stages": [
+        {
+          "name": "created",
+          "mutation": "",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "dynamic_items": "[]"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "dynamic_items": "[]",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "dynamic_items": "[]",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 68,
+            "database": 7,
+            "effective": 68,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 1,
+            "root": 0
+          },
+          "log_bytes": 2317,
+          "log_sha256": "cba0bffc150b9ba106c4f583e66d79c0dfedce7f398476e7b10b82ebfffb94b9",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_initial_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "dynamic_items": "[]"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "dynamic_items": "[]",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "dynamic_items": "[]",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 68,
+            "database": 7,
+            "effective": 68,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 576460752303423489
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rollback",
+          "mutation": "BEGIN; UPDATE t SET id=id+10; DELETE FROM t WHERE id=12; ROLLBACK",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "dynamic_items": "[]"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "dynamic_items": "[]",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "dynamic_items": "[]",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 68,
+            "database": 7,
+            "effective": 68,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 576460752303423489
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_commit",
+          "mutation": "UPDATE t SET id=id+10 WHERE id=1; DELETE FROM t WHERE id=2",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "id": 11,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "id": 11,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 68,
+            "database": 7,
+            "effective": 68,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 576460752303423489
+          },
+          "log_bytes": 1500,
+          "log_sha256": "14d65f638d3dd856ad37d8249a58402ad15edff99015dca3e2244042c3421395",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "cpp_commit",
+          "mutation": "UPDATE t SET xs=[3,NULL,4],n={'d':56.78,'ts':TIMESTAMP_NS '2025-02-03 04:05:06.987654321'} WHERE id=11; CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[3, NULL, 4]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "id": 11,
+                  "items": "[3, NULL, 4]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "id": 11,
+                "items": "[3, NULL, 4]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 68,
+            "database": 7,
+            "effective": 68,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 720575940379279361
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_after_cpp",
+          "mutation": "UPDATE t SET id=21,xs=[5,NULL] WHERE id=11",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 68,
+            "database": 7,
+            "effective": 68,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 720575940379279361
+          },
+          "log_bytes": 1388,
+          "log_sha256": "a149a3c944fd95c33932594ddd8fdad60493d7ff041bc885cdb0816e54a24f5e",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        },
+        {
+          "name": "rust_final_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                }
+              ]
+            },
+            "release": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]"
+                }
+              ]
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 68,
+            "database": 7,
+            "effective": 68,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 4,
+            "root": 576460752303423489
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": true
+        }
+      ],
+      "header_created": {
+        "main": 68,
+        "database": 7,
+        "effective": 68,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "passed": true
+    },
+    {
+      "version": 69,
+      "setup": "CREATE TABLE t(id INTEGER PRIMARY KEY,n STRUCT(d DECIMAL(12,2),ts TIMESTAMP_NS),xs INTEGER[],b BLOB,u UHUGEINT,v VARIANT,vs VARIANT[],p TUPLE(DECIMAL(8,2),TIMESTAMP_NS)); INSERT INTO t VALUES (1,{'d':12.34,'ts':TIMESTAMP_NS '2024-01-02 03:04:05.123456789'},[1,NULL,2],'a\\x00b'::BLOB,'340282366920938463463374607431768211455'::UHUGEINT,CAST({'d':12.34::DECIMAL(8,2),'ts':TIMESTAMP_NS '2024-01-02 03:04:05.123456789','items':[1,NULL,2]} AS VARIANT),[1::VARIANT,NULL],row(12.34,TIMESTAMP_NS '2024-01-02 03:04:05.123456789')),(2,NULL,[],''::BLOB,0,NULL,[],row(NULL,NULL)); CREATE TABLE empty_values AS SELECT row() e,struct_pack() s",
+      "query": "SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,variant_typeof(v) AS dynamic_type,vs::VARCHAR AS dynamic_items,p::VARCHAR AS tuple_text,typeof(p) AS tuple_type,e::VARCHAR AS empty_tuple,s::VARCHAR AS empty_struct FROM t CROSS JOIN empty_values ORDER BY id",
+      "stages": [
+        {
+          "name": "created",
+          "mutation": "",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "dynamic_items": "[]",
+                "tuple_text": "(NULL, NULL)",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "dynamic_items": "[]",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "tuple_text": "(NULL, NULL)",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]",
+                  "tuple_text": "(NULL, NULL)",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                }
+              ]
+            },
+            "release": {
+              "error": "duckdb: SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,varian\nIO Error: Trying to read a database file with version number 69, but we can only read versions between 64 and 68.\nThe database file was created with an newer version of DuckDB.\n\nNewer DuckDB version might introduce backward incompatible changes (possibly guarded by compatibility settings).\nSee the storage page for migration strategy and more information: https://duckdb.org/internals/storage\n"
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "dynamic_items": "[]",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "tuple_text": "(NULL, NULL)",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 69,
+            "database": 69,
+            "effective": 69,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 1,
+            "root": 0
+          },
+          "log_bytes": 2790,
+          "log_sha256": "22c37adb3bc6378c56708bf5bce597db47456e095d1c7655384a1d5627d5d4e6",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": false
+        },
+        {
+          "name": "rust_initial_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "dynamic_items": "[]",
+                "tuple_text": "(NULL, NULL)",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "dynamic_items": "[]",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "tuple_text": "(NULL, NULL)",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]",
+                  "tuple_text": "(NULL, NULL)",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                }
+              ]
+            },
+            "release": {
+              "error": "duckdb: SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,varian\nIO Error: Trying to read a database file with version number 69, but we can only read versions between 64 and 68.\nThe database file was created with an newer version of DuckDB.\n\nNewer DuckDB version might introduce backward incompatible changes (possibly guarded by compatibility settings).\nSee the storage page for migration strategy and more information: https://duckdb.org/internals/storage\n"
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "dynamic_items": "[]",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "tuple_text": "(NULL, NULL)",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 69,
+            "database": 69,
+            "effective": 69,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 864691128455135232
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": false
+        },
+        {
+          "name": "rollback",
+          "mutation": "BEGIN; UPDATE t SET id=id+10; DELETE FROM t WHERE id=12; ROLLBACK",
+          "expected": {
+            "rows": [
+              {
+                "id": 1,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              },
+              {
+                "id": 2,
+                "amount": null,
+                "stamp": null,
+                "items": "[]",
+                "binary_text": "",
+                "unsigned_text": "0",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "dynamic_items": "[]",
+                "tuple_text": "(NULL, NULL)",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 1,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                },
+                {
+                  "amount": null,
+                  "binary_text": "",
+                  "dynamic_items": "[]",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 2,
+                  "items": "[]",
+                  "stamp": null,
+                  "tuple_text": "(NULL, NULL)",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "0"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 1,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                },
+                {
+                  "id": 2,
+                  "amount": null,
+                  "stamp": null,
+                  "items": "[]",
+                  "binary_text": "",
+                  "unsigned_text": "0",
+                  "dynamic_text": null,
+                  "dynamic_type": "VARIANT_NULL",
+                  "dynamic_items": "[]",
+                  "tuple_text": "(NULL, NULL)",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                }
+              ]
+            },
+            "release": {
+              "error": "duckdb: SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,varian\nIO Error: Trying to read a database file with version number 69, but we can only read versions between 64 and 68.\nThe database file was created with an newer version of DuckDB.\n\nNewer DuckDB version might introduce backward incompatible changes (possibly guarded by compatibility settings).\nSee the storage page for migration strategy and more information: https://duckdb.org/internals/storage\n"
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 1,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              },
+              {
+                "amount": null,
+                "binary_text": "",
+                "dynamic_items": "[]",
+                "dynamic_text": null,
+                "dynamic_type": "VARIANT_NULL",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 2,
+                "items": "[]",
+                "stamp": null,
+                "tuple_text": "(NULL, NULL)",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "0"
+              }
+            ]
+          },
+          "header": {
+            "main": 69,
+            "database": 69,
+            "effective": 69,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 864691128455135232
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": false
+        },
+        {
+          "name": "rust_commit",
+          "mutation": "UPDATE t SET id=id+10 WHERE id=1; DELETE FROM t WHERE id=2",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "12.34",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "items": "[1, NULL, 2]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "12.34",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 11,
+                  "items": "[1, NULL, 2]",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "12.34",
+                  "stamp": "2024-01-02 03:04:05.123456789",
+                  "items": "[1, NULL, 2]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                }
+              ]
+            },
+            "release": {
+              "error": "duckdb: SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,varian\nIO Error: Trying to read a database file with version number 69, but we can only read versions between 64 and 68.\nThe database file was created with an newer version of DuckDB.\n\nNewer DuckDB version might introduce backward incompatible changes (possibly guarded by compatibility settings).\nSee the storage page for migration strategy and more information: https://duckdb.org/internals/storage\n"
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "12.34",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 11,
+                "items": "[1, NULL, 2]",
+                "stamp": "2024-01-02 03:04:05.123456789",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 69,
+            "database": 69,
+            "effective": 69,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 2,
+            "root": 864691128455135232
+          },
+          "log_bytes": 1590,
+          "log_sha256": "1d973463d95a2f772be7fe1c1aab2f2af5e94fa6ea96f6c5a7f5e82d782e9d9b",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": false
+        },
+        {
+          "name": "cpp_commit",
+          "mutation": "UPDATE t SET xs=[3,NULL,4],n={'d':56.78,'ts':TIMESTAMP_NS '2025-02-03 04:05:06.987654321'} WHERE id=11; CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 11,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[3, NULL, 4]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 11,
+                  "items": "[3, NULL, 4]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 11,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[3, NULL, 4]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                }
+              ]
+            },
+            "release": {
+              "error": "duckdb: SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,varian\nIO Error: Trying to read a database file with version number 69, but we can only read versions between 64 and 68.\nThe database file was created with an newer version of DuckDB.\n\nNewer DuckDB version might introduce backward incompatible changes (possibly guarded by compatibility settings).\nSee the storage page for migration strategy and more information: https://duckdb.org/internals/storage\n"
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 11,
+                "items": "[3, NULL, 4]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 69,
+            "database": 69,
+            "effective": 69,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 1008806316530991104
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": false
+        },
+        {
+          "name": "rust_after_cpp",
+          "mutation": "UPDATE t SET id=21,xs=[5,NULL] WHERE id=11",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                }
+              ]
+            },
+            "release": {
+              "error": "duckdb: SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,varian\nIO Error: Trying to read a database file with version number 69, but we can only read versions between 64 and 68.\nThe database file was created with an newer version of DuckDB.\n\nNewer DuckDB version might introduce backward incompatible changes (possibly guarded by compatibility settings).\nSee the storage page for migration strategy and more information: https://duckdb.org/internals/storage\n"
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 69,
+            "database": 69,
+            "effective": 69,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 3,
+            "root": 1008806316530991104
+          },
+          "log_bytes": 1478,
+          "log_sha256": "e17530980a8f5eadce14b4a165585b10b77e46247107d71ccb59de35d78f70a6",
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": false
+        },
+        {
+          "name": "rust_final_checkpoint",
+          "mutation": "CHECKPOINT",
+          "expected": {
+            "rows": [
+              {
+                "id": 21,
+                "amount": "56.78",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "items": "[5, NULL]",
+                "binary_text": "610062",
+                "unsigned_text": "340282366920938463463374607431768211455",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "dynamic_items": "[1, NULL]",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "empty_tuple": "()",
+                "empty_struct": "{}"
+              }
+            ]
+          },
+          "readers": {
+            "rust": {
+              "rows": [
+                {
+                  "amount": "56.78",
+                  "binary_text": "610062",
+                  "dynamic_items": "[1, NULL]",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "empty_struct": "{}",
+                  "empty_tuple": "()",
+                  "id": 21,
+                  "items": "[5, NULL]",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "unsigned_text": "340282366920938463463374607431768211455"
+                }
+              ]
+            },
+            "development": {
+              "rows": [
+                {
+                  "id": 21,
+                  "amount": "56.78",
+                  "stamp": "2025-02-03 04:05:06.987654321",
+                  "items": "[5, NULL]",
+                  "binary_text": "610062",
+                  "unsigned_text": "340282366920938463463374607431768211455",
+                  "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                  "dynamic_type": "OBJECT(d, ts, items)",
+                  "dynamic_items": "[1, NULL]",
+                  "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                  "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                  "empty_tuple": "()",
+                  "empty_struct": "{}"
+                }
+              ]
+            },
+            "release": {
+              "error": "duckdb: SELECT id,n.d::VARCHAR AS amount,n.ts::VARCHAR AS stamp,xs::VARCHAR AS items,hex(b) AS binary_text,u::VARCHAR AS unsigned_text,v::VARCHAR AS dynamic_text,varian\nIO Error: Trying to read a database file with version number 69, but we can only read versions between 64 and 68.\nThe database file was created with an newer version of DuckDB.\n\nNewer DuckDB version might introduce backward incompatible changes (possibly guarded by compatibility settings).\nSee the storage page for migration strategy and more information: https://duckdb.org/internals/storage\n"
+            }
+          },
+          "rust_reads_development_twin": {
+            "rows": [
+              {
+                "amount": "56.78",
+                "binary_text": "610062",
+                "dynamic_items": "[1, NULL]",
+                "dynamic_text": "{'d': 12.34, 'ts': '2024-01-02 03:04:05.123456789', 'items': [1, NULL, 2]}",
+                "dynamic_type": "OBJECT(d, ts, items)",
+                "empty_struct": "{}",
+                "empty_tuple": "()",
+                "id": 21,
+                "items": "[5, NULL]",
+                "stamp": "2025-02-03 04:05:06.987654321",
+                "tuple_text": "(12.34, '2024-01-02 03:04:05.123456789')",
+                "tuple_type": "TUPLE(DECIMAL(8,2), TIMESTAMP_NS)",
+                "unsigned_text": "340282366920938463463374607431768211455"
+              }
+            ]
+          },
+          "header": {
+            "main": 69,
+            "database": 69,
+            "effective": 69,
+            "identifier": "00000000000000000000000000000000",
+            "iteration": 4,
+            "root": 864691128455135232
+          },
+          "log_bytes": 0,
+          "log_sha256": null,
+          "log_publication_matches_stage": true,
+          "version_preserved": true,
+          "identity_preserved": true,
+          "rollback_unchanged": true,
+          "passed": true,
+          "release_agrees": false
+        }
+      ],
+      "header_created": {
+        "main": 69,
+        "database": 69,
+        "effective": 69,
+        "identifier": "00000000000000000000000000000000",
+        "iteration": 1,
+        "root": 0
+      },
+      "passed": true
+    }
+  ],
+  "scope": "Check Rust-created native storage 64–69 with both pinned C++ readers.\n\nDevelopment-mutated twin files are the content oracle. Release version limits\nremain explicit. This is selected bidirectional compatibility, not performance.\n",
+  "durability": "wal",
+  "full_parity": false,
+  "source_unchanged": true,
+  "passed": true
+}

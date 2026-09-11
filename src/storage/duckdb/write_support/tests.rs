@@ -54,10 +54,7 @@ fn write_versions_separate_raw_headers_recursive_table_gates_and_log_capabilitie
             ] {
                 assert_eq!(checkpoint_type(&ty, version).is_ok(), version >= required);
                 assert!(matches!(wal_type(&ty), Err(Error::Unsupported(_))));
-                assert_eq!(
-                    wal_type_at(&ty, Some(version)).is_ok(),
-                    required == 69 && version == 69
-                );
+                assert_eq!(wal_type_at(&ty, Some(version)).is_ok(), version >= required);
                 let name = TableName::main("t");
                 let mut snapshot = Snapshot::default();
                 snapshot.create_table(
@@ -76,12 +73,14 @@ fn write_versions_separate_raw_headers_recursive_table_gates_and_log_capabilitie
                         crate::catalog::Catalog::tables(&restored)?[0].columns[0].data_type,
                         ty
                     );
-                    if required == 68 {
-                        assert!(matches!(
-                            format.encode_successor(&snapshot, &bytes),
-                            Err(Error::Unsupported(_))
-                        ));
-                    }
+                    let successor = format.encode_successor(&snapshot, &bytes)?;
+                    let restored = format.decode(successor.bytes, snapshot.type_registry())?;
+                    snapshot.validate_checkpoint_layout_for(
+                        &restored,
+                        &successor.layout,
+                        &format,
+                        &QueryContext::background(),
+                    )?;
                 }
                 assert!(matches!(
                     wal::writer::DuckDbTransactionLog.start(&snapshot, &QueryContext::background()),

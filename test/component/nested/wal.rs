@@ -140,7 +140,7 @@ fn independent_fixture(suite: &str, fields: &[&str]) -> Result<()> {
                 );
                 assert_eq!(fs::read(&path)?, checkpoint);
                 assert_eq!(fs::read(&wal_path)?, log[..end]);
-                if suite == "wal-nested-paths" && end > 0 {
+                if matches!(suite, "wal-nested-paths" | "wal-variant") && end > 0 {
                     drop(c);
                     let mut c = open(&path)?.connect();
                     assert_eq!(c.query(case["query"].as_str().unwrap())?.rows, expected);

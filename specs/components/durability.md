@@ -106,12 +106,13 @@ check CREATE/ALTER recursively (including empty tables), and reject a changed
 version during checkpoint rebasing before replacing the live session. Legacy
 log adapters preserve their existing callback through a defaulted start hook.
 With actual storage 69 and the existing positional codecs, TUPLE and empty
-STRUCT can enter the WAL. VARIANT remains rejected until its separate wire and
-publication integration checks complete. VARIANT recovery checkpoint publication also remains unavailable
-until layout validation can compare canonicalized content exactly. SQL equality
+STRUCT can enter the WAL. At actual storage 68 or newer, VARIANT uses the native
+four-child vector codec and format-owned exact canonical validation during
+recovery/checkpoint publication. Unknown version metadata still rejects newer
+types recursively. SQL equality
 is not sufficient: equal numeric values with different tags, widths or floating
-bits are not interchangeable durable payloads. These are current implementation
-limits, not a reduced target for the value-and-expression milestone.
+bits are not interchangeable durable payloads. Remaining codec/default limits
+are not a reduced target for the value-and-expression milestone.
 
 Strict physical layout validation must compare floating-point bits recursively,
 not just in top-level columns. It must accept identical nested NaN payloads and
