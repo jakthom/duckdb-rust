@@ -329,8 +329,9 @@ trees, including absence, declared literal type and syntax provenance. SQL
 CREATE/SET/ADD captures and binds closed defaults without executing them. INSERT and
 ADD demand are deferred; ADD evaluates once in retained physical-slot order and a
 successful explicit checkpoint reclaims only the current snapshot's slots. Native
-checkpoint/WAL expression codecs are connected. Cross-process lifecycle coverage and
-automatic-policy in-memory reclamation remain open.
+checkpoint/WAL expression codecs are connected. Representable built-in FUNCTION
+defaults now have bidirectional checkpoint/WAL acceptance against the pinned
+development process. Automatic-policy in-memory reclamation remains open.
 
 - **G09.1 Retain catalog expressions — implemented core.** Optional owned expressions
   now retain declared types, aliases/argument provenance, qualification, operators
@@ -338,7 +339,7 @@ automatic-policy in-memory reclamation remain open.
 - **G09.2 Connect DDL and evaluation demand — implemented core.** Capture CREATE/SET/ADD defaults without
   eager execution. Evaluate omitted INSERT values and ADD backfill at the reference
   demand point, including deleted physical rows and checkpoint reclamation.
-- **G09.3 Connect native serialization.** Integrate the existing parsed/value codecs,
+- **G09.3 Connect native serialization — implemented representable core.** Integrate the existing parsed/value codecs,
   unresolved/named type binding, private format, native checkpoints and WAL. Support
   reference-valid version conversions and reject unrepresentable conversions explicitly.
 - **G09.4 Finish lifetime/effect semantics (selected lifecycle implemented).** Closed

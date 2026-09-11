@@ -515,6 +515,66 @@ fn existing_literal_defaults_are_evaluated_after_publication_and_reopen() -> Res
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn independent_cpp_function_default_is_retained_until_rust_insert_demand() -> Result<()> {
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("test/data/duckdb/default-function-development");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("manifest.json"))?)
+            .map_err(|error| Error::Execution(error.to_string()))?;
+    assert_eq!(
+        manifest["writer"]["required_revision"],
+        "99063af2bd7092aff02e14184a20e24699d34d71"
+    );
+    let mut checkpoint = Vec::new();
+    flate2::read::GzDecoder::new(fs::File::open(root.join("default_function.duckdb.gz"))?)
+        .read_to_end(&mut checkpoint)?;
+    assert_eq!(
+        checkpoint.len() as u64,
+        manifest["checkpoint_bytes"].as_u64().unwrap()
+    );
+
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("default_function.duckdb");
+    fs::write(&path, checkpoint)?;
+    let mut connection = Database::open(&path)?.connect();
+    assert_eq!(
+        connection
+            .query("SELECT id,hex(payload),hex(deferred) FROM cpp_origin")?
+            .rows,
+        vec![vec![
+            Value::Integer(1),
+            Value::Varchar("00".into()),
+            Value::Varchar("01".into()),
+        ]]
+    );
+    connection.execute("INSERT INTO cpp_origin(id,deferred) VALUES (2,from_base64('Ag=='))")?;
+    assert!(
+        connection
+            .execute("INSERT INTO cpp_origin(id) VALUES (3)")
+            .is_err()
+    );
+    assert_eq!(
+        connection
+            .query("SELECT id,hex(payload),hex(deferred) FROM cpp_origin ORDER BY id")?
+            .rows,
+        vec![
+            vec![
+                Value::Integer(1),
+                Value::Varchar("00".into()),
+                Value::Varchar("01".into()),
+            ],
+            vec![
+                Value::Integer(2),
+                Value::Varchar("00FF".into()),
+                Value::Varchar("02".into()),
+            ],
+        ]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn alp_and_alprd_preserve_both_floating_widths_and_ieee_extrema() -> Result<()> {
     let directory = tempfile::tempdir()?;
     for name in ["alp_float", "alprd"] {

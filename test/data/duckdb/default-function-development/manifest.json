@@ -1,0 +1,15 @@
+{
+  "writer": {
+    "target": "development",
+    "required_version": "2.0.0-dev84019",
+    "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "reported_source_id": "99063af2bd",
+    "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+    "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+  },
+  "sql": "\nSET storage_compatibility_version='v1.5.0';\nCREATE TABLE cpp_origin(\n    id INTEGER,\n    payload BLOB DEFAULT from_base64('AP8='),\n    deferred BLOB DEFAULT from_base64('%%%')\n);\nINSERT INTO cpp_origin VALUES (1,from_base64('AA=='),from_base64('AQ=='));\nCHECKPOINT;\n",
+  "checkpoint_bytes": 536576,
+  "checkpoint_sha256": "f4579b74842327757caa404e73e69e9ce35e70accc5bdaab9fe4d6750d60e6bf",
+  "fixture_sha256": "3bedc2e0d6c3b296699dcd528ad2effa98c5933ad26c3fb68ef1eed55e5663d0"
+}

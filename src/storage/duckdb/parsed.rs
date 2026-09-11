@@ -1,5 +1,7 @@
 //! Retained ParsedExpression wire objects. No SQL parsing, binding, casts or
-//! expression evaluation occurs here. One root owns all materialization budgets.
+//! expression evaluation occurs here. Query-location field 103 is a start offset;
+//! storage 69 may additionally carry its byte length in field 104. One root owns
+//! all materialization budgets.
 use super::{
     binary::{Encoder, Reader, corrupt},
     value::ValueCodec,

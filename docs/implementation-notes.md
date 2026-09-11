@@ -34,6 +34,14 @@ interchangeable operation, and an insertion that is rolled back does not establi
 the same retained state. Neither visible cardinality nor historical next_row_id
 alone captures the required lifetime. Test all three histories across reopen.
 
+The pinned 1.5.5 release cannot replay a SET DEFAULT FUNCTION record from its
+own WAL during startup (`GetDefaultDatabase` is unavailable at that phase). Use
+the pinned development process for FUNCTION-default WAL interoperability; the
+release remains valid for checkpoint-origin cases.
+`scripts/default_interoperability_reference.py` owns the bidirectional process
+check, and `scripts/generate_default_function_fixture.py` owns the checked-in
+pinned-development checkpoint used by the focused Rust regression.
+
 Relevant sources: Rust `src/catalog/expression.rs`, `src/planner/binder/stored.rs`,
 `src/planner/stored.rs`, `src/storage/duckdb/catalog/constant.rs`; upstream
 `src/planner/binder/statement/bind_create_table.cpp`,

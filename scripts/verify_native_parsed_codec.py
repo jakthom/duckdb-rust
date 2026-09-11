@@ -2,8 +2,9 @@
 
 This is a codec prerequisite campaign, not DEFAULT/catalog or SQL acceptance.
 Raw wire, full source inventory and diagnostic display are retained. The oracle
-compares inventories and display separately; source locations are not retained by
-the Rust IR. Exact scalar payload coverage belongs to the typed-Value campaign.
+compares inventories and display separately. The Rust IR and wire retain optional
+diagnostic source spans, but this campaign does not yet compare their positions.
+Exact scalar payload coverage belongs to the typed-Value campaign.
 """
 import argparse
 from datetime import datetime, timezone
