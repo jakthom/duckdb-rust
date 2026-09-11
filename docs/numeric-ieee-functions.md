@@ -68,3 +68,28 @@ coordinated shared work. No runtime settings read has been inserted into the
 existing arithmetic kernel, and no aggregate/vector performance paths changed.
 
 No performance or Kani result is claimed by this read-only initial inventory.
+
+## Setting prerequisite
+
+The selected builtin setting now declares the source BOOLEAN metadata, true
+default, session-default scope and both global/session support. Normalization
+preserves Boolean and NULL payloads; current_setting therefore retains NULL
+instead of replacing it with true. Existing configuration providers own
+publication, reset, cancellation and snapshot lifetimes unchanged.
+
+Three connected tests run with both snapshot and locked providers, covering
+global/session precedence, independent connections, NULL masking and reset,
+retained snapshots, nontransactional SET across rollback, numeric SQL casts,
+failed-input atomicity, selected Boolean cast replacement, Resource failure and
+invalid callback output. An initial replacement test passed an Arc to a builder
+method that accepts an owned CastRegistry; that test-only compile error was
+corrected before final verification. Check, settings 11, all-target clippy,
+coverage (374 files / 3,604 functions / 239 interface methods, missing 0) and
+trace compatibility pass. No new math consumer or prepared retention behavior
+is claimed by this prerequisite; it is an internal step toward the next slice.
+
+The invalid-string SET category remains the existing Conversion-versus-native-
+InvalidInput gap. A direct BoundCast::attempt call could retain cast failure
+origin but would bypass the selected expression evaluator used by SET today;
+that shortcut is not used. A retained origin-aware context/wrapper needs shared
+coordination before fixing the category. No comparator has been changed.

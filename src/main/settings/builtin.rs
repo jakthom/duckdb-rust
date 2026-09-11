@@ -6,10 +6,40 @@ struct OrderingSetting {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut SettingRegistry) {
+    registry
+        .register(Arc::new(IeeeFloatingPointSetting))
+        .expect("unique IEEE floating point setting");
     for nulls in [false, true] {
         registry
             .register(Arc::new(OrderingSetting { nulls }))
             .expect("unique ordering setting");
+    }
+}
+
+#[derive(Debug)]
+struct IeeeFloatingPointSetting;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Setting for IeeeFloatingPointSetting {
+    fn definition(&self) -> SettingDefinition {
+        SettingDefinition {
+            name: "ieee_floating_point_ops".into(),
+            aliases: vec![],
+            data_type: DataType::Boolean,
+            default: Value::Boolean(true),
+            default_scope: SettingScope::Session,
+            global: true,
+            session: true,
+        }
+    }
+    fn normalize(&self, value: &Value, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        match value {
+            // NULL remains observable in current_setting. The consuming native
+            // typed getter uses the default without rewriting stored metadata.
+            Value::Boolean(_) | Value::Null => Ok(value.clone()),
+            _ => Err(Error::Internal("IEEE setting input was not BOOLEAN".into())),
+        }
     }
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

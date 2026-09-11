@@ -10,6 +10,8 @@ use duckdb_rust::{
 use std::sync::Arc;
 #[path = "settings/contracts.rs"]
 mod contracts;
+#[path = "settings/ieee.rs"]
+mod ieee;
 #[path = "../runner/mod.rs"]
 mod runner;
 #[path = "settings/values.rs"]
