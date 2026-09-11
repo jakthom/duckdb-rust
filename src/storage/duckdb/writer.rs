@@ -1,4 +1,3 @@
-pub(super) mod constant;
 mod index;
 
 use super::binary::{Encoder, checksum, corrupt};

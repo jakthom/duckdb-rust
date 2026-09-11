@@ -2,12 +2,6 @@ mod constant;
 mod unbound;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn constant_expression(
-    reader: &mut super::binary::Reader,
-) -> crate::Result<crate::Value> {
-    constant::read(reader, 0)
-}
-
 use super::{
     binary::{Reader, corrupt},
     columns,
