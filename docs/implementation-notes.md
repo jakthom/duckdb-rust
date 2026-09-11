@@ -136,8 +136,11 @@ ambiguous downgrade is rejected before publication.
 
 CAST target metadata and materialized Value support have different version gates:
 a type can be a valid CAST target in a version that cannot store that Value payload.
-UNBOUND parsed type syntax needs selected type/catalog binding. Unknown ordered
-fields cannot be safely skipped without knowing their wire layout.
+Native UNBOUND metadata is resolved only from its side-effect-free serialized type
+tree into concrete built-in scalar or nested types, sharing the enclosing Value
+codec's depth/node/byte/cancellation budgets. Qualified, user-defined and extension
+types still need selected catalog binding. Unknown ordered fields cannot be safely
+skipped without knowing their wire layout.
 
 One codec session bounds an entire recursive root. Current retained-tree limits
 are depth 64, 16,384 nodes and 16 MiB of identifier bytes; the typed-Value session
@@ -230,6 +233,14 @@ Generated math catalog aliases are callable by quoted identifier. This does not 
 SQL grammar for exponentiation or postfix factorial. Gamma/log-gamma use the selected
 statement IEEE setting, `binom` owns checked HUGEINT overflow and cancellation, and
 `isnan` retains exact FLOAT/DOUBLE overloads.
+
+Binary `decode` first validates UTF-8 and therefore does not inspect its optional
+mode for valid input. For malformed input, development-authoritative `ignore`
+reconsiders a mismatching continuation byte and `replace` writes one `?` for every
+consumed malformed byte. Provably NULL arguments suppress all siblings; a dynamic
+NULL preserves ordinary left-to-right demand. `unbin` places a partial leading group
+in the low bits of its first byte. Both codecs use bounded owned output and poll long
+scans rather than aliasing their source values.
 
 The IEEE floating-point setting is registered and selected math consumers exist.
 Already-prepared binding/settings retention remains its own issue: reevaluating

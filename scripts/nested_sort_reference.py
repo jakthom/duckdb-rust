@@ -400,7 +400,7 @@ def run_native(engines, rust_binary, directory):
     for producer in ("development", "release"):
         path = directory / f"nested-sort-defaults-{producer}.duckdb"
         case = {"producer": producer, "kind": "retained_defaults", "storage_version": 68,
-                "supported_by_rust": False, "stages": [], "passed": False}
+                "supported_by_rust": True, "stages": [], "passed": False}
         cases.append(case)
         try:
             create_native(producer, engines[producer], rust_binary, path, defaults_setup_sql())
@@ -408,6 +408,7 @@ def run_native(engines, rust_binary, directory):
             case["initial_header"] = initial
             for row_id, (stage_name, writer) in enumerate([
                 ("created", None),
+                ("rust_default_insert", "rust"),
                 ("development_default_insert", "development"),
                 ("release_default_insert", "release"),
             ], 1):
@@ -418,28 +419,21 @@ def run_native(engines, rust_binary, directory):
                     name: outcome(engine, DEFAULT_QUERY, path, readonly=True)
                     for name, engine in engines.items()
                 }
-                rust_limit = readers["rust"].get("error", "")
-                references_match = (readers["development"] == readers["release"] and
-                                    "rows" in readers["development"] and
-                                    rows_are_valid(readers["development"]["rows"]))
+                baseline = readers["development"]
                 stage = {
                     "name": stage_name,
                     "writer": writer,
                     "header": current,
                     "readers": readers,
-                    "references_match": references_match,
-                    "rust_limitation_observed": "native literal logical type 4" in rust_limit,
+                    "rows_match": all(reader == baseline for reader in readers.values()),
                     "version_preserved": current["effective"] == 68,
                     "identity_preserved": current["identifier"] == initial["identifier"],
                 }
-                stage["passed"] = (stage["references_match"] and
-                                   stage["rust_limitation_observed"] and
-                                   stage["version_preserved"] and stage["identity_preserved"])
+                stage["passed"] = (stage["rows_match"] and stage["version_preserved"] and
+                                   stage["identity_preserved"] and
+                                   all("rows" in reader and rows_are_valid(reader["rows"])
+                                       for reader in readers.values()))
                 case["stages"].append(stage)
-            case["limitation"] = (
-                "Rust cannot open an upstream-created catalog containing retained LIST "
-                "literals: Not implemented: native literal logical type 4"
-            )
             case["passed"] = all(stage["passed"] for stage in case["stages"])
         except Exception as error:
             case["error"] = str(error)
@@ -515,7 +509,6 @@ def main():
     report["native_passed"] = (report["native_supported_passed"] and
                                report["native_limits_observed"])
     report["limitations"] = [
-        "Rust cannot open reference-origin retained defaults containing native LIST literals (native logical type 4); reference-only mutations and reopens are checked instead.",
         "The release pin differs from development for the SQL cases named in release_differences; development is the semantic acceptance oracle.",
         "Rust imposes a 16,777,216-child allocation bound that the pinned implementations do not expose as the same fixed contract.",
         "This packet does not claim WAL, spill/performance, every nested child type, or full compatibility parity.",

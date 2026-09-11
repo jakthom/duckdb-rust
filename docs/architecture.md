@@ -1,6 +1,6 @@
 # Rust implementation map
 
-Source-checked 2026-09-11 at `31a72d8`. This is a navigation map, not a parity
+Source-checked 2026-09-11 at `47899d7`. This is a navigation map, not a parity
 claim. Current work and dependencies live in the [parity backlog](parity-backlog.md);
 the [rewrite principles](../specs/rewrite-principles.md) define required replaceability.
 
@@ -34,7 +34,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 | Index/access | [hash/B-tree](../src/execution/index/mod.rs), [storage access](../src/storage/mod.rs) | Equality lookup; indexes rebuild on mutation; SQL DDL/range access unfinished |
 | Persistence | [checkpoint](../src/storage/checkpoint.rs), [WAL durability](../src/storage/logged.rs) | Selected native file/log lifecycle, not every object/version/history |
 | Formats | [private snapshot](../src/storage/format.rs), [DuckDB native](../src/storage/duckdb/mod.rs) | Versioned values/codecs/identity; general external formats absent |
-| Native codecs | [decoder registry](../src/storage/duckdb/compression/mod.rs) | Thirteen readers registered; compressed writer coverage is separate |
+| Native codecs | [decoder registry](../src/storage/duckdb/compression/mod.rs), [retained type-expression resolver](../src/storage/duckdb/catalog/unbound.rs) | Thirteen readers and bounded built-in UNBOUND literal resolution exist; compressed writing and catalog-bound named types remain separate |
 | Filesystem | [local publication and locks](../src/storage/filesystem.rs) | No general remote routing, secret manager or encrypted storage |
 | Settings | [registry/providers](../src/main/settings/mod.rs), [built-ins](../src/main/settings/builtin.rs) | Four built-in definitions: ordering, NULL ordering, IEEE floating operations and session search path |
 | Scheduling/resources | [InlineScheduler/QueryContext](../src/parallel/mod.rs) | Synchronous task execution and row limits; no byte allocator/buffer pool/spill |

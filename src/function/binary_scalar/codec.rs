@@ -65,9 +65,13 @@ fn decode_binary_byte(digits: &[u8], query: &QueryContext, index: &mut usize) ->
             b'0' => {}
             b'1' => byte |= 1,
             other => {
-                return Err(Error::InvalidInput(format!(
-                    "Invalid input for binary digit: {}",
+                let digit = if other.is_ascii() {
                     char::from(*other)
+                } else {
+                    char::REPLACEMENT_CHARACTER
+                };
+                return Err(Error::InvalidInput(format!(
+                    "Invalid input for binary digit: {digit}"
                 )));
             }
         }

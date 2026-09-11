@@ -194,8 +194,11 @@ the pinned trigonometric/hyperbolic, angle, exponential, cube-root, `even`, `pi`
 generated math tail now also includes power/log/square-root/bit-count, `gamma`,
 `lgamma`, development-authoritative `binom`, exact FLOAT/DOUBLE `isnan`, and the
 callable `**`, `^`, `!__postfix` and `@` aliases. Quoted and `main`-qualified scalar
-calls share ordinary binding. SQL operator spelling for exponentiation/postfix
-factorial, the conversion matrix and the remaining scalar-family catalog stay open.
+calls share ordinary binding. Binary `unbin`/`from_binary` and `decode` now cover
+partial leading bit groups and pinned strict/replace/ignore malformed-UTF-8 behavior,
+including deferred mode validation and provable-NULL demand. SQL operator spelling
+for exponentiation/postfix factorial, the conversion matrix and the remaining
+scalar-family catalog stay open.
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -386,6 +389,10 @@ including absent versus explicit `DEFAULT NULL`, with bidirectional FUNCTION, CA
 predicate and interval acceptance against the pinned development process. Both release
 checkpoint directions pass independently; its two Rust-origin WAL cases containing
 FUNCTION nodes retain the known upstream startup failure.
+Reference-origin UNBOUND type-expression metadata for retained built-in LIST/ARRAY,
+MAP/STRUCT/TUPLE/UNION/VARIANT, DECIMAL and ENUM literals now resolves within the
+enclosing codec budgets and reserializes canonically; qualified and extension-owned
+types remain explicit catalog-binding work.
 
 - **G09.1 Retain catalog expressions — implemented.** Optional owned expressions
   now retain declared types, aliases/argument provenance, qualification, operators
@@ -401,8 +408,9 @@ FUNCTION nodes retain the known upstream startup failure.
 - **G09.3 Connect native serialization — implemented representable scope.** Integrate
   parsed/value codecs, unresolved/named type binding, private format, native
   checkpoints and WAL. Selected FUNCTION, CASE, predicate and interval defaults plus
-  absence/explicit-NULL metadata pass independent exchange. Reject unrepresentable
-  legacy argument provenance.
+  absence/explicit-NULL metadata pass independent exchange. Reference-origin built-in
+  nested literal type expressions resolve without exposing UNBOUND as a column type.
+  Reject unrepresentable legacy argument provenance.
 - **G09.4 Preserve lifetime/effect semantics — implemented for closed defaults.** Closed
   retained binding permits volatile/external effects. Prepared omitted INSERT uses
   execution-time settings; value versus selection predicate demand matches the pinned

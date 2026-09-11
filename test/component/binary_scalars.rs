@@ -384,6 +384,11 @@ fn binary_text_codecs_match_partial_bytes_and_malformed_utf8() -> Result<()> {
             assert!(c.query(sql).is_err(), "{sql}");
         }
         assert!(matches!(
+            c.query("SELECT unbin('é')"),
+            Err(Error::InvalidInput(message))
+                if message == "Invalid input for binary digit: �"
+        ));
+        assert!(matches!(
             c.query("SELECT decode('ok',CAST(from_base64('bad') AS VARCHAR))"),
             Err(Error::Conversion(_))
         ));
