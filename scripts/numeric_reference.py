@@ -392,6 +392,72 @@ ERROR_CASES += [(f'SELECT {expression}','Parser Error') for expression in (
     'nullif(a:=1,b:=2)', 'nullif(1,2) FILTER(WHERE true)', 'nullif(1,2) OVER()',
 )]
 
+# IEEE policy belongs to the selected binding, not the evaluator's ambient
+# context. Every new stateful case establishes its own mode; earlier 944 query
+# identities and exact comparator behavior remain unchanged.
+SQL += [
+    "SELECT sqrt(-1)::VARCHAR,ln(0)::VARCHAR,log(-1)::VARCHAR,log2(0)::VARCHAR,pow(0,-1)::VARCHAR",
+    "SELECT current_setting('ieee_floating_point_ops'),typeof(current_setting('ieee_floating_point_ops'))",
+]
+for mode in ('true', 'false', 'NULL'):
+    prefix = f'SET ieee_floating_point_ops={mode}; '
+    for name in ('sqrt', 'ln', 'log', 'log10', 'log2'):
+        values = ('-0.0', '0.0') if name == 'sqrt' or mode != 'false' else ()
+        values += ('4.9406564584124654e-324', '2.2250738585072014e-308',
+                   '0.1', '0.5', '1.0', '2.0', '4.0', '10.0',
+                   '1.7976931348623157e308', 'inf', 'nan')
+        if mode != 'false':
+            values += ('-1.0', '-inf')
+        rows = ','.join(f"({index},'{value}'::DOUBLE)"
+                        for index, value in enumerate(values)) + ',(100,NULL::DOUBLE)'
+        SQL.append(prefix + f'SELECT x::VARCHAR,{name}(x)::VARCHAR,typeof({name}(x)) '
+                   f'FROM(VALUES {rows})t(i,x) ORDER BY i')
+        SQL.append(prefix + f'SELECT {name}(NULL),typeof({name}(NULL)),{name}(\'4\'),'
+                   f'CASE WHEN false THEN {name}(-1) ELSE 1 END')
+    for name in ('pow', 'power'):
+        pairs = [('2', '10'), ('-2', '3'), ('-2', '4'), ('-1', '0.5'),
+                 ('1e308', '2'), ('-0.0', '3'), ('-0.0', '2'),
+                 ('nan', '0'), ('1', 'nan'), ('inf', '-1')]
+        if mode != 'false':
+            pairs += [('0', '-1'), ('-0.0', '-3'), ('-0.0', '-2')]
+        rows = ','.join(f"({index},'{a}'::DOUBLE,'{b}'::DOUBLE)"
+                        for index, (a, b) in enumerate(pairs)) + ',(100,NULL::DOUBLE,2)'
+        SQL.append(prefix + f'SELECT a::VARCHAR,b::VARCHAR,{name}(a,b)::VARCHAR,'
+                   f'typeof({name}(a,b)) FROM(VALUES {rows})t(i,a,b) ORDER BY i')
+        SQL.append(prefix + f"SELECT {name}(NULL::DOUBLE,CAST('bad' AS DOUBLE)),"
+                   f"{name}(NULL,NULL),typeof({name}(NULL,NULL))")
+    SQL += [
+        prefix + 'SELECT log(2,8),log(10,100),log(NULL::DOUBLE,-1),typeof(log(NULL,NULL))',
+        prefix + "SELECT [sqrt(4),ln(1),NULL]::VARCHAR,{'p':pow(2,3),'l':log2(8)}::VARCHAR,concat(sqrt(4))",
+        prefix + 'SELECT sqrt(x),count(*),sum(pow(sqrt(x),2)) FROM(VALUES(1.0),(4.0),(4.0),(NULL))t(x) GROUP BY sqrt(x) ORDER BY 1',
+        prefix + 'SELECT a.x,sqrt(a.x),b.y FROM(VALUES(1),(4),(9),(NULL))a(x) JOIN(VALUES(1),(2),(3))b(y) ON sqrt(a.x)=b.y ORDER BY a.x',
+        prefix + 'SELECT x,sqrt(x),lag(log2(x)) OVER(ORDER BY x),sum(pow(sqrt(x),2)) OVER(ORDER BY x ROWS UNBOUNDED PRECEDING) FROM(VALUES(1),(4),(16),(NULL))t(x) ORDER BY x',
+    ]
+    if mode != 'false':
+        SQL.append(prefix + "SELECT log(1,10)::VARCHAR,log(0,10)::VARCHAR,log(-1,10)::VARCHAR,log(10,0)::VARCHAR,log(10,-1)::VARCHAR")
+for kind in ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT',
+             'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT', 'UHUGEINT',
+             'FLOAT', 'DOUBLE', 'DECIMAL(38,10)', 'BIGNUM'):
+    SQL.append(f'SET ieee_floating_point_ops=true; SELECT sqrt(4::{kind}),ln(1::{kind}),log(10::{kind}),log2(8::{kind}),pow(2::{kind},3::{kind}),typeof(sqrt(4::{kind}))')
+for name in ('sqrt', 'ln', 'log', 'log10', 'log2', 'pow', 'power'):
+    suffix = ',2' if name in ('pow', 'power') else ''
+    ERROR_CASES += [(f'SET ieee_floating_point_ops=true; SELECT {name}({argument}{suffix})', 'Binder Error')
+                    for argument in ("'4'::VARCHAR", 'TRUE', "DATE '2024-01-01'", '[4]')]
+    ERROR_CASES += [(f'SET ieee_floating_point_ops=true; SELECT {name}()', 'Binder Error'),
+                    (f'SET ieee_floating_point_ops=true; SELECT {name}(1,2,3)', 'Binder Error')]
+    ERROR_CASES.append((f"SET ieee_floating_point_ops=true; SELECT {name}('bad'{suffix})", 'Conversion Error'))
+for expression in ('sqrt(-1)', "sqrt('-inf'::DOUBLE)", 'ln(-1)', 'ln(0)',
+                   'log(-1)', 'log(0)', 'log10(-1)', 'log10(0)', 'log2(-1)', 'log2(0)',
+                   'log(-1,0)', 'log(0,-1)', 'log(1,-1)', 'log(10,0)', 'log(10,-1)',
+                   'pow(0,-1)', "power('-0.0'::DOUBLE,-3)"):
+    ERROR_CASES.append((f'SET ieee_floating_point_ops=false; SELECT {expression}', 'Out of Range Error'))
+ERROR_CASES += [
+    ("SET ieee_floating_point_ops=true; SELECT pow(CAST('bad' AS DOUBLE),NULL::DOUBLE)", 'Conversion Error'),
+    ("SET ieee_floating_point_ops=true; SELECT pow(x,CAST('bad' AS DOUBLE)) FROM(VALUES(NULL::DOUBLE),(1::DOUBLE))t(x)", 'Conversion Error'),
+    # Retain this known shared SET cast-origin category gap explicitly.
+    ("SET ieee_floating_point_ops='bad'", 'Invalid Input Error'),
+]
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

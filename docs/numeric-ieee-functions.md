@@ -135,3 +135,27 @@ The paired refresh and integrated Kani remain pending for this continuing math
 slice. The parent separately reports checkpoint14 at abf7eed passed all six
 maintained Kani harnesses; that validates the earlier combined rejection slice,
 not these later IEEE additions or full prepared-plan parity.
+
+## Initial paired math refresh and regression investigation
+
+[The initial paired report](numeric-ieee-reference-initial.json), on frozen
+37c2962 source, records 1,086/1,088 development SQL passes and 3/3 native numeric
+round trips on both pins. All earlier 944 development passing SQL identities
+remain passing. Exact FLOAT/DOUBLE text is checked without numerical tolerance;
+no comparator change hides exceptional values or small arithmetic differences.
+
+Besides the previously recorded invalid-string SET category gap, the expanded
+campaign exposed a new math binding omission. `pow(CAST('bad' AS DOUBLE),
+NULL::DOUBLE)` returns NULL in both references, whereas the initial Rust math
+consumer raises Conversion. The initial test incorrectly expected that error.
+An independent development CLI query, repeated after `PRAGMA disable_optimizer`,
+returns NULL in both executions, so this is not an optimizer-only effect.
+`src/function/function_binder.cpp:614–651` probes foldable inputs after selecting
+an overload; any proven NULL replaces a default-NULL function before ordinary
+function binding. A failed recoverable probe can therefore precede a successful
+NULL probe. Physical Constant-NULL execution in child order alone cannot express
+this earlier binding boundary. The repair will use the existing selected
+`is_provably_null` request and TypeOnly specialization, without changing their
+failure rules, inventing literal values or creating a new shared interface.
+This initial evidence remains immutable, including its incorrect expected-error
+annotation, for comparison with the repaired campaign.
