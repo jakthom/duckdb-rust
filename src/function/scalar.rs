@@ -26,7 +26,6 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "character_length",
         "len",
         "concat",
-        "sqrt",
     ] {
         registry
             .register_scalar(Arc::new(Builtin(name)))
@@ -60,9 +59,6 @@ impl ScalarFunction for Builtin {
                 return Err(Error::Bind("concat requires at least one argument".into()));
             }
             return Ok(vec![DataType::Varchar; arguments.len()]);
-        }
-        if self.0 == "sqrt" && arguments == [DataType::Bignum] {
-            return Ok(vec![DataType::Double]);
         }
         if matches!(
             self.0,
@@ -103,11 +99,6 @@ impl ScalarFunction for Builtin {
             {
                 Ok(DataType::BigInt)
             }
-            "sqrt"
-                if count == 1 && (arguments[0].is_numeric() || arguments[0] == DataType::Null) =>
-            {
-                Ok(DataType::Double)
-            }
             _ => Err(Error::Bind(format!(
                 "no overload for {}({arguments:?})",
                 self.0
@@ -143,15 +134,6 @@ impl ScalarFunction for Builtin {
                     Value::Bit(value) => value.length() as i128,
                     value => value.to_string().chars().count() as i128,
                 })
-            }
-            "sqrt" => {
-                let v = args[0].as_f64()?;
-                if v < 0.0 {
-                    return Err(Error::Execution(
-                        "cannot take square root of a negative number".into(),
-                    ));
-                }
-                Value::Double(v.sqrt())
             }
             _ => return Err(Error::Internal("unregistered builtin".into())),
         })

@@ -93,3 +93,45 @@ InvalidInput gap. A direct BoundCast::attempt call could retain cast failure
 origin but would bypass the selected expression evaluator used by SET today;
 that shortcut is not used. A retained origin-aware context/wrapper needs shared
 coordination before fixing the category. No comparator has been changed.
+
+## Selected math implementation
+
+The provisional family now registers sqrt, ln, log/log10, log2 and pow/power.
+The selected overload request advertises the source DOUBLE signatures (including
+both log arities), validates the returned candidate and retains its signature
+with the statement's IEEE mode. Ordinary binding inserts selected casts;
+evaluation accepts only those retained DOUBLE inputs. The old sqrt callback's
+hidden numeric conversion and unconditional negative-input Execution error are
+removed. Frontends without selected overload binding explicitly reject the
+adapter rather than silently selecting builtin conversions.
+
+Strict sqrt rejects negatives; strict logarithms reject negatives and zero;
+strict base-log validates its base before its value and rejects a zero logarithm
+of the base. Strict pow only rejects zero to a negative power: it still produces
+NaN for negative nonintegral powers and infinity for overflow. IEEE mode uses
+the ordinary floating operation. NaN, infinities and signed zero remain typed
+DOUBLE values. No diagnostic Value display or floating text formatter changes.
+
+Four connected tests cover both evaluators/optimizers, every fixed numeric
+family plus DECIMAL/BIGNUM casts, string-literal versus typed-VARCHAR binding,
+prepared parameters, lazy branches and physical constant-NULL demand. Retained
+bound callbacks are executed under a different ambient mode to prove that they
+do not reselect settings. Missing frontend capabilities, invalid selected
+indices/arity, malformed input and cancellation fail explicitly. Selected cast
+replacement and Resource failures remain observable. Results cross nested text
+casts/concat, joins, grouping, windows, primary-key tables, prepared updates,
+atomic failed mutation, rollback, both snapshot formats, native WAL/checkpoint
+and reopen, including stored NaN, infinity and NULL.
+
+Two test-only construction issues were repaired: the persistence test used a
+nonexistent constructor instead of FileCheckpoint::open, and its first concat
+combined LIST with scalar strings without the explicit VARCHAR cast required by
+both engines. No engine rule was loosened for either test. Check, numeric 55,
+settings 11, contracts 71, casts 13, nested 42 and all-target clippy pass;
+coverage reports 376 files / 3,632 functions / 239 interface methods, missing 0.
+Trace compatibility also passes (one completed build operation, no errors,
+panics or open spans); temporary telemetry was deleted.
+The paired refresh and integrated Kani remain pending for this continuing math
+slice. The parent separately reports checkpoint14 at abf7eed passed all six
+maintained Kani harnesses; that validates the earlier combined rejection slice,
+not these later IEEE additions or full prepared-plan parity.
