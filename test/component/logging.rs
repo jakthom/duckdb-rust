@@ -122,6 +122,48 @@ fn logging_and_checkpoint_adapters_share_transaction_contracts() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn chained_relocations_keep_statement_order_after_wal_recovery() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("case.duckdb");
+    Database::open(&path)?.connect().execute(
+        "CREATE TABLE t(i INTEGER PRIMARY KEY,s VARCHAR); \
+         INSERT INTO t VALUES(1,'one'),(2,'two'),(3,'three')",
+    )?;
+    let expected = vec![
+        vec![Value::Integer(3)],
+        vec![Value::Integer(102)],
+        vec![Value::Integer(110)],
+    ];
+
+    {
+        let database = Database::open_logged(&path)?;
+        let mut connection = database.connect();
+        connection.execute(
+            "BEGIN; \
+             UPDATE t SET i=10 WHERE i=1; \
+             UPDATE t SET i=i+100 WHERE i IN (2,10); \
+             COMMIT",
+        )?;
+        assert_eq!(connection.query("SELECT i FROM t")?.rows, expected);
+    }
+    {
+        let database = Database::open_logged(&path)?;
+        let mut connection = database.connect();
+        assert_eq!(connection.query("SELECT i FROM t")?.rows, expected);
+        connection.execute("CHECKPOINT")?;
+    }
+    assert_eq!(
+        Database::open_read_only(&path)?
+            .connect()
+            .query("SELECT i FROM t")?
+            .rows,
+        expected
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn point_commits_append_small_logs_without_rewriting_checkpoint_or_prior_records() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("case.duckdb");

@@ -271,6 +271,49 @@ fn insert_defaults_advance_by_duckdb_standard_vectors() -> Result<()> {
     );
 
     state.calls.store(0, Ordering::SeqCst);
+    connection.execute(
+        "CREATE TABLE vector_order_3000(
+            id INTEGER,
+            first VARCHAR DEFAULT ordered_default('first'),
+            second VARCHAR DEFAULT ordered_default('second')
+        );
+        INSERT INTO vector_order_3000(id)
+        SELECT range::INTEGER FROM range(3000)",
+    )?;
+    assert_eq!(state.calls.load(Ordering::SeqCst), 6000);
+    assert_eq!(
+        connection
+            .query(
+                "SELECT * FROM vector_order_3000
+                 WHERE id IN (0,2047,2048,2999)
+                 ORDER BY id ASC"
+            )?
+            .rows,
+        vec![
+            vec![
+                integer(0),
+                string("DESC:first:1"),
+                string("DESC:second:2049")
+            ],
+            vec![
+                integer(2047),
+                string("DESC:first:2048"),
+                string("DESC:second:4096")
+            ],
+            vec![
+                integer(2048),
+                string("DESC:first:4097"),
+                string("DESC:second:5049")
+            ],
+            vec![
+                integer(2999),
+                string("DESC:first:5048"),
+                string("DESC:second:6000")
+            ],
+        ]
+    );
+
+    state.calls.store(0, Ordering::SeqCst);
     state.fail_on.store(2050, Ordering::SeqCst);
     connection.execute(
         "CREATE TABLE failing_vector(

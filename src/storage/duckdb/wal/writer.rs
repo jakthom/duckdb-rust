@@ -114,6 +114,13 @@ impl Pending {
         }
         self.rows.insert(id, row);
     }
+    fn relocate(&mut self, id: RowId, row: Row) {
+        if let Some(position) = self.order.iter().position(|candidate| *candidate == id) {
+            self.order.remove(position);
+        }
+        self.order.push(id);
+        self.rows.insert(id, row);
+    }
     fn remove(&mut self, id: &RowId) -> Option<Row> {
         self.rows.remove(id)
     }
@@ -384,7 +391,7 @@ impl LogSession for Session {
                             if !pending.rows.contains_key(id) {
                                 pending.deleted.insert(state.physical(*id)?);
                             }
-                            pending.insert(*id, row.clone());
+                            pending.relocate(*id, row.clone());
                         }
                     }
                 }
