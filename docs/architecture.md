@@ -1,6 +1,6 @@
 # Rust implementation map
 
-Source-checked 2026-09-11 at `47899d7`. This is a navigation map, not a parity
+Source-checked 2026-09-11 at `6380c5f`. This is a navigation map, not a parity
 claim. Current work and dependencies live in the [parity backlog](parity-backlog.md);
 the [rewrite principles](../specs/rewrite-principles.md) define required replaceability.
 
@@ -22,7 +22,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 | Boundary | Existing implementations / location | Important limit |
 | --- | --- | --- |
 | Catalog | [schemas/tables and alterations](../src/catalog/mod.rs), [runtime registry](../src/catalog/registry.rs), [runtime identity](../src/catalog/identity.rs), [dependency graph](../src/catalog/dependency.rs), [search path](../src/catalog/search_path.rs) | Snapshots, transaction-local DDL and table plans consume stable identities; current-catalog session search paths resolve tables, while general objects and multiple catalogs remain open |
-| Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs) | Every intervening writer conflicts, even disjoint writes |
+| Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs), [transaction clock](../src/main/clock.rs) | Every intervening writer conflicts, even disjoint writes; preparation is still syntax-only rather than a native prepare transaction |
 | Values/types | [type/value definitions](../src/common/types.rs), [registry](../src/common/type_registry.rs) | Broad scalar/temporal/nested foundation; function and consumer coverage incomplete |
 | Vectors | [flat/constant/dictionary vectors and chunks](../src/common/vector.rs) | Immutable owned/shared data; not complete native or Arrow vector parity |
 | Expressions | [scalar/batched evaluators](../src/execution/expression_executor.rs), [registered functions](../src/function/mod.rs) | Full overload/effect/default semantics remain open |

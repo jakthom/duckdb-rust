@@ -14,8 +14,8 @@ checkpoint/WAL integration are connected for closed representable trees. Native
 CASE, comparison, conjunction, NULL-test, BETWEEN, IN and LIKE trees use DuckDB's
 parsed-node representation. Unqualified `INTERVAL` retains the native VARCHAR-to-
 INTERVAL cast, and supported qualified units retain the ordinary DOUBLE/trunc/width-
-cast/`to_*` lowering without executing it during DDL. Built-in current-date/time and
-timezone/calendar defaults remain G04 work. Real sequence objects and `nextval`,
+cast/`to_*` lowering without executing it during DDL. Built-in current-date/local-time
+and timezone/calendar defaults remain G04 work. Real sequence objects and `nextval`,
 general catalog function identity, multi-catalog routing, non-schema dependencies
 and prepared-plan invalidation remain G10 work.
 DML-level explicit `DEFAULT`, CHECK constraints and generated columns remain G11 work.
@@ -114,7 +114,8 @@ against the execution session. Catalog-qualified entries are rejected until atta
 routing exists. General objects, attachments, temporary scope and metadata catalogs
 remain G10 work. Ordinary quoted function identifiers and the supported `main`
 qualification use the selected registry; retained native `main.list_value` follows
-the same rule without fake alias entries.
+the same rule without fake alias entries. Rust preparation remains syntax-only; native
+prepare-transaction ownership and retained-plan invalidation are still open.
 
 ## Native parsed expressions and values
 
@@ -228,6 +229,14 @@ pinned helper's unusual initialized-1900 result for special timestamp words and
 rejects finite calendar parses that collide with infinity sentinels. Nanosecond
 composition adds fraction to time-of-day before the date; changing that checked
 arithmetic order rejects valid exact boundary values.
+
+Transaction-current TIMESTAMPTZ comes from a selected `TransactionClock` sampled once
+before the transaction snapshot is acquired. Query evaluation and retained defaults
+only read that captured microsecond instant; background contexts never fall back to the
+host clock. Callable aliases use ordinary FUNCTION nodes, while bare or quoted
+`CURRENT_TIMESTAMP` is a distinct retained leaf and native class-4 column-reference
+encoding. Ordinary columns, SELECT aliases and relation-as-STRUCT values take
+precedence over the SQL-value fallback, including grouped ordinal remapping.
 
 Generated math catalog aliases are callable by quoted identifier. This does not add
 SQL grammar for exponentiation or postfix factorial. Gamma/log-gamma use the selected

@@ -232,8 +232,13 @@ DATE/TIME/TIMESTAMP behavior; unsafe offsets outside +/-15:59:59 are rejected
 instead of constructing invalid physical values. Core `strptime` and `try_strptime`
 accept scalar or constant-list formats, retain named argument order, distinguish
 parse from conversion fallback, and match pinned nanosecond sentinel boundaries
-through defaults and native reopen. The remaining parsing/format catalog,
-transaction-time, named-zone and ICU work stays open.
+through defaults and native reopen. `get_current_timestamp()`, `now()`,
+`transaction_timestamp()` and bare/quoted `CURRENT_TIMESTAMP` read one replaceable
+clock sample taken before snapshot acquisition and retain that TIMESTAMPTZ through
+an explicit transaction. Column, alias and table-as-STRUCT binding wins before the
+SQL-value fallback; the keyword has its exact bounded native parsed-node lifecycle.
+The remaining parsing/format catalog, local/current calendar functions, named-zone
+and ICU work stays open.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -416,12 +421,12 @@ types remain explicit catalog-binding work.
   execution-time settings; value versus selection predicate demand matches the pinned
   execution modes. Tests cover source/vector boundaries, failed-statement atomicity,
   CREATE/SET rollback, old catalog snapshots, update relocation, manual/automatic
-  reclamation, reopen and deferred error timing. Built-in current-date/time and
-  timezone/calendar defaults remain with G04. Real sequences/`nextval`, catalog
-  function/object identity, search-path resolution, dependencies and prepared
-  invalidation remain with G10. DML-level explicit `DEFAULT`, CHECK constraints and
-  generated columns remain with G11. Those are separate consumer scopes and are not
-  claimed by this G09 exit.
+  reclamation, reopen and deferred error timing. Built-in current-date/local-time and
+  timezone/calendar defaults remain with G04. Real sequences/`nextval`, general
+  catalog function identity, multi-catalog routing, non-schema dependencies and
+  prepared invalidation remain with G10. DML-level explicit `DEFAULT`, CHECK
+  constraints and generated columns remain with G11. Those are separate consumer
+  scopes and are not claimed by this G09 exit.
 
 **Exit achieved for this slice:** the checked-in development fixture covers FUNCTION
 checkpoint input, and the independent process gate passes FUNCTION/CASE/predicate
@@ -452,7 +457,8 @@ model is connected to a bounded, normalized session setting: unqualified table l
 searches configured schemas before `main`, creation uses the current schema, and
 prepared statements rebind on each execution. Catalog-qualified path entries fail
 explicitly until attachment routing exists. Four built-in setting definitions exist;
-there is no general catalog object model.
+there is no general catalog object model. Preparation is still syntax-only and does
+not yet own the native prepare transaction/start timestamp or a retained plan.
 
 - **G10.1 Establish identity and dependencies.** Add catalog/object IDs, search paths,
   dependency tracking, invalidation, temporary object scope and transaction visibility.
