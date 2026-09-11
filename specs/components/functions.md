@@ -190,8 +190,13 @@ exact result/error comparator.
 The provisional `ScalarFunction::expansion` capability returns an optional owned
 expression template before ordinary scalar specialization. Default None keeps
 the selected ordinary function unchanged. SQL lowers a returned template through
-its selected comparison and CASE/type/cast services; the scalar adapter does not
-evaluate children or select private casts. An adapter that requires expansion
+its selected comparison and CASE/type/cast services, without runtime child
+evaluation or private casts inside the scalar adapter. The selected callback
+constructing the template retains ordinary binding requests: eligible closed
+constants may be evaluated through the existing selected constant-request checks.
+Returned-template validation precedes lowering and CASE pruning, not the callback
+that constructs it. No effectful-source bypass is permitted by those requests.
+An adapter that requires expansion
 must explicitly reject ordinary bind/evaluate in a frontend that does not
 support expansion. This is not general macro or catalog completeness.
 

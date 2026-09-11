@@ -19,6 +19,11 @@ and CASE combination casts; an argument node is cloned for each occurrence,
 not evaluated or cached during expansion. Ordinary selected scalar replacements
 retain their default no-expansion path. Unsupported frontends must reject an
 adapter that requires expansion rather than silently invoking different behavior.
+This validation boundary concerns the returned template, not construction by the
+selected callback. That callback retains ordinary selected binding requests;
+eligible constants can be requested under their existing closed/effect-free,
+selected-service and output-validation checks. Review did not find a bypass of
+those checks and did not restrict the shared view to enforce a stronger guarantee.
 
 The independent `selected_choose` contract adapter exercises four-argument CASE
 selection, full-width result inference, prepared parameters, lazy conversion
@@ -175,3 +180,32 @@ to independently observed Parser categories only in the follow-up driver/report.
 The first raw report and all case identities remain intact. Broader macro/catalog
 support and remaining generic argument diagnostics (including star arguments)
 are not covered by this bounded syntax correction.
+
+## Retained VALUES and parser checkpoint
+
+On unchanged engine source `c3358c0`, `numeric-nullif-values-reference.json`
+records 935/936 development SQL cases, 579/936 release cases and all three
+native producer/checkpoint/WAL paths against each pin. All five failures from
+the first NULLIF report are repaired; both raw reports remain immutable.
+The expanded corpus adds ordered VALUES types and reserved grammar boundaries.
+`upstream-nullif-values.json` and its record stream retain the complete upstream
+`test/sql/function/generic/test_null_if.test` pass (11/11 records); this selected
+file run is not a full upstream-suite pass.
+
+The sole new mismatch is `SELECT a FROM(VALUES('1'),(2))t(a)`: both references
+reject it with `Not implemented Error`, while Rust returns Binder. Development's
+`LogicalType::MaxLogicalType` throws `NotImplementedException` for this recognized
+incompatible combination. This is an existing error-category gap, not a newly
+lost passing case. Rust's `Unsupported` means a missing rewrite capability and
+must remain distinguishable from such supported rejections. A separate error
+variant and narrowly scoped VALUES consumer are the next internal steps; error
+comparators have not been normalized or weakened to hide this mismatch.
+
+Full workspace tests and trace compatibility passed on that unchanged source.
+All-target clippy and coverage (349 files / 3,331 functions / 227 interface
+methods, missing 0) passed before the frozen campaign. A focused trace of NULLIF
+over mixed typed/literal VALUES returns `NULL,2,NULL`, all typed UHUGEINT, with
+66,573 completed operations, zero error returns, zero panics and zero open spans.
+Temporary telemetry was deleted and `cargo dev clean` completed. No worker
+acceptance benchmarks ran. The parent owns the substantial integrated Kani
+checkpoint; these internal checks do not prove expansion or execution parity.

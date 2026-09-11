@@ -359,7 +359,28 @@ ERROR_CASES += [(f'SELECT {expression}','Conversion Error') for expression in (
     'TRY_CAST(nullif(340282366920938463463374607431768211455,1) AS BIGINT)',
     "nullif('bad',1)", "nullif(CAST('bad' AS INTEGER),NULL::INTEGER)",
 )]
-ERROR_CASES += [(f'SELECT nullif({arguments})','Binder Error') for arguments in ('','1','1,2,3')]
+ERROR_CASES += [(f'SELECT nullif({arguments})','Parser Error') for arguments in ('','1','1,2,3')]
+# The original NULLIF report retains the initial wrong Binder expectation above.
+# These cases exercise the separately repaired VALUES and reserved grammar paths.
+for kind in ('UTINYINT','USMALLINT','UINTEGER','UBIGINT','UHUGEINT'):
+    for values in (f'(1::{kind}),(2),(NULL)', f'(NULL),(1::{kind}),(2)',
+                   f'(2),(1::{kind}),(NULL)', f'(1::{kind}),(2::INTEGER),(NULL)',
+                   f'(1::{kind}),(2),(3)'):
+        SQL.append(f'SELECT typeof(a),a FROM(VALUES {values})t(a)')
+SQL += [
+    'SELECT typeof(a),a FROM(VALUES(340282366920938463463374607431768211455),(1))t(a)',
+    'SELECT typeof(a),a FROM(VALUES(1),(\'2\'))t(a)',
+    'SELECT nullif FROM(VALUES(1))t(nullif)',
+    'SELECT NuLlIf /* gap */ ((SELECT 1),2)::BIGINT',
+]
+ERROR_CASES += [
+    ('SELECT a FROM(VALUES(1),(340282366920938463463374607431768211455))t(a)','Conversion Error'),
+    ("SELECT a FROM(VALUES('1'),(2))t(a)",'Binder Error'),
+]
+ERROR_CASES += [(f'SELECT {expression}','Parser Error') for expression in (
+    'nullif(1,2,)', 'nullif(DISTINCT 1,2)', 'nullif(1,2 ORDER BY 1)',
+    'nullif(a:=1,b:=2)', 'nullif(1,2) FILTER(WHERE true)', 'nullif(1,2) OVER()',
+)]
 
 
 def main():
