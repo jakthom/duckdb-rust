@@ -75,6 +75,8 @@ pub trait LogSession: Send {
 }
 
 pub struct LogCheckpoint<'a> {
+    /// Actual selected checkpoint format, including its exact content rules.
+    pub format: &'a dyn super::format::SnapshotFormat,
     pub logical: &'a Snapshot,
     pub physical: &'a Snapshot,
     pub bytes: &'a [u8],

@@ -8,6 +8,9 @@ use duckdb_rust::{
     },
 };
 
+#[path = "checkpoint_canonical.rs"]
+mod canonical;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn wrapped(leaf: Value, shape: usize) -> Result<Value> {
     let ty = leaf.data_type();

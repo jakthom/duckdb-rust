@@ -39,7 +39,7 @@ impl Budget {
 /// Validate both roots with the retained selected VARIANT adapter, then compare
 /// only the canonical native content. No caller's ambient type registry is used.
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn equivalent(
+pub(in crate::storage::duckdb) fn equivalent(
     left: &Value,
     right: &Value,
     bound: &BoundType,

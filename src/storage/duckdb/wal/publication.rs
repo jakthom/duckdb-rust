@@ -36,7 +36,7 @@ pub(super) fn prepare(
         // Publication compacts rows. Return the published physical identities
         // so a subsequent transaction logger can address this checkpoint.
         let decoded = format.decode(checkpoint.clone(), context.type_registry())?;
-        snapshot.validate_checkpoint_layout(&decoded, &layout, context)?;
+        snapshot.validate_checkpoint_layout_for(&decoded, &layout, format, context)?;
         snapshot = decoded;
         // Reconstruct only committed frames, excluding a previous checkpoint
         // marker and incomplete tail. A flush after that old marker still

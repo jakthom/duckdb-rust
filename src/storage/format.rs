@@ -38,6 +38,22 @@ pub trait SnapshotFormat: Send + Sync {
         types: std::sync::Arc<crate::common::type_registry::TypeRegistry>,
     ) -> Result<Snapshot>;
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>>;
+    /// Compare a declared value after this format's documented canonicalization.
+    /// None retains exact physical comparison, including floating-point bits.
+    /// This hook cannot waive catalog or row-identity checks. The caller retains
+    /// the source snapshot's selected type and bounds the complete row traversal;
+    /// implementations must preserve selected validation, cancellation and their
+    /// own codec limits. SQL equality, casts and grouping keys are not substitutes
+    /// for exact stored content. This is pure and grants no publication support.
+    fn checkpoint_value_equivalent(
+        &self,
+        _selected: &crate::common::type_registry::BoundType,
+        _source: &crate::common::Value,
+        _decoded: &crate::common::Value,
+        _context: &crate::parallel::QueryContext,
+    ) -> Result<Option<bool>> {
+        Ok(None)
+    }
     /// Retain format-owned identity/version state for ordinary checkpoint
     /// publication. None keeps this format's stateless encode implementation.
     /// A binding may not borrow the bytes or retain the whole prior image.

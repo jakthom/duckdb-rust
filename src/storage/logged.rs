@@ -122,6 +122,7 @@ impl FileWal {
         };
         let start = ready.session.rebase(
             LogCheckpoint {
+                format: self.checkpoint.format(),
                 logical: snapshot,
                 physical: &prepared.snapshot,
                 bytes,

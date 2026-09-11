@@ -51,7 +51,7 @@ impl RowView<'_> {
             Self::Columns(data, index) => data.columns().get(column)?.get(*index),
         }
     }
-    pub fn iter(&self) -> impl Iterator<Item = &Value> {
+    pub fn iter(&self) -> impl Iterator<Item = &Value> + Clone {
         (0..self.len()).map(|index| &self[index])
     }
     pub fn to_owned(self) -> Row {

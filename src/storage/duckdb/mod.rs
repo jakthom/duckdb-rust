@@ -87,6 +87,19 @@ impl SnapshotFormat for DuckDbFormat {
             CheckpointIdentity::read(bytes)?,
         ))))
     }
+    fn checkpoint_value_equivalent(
+        &self,
+        selected: &crate::common::type_registry::BoundType,
+        source: &crate::common::Value,
+        decoded: &crate::common::Value,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<Option<bool>> {
+        if selected.data_type() == &crate::common::NestedType::Variant.data_type() {
+            nested::variant::exact::equivalent(source, decoded, selected, context).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
     fn encode_successor(
         &self,
         snapshot: &Snapshot,

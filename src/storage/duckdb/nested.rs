@@ -10,7 +10,7 @@ use crate::{
     common::{NestedPayload, NestedValue, Value},
     storage::compression::DecoderRegistry,
 };
-mod variant;
+pub(super) mod variant;
 mod writer;
 pub(super) use writer::child_values;
 pub(super) use writer::{write_column, write_statistics};

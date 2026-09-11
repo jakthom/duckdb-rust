@@ -74,6 +74,11 @@ struct Pending {
 impl LogSession for Session {
     fn rebase(&self, checkpoint: LogCheckpoint<'_>, context: &QueryContext) -> Result<LogStart> {
         use crate::storage::layout::{CheckpointLayout, TableLayout};
+        if checkpoint.format.format_id() != DUCKDB_FORMAT {
+            return Err(Error::Unsupported(
+                "checkpoint and transaction log format families differ".into(),
+            ));
+        }
         super::super::CheckpointIdentity::read(checkpoint.bytes)?;
         let mut next = self.clone();
         let mut logical_layout = CheckpointLayout::default();
@@ -120,9 +125,10 @@ impl LogSession for Session {
                 },
             );
         }
-        checkpoint.logical.validate_checkpoint_layout(
+        checkpoint.logical.validate_checkpoint_layout_for(
             checkpoint.physical,
             &logical_layout,
+            checkpoint.format,
             context,
         )?;
         next.entries = 0;

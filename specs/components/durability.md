@@ -115,6 +115,26 @@ and depth 64; shared allocations do not waive the logical visit count. This
 physical check does not authorize native VARIANT canonicalization or SQL equality
 as a substitute for format-owned content validation.
 
+The format-aware layout entry point keeps these identity/catalog checks in the
+shared validator. A defaulted, pure selected-format value hook can describe exact
+canonical content; declining retains physical equality. Native DuckDB delegates
+only declared VARIANT leaves, including inside static nested types. It may erase
+documented wrapper distinctions but must retain scalar tags/widths, decimal
+metadata, IEEE bits, ordered exact object names and child NULL presence. Bind
+declared types once from the source snapshot's retained registry, not the decoded
+snapshot or ambient query. Validate selected values and preserve callback errors.
+Compare catalog defaults through this same path, including empty tables, without
+reevaluating SQL. Check schemas, names, declared types, column order/nullability
+and unique-key metadata separately and exactly.
+
+The provisional implementation preflights each complete logical row (and table's
+defaults) before delegating subtrees, so per-leaf codec budgets cannot reset outer
+depth/visit accounting. Native exact comparison additionally bounds variable
+scalar/key bytes. Both recovered-to-published and live-logical-to-rebased checks
+use the actual selected format and finish before I/O or session replacement.
+This seam alone does not enable a wire codec, version, or unsupported non-NULL
+nested DEFAULT serialization.
+
 Development storage 69 can persist noncontiguous row groups. Catalog property
 105 carries `next_row_id`, defaulting to total physical rows when absent; it is
 not redundant row-count metadata. Restore each stored row-group start and the
