@@ -283,7 +283,7 @@ fn canonical_variant_encoder_retains_selection_and_rejects_errors_without_partia
     assert!(encode_rows(&values, &types.bind(&DataType::Integer)?, &query).is_err());
     for (nodes, bytes) in [(0, 100), (100, 0)] {
         assert!(matches!(
-            encode_with_limits(&values, &variant, &query, &mut Limits { nodes, bytes }),
+            encode_with_limits(&values, &variant, &query, &mut Limits { nodes, bytes }, 0),
             Err(Error::Resource(_))
         ));
     }

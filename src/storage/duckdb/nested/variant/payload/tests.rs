@@ -187,7 +187,8 @@ fn native_variant_payload_rejects_bad_references_cycles_truncation_and_budget_ex
             &source,
             &mut Budget {
                 nodes: 0,
-                bytes: 64
+                bytes: 64,
+                query: None,
             }
         ),
         Err(Error::Resource(_))
@@ -197,7 +198,8 @@ fn native_variant_payload_rejects_bad_references_cycles_truncation_and_budget_ex
             &source,
             &mut Budget {
                 nodes: 64,
-                bytes: 0
+                bytes: 0,
+                query: None,
             }
         ),
         Err(Error::Resource(_))

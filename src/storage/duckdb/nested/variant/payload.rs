@@ -9,8 +9,9 @@ mod tests;
 pub(super) type Typed = (DataType, Value);
 
 pub(super) struct Budget {
-    nodes: usize,
+    pub(super) nodes: usize,
     bytes: usize,
+    query: Option<crate::parallel::QueryContext>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -19,15 +20,28 @@ impl Budget {
         Self {
             nodes: 16_777_216,
             bytes: 64 * 1024 * 1024,
+            query: None,
         }
     }
+    pub(super) fn with_context(nodes: usize, query: &crate::parallel::QueryContext) -> Self {
+        Self {
+            nodes,
+            query: Some(query.clone()),
+            ..Self::new()
+        }
+    }
+    fn check(&self) -> Result<()> {
+        self.query.as_ref().map_or(Ok(()), |query| query.check())
+    }
     pub(super) fn nodes(&mut self, count: usize) -> Result<()> {
+        self.check()?;
         self.nodes = self.nodes.checked_sub(count).ok_or_else(|| {
             Error::Resource("native VARIANT exceeds 16 million logical visits".into())
         })?;
         Ok(())
     }
     pub(super) fn bytes(&mut self, count: usize) -> Result<()> {
+        self.check()?;
         self.bytes = self.bytes.checked_sub(count).ok_or_else(|| {
             Error::Resource("native VARIANT materialization exceeds 64 MiB".into())
         })?;
@@ -95,11 +109,13 @@ impl<'a> Unshredded<'a> {
         budget.nodes(result.children.len())?;
         budget.nodes(result.values.len())?;
         for key in result.keys {
+            budget.check()?;
             if !matches!(key, Value::Varchar(_)) {
                 return Err(corrupt("VARIANT key is NULL or not VARCHAR"));
             }
         }
         for child in result.children {
+            budget.check()?;
             let [key, value] = record(child)? else {
                 return Err(corrupt("VARIANT child reference shape"));
             };
@@ -111,6 +127,7 @@ impl<'a> Unshredded<'a> {
             }
         }
         for value in result.values {
+            budget.check()?;
             let [tag, offset] = record(value)? else {
                 return Err(corrupt("VARIANT value descriptor shape"));
             };
@@ -248,11 +265,11 @@ impl<'a> Unshredded<'a> {
                     17 => (DataType::Blob, Value::Blob(bytes.to_vec())),
                     31 => (
                         DataType::Bignum,
-                        BignumValue::from_native(bytes, || Ok(()))?.value(),
+                        BignumValue::from_native(bytes, || budget.check())?.value(),
                     ),
                     32 => (
                         DataType::Bit,
-                        BitString::from_native(bytes, || Ok(()))?.value(),
+                        BitString::from_native(bytes, || budget.check())?.value(),
                     ),
                     _ => unreachable!(),
                 });

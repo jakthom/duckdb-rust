@@ -8,6 +8,7 @@ use crate::{
     common::{DataType, Error, NestedPayload, NestedType, NestedValue, Result, Value},
     parallel::QueryContext,
 };
+mod variant;
 
 pub(super) const MAX_CELLS: usize = 16_777_216;
 
@@ -29,6 +30,9 @@ pub(super) fn write(
     remaining: &mut usize,
     context: &QueryContext,
 ) -> Result<()> {
+    if matches!(metadata, NestedType::Variant) {
+        return variant::write(e, values, depth, remaining, context);
+    }
     // Check the total immediate expansion before allocating child columns.
     // Individual child limits alone do not bound a wide STRUCT allocation.
     let planned = match metadata {
@@ -136,6 +140,9 @@ pub(super) fn read(
     let DataType::Nested(metadata) = data_type else {
         return Err(Error::Internal("WAL nested metadata".into()));
     };
+    if matches!(metadata.as_ref(), NestedType::Variant) {
+        return variant::read(reader, count, validity, depth, remaining, context);
+    }
     let valid = |i: usize| validity.is_none_or(|mask| mask[i / 8] & (1 << (i % 8)) != 0);
     let mut output = Vec::with_capacity(count);
     match metadata.as_ref() {

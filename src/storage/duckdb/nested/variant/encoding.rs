@@ -9,9 +9,9 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
-struct Limits {
-    nodes: usize,
-    bytes: usize,
+pub(super) struct Limits {
+    pub(super) nodes: usize,
+    pub(super) bytes: usize,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -44,15 +44,17 @@ pub(super) fn encode_rows(
             nodes: 16_777_216,
             bytes: 64 * 1024 * 1024,
         },
+        0,
     )
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn encode_with_limits(
+pub(super) fn encode_with_limits(
     values: &[Value],
     variant: &BoundType,
     query: &QueryContext,
     limits: &mut Limits,
+    depth: usize,
 ) -> Result<Vec<Value>> {
     query.check()?;
     let data_type = NestedType::Variant.data_type();
@@ -80,7 +82,7 @@ fn encode_with_limits(
             limits,
             query,
         };
-        row.emit(Node::Typed(&data_type, value), 0)?;
+        row.emit(Node::Typed(&data_type, value), depth)?;
         if row.values.first().is_none_or(|(tag, _)| *tag == 0) {
             return Err(Error::Conversion(
                 "native VARIANT root NULL requires row validity".into(),

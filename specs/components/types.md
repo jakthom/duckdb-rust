@@ -139,6 +139,18 @@ equate several representation-distinct scalar values. Retained selected type
 validation remains required before a bounded native-content traversal; no
 implicit cast or ambient adapter replacement is authorized by this equivalence.
 
+Source observation for WAL: VARIANT vectors serialize through the ordinary
+physical STRUCT case, with outer row validity (fields 100/101) and the four
+canonical child vectors (field 103). There is no additional logical STRUCT
+envelope or checkpoint shredding metadata in this vector representation.
+Constant/dictionary vector framing and recursively serialized LIST entries still
+apply. Development storage v2 additionally changes VARCHAR/BLOB vector byte
+framing; readers must distinguish it from the release string-list format.
+Engineering implication: canonical logical decoding must preserve shared WAL
+depth/visit limits, selected validation, cancellation and exact payload tags.
+Implementing this codec does not authorize publication into an older checkpoint.
+Source: [vector serialization](../../../duckdb/src/common/types/vector.cpp).
+
 Sources: [canonical types](../../../duckdb/src/common/types.cpp),
 [VARIANT column storage](../../../duckdb/src/storage/table/variant_column_data.cpp),
 [iterators](../../../duckdb/src/common/types/variant/variant_iterator.cpp),
