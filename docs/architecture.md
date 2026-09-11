@@ -1,6 +1,6 @@
 # Rust implementation map
 
-Source-checked 2026-09-11 at `3cec56e`. This is a navigation map, not a parity
+Source-checked 2026-09-11 at `a250c0c`. This is a navigation map, not a parity
 claim. Current work and dependencies live in the [parity backlog](parity-backlog.md);
 the [rewrite principles](../specs/rewrite-principles.md) define required replaceability.
 
@@ -21,7 +21,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 
 | Boundary | Existing implementations / location | Important limit |
 | --- | --- | --- |
-| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs) | No general object/dependency/multi-catalog model; defaults retain selected owned expression trees |
+| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs), [runtime identity](../src/catalog/identity.rs), [dependency graph](../src/catalog/dependency.rs), [search path](../src/catalog/search_path.rs) | Stable runtime handles, checked dependency planning and pure path resolution exist; snapshots, DDL and sessions do not consume them yet, and there is no general object/multi-catalog model |
 | Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs) | Every intervening writer conflicts, even disjoint writes |
 | Values/types | [type/value definitions](../src/common/types.rs), [registry](../src/common/type_registry.rs) | Broad scalar/temporal/nested foundation; function and consumer coverage incomplete |
 | Vectors | [flat/constant/dictionary vectors and chunks](../src/common/vector.rs) | Immutable owned/shared data; not complete native or Arrow vector parity |
@@ -47,6 +47,14 @@ can outlive a connection/database. Prepared statements retain syntax and rebind
 on execution; reference-compatible setting/dependency retention still needs work.
 Reader snapshots remain alive across publication. Definite commit failure and
 unknown/recovery-required outcomes are distinguished by the transaction manager.
+
+Catalog and object IDs are process-local and deliberately absent from durable table
+definitions. Object keys stay stable across catalog-version increments; resolved
+table bindings retain the observed version separately. The bidirectional dependency
+graph validates ownership and produces deterministic dependent-first drop plans, and
+the pure search-path model retains user spelling, duplicates and DuckDB's implicit
+temporary/default/system lookup order. Snapshot adoption, transactional version
+publication, DDL enforcement and session-setting integration remain open.
 
 Native persistence already has selected versioned scalar/nested checkpoint and
 WAL paths, physical row-ID/deletion-mask handling, compatible local locks and

@@ -186,7 +186,10 @@ Sources: `src/parser/`, `src/planner/binder/`, upstream `src/parser/`,
 ## G03 — Scalar types, coercion and numeric functions
 
 **Current:** signed/unsigned widths, DECIMAL, FLOAT/DOUBLE, BIT, BIGNUM, BLOB,
-UUID and anonymous ENUM have implementations. Remaining work is completeness.
+UUID and anonymous ENUM have implementations. Checked factorial and signed
+BIGINT/HUGEINT GCD/LCM families, including aliases and selected casts, now work
+through scalar/batch evaluation, mutations and reopen. The remaining conversion,
+operator, math and scalar-family catalog is still incomplete.
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -210,6 +213,10 @@ Sources: `src/common/{types,numeric,scalar,bit,bignum}.rs`, `src/common/cast/`,
 
 **Current:** DATE, TIME/TIME_NS/TIMETZ, timestamp precisions/timezones and INTERVAL,
 plus selected arithmetic, calendar difference/truncation/bucket/format functions.
+`to_timestamp(DOUBLE)` retains ties-even microsecond rounding and its half-open
+range; development's interval normalization carries and borrows with Euclidean,
+saturating behavior. Remaining calendar, textual, transaction-time and ICU work
+is open.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -231,8 +238,12 @@ Sources: `src/common/temporal/`, `src/function/temporal/`,
 ## G05 — Nested values, lambdas and core GEOMETRY
 
 **Current:** LIST/ARRAY/STRUCT/MAP/UNION/VARIANT/TUPLE have selected value, function
-and native paths. Core GEOMETRY is present in the pinned C++ type enum and absent
-from Rust's built-in DataType enum; it is not solely a spatial-extension question.
+and native paths. LIST/ARRAY slicing now implements pinned 1-based inclusive,
+negative, omitted-bound and stride semantics through both evaluators and reopen;
+omitted syntax is retained as binder provenance and cannot be forged by a user
+empty-list expression. String/BLOB slicing and the broader nested catalog remain
+open. Core GEOMETRY is present in the pinned C++ type enum and absent from Rust's
+built-in DataType enum; it is not solely a spatial-extension question.
 
 - **G05.1 Complete nested semantics.** Finish slicing, constructors/accessors,
   UNION promotion, STRUCT field combination, ARRAY shapes, MAP duplicates/lookup,
@@ -387,7 +398,12 @@ Sources: `src/catalog/{mod,expression}.rs`, `src/planner/binder/stored.rs`,
 ## G10 — Catalog objects, settings and attachments
 
 **Current:** the catalog exposes schemas/tables; TableName has schema/name only.
-Three built-in setting definitions exist. There is no general catalog object model.
+Runtime catalog/object IDs now separate stable object identity from observed catalog
+version, legacy adapters fail closed at identity-aware boundaries, a bidirectional
+checked dependency graph plans deterministic RESTRICT/CASCADE order, and a pure
+search-path model matches pinned parsing and implicit lookup order. These contracts
+are not yet adopted by snapshots, transactions, DDL or session settings. Three
+built-in setting definitions exist; there is no general catalog object model.
 
 - **G10.1 Establish identity and dependencies.** Add catalog/object IDs, search paths,
   dependency tracking, invalidation, temporary object scope and transaction visibility.
