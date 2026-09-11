@@ -13,7 +13,7 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use crate::{
     common::{
-        DataType, Error, Result, Row, RowCollection, Value, cast::CastRegistry, vector::DataChunk,
+        DataType, Error, Result, RowCollection, Value, cast::CastRegistry, vector::DataChunk,
     },
     execution::{
         CollectingSink, ExecutionContext, Executor, PullExecutor, StreamControl,

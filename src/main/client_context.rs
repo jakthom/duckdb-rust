@@ -158,34 +158,38 @@ impl Services {
                 let mut rows = Vec::with_capacity(input.rows.len());
                 for input in input.rows {
                     query.check()?;
-                    let mut supplied = vec![None; definition.columns.len()];
+                    let mut row = vec![Value::Null; definition.columns.len()];
                     for (&column, value) in columns.iter().zip(input) {
-                        supplied[column] = Some(value);
+                        row[column] = value;
                     }
-                    let row: Row = definition
-                        .columns
-                        .iter()
-                        .enumerate()
-                        .map(|(ordinal, column)| {
-                            supplied[ordinal].take().map_or_else(
-                                || {
-                                    column
-                                        .default
-                                        .as_ref()
-                                        .map_or(Ok(Value::Null), |expression| {
-                                            query.stored_expressions()?.evaluate(
-                                                expression,
-                                                &column.data_type,
-                                                transaction.catalog(),
-                                                query,
-                                            )
-                                        })
-                                },
-                                Ok,
-                            )
-                        })
-                        .collect::<Result<_>>()?;
                     rows.push(row);
+                }
+                let mut supplied = vec![false; definition.columns.len()];
+                for &column in &columns {
+                    supplied[column] = true;
+                }
+                // DuckDB evaluates omitted defaults a vector at a time: finish
+                // one target column for every input row before the next column.
+                // Rows remain staged until all effects and validation succeed.
+                for (ordinal, column) in definition.columns.iter().enumerate() {
+                    if supplied[ordinal] {
+                        continue;
+                    }
+                    for row in &mut rows {
+                        query.check()?;
+                        row[ordinal] =
+                            column
+                                .default
+                                .as_ref()
+                                .map_or(Ok(Value::Null), |expression| {
+                                    query.stored_expressions()?.evaluate(
+                                        expression,
+                                        &column.data_type,
+                                        transaction.catalog(),
+                                        query,
+                                    )
+                                })?;
+                    }
                 }
                 Ok(QueryResult::command(
                     transaction.storage_mut()?.insert(&table, rows, query)?,

@@ -81,6 +81,139 @@ fn string(value: &str) -> Value {
     Value::Varchar(value.into())
 }
 
+#[derive(Debug)]
+struct OrderedDefault(Arc<EffectState>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for OrderedDefault {
+    fn name(&self) -> &str {
+        "ordered_default"
+    }
+    fn effects(&self) -> FunctionEffects {
+        FunctionEffects {
+            volatile: true,
+            external_access: true,
+        }
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        if arguments != [DataType::Varchar] {
+            return Err(Error::Bind(
+                "ordered_default accepts one VARCHAR argument".into(),
+            ));
+        }
+        Ok(DataType::Varchar)
+    }
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        let [Value::Varchar(label)] = arguments else {
+            return Err(Error::Internal("bound ordered_default arguments".into()));
+        };
+        let call = self.0.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        if self.0.fail_on.load(Ordering::SeqCst) == call {
+            return Err(Error::Execution(format!(
+                "ordered default failed on call {call}"
+            )));
+        }
+        let Value::Varchar(setting) = query.settings().get("default_order", query)? else {
+            return Err(Error::Internal("default_order is not VARCHAR".into()));
+        };
+        Ok(string(&format!("{setting}:{label}:{call}")))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn insert_defaults_run_column_major_and_stage_failures_before_rows() -> Result<()> {
+    let state = Arc::new(EffectState::default());
+    let mut registry = FunctionRegistry::builtins();
+    registry.register_scalar(Arc::new(OrderedDefault(state.clone())))?;
+    let mut connection = DatabaseBuilder::new()
+        .functions(registry)
+        .build()?
+        .connect();
+    connection.execute("SET SESSION default_order='DESC'")?;
+    connection.execute(
+        "CREATE TABLE ordered(
+            id INTEGER,
+            first VARCHAR DEFAULT ordered_default('first'),
+            second VARCHAR DEFAULT ordered_default('second'),
+            supplied VARCHAR DEFAULT ordered_default('bypass')
+        )",
+    )?;
+    connection.execute(
+        "INSERT INTO ordered(id,supplied) VALUES
+            (1,'one'),(2,'two'),(3,'three')",
+    )?;
+    assert_eq!(state.calls.load(Ordering::SeqCst), 6);
+    assert_eq!(
+        connection
+            .query("SELECT * FROM ordered ORDER BY id ASC")?
+            .rows,
+        vec![
+            vec![
+                integer(1),
+                string("DESC:first:1"),
+                string("DESC:second:4"),
+                string("one")
+            ],
+            vec![
+                integer(2),
+                string("DESC:first:2"),
+                string("DESC:second:5"),
+                string("two")
+            ],
+            vec![
+                integer(3),
+                string("DESC:first:3"),
+                string("DESC:second:6"),
+                string("three")
+            ],
+        ]
+    );
+
+    connection.execute(
+        "INSERT INTO ordered(id,supplied)
+         SELECT 99,'empty' WHERE false",
+    )?;
+    assert_eq!(state.calls.load(Ordering::SeqCst), 6);
+    connection.execute(
+        "CREATE TABLE singleton(
+            first VARCHAR DEFAULT ordered_default('single-first'),
+            second VARCHAR DEFAULT ordered_default('single-second')
+        ); INSERT INTO singleton DEFAULT VALUES",
+    )?;
+    assert_eq!(state.calls.load(Ordering::SeqCst), 8);
+    assert_eq!(
+        connection.query("SELECT * FROM singleton")?.rows,
+        vec![vec![
+            string("DESC:single-first:7"),
+            string("DESC:single-second:8")
+        ]]
+    );
+
+    state.fail_on.store(13, Ordering::SeqCst);
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO ordered(id,supplied) VALUES
+                    (10,'ten'),(11,'eleven'),(12,'twelve')"
+            )
+            .is_err()
+    );
+    // Calls 9..11 finish `first`; `second` fails on its second row. The third
+    // second-column default and every bypassed default remain unevaluated.
+    assert_eq!(state.calls.load(Ordering::SeqCst), 13);
+    assert_eq!(
+        connection.query("SELECT count(*) FROM ordered")?.rows,
+        vec![vec![integer(3)]]
+    );
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn prepared_omissions_use_execution_settings_and_failed_rows_remain_atomic() -> Result<()> {
