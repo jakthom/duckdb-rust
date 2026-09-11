@@ -1,0 +1,4099 @@
+{
+  "recorded_at": "2026-09-11T00:10:53.781655+00:00",
+  "source_sha256": "7ea1a7ece969d9819efd8b373450101c04a3864d61847ced0387a25a6ff7f9d3",
+  "build_command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--no-default-features",
+    "--bin",
+    "duckdb-rust-test-worker"
+  ],
+  "rust_worker_sha256": "1a0fbf7098fb2ff305861658e8c3867cd38c21256dfa9b81f6b1f327e3812f39",
+  "script_sha256": "42f03c946b67765db199aae5437b37d06b195a06507b3b96a323d297fbf80e0a",
+  "scope": "Exact result types/values or complete error messages for physical period-specifier provenance; no native/ICU/performance claim.",
+  "full_parity": false,
+  "targets": [
+    {
+      "target": "release",
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+      "cpp_worker_sha256": "ea195829ccafc6c07e0377e84ec2d9b28234173006a01a7198d4917cff14c841",
+      "sql": [
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad'),('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) t(i) WHERE i<>1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) ORDER BY 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) LIMIT 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p,concat('x','y') x FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT p FROM (VALUES ('bad'),('bad')) t(p) WHERE p='bad')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff('bad',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff('day',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff((SELECT 'bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff((SELECT p FROM (VALUES ('bad')) t(p)),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(concat('b','ad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff('bad'::ENUM('bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(CASE WHEN true THEN 'bad' ELSE 'day' END,DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(0))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff((SELECT 'bad'),DATE 'infinity',DATE 'epoch') FROM range(0)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT CASE WHEN false THEN date_diff((SELECT 'bad'),DATE 'infinity',DATE 'epoch') ELSE 7 END",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('day',DATE '1970-01-02')) t(p,d)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff((SELECT CASE WHEN i=0 THEN 'bad' ELSE 'day' END),DATE 'infinity',DATE 'epoch') FROM range(2) t(i)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff('bad',NULL::DATE,CAST('bad' AS DATE))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad'),('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) t(i) WHERE i<>1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) ORDER BY 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) LIMIT 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p,concat('x','y') x FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT p FROM (VALUES ('bad'),('bad')) t(p) WHERE p='bad')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff('bad',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff('day',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff((SELECT 'bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff((SELECT p FROM (VALUES ('bad')) t(p)),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(concat('b','ad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff('bad'::ENUM('bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(CASE WHEN true THEN 'bad' ELSE 'day' END,DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(0))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff((SELECT 'bad'),DATE 'infinity',DATE 'epoch') FROM range(0)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT CASE WHEN false THEN datediff((SELECT 'bad'),DATE 'infinity',DATE 'epoch') ELSE 7 END",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('day',DATE '1970-01-02')) t(p,d)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff((SELECT CASE WHEN i=0 THEN 'bad' ELSE 'day' END),DATE 'infinity',DATE 'epoch') FROM range(2) t(i)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff('bad',NULL::DATE,CAST('bad' AS DATE))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad'),('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) t(i) WHERE i<>1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) ORDER BY 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) LIMIT 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p,concat('x','y') x FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT p FROM (VALUES ('bad'),('bad')) t(p) WHERE p='bad')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub('bad',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub('day',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub((SELECT 'bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub((SELECT p FROM (VALUES ('bad')) t(p)),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(concat('b','ad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub('bad'::ENUM('bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(CASE WHEN true THEN 'bad' ELSE 'day' END,DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(0))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub((SELECT 'bad'),DATE 'infinity',DATE 'epoch') FROM range(0)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT CASE WHEN false THEN date_sub((SELECT 'bad'),DATE 'infinity',DATE 'epoch') ELSE 7 END",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('day',DATE '1970-01-02')) t(p,d)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub((SELECT CASE WHEN i=0 THEN 'bad' ELSE 'day' END),DATE 'infinity',DATE 'epoch') FROM range(2) t(i)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub('bad',NULL::DATE,CAST('bad' AS DATE))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad'),('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) t(i) WHERE i<>1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) ORDER BY 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) LIMIT 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p,concat('x','y') x FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT p FROM (VALUES ('bad'),('bad')) t(p) WHERE p='bad')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub('bad',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub('day',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub((SELECT 'bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub((SELECT p FROM (VALUES ('bad')) t(p)),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(concat('b','ad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub('bad'::ENUM('bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(CASE WHEN true THEN 'bad' ELSE 'day' END,DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(0))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub((SELECT 'bad'),DATE 'infinity',DATE 'epoch') FROM range(0)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT CASE WHEN false THEN datesub((SELECT 'bad'),DATE 'infinity',DATE 'epoch') ELSE 7 END",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('day',DATE '1970-01-02')) t(p,d)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub((SELECT CASE WHEN i=0 THEN 'bad' ELSE 'day' END),DATE 'infinity',DATE 'epoch') FROM range(2) t(i)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub('bad',NULL::DATE,CAST('bad' AS DATE))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        }
+      ]
+    },
+    {
+      "target": "development",
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "cpp_library_sha256": "74b604b07e2c7d0f3d1e60afcbcfc388390f51d016d079f75aced1e6c1637240",
+      "cpp_worker_sha256": "44ef20ec1f80f04efa4525014f693c362da3474d76b3df995d4c00c80e40e239",
+      "sql": [
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad'),('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) t(i) WHERE i<>1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) ORDER BY 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) LIMIT 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p,concat('x','y') x FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT p FROM (VALUES ('bad'),('bad')) t(p) WHERE p='bad')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff('bad',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff('day',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff((SELECT 'bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff((SELECT p FROM (VALUES ('bad')) t(p)),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_diff(concat('b','ad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff('bad'::ENUM('bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(CASE WHEN true THEN 'bad' ELSE 'day' END,DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(0))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff((SELECT 'bad'),DATE 'infinity',DATE 'epoch') FROM range(0)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT CASE WHEN false THEN date_diff((SELECT 'bad'),DATE 'infinity',DATE 'epoch') ELSE 7 END",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('day',DATE '1970-01-02')) t(p,d)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff((SELECT CASE WHEN i=0 THEN 'bad' ELSE 'day' END),DATE 'infinity',DATE 'epoch') FROM range(2) t(i)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_diff('bad',NULL::DATE,CAST('bad' AS DATE))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad'),('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) t(i) WHERE i<>1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) ORDER BY 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) LIMIT 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p,concat('x','y') x FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT p FROM (VALUES ('bad'),('bad')) t(p) WHERE p='bad')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff('bad',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff('day',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff((SELECT 'bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff((SELECT p FROM (VALUES ('bad')) t(p)),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datediff(concat('b','ad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff('bad'::ENUM('bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(CASE WHEN true THEN 'bad' ELSE 'day' END,DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(0))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff((SELECT 'bad'),DATE 'infinity',DATE 'epoch') FROM range(0)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT CASE WHEN false THEN datediff((SELECT 'bad'),DATE 'infinity',DATE 'epoch') ELSE 7 END",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('day',DATE '1970-01-02')) t(p,d)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff((SELECT CASE WHEN i=0 THEN 'bad' ELSE 'day' END),DATE 'infinity',DATE 'epoch') FROM range(2) t(i)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datediff('bad',NULL::DATE,CAST('bad' AS DATE))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad'),('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) t(i) WHERE i<>1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) ORDER BY 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) LIMIT 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p,concat('x','y') x FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT p FROM (VALUES ('bad'),('bad')) t(p) WHERE p='bad')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub('bad',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub('day',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub((SELECT 'bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub((SELECT p FROM (VALUES ('bad')) t(p)),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT date_sub(concat('b','ad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub('bad'::ENUM('bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(CASE WHEN true THEN 'bad' ELSE 'day' END,DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(0))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub((SELECT 'bad'),DATE 'infinity',DATE 'epoch') FROM range(0)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT CASE WHEN false THEN date_sub((SELECT 'bad'),DATE 'infinity',DATE 'epoch') ELSE 7 END",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('day',DATE '1970-01-02')) t(p,d)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub((SELECT CASE WHEN i=0 THEN 'bad' ELSE 'day' END),DATE 'infinity',DATE 'epoch') FROM range(2) t(i)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT date_sub('bad',NULL::DATE,CAST('bad' AS DATE))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (VALUES ('bad'),('bad')) t(p)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) t(i) WHERE i<>1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) ORDER BY 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(3) LIMIT 1)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p,concat('x','y') x FROM range(3))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT p FROM (VALUES ('bad'),('bad')) t(p) WHERE p='bad')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub('bad',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub('day',DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub((SELECT 'bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub((SELECT p FROM (VALUES ('bad')) t(p)),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": false
+        },
+        {
+          "sql": "SELECT datesub(concat('b','ad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub('bad'::ENUM('bad'),DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(CASE WHEN true THEN 'bad' ELSE 'day' END,DATE 'infinity',DATE 'epoch')",
+          "rust": {
+            "message": "Conversion Error: extract specifier \"bad\" not recognized",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: extract specifier \"bad\" not recognized"
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,DATE 'infinity',DATE 'epoch') FROM (SELECT 'bad' p FROM range(0))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub((SELECT 'bad'),DATE 'infinity',DATE 'epoch') FROM range(0)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": []
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": []
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT CASE WHEN false THEN datesub((SELECT 'bad'),DATE 'infinity',DATE 'epoch') ELSE 7 END",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "7"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub(p,d,DATE 'epoch') FROM (VALUES ('bad',DATE 'infinity'),('day',DATE '1970-01-02')) t(p,d)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "-1"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub((SELECT CASE WHEN i=0 THEN 'bad' ELSE 'day' END),DATE 'infinity',DATE 'epoch') FROM range(2) t(i)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ],
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        },
+        {
+          "sql": "SELECT datesub('bad',NULL::DATE,CAST('bad' AS DATE))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "NULL"
+              ]
+            ]
+          },
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "passed": false
+}

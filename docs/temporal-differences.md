@@ -5,6 +5,11 @@ ongoing value-and-expression assignment. It is not full function, temporal,
 native-file, or performance parity. The shared metadata prerequisite is
 `77e46c5`; family source is `f3806d4`, based on integrated `4b2a027`.
 
+Follow-up: [execution provenance](temporal-provenance.md), source `0ed1f18` and
+`3d9e2ce` on the ninth integrated checkpoint, closes the four projected-constant
+and scalar-subquery gaps below. Earlier reports remain unchanged historical
+evidence; the follow-up records new exact comparisons and validation separately.
+
 ## Semantics and selected services
 
 The pinned development source is authoritative. Its
@@ -28,8 +33,10 @@ Physically valid but unrenderable timestamp instants stay valid inputs for
 operations that do not require calendar reconstruction. This does not narrow
 their storage domain or change diagnostic display.
 
-`ScalarBindArguments::is_closed` supplies dependency/effect metadata without
-evaluation. The family then uses the separate selected `is_provably_null` probe
+The initial `ScalarBindArguments::is_closed` prerequisite supplies dependency/
+effect metadata without evaluation. The follow-up no longer uses it for this
+family's specifier dispatch: physical execution provenance is required instead.
+The family retains the separate selected `is_provably_null` probe
 only after selecting a valid overload. A successful NULL specialization keeps
 BIGINT metadata and the existing TypeOnly contract. Failed speculative data
 conversions do not establish NULL; selected Resource/Internal/logical-validation
@@ -83,11 +90,9 @@ remains the correctness authority.
 
 ## Explicit remaining obligations
 
-- A projected constant column from `(SELECT 'bad' p)` and a scalar-subquery
-  specifier produce constant vectors in C++. For each difference function with
-  an infinite endpoint, development rejects the bad specifier but Rust returns
-  NULL. The equivalent `(VALUES ('bad')) t(p)` path correctly returns NULL.
-  Bound-expression closedness is not a substitute for physical vector provenance.
+- The former four projected-constant/scalar-subquery gaps are resolved in
+  [the execution-provenance follow-up](temporal-provenance.md). VALUES and
+  materialized ORDER BY inputs keep their distinct nonconstant behavior.
 - Development rejects insertion using `DEFAULT make_timestamp(-9223372036854775806)`
   with `Conversion Error: Date out of range in timestamp conversion`; explicit
   insertion of the same physical instant succeeds. Rust currently accepts both.
