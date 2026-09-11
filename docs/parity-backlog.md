@@ -324,21 +324,24 @@ Sources: `src/function/{aggregate,window}.rs`, `src/planner/window.rs`,
 
 ## G09 — Retained expressions and default lifecycle
 
-**Current:** StoredExpression, selected binding/evaluation and native parsed/value
-codecs exist, but `ColumnDefinition.default` still stores a Value. The production
-native constant-default path rejects general FUNCTION defaults. This is the most
-immediate shared blocker in the active value-and-expression milestone.
+**Current:** `ColumnDefinition.default` retains an optional `StoredExpression`.
+SQL CREATE/SET/ADD captures and dependency/type-binds closed defaults without
+executing them; omitted INSERT values and ADD backfill evaluate at demand, including
+retained deleted physical slots until checkpoint reclamation. Native publication of
+general non-literal defaults and the broader lifetime matrix remain open.
 
-- **G09.1 Retain catalog expressions.** Replace eager-value-only defaults with owned
+- **G09.1 Retain catalog expressions (implemented foundation).** Replace eager-value-only defaults with owned
   parsed expressions and explicit binding dependencies; retain declared types,
   aliases/argument provenance, qualification, operators and relevant source spans.
-- **G09.2 Connect DDL and evaluation demand.** Capture CREATE/SET/ADD defaults without
+- **G09.2 Connect DDL and evaluation demand (implemented SQL path).** Capture CREATE/SET/ADD defaults without
   eager execution. Evaluate omitted INSERT values and ADD backfill at the reference
   demand point, including deleted physical rows and checkpoint reclamation.
 - **G09.3 Connect native serialization.** Integrate the existing parsed/value codecs,
   unresolved/named type binding, private format, native checkpoints and WAL. Support
   reference-valid version conversions and reject unrepresentable conversions explicitly.
-- **G09.4 Finish lifetime/effect semantics.** Test prepared-setting retention,
+- **G09.4 Finish lifetime/effect semantics.** Closed retained binding now permits
+  volatile/external effects and omitted INSERT evaluates volatile defaults per row.
+  Test prepared-setting retention,
   current-time/sequence/volatile defaults, failed statements, rollback, reopen,
   old snapshots and error timing. Coordinate CHECK/generated expressions with G11.
 

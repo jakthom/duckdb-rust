@@ -56,9 +56,9 @@ impl Binder for SqlBinder {
             outer: Vec::new(),
         };
         let bound = state.stored_expression(expression)?;
-        if !constant_expression(&bound) {
+        if !closed_expression(&bound) {
             return Err(unsupported(
-                "stored expression with volatile or external effects",
+                "stored expression with row or parameter dependencies",
             ));
         }
         context.query.check()?;
@@ -467,6 +467,28 @@ pub(super) fn constant_expression(expression: &BoundExpr) -> bool {
             !effects.volatile
                 && !effects.external_access
                 && arguments.iter().all(constant_expression)
+        }
+        _ => false,
+    }
+}
+
+/// Closedness is independent of function effects. Catalog defaults may be
+/// volatile or perform external access when demanded, but can never depend on
+/// an input row, parameter, subquery or aggregate scope.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn closed_expression(expression: &BoundExpr) -> bool {
+    match &expression.kind {
+        ExprKind::Literal(_) => true,
+        ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => closed_expression(inner),
+        ExprKind::Binary(_, left, right, _) => closed_expression(left) && closed_expression(right),
+        ExprKind::Case(branches, otherwise) => {
+            branches
+                .iter()
+                .all(|(predicate, value)| closed_expression(predicate) && closed_expression(value))
+                && closed_expression(otherwise)
+        }
+        ExprKind::Operator(_, arguments) | ExprKind::Scalar(_, arguments) => {
+            arguments.iter().all(closed_expression)
         }
         _ => false,
     }

@@ -158,26 +158,33 @@ impl Services {
                 let mut rows = Vec::with_capacity(input.rows.len());
                 for input in input.rows {
                     query.check()?;
-                    let mut row: Row = definition
+                    let mut supplied = vec![None; definition.columns.len()];
+                    for (&column, value) in columns.iter().zip(input) {
+                        supplied[column] = Some(value);
+                    }
+                    let row: Row = definition
                         .columns
                         .iter()
-                        .map(|column| {
-                            column
-                                .default
-                                .as_ref()
-                                .map_or(Ok(Value::Null), |expression| {
-                                    query.stored_expressions()?.evaluate(
-                                        expression,
-                                        &column.data_type,
-                                        transaction.catalog(),
-                                        query,
-                                    )
-                                })
+                        .enumerate()
+                        .map(|(ordinal, column)| {
+                            supplied[ordinal].take().map_or_else(
+                                || {
+                                    column
+                                        .default
+                                        .as_ref()
+                                        .map_or(Ok(Value::Null), |expression| {
+                                            query.stored_expressions()?.evaluate(
+                                                expression,
+                                                &column.data_type,
+                                                transaction.catalog(),
+                                                query,
+                                            )
+                                        })
+                                },
+                                Ok,
+                            )
                         })
                         .collect::<Result<_>>()?;
-                    for (&column, value) in columns.iter().zip(input) {
-                        row[column] = value;
-                    }
                     rows.push(row);
                 }
                 Ok(QueryResult::command(

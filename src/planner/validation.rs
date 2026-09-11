@@ -397,8 +397,8 @@ impl BoundExpr {
             },
         )?;
         require(
-            super::binder::constant_expression(self),
-            "catalog expression is not closed and effect-free",
+            super::binder::closed_expression(self),
+            "catalog expression has row or parameter dependencies",
         )
     }
     fn validate_at(

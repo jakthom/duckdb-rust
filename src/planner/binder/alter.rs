@@ -58,12 +58,8 @@ impl State<'_, '_> {
                 for option in &column_def.options {
                     match &option.option {
                         ast::ColumnOption::Default(value) => {
-                            let value = self.alter_default(value, &column.data_type)?;
                             column.default =
-                                Some(crate::catalog::expression::StoredExpression::literal(
-                                    column.data_type.clone(),
-                                    value,
-                                ));
+                                Some(self.capture_column_default(value, &column.data_type)?);
                         }
                         ast::ColumnOption::Null => {}
                         _ => {
@@ -102,15 +98,10 @@ impl State<'_, '_> {
                         let index = definition.column_index(&column)?;
                         TableAlteration::SetDefault {
                             column,
-                            expression: Some(
-                                crate::catalog::expression::StoredExpression::literal(
-                                    definition.columns[index].data_type.clone(),
-                                    self.alter_default(
-                                        value,
-                                        &definition.columns[index].data_type,
-                                    )?,
-                                ),
-                            ),
+                            expression: Some(self.capture_column_default(
+                                value,
+                                &definition.columns[index].data_type,
+                            )?),
                         }
                     }
                     _ => return Err(unsupported(op)),
@@ -123,18 +114,5 @@ impl State<'_, '_> {
             table: name,
             alteration,
         })
-    }
-
-    fn alter_default(&self, expression: &ast::Expr, target: &DataType) -> Result<Value> {
-        let value = self.literal(expression)?;
-        self.context
-            .casts
-            .bind(
-                &value.data_type(),
-                target,
-                CastMode::Assignment,
-                self.context.query.types(),
-            )?
-            .apply(&value, self.context.query)
     }
 }

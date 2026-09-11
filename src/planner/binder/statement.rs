@@ -94,7 +94,13 @@ impl State<'_, '_> {
                 let table = table_name(name)?;
                 let definition = self.context.catalog.table(&table)?;
                 let fields = schema(&definition);
-                let columns = if insert.columns.is_empty() {
+                let default_values = insert.source.is_none();
+                let columns = if default_values {
+                    if !insert.columns.is_empty() {
+                        return Err(unsupported("DEFAULT VALUES with an INSERT column list"));
+                    }
+                    Vec::new()
+                } else if insert.columns.is_empty() {
                     (0..fields.len()).collect()
                 } else {
                     insert
@@ -125,27 +131,8 @@ impl State<'_, '_> {
                     self.query_with_value_types(source, Some(&types))?
                 } else {
                     LogicalPlan {
-                        schema: columns.iter().map(|&i| fields[i].clone()).collect(),
-                        node: PlanNode::Values(vec![
-                            columns
-                                .iter()
-                                .map(|&i| {
-                                    BoundExpr::literal(
-                                        definition.columns[i]
-                                            .default
-                                            .as_ref()
-                                            .and_then(|expression| expression.as_literal())
-                                            .map_or(Value::Null, |(_, value)| value.clone()),
-                                    )
-                                    .cast(
-                                        fields[i].data_type.clone(),
-                                        CastMode::Assignment,
-                                        self.context.casts,
-                                        self.context.query.types(),
-                                    )
-                                })
-                                .collect::<Result<Vec<_>>>()?,
-                        ]),
+                        schema: Vec::new(),
+                        node: PlanNode::Values(vec![Vec::new()]),
                     }
                 };
                 if source.schema.len() != columns.len() {
@@ -319,22 +306,8 @@ impl State<'_, '_> {
                     ast::ColumnOption::Null => {}
                     ast::ColumnOption::NotNull => definition.nullable = false,
                     ast::ColumnOption::Default(expr) => {
-                        let value = self.literal(expr)?;
-                        let value = self
-                            .context
-                            .casts
-                            .bind(
-                                &value.data_type(),
-                                &definition.data_type,
-                                CastMode::Assignment,
-                                self.context.query.types(),
-                            )?
-                            .apply(&value, self.context.query)?;
                         definition.default =
-                            Some(crate::catalog::expression::StoredExpression::literal(
-                                definition.data_type.clone(),
-                                value,
-                            ));
+                            Some(self.capture_column_default(expr, &definition.data_type)?);
                     }
                     ast::ColumnOption::Unique(_) => unique_keys.push(crate::catalog::UniqueKey {
                         columns: vec![index],

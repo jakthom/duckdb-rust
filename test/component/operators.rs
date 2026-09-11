@@ -716,13 +716,12 @@ fn effects_and_failed_folding_preserve_required_evaluation() -> Result<()> {
     c.query("SELECT 1+2 FROM range(0)")?;
     c.query("SELECT CASE WHEN false THEN 1+2 ELSE 4 END")?;
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert!(matches!(
-        c.execute("CREATE TABLE t(i INTEGER DEFAULT 1+2)"),
-        Err(Error::Unsupported(_))
-    ));
+    c.execute("CREATE TABLE t(i INTEGER DEFAULT 1+2)")?;
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert_eq!(c.query("SELECT 1+2")?.rows, vec![vec![Value::Integer(3)]]);
+    c.execute("INSERT INTO t DEFAULT VALUES")?;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(c.query("SELECT 1+2")?.rows, vec![vec![Value::Integer(3)]]);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     Ok(())
 }
 

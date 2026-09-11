@@ -98,7 +98,10 @@ fn float_extrema_and_sampled_bits_survive_both_checkpoint_formats() -> Result<()
         TableDefinition {
             name: table.clone(),
             columns: vec![ColumnDefinition {
-                default: Value::Float(-0.5),
+                default: Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+                    DataType::Float,
+                    Value::Float(-0.5),
+                )),
                 ..ColumnDefinition::new("v", DataType::Float)
             }],
             unique_keys: vec![],

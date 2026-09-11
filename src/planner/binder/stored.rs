@@ -66,13 +66,11 @@ impl State<'_, '_> {
                 argument_style,
             } => {
                 if *is_operator {
-                    return Err(unsupported("stored operator binding"));
+                    return self.stored_operator(name, arguments);
                 }
-                let [name] = name.as_slice() else {
-                    return Err(unsupported("qualified stored function binding"));
-                };
+                let name = name.join(".");
                 // Match ordinary SQL's catalog-before-argument resolution.
-                let function = self.context.functions.scalar(name)?;
+                let function = self.context.functions.scalar(&name)?;
                 let names = arguments
                     .iter()
                     .map(|argument| {
@@ -99,5 +97,76 @@ impl State<'_, '_> {
                 self.scalar_call_selected_named(function, arguments, Some(&names), Some(&aliases))
             }
         }
+    }
+
+    fn stored_operator(
+        &self,
+        name: &[String],
+        arguments: &[crate::catalog::expression::StoredArgument],
+    ) -> Result<BoundExpr> {
+        let [name] = name else {
+            return Err(unsupported("qualified stored operator"));
+        };
+        if arguments.iter().any(|argument| argument.name.is_some()) {
+            return Err(Error::Bind(
+                "stored operators do not accept named arguments".into(),
+            ));
+        }
+        let arguments = arguments
+            .iter()
+            .map(|argument| self.stored_expression(&argument.expression))
+            .collect::<Result<Vec<_>>>()?;
+        let arity = arguments.len();
+        use crate::function::operator::Operator as O;
+        let selected = match (name.as_str(), arity) {
+            ("+", 1) => Some(O::Plus),
+            ("-", 1) => Some(O::Negate),
+            ("~", 1) => Some(O::BitNot),
+            ("+", 2) => Some(O::Add),
+            ("-", 2) => Some(O::Subtract),
+            ("*", 2) => Some(O::Multiply),
+            ("/", 2) => Some(O::Divide),
+            ("//", 2) => Some(O::IntegerDivide),
+            ("%", 2) => Some(O::Modulo),
+            ("||", 2) => Some(O::Concat),
+            ("&", 2) => Some(O::BitAnd),
+            ("|", 2) => Some(O::BitOr),
+            ("<<", 2) => Some(O::ShiftLeft),
+            (">>", 2) => Some(O::ShiftRight),
+            _ => None,
+        };
+        if let Some(selected) = selected {
+            return self.operator(selected, arguments);
+        }
+        let binary = match (name.as_str(), arity) {
+            ("=", 2) => Some(BinaryOp::Equal),
+            ("!=", 2) => Some(BinaryOp::NotEqual),
+            ("<", 2) => Some(BinaryOp::Less),
+            ("<=", 2) => Some(BinaryOp::LessEqual),
+            (">", 2) => Some(BinaryOp::Greater),
+            (">=", 2) => Some(BinaryOp::GreaterEqual),
+            ("and", 2) => Some(BinaryOp::And),
+            ("or", 2) => Some(BinaryOp::Or),
+            _ => None,
+        };
+        if let Some(binary) = binary {
+            let [left, right]: [BoundExpr; 2] = arguments
+                .try_into()
+                .map_err(|_| Error::Bind("invalid stored binary operator arity".into()))?;
+            return self.binary(binary, left, right);
+        }
+        if name == "not" && arity == 1 {
+            let [inner]: [BoundExpr; 1] = arguments
+                .try_into()
+                .map_err(|_| Error::Bind("invalid stored unary operator arity".into()))?;
+            let inner = self.boolean(inner)?;
+            return Ok(BoundExpr {
+                data_type: DataType::Boolean,
+                kind: ExprKind::Unary(UnaryOp::Not, Box::new(inner)),
+            });
+        }
+        Err(Error::Bind(format!(
+            "unsupported stored operator {name} with {arity} arguments"
+        )))
     }
 }

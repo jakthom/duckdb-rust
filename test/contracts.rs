@@ -35,7 +35,7 @@ use duckdb_rust::{
         operator::join::{HashJoin, NestedLoopJoin},
         physical_plan::NativePhysicalPlanner,
     },
-    function::{FunctionRegistry, ScalarFunction},
+    function::{FunctionEffects, FunctionRegistry, ScalarFunction},
     optimizer::IdentityOptimizer,
     parallel::QueryContext,
     storage::{
@@ -895,7 +895,10 @@ fn format_adapters_preserve_values_types_and_catalog_identity() -> Result<()> {
                     .iter()
                     .enumerate()
                     .map(|(i, t)| ColumnDefinition {
-                        default: defaults[i].clone(),
+                        default: Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+                            t.clone(),
+                            defaults[i].clone(),
+                        )),
                         ..ColumnDefinition::new(format!("c{i}"), t.clone())
                     })
                     .collect(),
@@ -981,5 +984,132 @@ fn private_checkpoint_detects_valid_json_with_changed_values() -> Result<()> {
         JsonSnapshotFormat.decode(encoded, duckdb_rust::common::type_registry::builtin_types()),
         Err(Error::Corrupt(_))
     ));
+    Ok(())
+}
+
+#[derive(Debug)]
+struct VolatileDefault(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for VolatileDefault {
+    fn name(&self) -> &str {
+        "app.default_tick"
+    }
+    fn effects(&self) -> FunctionEffects {
+        FunctionEffects {
+            volatile: true,
+            external_access: false,
+        }
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        if !arguments.is_empty() {
+            return Err(Error::Bind("default_tick accepts no arguments".into()));
+        }
+        Ok(DataType::Integer)
+    }
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        if !arguments.is_empty() {
+            return Err(Error::Internal("bound default_tick arguments".into()));
+        }
+        Ok(Value::Integer(
+            self.0.fetch_add(1, Ordering::SeqCst) as i128 + 1,
+        ))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn sql_defaults_are_retained_and_evaluated_only_at_omitted_row_demand() -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut functions = FunctionRegistry::builtins();
+    functions.register_scalar(Arc::new(VolatileDefault(calls.clone())))?;
+    let mut c = DatabaseBuilder::new()
+        .functions(functions)
+        .build()?
+        .connect();
+
+    assert!(
+        c.execute("CREATE TABLE missing(v INTEGER DEFAULT missing())")
+            .is_err()
+    );
+    assert!(
+        c.execute("CREATE TABLE wrong_arity(v INTEGER DEFAULT app.default_tick(1))")
+            .is_err()
+    );
+    assert!(
+        c.execute("CREATE TABLE wrong_target(v INTEGER DEFAULT [1])")
+            .is_err()
+    );
+    c.execute("CREATE TABLE failing_cast(v INTEGER DEFAULT CAST('bad' AS INTEGER))")?;
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    c.execute("INSERT INTO failing_cast VALUES (7)")?;
+    assert!(
+        c.execute("INSERT INTO failing_cast DEFAULT VALUES")
+            .is_err()
+    );
+
+    c.execute("CREATE TABLE t(a INTEGER DEFAULT app.default_tick(), b INTEGER DEFAULT 1+2)")?;
+    c.execute("ALTER TABLE t ALTER COLUMN a SET DEFAULT app.default_tick()")?;
+    assert!(
+        c.execute("ALTER TABLE t ALTER COLUMN b SET DEFAULT missing()")
+            .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+    c.execute("INSERT INTO t DEFAULT VALUES; INSERT INTO t(a) VALUES (10),(20)")?;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        c.query("SELECT * FROM t ORDER BY a")?.rows,
+        vec![integers(&[1, 3]), integers(&[10, 3]), integers(&[20, 3])]
+    );
+    c.execute("INSERT INTO t(b) VALUES (30),(31)")?;
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+
+    c.execute("ALTER TABLE t ALTER COLUMN b SET DEFAULT 1/0")?;
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    c.execute("INSERT INTO t VALUES (30, 40),(31, 41)")?;
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert!(c.execute("INSERT INTO t(a) VALUES (50),(51)").is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        c.query("SELECT count(*) FROM t")?.rows,
+        vec![integers(&[7])]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn add_default_demand_tracks_deleted_physical_slots_until_checkpoint() -> Result<()> {
+    let mut c = Database::memory()?.connect();
+    c.execute(
+        "CREATE TABLE live(i INTEGER); INSERT INTO live VALUES (1),(2); \
+         ALTER TABLE live ADD COLUMN added INTEGER DEFAULT 1+2",
+    )?;
+    assert_eq!(
+        c.query("SELECT * FROM live ORDER BY i")?.rows,
+        vec![integers(&[1, 3]), integers(&[2, 3])]
+    );
+
+    c.execute("CREATE TABLE t(i INTEGER); INSERT INTO t VALUES (1),(2); DELETE FROM t")?;
+    assert_eq!(
+        c.query("SELECT count(*) FROM t")?.rows,
+        vec![integers(&[0])]
+    );
+
+    assert!(
+        c.execute("ALTER TABLE t ADD COLUMN failed INTEGER DEFAULT 1/0")
+            .is_err()
+    );
+    c.execute("CHECKPOINT")?;
+    c.execute("ALTER TABLE t ADD COLUMN added INTEGER DEFAULT 1/0")?;
+    c.execute("INSERT INTO t VALUES (3, 30)")?;
+    assert!(c.execute("INSERT INTO t(i) VALUES (4),(5)").is_err());
+    assert_eq!(c.query("SELECT * FROM t")?.rows, vec![integers(&[3, 30])]);
     Ok(())
 }

@@ -301,7 +301,10 @@ fn unsupported_publication_preserves_the_original_database() -> Result<()> {
     let large_default = TableDefinition {
         name: TableName::main("oversized"),
         columns: vec![ColumnDefinition {
-            default: Value::Varchar("x".repeat(16_777_217)),
+            default: Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+                DataType::Varchar,
+                Value::Varchar("x".repeat(16_777_217)),
+            )),
             ..ColumnDefinition::new("v", DataType::Varchar)
         }],
         unique_keys: vec![],

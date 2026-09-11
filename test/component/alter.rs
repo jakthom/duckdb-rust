@@ -82,7 +82,10 @@ fn catalog_alter_is_atomic_preserves_ids_and_retained_snapshots() -> Result<()> 
         },
         TableAlteration::SetDefault {
             column: "i".into(),
-            value: Value::Varchar("bad integer".into()),
+            expression: Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+                DataType::Integer,
+                Value::Varchar("bad integer".into()),
+            )),
         },
         TableAlteration::SetNullability {
             column: "j".into(),
@@ -107,7 +110,10 @@ fn catalog_alter_is_atomic_preserves_ids_and_retained_snapshots() -> Result<()> 
     ));
     let change = TableAlteration::AddColumn {
         column: ColumnDefinition {
-            default: Value::Integer(42),
+            default: Some(duckdb_rust::catalog::expression::StoredExpression::literal(
+                DataType::BigInt,
+                Value::Integer(42),
+            )),
             ..ColumnDefinition::new("answer", DataType::BigInt)
         },
         if_not_exists: false,

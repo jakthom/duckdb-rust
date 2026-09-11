@@ -29,6 +29,32 @@ impl SqlBinder {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
+    /// Retain a column default after binding its closed dependencies and target
+    /// assignment conversion. Binding must not execute the retained body.
+    pub(super) fn capture_column_default(
+        &self,
+        expression: &ast::Expr,
+        target: &DataType,
+    ) -> Result<StoredExpression> {
+        let stored = self.capture_stored_expression(expression)?;
+        stored.validate(self.context.query)?;
+        let bound = self.stored_expression(&stored)?;
+        if !super::closed_expression(&bound) {
+            return Err(unsupported(
+                "stored expression with row or parameter dependencies",
+            ));
+        }
+        bound.validate_closed(self.context.catalog, self.context.query)?;
+        let assigned = bound.cast(
+            target.clone(),
+            CastMode::Assignment,
+            self.context.casts,
+            self.context.query.types(),
+        )?;
+        assigned.validate_closed(self.context.catalog, self.context.query)?;
+        Ok(stored)
+    }
+
     pub(super) fn capture_stored_expression(
         &self,
         expression: &ast::Expr,
@@ -232,7 +258,7 @@ fn retained_unary_operator(operator: &ast::UnaryOperator) -> Option<&'static str
 mod tests {
     use super::*;
     use crate::{
-        execution::expression_executor::ScalarEvaluator,
+        execution::expression_executor::{ExpressionEvaluator, ScalarEvaluator},
         function::{FunctionRegistry, operator::OperatorRegistry},
         parallel::QueryContext,
         parser::{DuckDbParser, Parser, Statement},
@@ -332,6 +358,43 @@ mod tests {
         ] {
             assert!(matches!(capture(sql), Err(Error::Unsupported(_))), "{sql}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn captured_operators_bind_through_selected_operator_services_without_reparsing() -> Result<()>
+    {
+        let query = QueryContext::background();
+        let catalog = Snapshot::new(query.type_registry());
+        let casts = crate::common::cast::CastRegistry::builtins();
+        let operators = OperatorRegistry::builtins();
+        let functions = FunctionRegistry::builtins();
+        let expressions = ScalarEvaluator;
+        let context = BindContext {
+            catalog: &catalog,
+            casts: &casts,
+            operators: &operators,
+            query: &query,
+            functions: &functions,
+            expressions: &expressions,
+            parameters: &[],
+        };
+        let stored = SqlBinder.capture_stored_expression(&parsed("1 + 2")?, &context)?;
+        let bound = SqlBinder.bind_stored_expression(&stored, &context)?;
+        assert_eq!(
+            expressions.evaluate(&bound, &Vec::new(), &query)?,
+            Value::Integer(3)
+        );
+
+        let mut malformed = stored;
+        let StoredExpressionKind::Function { arguments, .. } = &mut malformed.kind else {
+            unreachable!()
+        };
+        arguments.clear();
+        assert!(matches!(
+            SqlBinder.bind_stored_expression(&malformed, &context),
+            Err(Error::Bind(_))
+        ));
         Ok(())
     }
 }
