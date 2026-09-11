@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 mod temporal_calendar;
 mod temporal_difference;
+mod temporal_minimum;
 mod temporal_provenance;
 mod temporal_variant;
 
@@ -78,7 +79,7 @@ fn temporal_literals_keep_type_precision_nulls_and_canonical_comparison() -> Res
     for invalid in [
         TemporalValue::Time(-1),
         TemporalValue::TimeNs(86_400_500_000_001),
-        TemporalValue::Timestamp(i64::MIN),
+        TemporalValue::TimeNs(i64::MIN),
         TemporalValue::TimeTz {
             micros: 0,
             offset: 57600,
@@ -496,7 +497,7 @@ fn temporal_functions_extract_epoch_constructors_and_infinity_are_typed() -> Res
         "SELECT make_date(2023,2,29)",
         "SELECT make_time(25,0,0)",
         "SELECT to_years(2147483647)",
-        "SELECT make_timestamp_ns('-9223372036854775808'::BIGINT)",
+        "SELECT make_timestamp_ns('-9223372036854775808'::BIGINT)::VARCHAR",
         "SELECT make_date(DATE 'epoch')",
         "SELECT make_time(TIME '00:00')",
         "SELECT isfinite(INTERVAL '1 year')",

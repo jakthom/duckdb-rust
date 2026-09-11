@@ -23,7 +23,9 @@ pub(super) fn scalar(data: &[u8], offset: usize, data_type: &DataType) -> Result
         DataType::TimeTz => TemporalValue::from_packed_time_tz(u64_at(data, offset)?)?,
         _ => {
             let ticks = u64_at(data, offset)? as i64;
-            if ticks == i64::MIN {
+            // Timestamp MIN is a finite value. Independent column/vector
+            // validity masks, applied by the caller, identify its NULL rows.
+            if ticks == i64::MIN && data_type.timestamp_precision().is_none() {
                 return Ok(Value::Null);
             }
             TemporalValue::from_ticks(data_type, ticks)?

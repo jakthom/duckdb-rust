@@ -222,8 +222,16 @@ impl TemporalValue {
             Self::TimeTz { micros, offset } => {
                 (0..=MAX_CLOCK_MICROS).contains(&micros) && (-57599..=57599).contains(&offset)
             }
-            Self::Interval { .. } => true,
-            _ => self.ticks()? != i64::MIN,
+            // timestamp_base_t<P,Z> stores every signed 64-bit payload. MIN
+            // is finite, even when calendar formatting/scaling cannot render
+            // it. Native validity, not the raw payload, distinguishes NULL.
+            Self::Interval { .. }
+            | Self::Timestamp(_)
+            | Self::TimestampS(_)
+            | Self::TimestampMs(_)
+            | Self::TimestampNs(_)
+            | Self::TimestampTz(_)
+            | Self::TimestampTzNs(_) => true,
         };
         if valid {
             Ok(())
@@ -359,6 +367,9 @@ impl TemporalValue {
         let target_precision = target
             .timestamp_precision()
             .ok_or_else(|| invalid("expected timestamp"))?;
+        if source_precision == target_precision {
+            return Self::from_ticks(target, self.ticks()?);
+        }
         if !self.is_finite() {
             return Self::from_ticks(target, self.ticks()?);
         }

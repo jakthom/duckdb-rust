@@ -83,7 +83,9 @@ pub(super) fn integer_value(value: i128, data_type: &DataType) -> Result<Value> 
                 .map(Value::Temporal);
         }
         let ticks = i64::try_from(value).map_err(|_| corrupt("temporal physical width"))?;
-        if ticks == i64::MIN {
+        // Numeric compression preserves valid timestamp MIN payloads; the
+        // enclosing column applies its separate validity metadata afterward.
+        if ticks == i64::MIN && data_type.timestamp_precision().is_none() {
             return Ok(Value::Null);
         }
         return crate::common::TemporalValue::from_ticks(data_type, ticks).map(Value::Temporal);

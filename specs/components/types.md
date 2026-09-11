@@ -90,6 +90,30 @@ Decimal arithmetic must preserve both precision and scale constraints; temporal 
 
 The parser can represent an unresolved type expression; binding resolves it into a concrete `LogicalType`; physical planning and vector allocation depend on that resolved type. Serialization must retain the metadata needed to reconstruct the same type. Arrow and public APIs must express supported logical distinctions or reject unsupported conversions explicitly. Extension-defined type identity and lifetime must survive catalog lookup and prepared execution.
 
+### Timestamp payload validity and native NULLs
+
+Source observation: every `timestamp_base_t<P,Z>` variant holds the complete
+signed 64-bit physical domain. Only positive/negative `INT64_MAX` denote
+infinities; `INT64_MIN` is finite. Constructor/API acceptance, checked precision
+conversion, calendar arithmetic and SQL text rendering are separate contracts.
+A supported operation can produce a valid minimum payload even when a subsequent
+VARCHAR cast or result renderer fails. Infallible diagnostic Display must not
+silently substitute for that selected SQL rendering contract. Identical-unit
+scaling preserves the raw value; changing units retains checked source semantics.
+This observation does not widen TIME, TIME_NS, TIMETZ or DATE domains.
+
+Native fixed-size numeric storage can write the signed minimum as a NULL-row
+placeholder for debugging, but column validity determines whether that payload
+is NULL. Readers must not erase a valid timestamp minimum before applying its
+independent validity metadata. A codec with genuinely inline NULLs requires its
+own explicit interpretation; this is not a blanket sentinel-removal policy.
+Writers must retain enough validity information to distinguish a typed minimum
+from a typed NULL through scalar, nested, checkpoint and WAL paths.
+
+Sources: [timestamp base](../../../duckdb/src/include/duckdb/common/types/timestamp_base.hpp),
+[fixed-size uncompressed storage](../../../duckdb/src/storage/compression/fixed_size_uncompressed.cpp),
+[column validity](../../../duckdb/src/storage/table/standard_column_data.cpp).
+
 ### Dynamic VARIANT storage and reconstruction
 
 Source observation: VARIANT logical ID109 carries canonical physical children
