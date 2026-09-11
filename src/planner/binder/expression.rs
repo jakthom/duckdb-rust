@@ -746,6 +746,13 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
             .map(|a| a.data_type.clone())
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))
     }
+    fn select_overload(
+        &self,
+        name: &str,
+        candidates: &[crate::function::ScalarSignature],
+    ) -> Result<usize> {
+        super::overload::select(name, candidates, self.arguments, self.context)
+    }
     fn is_string_literal(&self, index: usize) -> Result<bool> {
         self.arguments
             .get(index)

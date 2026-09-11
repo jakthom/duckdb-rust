@@ -10,6 +10,8 @@ pub(crate) mod nested;
 pub mod operator;
 mod scalar;
 mod settings;
+mod signature;
+pub use signature::ScalarSignature;
 mod temporal;
 pub mod window;
 
@@ -118,6 +120,15 @@ pub trait ScalarBindArguments {
     /// capability. Only adapters requesting this metadata interpret it.
     fn argument_alias(&self, index: usize) -> Result<Option<&str>> {
         self.data_type(index).map(|_| None)
+    }
+    /// Select from the named adapter's owned advertised signatures without
+    /// evaluating arguments. SQL preserves ordered literal/NULL metadata and
+    /// selected cast availability/costs. Signature metadata alone does not
+    /// install an implementation. Other frontends explicitly decline by default.
+    fn select_overload(&self, _name: &str, _candidates: &[ScalarSignature]) -> Result<usize> {
+        Err(Error::Unsupported(
+            "frontend does not support scalar overload selection".into(),
+        ))
     }
     /// SQL string-literal identity is contextual binding information, not an
     /// implicit cast granted to every VARCHAR column or external frontend.

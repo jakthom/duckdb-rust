@@ -248,6 +248,31 @@ expansion seam. Effects of referenced argument expressions remain intact.
 
 ## Rewrite core calendar grids
 
+The provisional fixed-arity overload request is
+`ScalarBindArguments::select_overload(name, candidates)`. Each owned
+`ScalarSignature` declares argument and result types; the selected adapter
+supplies its call identity and advertised candidate order explicitly. The SQL
+frontend validates every candidate, including different arities, then selects
+through retained cast availability/costs and unevaluated literal/NULL metadata.
+Full signed/unsigned integer hints are not narrowed, inferred from ranges or
+manufactured by folding. Missing frontend capability remains Unsupported.
+
+Signature metadata does not install an implementation or grant a cast. An
+advertised extension placeholder can remain unavailable when selected. The
+consumer validates the returned index and retains its chosen signature for
+ordinary selected binding; the request itself performs no casts or evaluation.
+SQL string-literal priority remains distinct from a VARCHAR column or parameter.
+Selected cost errors and cancellation propagate. No-match diagnostics list all
+advertised signatures; ambiguity lists later equal-cost candidates then the
+original best, matching development's selection algorithm. Candidate-body
+formatting does not claim complete original-SQL source-span rendering, named or
+variadic argument support, or general catalog completeness. Provisional limits
+bound 4,096 candidates/name bytes and 65,536 total signature type positions.
+
+Sources: [overload selection](../../../duckdb/src/function/function_binder.cpp),
+[cast costs](../../../duckdb/src/function/cast_rules.cpp), and
+[advertised extension signatures](../../../duckdb/src/include/duckdb/main/extension_entries.hpp).
+
 The provisional temporal adapters register `date_trunc`/`datetrunc` and
 `time_bucket` through the ordinary selected function catalog. Truncation keeps
 DATE/TIMESTAMP results as microsecond TIMESTAMP and INTERVAL results as INTERVAL;

@@ -31,7 +31,7 @@ pub(super) fn integer_literal(value: &BoundExpr) -> Option<i128> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn full_integer_literal(value: &BoundExpr) -> Option<IntegerLiteral> {
+pub(super) fn full_integer_literal(value: &BoundExpr) -> Option<IntegerLiteral> {
     match &value.kind {
         ExprKind::Literal(Value::Integer(number))
             if value.data_type.integer_bits().is_some()

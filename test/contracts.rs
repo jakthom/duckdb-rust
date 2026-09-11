@@ -18,6 +18,8 @@ mod comparison_nulls;
 mod native_decode_context;
 #[path = "component/scalar_expansion.rs"]
 mod scalar_expansion;
+#[path = "component/scalar_overload.rs"]
+mod scalar_overload;
 #[path = "component/stored_expression.rs"]
 mod stored_expression;
 #[path = "component/typed_constant.rs"]

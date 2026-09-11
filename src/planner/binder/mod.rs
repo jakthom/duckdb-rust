@@ -3,6 +3,7 @@ mod coercion;
 mod expression;
 mod grouping;
 mod nested;
+mod overload;
 mod query;
 mod recursive;
 mod scalar_expansion;
