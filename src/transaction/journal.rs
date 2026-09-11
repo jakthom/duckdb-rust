@@ -19,11 +19,23 @@ impl Catalog for SnapshotTransaction {
     fn table_entry(&self, name: &TableName) -> Result<crate::catalog::ResolvedTable> {
         self.snapshot.table_entry(name)
     }
+    fn table_entry_if_exists(
+        &self,
+        name: &TableName,
+    ) -> Result<Option<crate::catalog::ResolvedTable>> {
+        self.snapshot.table_entry_if_exists(name)
+    }
     fn table_by_identity(
         &self,
         identity: &crate::catalog::ObjectIdentity,
     ) -> Result<crate::catalog::ResolvedTable> {
         self.snapshot.table_by_identity(identity)
+    }
+    fn table_by_identity_if_exists(
+        &self,
+        identity: &crate::catalog::ObjectIdentity,
+    ) -> Result<Option<crate::catalog::ResolvedTable>> {
+        self.snapshot.table_by_identity_if_exists(identity)
     }
 }
 
@@ -148,13 +160,15 @@ impl CatalogMut for SnapshotTransaction {
         table: &crate::catalog::TableBinding,
         if_exists: bool,
     ) -> Result<()> {
-        let identity = table.identity().ok_or_else(|| {
-            Error::InvalidInput("runtime transaction requires an identified table binding".into())
-        })?;
-        let name = match self.snapshot.table_by_identity(&identity) {
-            Ok(resolved) => resolved.definition().name.clone(),
-            Err(Error::Catalog(_)) if if_exists => return Ok(()),
-            Err(error) => return Err(error),
+        if table.identity().is_none() {
+            return Err(Error::InvalidInput(
+                "runtime transaction requires an identified table binding".into(),
+            ));
+        }
+        let name = match self.snapshot.resolve_table_binding_if_exists(table)? {
+            Some(resolved) => resolved.definition().name.clone(),
+            None if if_exists => return Ok(()),
+            None => return Err(Error::Catalog(format!("table {table} does not exist"))),
         };
         self.drop_table(&name, if_exists)
     }

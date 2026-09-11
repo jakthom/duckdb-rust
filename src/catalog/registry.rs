@@ -214,6 +214,11 @@ impl CatalogRegistry {
             .ok_or_else(|| Error::Catalog(format!("catalog object {identity} no longer exists")))
     }
 
+    pub fn name_if_exists(&self, identity: ObjectIdentity) -> Result<Option<&CatalogObjectName>> {
+        self.ensure_local(identity)?;
+        Ok(self.names_by_identity.get(&identity))
+    }
+
     pub fn bind_table(&self, name: &TableName) -> Result<TableBinding> {
         let name = CatalogObjectName::table(name)?;
         let identity = self

@@ -46,6 +46,24 @@ impl Connection {
     pub fn set_timeout(&mut self, timeout: Option<Duration>) {
         self.timeout = timeout;
     }
+    /// Resolve a table into the owned definition and strongest runtime binding
+    /// available to this connection's visible catalog. Alternative frontends
+    /// use the binding when constructing shared logical DDL or data plans.
+    pub fn resolve_table(
+        &self,
+        name: &crate::catalog::TableName,
+    ) -> Result<crate::catalog::ResolvedTable> {
+        match &self.session {
+            Session::Failed => Err(Error::Transaction(
+                "transaction is aborted; ROLLBACK is required".into(),
+            )),
+            Session::Active(transaction) => transaction.catalog().table_entry(name),
+            Session::Idle => {
+                let transaction = self.services.transactions.begin()?;
+                transaction.catalog().table_entry(name)
+            }
+        }
+    }
     pub fn execute(&mut self, sql: &str) -> Result<Vec<QueryResult>> {
         self.execute_params(sql, &[])
     }

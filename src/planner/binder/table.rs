@@ -221,10 +221,9 @@ impl State<'_, '_> {
                         alias,
                     )
                 } else {
-                    let table = table_name(name)?;
-                    if name.0.len() == 1 && self.ctes.contains_key(&table.name.to_ascii_lowercase())
-                    {
-                        let cte = &self.ctes[&table.name.to_ascii_lowercase()];
+                    let unresolved = self.unresolved_table_name(name)?;
+                    if unresolved.is_unqualified() && self.ctes.contains_key(unresolved.table()) {
+                        let cte = &self.ctes[unresolved.table()];
                         (
                             subquery::rebase_cte(
                                 cte.plan.clone(),
@@ -234,11 +233,16 @@ impl State<'_, '_> {
                             alias,
                         )
                     } else {
-                        namespace = Some(table.clone());
+                        let resolved =
+                            self.resolve_existing_table(name, false)?.ok_or_else(|| {
+                                Error::Internal("required table resolution is absent".into())
+                            })?;
+                        let (binding, definition) = resolved.into_parts();
+                        namespace = Some(definition.name.clone());
                         (
                             LogicalPlan {
-                                schema: schema(&self.context.catalog.table(&table)?),
-                                node: PlanNode::Scan(table),
+                                schema: schema(&definition),
+                                node: PlanNode::Scan(binding),
                             },
                             alias,
                         )

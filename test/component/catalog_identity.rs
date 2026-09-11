@@ -1,7 +1,22 @@
 use duckdb_rust::{
-    DataType, Error, Result,
-    catalog::{Catalog, CatalogMut, ColumnDefinition, TableAlteration, TableDefinition, TableName},
+    DataType, Database, Error, Result, Value,
+    catalog::{
+        Catalog, CatalogMut, ColumnDefinition, ResolvedTable, TableAlteration, TableDefinition,
+        TableName,
+    },
+    common::cast::CastRegistry,
+    execution::{
+        ExecutionContext,
+        expression_executor::ScalarEvaluator,
+        physical_plan::{NativePhysicalPlanner, PhysicalOperator, PhysicalPlanner},
+        subquery::{PreparedSubqueries, StreamingSubqueries},
+    },
+    function::{FunctionRegistry, operator::OperatorRegistry},
     parallel::QueryContext,
+    parser::{DuckDbParser, Parser},
+    planner::{
+        BindContext, Binder, BoundExpr, BoundStatement, Field, LogicalPlan, PlanNode, SqlBinder,
+    },
     storage::{
         checkpoint::{Durability, MemoryDurability, PublishOutcome},
         log::{Commit, TransactionChange},
@@ -17,6 +32,109 @@ fn definition(schema: &str, name: &str) -> TableDefinition {
         name: TableName::new(schema, name),
         columns: vec![ColumnDefinition::new("i", DataType::Integer)],
         unique_keys: Vec::new(),
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn bind_sql(catalog: &Snapshot, sql: &str) -> Result<BoundStatement> {
+    let query = QueryContext::background().with_types(catalog.type_registry());
+    let casts = CastRegistry::builtins();
+    let functions = FunctionRegistry::builtins();
+    let operators = OperatorRegistry::builtins();
+    let mut statements = DuckDbParser.parse(sql)?;
+    if statements.len() != 1 {
+        return Err(Error::Internal(
+            "identity test expected one statement".into(),
+        ));
+    }
+    SqlBinder.bind(
+        &statements.remove(0),
+        &BindContext {
+            catalog,
+            casts: &casts,
+            operators: &operators,
+            query: &query,
+            functions: &functions,
+            expressions: &ScalarEvaluator,
+            parameters: &[],
+        },
+    )
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn scan_binding(plan: &LogicalPlan) -> Option<&duckdb_rust::catalog::TableBinding> {
+    match &plan.node {
+        PlanNode::Scan(table) => Some(table),
+        PlanNode::Filter { input, .. }
+        | PlanNode::Projection { input, .. }
+        | PlanNode::Aggregate { input, .. }
+        | PlanNode::Window { input, .. }
+        | PlanNode::Sort { input, .. }
+        | PlanNode::Limit { input, .. }
+        | PlanNode::Distinct(input) => scan_binding(input),
+        _ => None,
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn physical_table_plans(
+    planner: &dyn PhysicalPlanner,
+    resolved: ResolvedTable,
+) -> Result<Vec<Arc<dyn PhysicalOperator>>> {
+    let (binding, definition) = resolved.into_parts();
+    let schema = definition
+        .columns
+        .iter()
+        .map(|column| Field::new(&column.name, column.data_type.clone()))
+        .collect::<Vec<_>>();
+    let scan = LogicalPlan {
+        schema: schema.clone(),
+        node: PlanNode::Scan(binding.clone()),
+    };
+    let filtered = LogicalPlan {
+        schema: schema.clone(),
+        node: PlanNode::Filter {
+            input: Box::new(scan.clone()),
+            predicate: BoundExpr::literal(Value::Boolean(true)),
+        },
+    };
+    let lookup = LogicalPlan {
+        schema,
+        node: PlanNode::KeyLookup {
+            table: binding,
+            columns: vec![0],
+            key: vec![Value::Integer(0)],
+        },
+    };
+    [scan, filtered, lookup]
+        .into_iter()
+        .map(|plan| planner.plan(&plan))
+        .collect()
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn assert_physical_plans_reject(
+    plans: &[Arc<dyn PhysicalOperator>],
+    transaction: &dyn duckdb_rust::transaction::Transaction,
+    query: &QueryContext,
+    planner: &dyn PhysicalPlanner,
+    expected: fn(&Error) -> bool,
+) {
+    for plan in plans {
+        let subquery_plans = PreparedSubqueries::new(planner);
+        let context = ExecutionContext {
+            transaction,
+            expressions: &ScalarEvaluator,
+            query,
+            subquery_plans: &subquery_plans,
+            subqueries: &StreamingSubqueries,
+            outer: None,
+            recursive: None,
+        };
+        let Err(error) = plan.open(&context) else {
+            panic!("stale physical table plan was accepted")
+        };
+        assert!(expected(&error), "unexpected physical plan error: {error}");
     }
 }
 
@@ -61,7 +179,285 @@ fn snapshot_bindings_survive_rename_but_not_drop_and_replacement() -> Result<()>
         snapshot.table(&TableName::main("items"))?,
         definition("main", "items")
     );
+    let mut foreign = Snapshot::default();
+    foreign.create_table(definition("main", "items"), false)?;
+    let foreign_binding = foreign
+        .table_entry(&TableName::main("items"))?
+        .binding()
+        .clone();
+    assert!(matches!(
+        snapshot.resolve_table_binding(&foreign_binding),
+        Err(Error::InvalidInput(_))
+    ));
     snapshot.validate()?;
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn bound_plans_distinguish_current_schema_from_stable_ddl_identity() -> Result<()> {
+    let context = QueryContext::background();
+    let mut snapshot = Snapshot::default();
+    snapshot.create_table(definition("main", "items"), false)?;
+
+    let query = bind_sql(&snapshot, "SELECT i FROM items")?;
+    let BoundStatement::Query(plan) = &query else {
+        return Err(Error::Internal("expected a query plan".into()));
+    };
+    let query_binding = scan_binding(plan)
+        .ok_or_else(|| Error::Internal("query plan did not retain a scan binding".into()))?
+        .clone();
+    assert!(query_binding.identity().is_some());
+    snapshot.current_table_binding(&query_binding)?;
+
+    let drop = bind_sql(&snapshot, "DROP TABLE items")?;
+    let BoundStatement::DropTable { tables, .. } = &drop else {
+        return Err(Error::Internal("expected a drop-table plan".into()));
+    };
+    assert_eq!(tables.len(), 1);
+    assert_eq!(tables[0].identity(), query_binding.identity());
+
+    snapshot.create_schema("unrelated", false)?;
+    assert!(matches!(
+        query.validate(&snapshot, &context),
+        Err(Error::Bind(_))
+    ));
+    drop.validate(&snapshot, &context)?;
+    assert_eq!(
+        snapshot
+            .resolve_table_binding(&query_binding)?
+            .binding()
+            .identity(),
+        query_binding.identity()
+    );
+
+    snapshot.alter_table(
+        &TableName::main("items"),
+        &TableAlteration::RenameTable("renamed".into()),
+        &context,
+    )?;
+    assert_eq!(
+        snapshot
+            .resolve_table_binding(&query_binding)?
+            .definition()
+            .name,
+        TableName::main("renamed")
+    );
+    drop.validate(&snapshot, &context)?;
+    assert!(matches!(
+        snapshot.current_table_binding(&query_binding),
+        Err(Error::Bind(_))
+    ));
+
+    snapshot.drop_table(&TableName::main("renamed"), false)?;
+    snapshot.create_table(definition("main", "items"), false)?;
+    assert!(matches!(
+        snapshot.resolve_table_binding(&query_binding),
+        Err(Error::Catalog(_))
+    ));
+    assert!(matches!(
+        drop.validate(&snapshot, &context),
+        Err(Error::Catalog(_))
+    ));
+    let replacement = snapshot.resolve_table_binding(
+        &duckdb_rust::catalog::TableBinding::unversioned(TableName::main("items")),
+    )?;
+    assert_ne!(replacement.binding().identity(), query_binding.identity());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn physical_scan_boundaries_reject_stale_catalog_bindings() -> Result<()> {
+    let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
+    let query = QueryContext::background().with_types(manager.types());
+    let mut transaction = manager.begin()?;
+    transaction
+        .catalog_mut()?
+        .create_table(definition("main", "items"), false)?;
+    let planner = NativePhysicalPlanner::default();
+
+    let stale_version = physical_table_plans(
+        &planner,
+        transaction
+            .catalog()
+            .table_entry(&TableName::main("items"))?,
+    )?;
+    transaction
+        .catalog_mut()?
+        .create_schema("unrelated", false)?;
+    assert_physical_plans_reject(
+        &stale_version,
+        transaction.as_ref(),
+        &query,
+        &planner,
+        |error| matches!(error, Error::Bind(_)),
+    );
+
+    let stale_name = physical_table_plans(
+        &planner,
+        transaction
+            .catalog()
+            .table_entry(&TableName::main("items"))?,
+    )?;
+    transaction.catalog_mut()?.alter_table(
+        &TableName::main("items"),
+        &TableAlteration::RenameTable("renamed".into()),
+        &query,
+    )?;
+    assert_physical_plans_reject(
+        &stale_name,
+        transaction.as_ref(),
+        &query,
+        &planner,
+        |error| matches!(error, Error::Bind(_)),
+    );
+
+    let stale_object = physical_table_plans(
+        &planner,
+        transaction
+            .catalog()
+            .table_entry(&TableName::main("renamed"))?,
+    )?;
+    transaction
+        .catalog_mut()?
+        .drop_table(&TableName::main("renamed"), false)?;
+    transaction
+        .catalog_mut()?
+        .create_table(definition("main", "renamed"), false)?;
+    assert_physical_plans_reject(
+        &stale_object,
+        transaction.as_ref(),
+        &query,
+        &planner,
+        |error| matches!(error, Error::Catalog(_)),
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn identified_drop_if_exists_ignores_only_absence_and_preserves_replacements() -> Result<()> {
+    let context = QueryContext::background();
+    let mut snapshot = Snapshot::default();
+    snapshot.create_table(definition("main", "items"), false)?;
+    let statement = bind_sql(&snapshot, "DROP TABLE IF EXISTS items")?;
+    let BoundStatement::DropTable { tables, .. } = &statement else {
+        return Err(Error::Internal("expected a drop-table plan".into()));
+    };
+    let binding = tables[0].clone();
+    snapshot.drop_table(&TableName::main("items"), false)?;
+    statement.validate(&snapshot, &context)?;
+    snapshot.drop_table_identified(&binding, true)?;
+
+    snapshot.create_table(definition("main", "items"), false)?;
+    statement.validate(&snapshot, &context)?;
+    snapshot.drop_table_identified(&binding, true)?;
+    let replacement = snapshot.table_entry(&TableName::main("items"))?;
+    assert_ne!(replacement.binding().identity(), binding.identity());
+
+    let unversioned = duckdb_rust::catalog::TableBinding::unversioned(TableName::main("items"));
+    assert_eq!(
+        snapshot
+            .resolve_table_binding_if_exists(&unversioned)?
+            .expect("name-bound replacement")
+            .binding()
+            .identity(),
+        replacement.binding().identity()
+    );
+    assert!(matches!(
+        snapshot.drop_table_identified(&unversioned, true),
+        Err(Error::InvalidInput(_))
+    ));
+    assert_eq!(
+        snapshot
+            .table_entry(&TableName::main("items"))?
+            .binding()
+            .identity(),
+        replacement.binding().identity()
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn alternative_frontends_can_resolve_safe_ddl_bindings() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    connection.execute("CREATE TABLE items(i INTEGER)")?;
+    let original = connection
+        .resolve_table(&TableName::main("items"))?
+        .binding()
+        .clone();
+    connection.execute_plan(BoundStatement::AlterTable {
+        table: original.clone(),
+        alteration: TableAlteration::RenameTable("renamed".into()),
+    })?;
+    connection.query("SELECT * FROM renamed")?;
+
+    connection.execute("DROP TABLE renamed; CREATE TABLE items(i INTEGER)")?;
+    connection.execute_plan(BoundStatement::DropTable {
+        tables: vec![original],
+        if_exists: true,
+    })?;
+    connection.query("SELECT * FROM items")?;
+
+    let replacement = connection
+        .resolve_table(&TableName::main("items"))?
+        .binding()
+        .clone();
+    connection.execute_plan(BoundStatement::DropTable {
+        tables: vec![replacement],
+        if_exists: false,
+    })?;
+    assert!(matches!(
+        connection.query("SELECT * FROM items"),
+        Err(Error::Catalog(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn sql_name_provenance_and_prepared_syntax_rebind_across_catalog_changes() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    connection.execute("CREATE TABLE items(i INTEGER); INSERT INTO items VALUES (7)")?;
+    assert_eq!(
+        connection
+            .query("WITH items AS (SELECT 9 AS i) SELECT i FROM items")?
+            .rows,
+        vec![vec![Value::Integer(9)]]
+    );
+    assert_eq!(
+        connection
+            .query("WITH items AS (SELECT 9 AS i) SELECT i FROM main.items")?
+            .rows,
+        vec![vec![Value::Integer(7)]]
+    );
+    let explain = connection.query("EXPLAIN SELECT i FROM items")?.rows[0][0].to_string();
+    assert!(!explain.contains("catalog_version"));
+    assert!(!explain.contains("identity"));
+
+    let old_name = connection.prepare("SELECT i FROM items")?;
+    connection.execute("ALTER TABLE items RENAME TO renamed")?;
+    assert!(matches!(
+        connection.execute_prepared(&old_name, &[]),
+        Err(Error::Catalog(_))
+    ));
+
+    let current = connection.prepare("SELECT i FROM renamed")?;
+    connection.execute("CREATE SCHEMA unrelated")?;
+    assert_eq!(
+        connection.execute_prepared(&current, &[])?.rows,
+        vec![vec![Value::Integer(7)]]
+    );
+
+    connection.execute(
+        "DROP TABLE renamed; CREATE TABLE items(i INTEGER); INSERT INTO items VALUES (8)",
+    )?;
+    assert_eq!(
+        connection.execute_prepared(&old_name, &[])?.rows,
+        vec![vec![Value::Integer(8)]]
+    );
     Ok(())
 }
 

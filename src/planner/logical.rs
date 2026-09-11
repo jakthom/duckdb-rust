@@ -5,7 +5,7 @@ use super::{
     aggregation::{AggregateOutput, Aggregation},
 };
 use crate::{
-    catalog::{TableDefinition, TableName},
+    catalog::{TableBinding, TableDefinition},
     common::{DataType, Result, Row},
     function::AggregateFunction,
 };
@@ -315,7 +315,7 @@ pub struct OrderExpr {
 #[derive(Clone, Debug)]
 pub enum PlanNode {
     Values(Vec<Vec<BoundExpr>>),
-    Scan(TableName),
+    Scan(TableBinding),
     /// Reads the previous iteration in the nearest enclosing matching binding.
     RecursiveInput(RecursiveId),
     /// Seed rows followed by fixed-point iterations. UNION removes duplicates
@@ -330,7 +330,7 @@ pub enum PlanNode {
     /// Exact typed equality through an advertised transaction-visible index.
     /// The result has the full table schema; NULL keys produce no matches.
     KeyLookup {
-        table: TableName,
+        table: TableBinding,
         columns: Vec<usize>,
         key: Row,
     },
@@ -400,26 +400,26 @@ pub enum BoundStatement {
         source: Option<LogicalPlan>,
     },
     DropTable {
-        names: Vec<TableName>,
+        tables: Vec<TableBinding>,
         if_exists: bool,
     },
     AlterTable {
-        table: TableName,
+        table: TableBinding,
         alteration: crate::catalog::TableAlteration,
     },
     Insert {
-        table: TableName,
+        table: TableBinding,
         columns: Vec<usize>,
         source: LogicalPlan,
     },
     Update {
-        table: TableName,
+        table: TableBinding,
         assignments: Vec<(usize, BoundExpr)>,
         metadata: crate::storage::UpdateMetadata,
         predicate: Option<BoundExpr>,
     },
     Delete {
-        table: TableName,
+        table: TableBinding,
         predicate: Option<BoundExpr>,
     },
     Begin,

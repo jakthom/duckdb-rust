@@ -228,7 +228,7 @@ impl Services {
             BoundStatement::AlterTable { table, alteration } => {
                 transaction
                     .catalog_mut()?
-                    .alter_table(&table, &alteration, query)?;
+                    .alter_table_identified(&table, &alteration, query)?;
                 Ok(QueryResult::command(0))
             }
             BoundStatement::Query(plan) => self.query(plan, transaction, query),
@@ -273,9 +273,11 @@ impl Services {
                 };
                 Ok(QueryResult::command(count))
             }
-            BoundStatement::DropTable { names, if_exists } => {
-                for name in names {
-                    transaction.catalog_mut()?.drop_table(&name, if_exists)?;
+            BoundStatement::DropTable { tables, if_exists } => {
+                for table in tables {
+                    transaction
+                        .catalog_mut()?
+                        .drop_table_identified(&table, if_exists)?;
                 }
                 Ok(QueryResult::command(0))
             }
@@ -284,7 +286,11 @@ impl Services {
                 columns,
                 source,
             } => {
-                let definition = transaction.catalog().table(&table)?;
+                let definition = transaction
+                    .catalog()
+                    .current_table_binding(&table)?
+                    .definition()
+                    .clone();
                 let source = self.optimize(source, transaction, query)?;
                 let source = self.physical_planner.plan(&source)?;
                 let plan = InsertDefaults::new(source, &definition, &columns)?;
@@ -302,7 +308,7 @@ impl Services {
                     &mut sink,
                 )?;
                 Ok(QueryResult::command(transaction.storage_mut()?.insert(
-                    &table,
+                    table.name(),
                     sink.rows.into_rows(),
                     query,
                 )?))
@@ -328,7 +334,7 @@ impl Services {
                 let mut updates = Vec::new();
                 let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
                 let context = self.execution_context(transaction, query, &subquery_plans);
-                for (id, row) in transaction.storage().scan(&table, query)? {
+                for (id, row) in transaction.storage().scan(table.name(), query)? {
                     query.check()?;
                     if let Some(predicate) = &predicate
                         && !predicate.select(&row, &context)?
@@ -341,11 +347,12 @@ impl Services {
                     }
                     updates.push((id, updated));
                 }
-                Ok(QueryResult::command(
-                    transaction
-                        .storage_mut()?
-                        .update(&table, &metadata, updates, query)?,
-                ))
+                Ok(QueryResult::command(transaction.storage_mut()?.update(
+                    table.name(),
+                    &metadata,
+                    updates,
+                    query,
+                )?))
             }
             BoundStatement::Delete { table, predicate } => {
                 let predicate = predicate
@@ -354,7 +361,7 @@ impl Services {
                 let mut ids = Vec::new();
                 let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
                 let context = self.execution_context(transaction, query, &subquery_plans);
-                for (id, row) in transaction.storage().scan(&table, query)? {
+                for (id, row) in transaction.storage().scan(table.name(), query)? {
                     query.check()?;
                     if let Some(predicate) = &predicate
                         && !predicate.select(&row, &context)?
@@ -363,9 +370,11 @@ impl Services {
                     }
                     ids.push(id);
                 }
-                Ok(QueryResult::command(
-                    transaction.storage_mut()?.delete(&table, &ids, query)?,
-                ))
+                Ok(QueryResult::command(transaction.storage_mut()?.delete(
+                    table.name(),
+                    &ids,
+                    query,
+                )?))
             }
             BoundStatement::Explain(statement) => {
                 let text = if let BoundStatement::Query(plan) = *statement {

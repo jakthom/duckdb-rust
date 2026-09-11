@@ -61,7 +61,14 @@ impl State<'_, '_> {
                 table: None,
                 ..
             } => Ok(BoundStatement::DropTable {
-                names: names.iter().map(table_name).collect::<Result<_>>()?,
+                tables: names
+                    .iter()
+                    .map(|name| self.resolve_existing_table(name, *if_exists))
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .flatten()
+                    .map(|resolved| resolved.binding().clone())
+                    .collect(),
                 if_exists: *if_exists,
             }),
             S::Insert(insert) => {
@@ -91,8 +98,10 @@ impl State<'_, '_> {
                 let ast::TableObject::TableName(name) = &insert.table else {
                     return Err(unsupported("INSERT table function"));
                 };
-                let table = table_name(name)?;
-                let definition = self.context.catalog.table(&table)?;
+                let resolved = self
+                    .resolve_existing_table(name, false)?
+                    .ok_or_else(|| Error::Internal("required table resolution is absent".into()))?;
+                let (table, definition) = resolved.into_parts();
                 let fields = schema(&definition);
                 let default_values = insert.source.is_none();
                 let columns = if default_values {
@@ -197,7 +206,10 @@ impl State<'_, '_> {
                     return Err(Error::Bind("duplicate UPDATE assignment".into()));
                 }
                 let metadata = crate::storage::UpdateMetadata::for_table(
-                    &self.context.catalog.table(&table)?,
+                    self.context
+                        .catalog
+                        .resolve_table_binding(&table)?
+                        .definition(),
                     assignments.iter().map(|(column, _)| *column).collect(),
                 )?;
                 let predicate = update
@@ -270,19 +282,42 @@ impl State<'_, '_> {
     pub(super) fn mutation_table(
         &mut self,
         table: &ast::TableWithJoins,
-    ) -> Result<(TableName, Scope)> {
+    ) -> Result<(TableBinding, Scope)> {
         if !table.joins.is_empty() {
             return Err(unsupported("joined mutation target"));
         }
         let ast::TableFactor::Table {
-            name, args: None, ..
+            name,
+            alias: table_alias,
+            args: None,
+            version: None,
+            with_ordinality: false,
+            sample: None,
+            partitions,
+            ..
         } = &table.relation
         else {
             return Err(unsupported("mutation target"));
         };
-        let name = table_name(name)?;
-        let fields = self.factor(&table.relation)?.scope;
-        Ok((name, fields))
+        if !partitions.is_empty() {
+            return Err(unsupported("partitioned mutation target"));
+        }
+        let resolved = self
+            .resolve_existing_table(name, false)?
+            .ok_or_else(|| Error::Internal("required table resolution is absent".into()))?;
+        let (binding, definition) = resolved.into_parts();
+        let mut plan = LogicalPlan {
+            schema: schema(&definition),
+            node: PlanNode::Scan(binding.clone()),
+        };
+        if let Some(table_alias) = table_alias {
+            alias(&mut plan, table_alias)?;
+        }
+        let mut fields: Scope = plan.schema.into();
+        if table_alias.is_none() {
+            fields.qualify_table(&definition.name);
+        }
+        Ok((binding, fields))
     }
 
     pub(super) fn create(&mut self, create: &ast::CreateTable) -> Result<BoundStatement> {
@@ -296,7 +331,7 @@ impl State<'_, '_> {
         if *create != supported {
             return Err(unsupported("CREATE TABLE modifiers"));
         }
-        let name = table_name(&create.name)?;
+        let name = self.resolve_create_target(&create.name)?;
         let source = create.query.as_ref().map(|q| self.query(q)).transpose()?;
         let mut columns = Vec::new();
         let mut unique_keys = Vec::new();

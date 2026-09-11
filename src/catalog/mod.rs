@@ -152,6 +152,21 @@ pub trait Catalog: Send {
         Ok(ResolvedTable::unversioned(self.table(name)?))
     }
 
+    /// Resolve an optional table without requiring callers to classify a
+    /// catalog error string. Identity-aware catalogs must override this path.
+    fn table_entry_if_exists(&self, name: &TableName) -> Result<Option<ResolvedTable>> {
+        if self.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware catalog must implement optional table resolution".into(),
+            ));
+        }
+        Ok(self
+            .tables()?
+            .into_iter()
+            .find(|definition| definition.name == *name)
+            .map(ResolvedTable::unversioned))
+    }
+
     /// Resolves an identity-aware handle. Name-only catalog adapters must not
     /// guess, because doing so could bind a replacement object with the same
     /// name.
@@ -159,6 +174,95 @@ pub trait Catalog: Send {
         Err(Error::Unsupported(
             "identity-aware table lookup on this catalog".into(),
         ))
+    }
+
+    /// Optionally resolves an exact runtime table identity. Identity-aware
+    /// adapters must implement this explicitly so IF EXISTS never classifies an
+    /// arbitrary catalog failure as object absence.
+    fn table_by_identity_if_exists(
+        &self,
+        _identity: &ObjectIdentity,
+    ) -> Result<Option<ResolvedTable>> {
+        Err(Error::Unsupported(
+            "optional identity-aware table lookup on this catalog".into(),
+        ))
+    }
+
+    /// Resolve the stable object named by a binding. This follows rename for
+    /// identified handles and deliberately does not accept a replacement with
+    /// the old name. Legacy handles remain name-bound.
+    fn resolve_table_binding(&self, binding: &TableBinding) -> Result<ResolvedTable> {
+        let resolved = if let Some(identity) = binding.identity() {
+            let catalog = self.identity().ok_or_else(|| {
+                Error::Unsupported("identified binding on an unversioned catalog".into())
+            })?;
+            if identity.catalog != catalog.id {
+                return Err(Error::InvalidInput(format!(
+                    "table binding for {} belongs to a different catalog",
+                    binding.name()
+                )));
+            }
+            let resolved = self.table_by_identity(&identity)?;
+            if resolved.binding().identity() != Some(identity) {
+                return Err(Error::Internal(
+                    "catalog returned a different table identity".into(),
+                ));
+            }
+            resolved
+        } else {
+            self.table_entry(binding.name())?
+        };
+        Ok(resolved)
+    }
+
+    /// Optionally resolves the stable object named by a binding without
+    /// allowing a same-name replacement to satisfy an identified handle.
+    fn resolve_table_binding_if_exists(
+        &self,
+        binding: &TableBinding,
+    ) -> Result<Option<ResolvedTable>> {
+        let resolved = if let Some(identity) = binding.identity() {
+            let catalog = self.identity().ok_or_else(|| {
+                Error::Unsupported("identified binding on an unversioned catalog".into())
+            })?;
+            if identity.catalog != catalog.id {
+                return Err(Error::InvalidInput(format!(
+                    "table binding for {} belongs to a different catalog",
+                    binding.name()
+                )));
+            }
+            self.table_by_identity_if_exists(&identity)?
+        } else {
+            self.table_entry_if_exists(binding.name())?
+        };
+        if binding.identity().is_some()
+            && let Some(resolved) = &resolved
+            && resolved.binding().identity() != binding.identity()
+        {
+            return Err(Error::Internal(
+                "catalog returned a different table identity".into(),
+            ));
+        }
+        Ok(resolved)
+    }
+
+    /// Validate a binding for an ordinal-bound query or mutation plan. Until
+    /// per-object schema versions exist, every catalog version change requires
+    /// the statement syntax to be rebound.
+    fn current_table_binding(&self, binding: &TableBinding) -> Result<ResolvedTable> {
+        let resolved = self.resolve_table_binding(binding)?;
+        if binding.identity().is_some() {
+            let catalog = self
+                .identity()
+                .expect("stable resolution checked catalog identity");
+            if binding.catalog_version() != catalog.version || resolved.binding() != binding {
+                return Err(Error::Bind(format!(
+                    "table binding for {} requires rebinding after a catalog change",
+                    binding.name()
+                )));
+            }
+        }
+        Ok(resolved)
     }
 }
 

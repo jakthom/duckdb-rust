@@ -14,7 +14,7 @@ use super::{
     subquery::PreparedExpression,
 };
 use crate::{
-    catalog::TableName,
+    catalog::TableBinding,
     common::{Result, Row, Value, vector::DataChunk},
     planner::{
         BoundExpr, ExprKind, LogicalPlan, PlanNode, Schema,
@@ -135,7 +135,7 @@ struct Operator {
 #[derive(Debug)]
 enum Node {
     Values(Vec<Vec<BoundExpr>>),
-    Scan(TableName),
+    Scan(TableBinding),
     RecursiveInput(crate::planner::RecursiveId),
     Recursive {
         id: crate::planner::RecursiveId,
@@ -144,9 +144,9 @@ enum Node {
         all: bool,
         algorithm: Arc<dyn RecursiveAlgorithm>,
     },
-    FilteredScan(TableName, BoundExpr),
+    FilteredScan(TableBinding, BoundExpr),
     KeyLookup {
-        table: TableName,
+        table: TableBinding,
         columns: Vec<usize>,
         key: Row,
     },
@@ -420,7 +420,8 @@ impl PhysicalOperator for Operator {
                 })
             }
             Node::Scan(table) => {
-                let mut scan = context.transaction.storage().open_scan(table)?;
+                context.transaction.catalog().current_table_binding(table)?;
+                let mut scan = context.transaction.storage().open_scan(table.name())?;
                 stream::from_fn(move |max_rows| {
                     let Some(batch) =
                         crate::storage::scan::next_batch(scan.as_mut(), max_rows, context.query)?
@@ -430,23 +431,29 @@ impl PhysicalOperator for Operator {
                     batch.into_data().map(Some)
                 })
             }
-            Node::FilteredScan(table, predicate) => super::operator::scan::filtered(
-                context.transaction.storage().open_scan(table)?,
-                schema,
-                predicate,
-                context,
-            )?,
+            Node::FilteredScan(table, predicate) => {
+                context.transaction.catalog().current_table_binding(table)?;
+                super::operator::scan::filtered(
+                    context.transaction.storage().open_scan(table.name())?,
+                    schema,
+                    predicate,
+                    context,
+                )?
+            }
             Node::KeyLookup {
                 table,
                 columns,
                 key,
-            } => stream::deferred(schema, context, move || {
-                context
-                    .transaction
-                    .storage()
-                    .lookup(table, columns, key, context.query)
-                    .map(|rows| rows.into_iter().map(|(_, row)| row).collect())
-            }),
+            } => {
+                context.transaction.catalog().current_table_binding(table)?;
+                stream::deferred(schema, context, move || {
+                    context
+                        .transaction
+                        .storage()
+                        .lookup(table.name(), columns, key, context.query)
+                        .map(|rows| rows.into_iter().map(|(_, row)| row).collect())
+                })
+            }
             Node::Range { start, end, step } => {
                 if *step == 0 {
                     return Err(crate::Error::Bind("range step is zero".into()));

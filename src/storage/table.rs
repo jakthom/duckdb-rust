@@ -418,9 +418,25 @@ impl Catalog for Snapshot {
             definition,
         )
     }
+    fn table_entry_if_exists(&self, name: &TableName) -> Result<Option<ResolvedTable>> {
+        if self.registry.lookup_table(name)?.is_none() {
+            return Ok(None);
+        }
+        self.table_entry(name).map(Some)
+    }
     fn table_by_identity(&self, identity: &ObjectIdentity) -> Result<ResolvedTable> {
         let name = self.registry.name(*identity)?.table_name()?;
         ResolvedTable::identified(*identity, self.registry.identity(), self.table(&name)?)
+    }
+    fn table_by_identity_if_exists(
+        &self,
+        identity: &ObjectIdentity,
+    ) -> Result<Option<ResolvedTable>> {
+        let Some(name) = self.registry.name_if_exists(*identity)? else {
+            return Ok(None);
+        };
+        let name = name.table_name()?;
+        ResolvedTable::identified(*identity, self.registry.identity(), self.table(&name)?).map(Some)
     }
 }
 
@@ -553,10 +569,15 @@ impl CatalogMut for Snapshot {
     }
 
     fn drop_table_identified(&mut self, table: &TableBinding, if_exists: bool) -> Result<()> {
-        let name = match self.registry.table_name_for_binding(table) {
-            Ok(name) => name,
-            Err(Error::Catalog(_)) if if_exists => return Ok(()),
-            Err(error) => return Err(error),
+        if table.identity().is_none() {
+            return Err(Error::InvalidInput(
+                "runtime snapshot requires an identified table binding".into(),
+            ));
+        }
+        let name = match self.resolve_table_binding_if_exists(table)? {
+            Some(resolved) => resolved.definition().name.clone(),
+            None if if_exists => return Ok(()),
+            None => return Err(Error::Catalog(format!("table {table} does not exist"))),
         };
         self.drop_table(&name, if_exists)
     }

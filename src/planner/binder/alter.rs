@@ -16,18 +16,10 @@ impl State<'_, '_> {
         {
             return Err(unsupported("ALTER TABLE modifiers"));
         }
-        let name = table_name(&table.name)?;
-        if table.if_exists
-            && !self
-                .context
-                .catalog
-                .tables()?
-                .iter()
-                .any(|t| t.name == name)
-        {
+        let Some(resolved) = self.resolve_existing_table(&table.name, table.if_exists)? else {
             return Ok(BoundStatement::Noop);
-        }
-        let definition = self.context.catalog.table(&name)?;
+        };
+        let (binding, definition) = resolved.into_parts();
         use ast::{AlterColumnOperation as C, AlterTableOperation as A};
         let alteration = match &table.operations[0] {
             A::RenameTable {
@@ -123,7 +115,7 @@ impl State<'_, '_> {
         };
         alteration.definition(&definition)?;
         Ok(BoundStatement::AlterTable {
-            table: name,
+            table: binding,
             alteration,
         })
     }

@@ -28,7 +28,7 @@ impl OptimizerPass for UseKeyLookup {
             if !collect_equalities(predicate, &mut equalities, context.query) {
                 return Ok(plan);
             }
-            for columns in context.storage.key_columns(table)? {
+            for columns in context.storage.key_columns(table.name())? {
                 if columns.is_empty() {
                     continue;
                 }

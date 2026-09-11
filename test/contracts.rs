@@ -35,7 +35,7 @@ mod value_binding;
 
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
-    catalog::{Catalog, CatalogMut, ColumnDefinition, TableDefinition, TableName},
+    catalog::{Catalog, CatalogMut, ColumnDefinition, TableBinding, TableDefinition, TableName},
     common::vector::{DataChunk, Vector},
     execution::{
         operator::join::{HashJoin, NestedLoopJoin},
@@ -818,11 +818,11 @@ fn shared_plan_boundary_rejects_invalid_types_and_identities() -> Result<()> {
     c.execute("CREATE TABLE t(i INTEGER); INSERT INTO t VALUES (1)")?;
     let input = LogicalPlan {
         schema: vec![Field::new("i", DataType::Integer)],
-        node: PlanNode::Scan(TableName::main("t")),
+        node: PlanNode::Scan(TableBinding::unversioned(TableName::main("t"))),
     };
     assert!(
         c.execute_plan(BoundStatement::Insert {
-            table: TableName::main("t"),
+            table: TableBinding::unversioned(TableName::main("t")),
             columns: vec![99],
             source: input.clone()
         })

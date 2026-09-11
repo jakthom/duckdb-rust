@@ -14,6 +14,7 @@ mod statement;
 mod stored;
 mod subquery;
 mod table;
+mod table_name;
 mod window;
 
 use std::{
@@ -28,7 +29,7 @@ use super::{
     logical::{AggregateExpr, JoinKind, OrderExpr},
 };
 use crate::{
-    catalog::{ColumnDefinition, TableDefinition, TableName},
+    catalog::{ColumnDefinition, ResolvedTable, TableBinding, TableDefinition, TableName},
     common::{DataType, Error, Result, Value, cast::CastMode},
     function::operator::{Operator, OperatorArgument},
     parser::ast,
@@ -115,24 +116,6 @@ struct GroupScope {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn unsupported(thing: impl std::fmt::Display) -> Error {
     Error::Unsupported(thing.to_string())
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(crate) fn table_name(name: &ast::ObjectName) -> Result<TableName> {
-    let parts = name
-        .0
-        .iter()
-        .map(|p| {
-            p.as_ident()
-                .map(|i| i.value.clone())
-                .ok_or_else(|| unsupported(name))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    match parts.as_slice() {
-        [table] => Ok(TableName::main(table)),
-        [schema, table] => Ok(TableName::new(schema, table)),
-        _ => Err(unsupported("cross-database names")),
-    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

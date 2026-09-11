@@ -65,7 +65,8 @@ impl BoundStatement {
             Self::Configure(change) => change.validate(query.settings().registry(), query),
             Self::Query(plan) => plan.validate_at(scope, level + 1),
             Self::AlterTable { table, alteration } => {
-                if let Some(definition) = alteration.definition(&catalog.table(table)?)? {
+                let table = catalog.resolve_table_binding(table)?;
+                if let Some(definition) = alteration.definition(table.definition())? {
                     for column in &definition.columns {
                         query.types().bind(&column.data_type)?;
                         if let Some(default) = &column.default {
@@ -106,7 +107,8 @@ impl BoundStatement {
                 columns,
                 source,
             } => {
-                let definition = catalog.table(table)?;
+                let table = catalog.current_table_binding(table)?;
+                let definition = table.definition();
                 require(columns.len() == source.schema.len(), "INSERT source width")?;
                 let mut seen = HashSet::new();
                 for (column, field) in columns.iter().zip(&source.schema) {
@@ -127,8 +129,9 @@ impl BoundStatement {
                 metadata,
                 predicate,
             } => {
-                let definition = catalog.table(table)?;
-                metadata.validate_for(&definition)?;
+                let table = catalog.current_table_binding(table)?;
+                let definition = table.definition();
+                metadata.validate_for(definition)?;
                 require(
                     metadata.columns
                         == assignments
@@ -139,8 +142,8 @@ impl BoundStatement {
                 )?;
                 let input: Vec<_> = definition
                     .columns
-                    .into_iter()
-                    .map(|c| c.data_type)
+                    .iter()
+                    .map(|c| c.data_type.clone())
                     .collect();
                 let mut seen = HashSet::new();
                 for (column, value) in assignments {
@@ -158,11 +161,12 @@ impl BoundStatement {
                 Ok(())
             }
             Self::Delete { table, predicate } => {
-                let input: Vec<_> = catalog
-                    .table(table)?
+                let table = catalog.current_table_binding(table)?;
+                let input: Vec<_> = table
+                    .definition()
                     .columns
-                    .into_iter()
-                    .map(|c| c.data_type)
+                    .iter()
+                    .map(|c| c.data_type.clone())
                     .collect();
                 if let Some(p) = predicate {
                     p.validate_at(&input, level + 1, scope)?;
@@ -170,11 +174,20 @@ impl BoundStatement {
                 }
                 Ok(())
             }
+            Self::DropTable { tables, if_exists } => {
+                for table in tables {
+                    if *if_exists {
+                        catalog.resolve_table_binding_if_exists(table)?;
+                    } else {
+                        catalog.resolve_table_binding(table)?;
+                    }
+                }
+                Ok(())
+            }
             Self::Explain(statement) => statement.validate_at(scope, level + 1),
             Self::Noop
             | Self::CreateSchema { .. }
             | Self::DropSchema { .. }
-            | Self::DropTable { .. }
             | Self::Begin
             | Self::Commit
             | Self::Rollback
@@ -241,10 +254,11 @@ impl LogicalPlan {
                 output.clone()
             }
             PlanNode::Scan(table) => catalog
-                .table(table)?
+                .current_table_binding(table)?
+                .definition()
                 .columns
-                .into_iter()
-                .map(|c| c.data_type)
+                .iter()
+                .map(|c| c.data_type.clone())
                 .collect(),
             PlanNode::Range { step, .. } => {
                 require(*step != 0, "zero range step")?;
@@ -255,7 +269,8 @@ impl LogicalPlan {
                 columns,
                 key,
             } => {
-                let table = catalog.table(table)?;
+                let table = catalog.current_table_binding(table)?;
+                let table = table.definition();
                 require(
                     !columns.is_empty() && columns.len() == key.len(),
                     "lookup key width",
@@ -270,7 +285,7 @@ impl LogicalPlan {
                     require(value.fits_type(data_type), "lookup physical type")?;
                     query.types().bind(data_type)?.validate(value, query)?;
                 }
-                table.columns.into_iter().map(|c| c.data_type).collect()
+                table.columns.iter().map(|c| c.data_type.clone()).collect()
             }
             PlanNode::Filter { input, predicate } => {
                 input.validate_at(scope, level + 1)?;

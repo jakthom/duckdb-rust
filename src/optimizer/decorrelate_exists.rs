@@ -51,8 +51,8 @@ impl OptimizerPass for DecorrelateExists {
             return Ok(plan);
         };
         let (Some(outer_count), Some(inner_count)) = (
-            context.storage.row_count(outer_table)?,
-            context.storage.row_count(inner_table)?,
+            context.storage.row_count(outer_table.name())?,
+            context.storage.row_count(inner_table.name())?,
         ) else {
             return Ok(plan);
         };

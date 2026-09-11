@@ -141,7 +141,7 @@ impl fmt::Display for ObjectIdentity {
 
 /// A transaction-resolved table reference. Private fields keep a non-table
 /// object identity from being smuggled into table APIs.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct TableBinding {
     name: TableName,
     identity: Option<ObjectIdentity>,
@@ -192,6 +192,13 @@ impl TableBinding {
 
     pub const fn catalog_version(&self) -> Option<CatalogVersion> {
         self.catalog_version
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl fmt::Debug for TableBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.name, f)
     }
 }
 
@@ -442,6 +449,17 @@ mod tests {
         let resolved = catalog.table_entry(&TableName::main("items")).unwrap();
         assert_eq!(resolved.definition(), &catalog.table);
         assert_eq!(resolved.binding().identity(), None);
+        assert_eq!(
+            catalog
+                .table_entry_if_exists(&TableName::main("items"))
+                .unwrap(),
+            Some(resolved.clone())
+        );
+        assert_eq!(
+            catalog.resolve_table_binding(resolved.binding()).unwrap(),
+            resolved
+        );
+        catalog.current_table_binding(resolved.binding()).unwrap();
         catalog
             .drop_table_identified(resolved.binding(), false)
             .unwrap();
@@ -479,6 +497,18 @@ mod tests {
 
         assert!(matches!(
             catalog.table_entry(binding.name()),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            catalog.table_entry_if_exists(binding.name()),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            catalog.resolve_table_binding(&binding),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            catalog.current_table_binding(&binding),
             Err(Error::Unsupported(_))
         ));
         assert!(matches!(
