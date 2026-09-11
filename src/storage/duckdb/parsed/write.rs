@@ -79,9 +79,17 @@ pub(super) fn expression(
                 state.write_name(output, 201, Some(&name[n - 2]))?;
             }
             // Pre-69 native records retain child aliases rather than modern
-            // argument objects. Positional SQL-origin arguments (and named
-            // arguments whose name exactly matches the child alias) convert
-            // without inventing provenance; contradictions reject below.
+            // argument objects. Only positional SQL-origin arguments can
+            // change representation without changing binding semantics: a
+            // legacy child alias is not a named function argument.
+            if state.version < 69
+                && *argument_style == StoredArgumentStyle::Named
+                && arguments.iter().any(|argument| argument.name.is_some())
+            {
+                return Err(Error::Unsupported(
+                    "named function arguments require storage 69".into(),
+                ));
+            }
             let legacy = *argument_style == StoredArgumentStyle::LegacyAliases
                 || (state.version < 69 && !arguments.is_empty());
             if legacy && arguments.is_empty() {

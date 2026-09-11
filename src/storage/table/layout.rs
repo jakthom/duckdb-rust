@@ -235,7 +235,7 @@ fn native_legacy_argument_style_equivalent(
         && left_arguments
             .iter()
             .chain(right_arguments)
-            .all(|argument| argument.name == argument.expression.alias)
+            .all(|argument| argument.name.is_none() && argument.expression.alias.is_none())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

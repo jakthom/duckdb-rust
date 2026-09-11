@@ -61,6 +61,30 @@ fn retained_native_tree_preserves_typed_nulls_failing_casts_aliases_and_argument
         Err(Error::Unsupported(_))
     ));
     assert_eq!(output.0, [42]);
+    let named_legacy_ambiguous = StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Function {
+            name: vec!["named".into()],
+            arguments: vec![StoredArgument {
+                name: Some("value".into()),
+                expression: StoredExpression {
+                    alias: Some("value".into()),
+                    source_span: None,
+                    kind: StoredExpressionKind::Literal {
+                        data_type: DataType::Integer,
+                        value: Value::Integer(1),
+                    },
+                },
+            }],
+            is_operator: false,
+            argument_style: StoredArgumentStyle::Named,
+        },
+    };
+    assert!(matches!(
+        encode(&named_legacy_ambiguous, 68, &query),
+        Err(Error::Unsupported(_))
+    ));
     let StoredExpressionKind::Function {
         arguments,
         argument_style,
