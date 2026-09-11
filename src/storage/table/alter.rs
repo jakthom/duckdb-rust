@@ -10,6 +10,31 @@ pub(crate) struct PreparedTableAlteration {
     add_values: Option<Vec<(PhysicalSlot, Value)>>,
 }
 
+impl PreparedTableAlteration {
+    fn live_add_values(&self, before: &TableData) -> Result<Option<BTreeMap<RowId, Value>>> {
+        let Some(resolved) = &self.add_values else {
+            return Ok(None);
+        };
+        if resolved.len() < before.physical_slots.len() {
+            return Err(Error::Internal(
+                "ADD COLUMN preparation omits physical slots".into(),
+            ));
+        }
+        let mut values = BTreeMap::new();
+        for (slot, (resolved_slot, value)) in before.physical_slots.iter().zip(resolved) {
+            if slot.row_id() != resolved_slot.row_id() {
+                return Err(Error::Internal(
+                    "ADD COLUMN physical slot identity changed after preparation".into(),
+                ));
+            }
+            if let Some(id) = slot.live() {
+                values.insert(id, value.clone());
+            }
+        }
+        Ok(Some(values))
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
     pub(super) fn alter(
@@ -78,6 +103,31 @@ impl Snapshot {
         })
     }
 
+    /// Copy the already-resolved ADD result before catalog mutation. A durability
+    /// journal can then encode the exact rows without another default evaluation.
+    pub(crate) fn prepared_add_rows(
+        &self,
+        name: &TableName,
+        prepared: &PreparedTableAlteration,
+        context: &QueryContext,
+    ) -> Result<Option<Vec<(RowId, Row)>>> {
+        context.check()?;
+        let before = self.get(name)?;
+        let Some(values) = prepared.live_add_values(before)? else {
+            return Ok(None);
+        };
+        let mut rows = Vec::with_capacity(before.rows.len());
+        for (&id, row) in before.rows.iter() {
+            context.check()?;
+            let mut row = row.to_owned();
+            row.push(values.get(&id).cloned().ok_or_else(|| {
+                Error::Internal("ADD COLUMN preparation omits a live row".into())
+            })?);
+            rows.push((id, row));
+        }
+        Ok(Some(rows))
+    }
+
     pub(crate) fn apply_prepared_alter(
         &mut self,
         name: &TableName,
@@ -94,26 +144,9 @@ impl Snapshot {
         let mut after = before.clone();
         match alteration {
             TableAlteration::AddColumn { column, .. } => {
-                let resolved = prepared.add_values.as_ref().ok_or_else(|| {
+                let values = prepared.live_add_values(before)?.ok_or_else(|| {
                     Error::Internal("ADD COLUMN has no prepared default values".into())
                 })?;
-                if resolved.len() < before.physical_slots.len() {
-                    return Err(Error::Internal(
-                        "ADD COLUMN preparation omits physical slots".into(),
-                    ));
-                }
-                let mut values = BTreeMap::new();
-                for (slot, (resolved_slot, value)) in before.physical_slots.iter().zip(resolved) {
-                    context.check()?;
-                    if slot.row_id() != resolved_slot.row_id() {
-                        return Err(Error::Internal(
-                            "ADD COLUMN physical slot identity changed after preparation".into(),
-                        ));
-                    }
-                    if let Some(id) = slot.live() {
-                        values.insert(id, value.clone());
-                    }
-                }
                 after
                     .rows
                     .add_column_values(&column.data_type, &values, context)?;

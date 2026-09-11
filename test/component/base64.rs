@@ -344,3 +344,54 @@ fn base64_values_cross_keys_joins_groups_windows_mutations_and_reopen() -> Resul
     );
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn retained_function_defaults_survive_native_wal_add_set_and_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("retained-default.duckdb");
+    Database::open(&path)?
+        .connect()
+        .execute("CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (1),(2)")?;
+    {
+        let mut connection = Database::open_logged(&path)?.connect();
+        connection.execute(
+            "ALTER TABLE t ADD COLUMN b BLOB DEFAULT from_base64('AP8='); \
+             ALTER TABLE t ALTER COLUMN b SET DEFAULT from_base64('AAE=')",
+        )?;
+        assert_eq!(
+            connection
+                .query("SELECT id,hex(b) FROM t ORDER BY id")?
+                .rows,
+            vec![
+                vec![Value::Integer(1), text("00FF")],
+                vec![Value::Integer(2), text("00FF")],
+            ]
+        );
+    }
+    {
+        let mut connection = Database::open_logged(&path)?.connect();
+        assert_eq!(
+            connection
+                .query("SELECT id,hex(b) FROM t ORDER BY id")?
+                .rows,
+            vec![
+                vec![Value::Integer(1), text("00FF")],
+                vec![Value::Integer(2), text("00FF")],
+            ]
+        );
+        connection.execute("INSERT INTO t(id) VALUES (3)")?;
+    }
+    assert_eq!(
+        Database::open_read_only(&path)?
+            .connect()
+            .query("SELECT id,hex(b) FROM t ORDER BY id")?
+            .rows,
+        vec![
+            vec![Value::Integer(1), text("00FF")],
+            vec![Value::Integer(2), text("00FF")],
+            vec![Value::Integer(3), text("0001")],
+        ]
+    );
+    Ok(())
+}

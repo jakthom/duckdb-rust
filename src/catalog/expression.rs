@@ -79,8 +79,8 @@ pub enum StoredArgumentStyle {
 /// Explicitly composed execution of a closed catalog expression. Implementations
 /// bind using the supplied catalog snapshot and query settings/types, apply the
 /// declared assignment target through selected casts, and validate their result.
-/// They must reject row/subquery dependencies and volatile/external effects,
-/// preserve fatal failures and cancellation, and perform no I/O or publication.
+/// They must reject row/subquery/parameter dependencies while preserving selected
+/// volatile/external effect behavior, fatal failures, and cancellation.
 /// The owned result belongs to this operation; callers must not silently repeat
 /// execution while copying catalog state or preparing a log.
 pub trait StoredExpressionEvaluator: Send + Sync {

@@ -84,28 +84,12 @@ impl RecordState {
                 None
             }
             20 => {
-                let (table, mut alteration) =
+                let (table, alteration) =
                     super::alter::read(reader, self.storage_version, context)?;
                 let before = self
                     .tables
                     .get(&table)
                     .ok_or_else(|| corrupt("WAL alters missing table"))?;
-                if let crate::catalog::TableAlteration::SetDefault {
-                    column,
-                    expression: Some(default),
-                } = &mut alteration
-                {
-                    let target = before.columns[before.column_index(column)?]
-                        .data_type
-                        .clone();
-                    let (_, value) = default.as_literal().ok_or_else(|| {
-                        crate::Error::Unsupported("native WAL non-literal column default".into())
-                    })?;
-                    *default = crate::catalog::expression::StoredExpression::literal(
-                        target.clone(),
-                        value.cast(&target)?,
-                    );
-                }
                 if let Some(definition) = alteration.definition(before)? {
                     if definition.name != table && self.tables.contains_key(&definition.name) {
                         return Err(corrupt("WAL altered table collision"));

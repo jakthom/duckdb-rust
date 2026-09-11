@@ -24,6 +24,11 @@ impl CatalogMut for SnapshotTransaction {
         context: &QueryContext,
     ) -> Result<bool> {
         let prepared = self.snapshot.prepare_alter(name, alteration, context)?;
+        let materialized_rows = if self.journal.is_some() {
+            self.snapshot.prepared_add_rows(name, &prepared, context)?
+        } else {
+            None
+        };
         let mut basis = self.catalog_basis.clone();
         basis.apply_prepared_alter(name, alteration, &prepared, context)?;
         let changed = self
@@ -34,6 +39,7 @@ impl CatalogMut for SnapshotTransaction {
             self.record(TransactionChange::AlterTable {
                 table: name.clone(),
                 alteration: alteration.clone(),
+                materialized_rows,
             });
         }
         Ok(changed)

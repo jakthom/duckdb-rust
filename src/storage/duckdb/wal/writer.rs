@@ -239,7 +239,11 @@ impl LogSession for Session {
                     pending.remove(name);
                     output.push(named(2, name)?)?;
                 }
-                TransactionChange::AlterTable { table, alteration } => {
+                TransactionChange::AlterTable {
+                    table,
+                    alteration,
+                    materialized_rows,
+                } => {
                     let mut state = next
                         .tables
                         .remove(table)
@@ -256,45 +260,69 @@ impl LogSession for Session {
                     if next.tables.contains_key(&definition.name) {
                         return Err(invalid("altered table collision"));
                     }
-                    if let Some(mut changes) = pending.remove(table) {
+                    let mut changes = pending.remove(table).unwrap_or_default();
+                    if let crate::catalog::TableAlteration::AddColumn { .. } = alteration {
+                        let rows = materialized_rows
+                            .as_ref()
+                            .ok_or_else(|| invalid("ADD COLUMN journal omits materialized rows"))?;
+                        for (id, row) in rows {
+                            context.check()?;
+                            if !changes.rows.contains_key(id) {
+                                changes.deleted.insert(state.physical(*id)?);
+                            }
+                            changes.rows.insert(*id, row.clone());
+                        }
+                    } else if !changes.rows.is_empty() {
                         // Native undo entries retain a table version. Emit DML
                         // only after its final catalog version, and never delete
                         // a staged insertion. Constraint validation also checks
                         // the transaction's committed catalog basis.
                         for row in changes.rows.values_mut() {
                             context.check()?;
-                            match alteration {
-                                crate::catalog::TableAlteration::AddColumn { column, .. } => {
-                                    let value = column
-                                        .default
-                                        .as_ref()
-                                        .map(|expression| {
-                                            expression
-                                                .as_literal()
-                                                .map(|(_, value)| value.clone())
-                                                .ok_or_else(|| invalid("non-literal ADD default"))
-                                        })
-                                        .transpose()?
-                                        .unwrap_or(crate::Value::Null);
-                                    row.push(value)
-                                }
-                                crate::catalog::TableAlteration::DropColumn { column, .. } => {
-                                    row.remove(state.definition.column_index(column)?);
-                                }
-                                _ => {}
+                            if let crate::catalog::TableAlteration::DropColumn { column, .. } =
+                                alteration
+                            {
+                                row.remove(state.definition.column_index(column)?);
                             }
                         }
+                    }
+                    if !changes.rows.is_empty() || !changes.deleted.is_empty() {
                         pending.insert(definition.name.clone(), changes);
                     }
                     let mut entry = record(20);
+                    let mut encoded = alteration.clone();
+                    let retained_add_default = match &mut encoded {
+                        crate::catalog::TableAlteration::AddColumn { column, .. } => {
+                            column.default.take()
+                        }
+                        _ => None,
+                    };
                     super::alter::write(
                         &mut entry,
                         &state.definition,
-                        alteration,
+                        &encoded,
                         next.storage_version.unwrap_or(64),
                         context,
                     )?;
                     output.push(entry)?;
+                    if let Some(expression) = retained_add_default {
+                        let crate::catalog::TableAlteration::AddColumn { column, .. } = alteration
+                        else {
+                            unreachable!("retained ADD default")
+                        };
+                        let mut entry = record(20);
+                        super::alter::write(
+                            &mut entry,
+                            &definition,
+                            &crate::catalog::TableAlteration::SetDefault {
+                                column: column.name.clone(),
+                                expression: Some(expression),
+                            },
+                            next.storage_version.unwrap_or(64),
+                            context,
+                        )?;
+                        output.push(entry)?;
+                    }
                     state.definition = definition;
                     next.tables.insert(state.definition.name.clone(), state);
                 }

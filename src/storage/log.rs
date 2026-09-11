@@ -19,6 +19,9 @@ pub enum TransactionChange {
     AlterTable {
         table: TableName,
         alteration: crate::catalog::TableAlteration,
+        /// ADD COLUMN results after its single physical-slot evaluation. Native
+        /// logs use these rows instead of evaluating the retained default again.
+        materialized_rows: Option<Vec<(RowId, Row)>>,
     },
     Insert {
         table: TableName,

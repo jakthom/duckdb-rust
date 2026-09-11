@@ -589,11 +589,11 @@ fn incomplete_alter_wal_never_exposes_a_partial_catalog_or_rows() -> Result<()> 
                 restored.scan(&name, &context)?,
                 vec![
                     (
-                        0,
+                        2,
                         vec![Value::Integer(1), Value::Integer(10), Value::Integer(42)]
                     ),
                     (
-                        2,
+                        3,
                         vec![Value::Integer(2), Value::Integer(99), Value::Integer(42)]
                     )
                 ]
@@ -653,9 +653,15 @@ fn new_not_null_constraints_check_committed_and_transaction_local_rows() -> Resu
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn independent_duckdb_alter_wal_replays_with_both_index_adapters() -> Result<()> {
-    use duckdb_rust::storage::{
-        duckdb::{DuckDbFormat, wal::DuckDbWalRecovery},
-        recovery::{Recovery, RecoveryInput},
+    use duckdb_rust::{
+        common::cast::CastRegistry,
+        execution::expression_executor::BatchedEvaluator,
+        function::{FunctionRegistry, operator::OperatorRegistry},
+        planner::{SqlBinder, stored::SelectedStoredExpressions},
+        storage::{
+            duckdb::{DuckDbFormat, wal::DuckDbWalRecovery},
+            recovery::{Recovery, RecoveryInput},
+        },
     };
     use std::io::Read;
     let decode = |bytes: &[u8]| -> Result<Vec<u8>> {
@@ -665,7 +671,15 @@ fn independent_duckdb_alter_wal_replays_with_both_index_adapters() -> Result<()>
     };
     let checkpoint = decode(include_bytes!("../data/alter/native.duckdb.gz"))?;
     let log = decode(include_bytes!("../data/alter/native.wal.gz"))?;
-    let context = QueryContext::background();
+    let context = QueryContext::background().with_stored_expressions(Arc::new(
+        SelectedStoredExpressions::new(
+            Arc::new(SqlBinder),
+            CastRegistry::builtins(),
+            OperatorRegistry::builtins(),
+            FunctionRegistry::builtins(),
+            Arc::new(BatchedEvaluator),
+        ),
+    ));
     for indexes in [
         Arc::new(HashIndexFactory) as Arc<dyn IndexFactory>,
         Arc::new(BTreeIndexFactory),

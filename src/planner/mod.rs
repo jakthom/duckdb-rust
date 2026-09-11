@@ -34,8 +34,8 @@ pub trait Binder: Send + Sync {
     fn bind(&self, statement: &Statement, context: &BindContext<'_>) -> Result<BoundStatement>;
     /// Bind an owned catalog expression using these exact selected services.
     /// No parser/stringification or ambient registry fallback is permitted.
-    /// The result must be closed and free of volatile/external effects; a caller
-    /// still validates its bound plan and evaluates in its statement context.
+    /// The result must be closed against row/subquery/parameter dependencies; a
+    /// caller still validates its effects and evaluates in its statement context.
     /// An ordinary replacement binder grants no stored-expression capability.
     fn bind_stored_expression(
         &self,
