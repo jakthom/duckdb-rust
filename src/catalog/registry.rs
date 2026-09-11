@@ -8,16 +8,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::common::{Error, Result};
 
 use super::{
-    CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, DependencyGraph, DependentFlags,
-    DropBehavior, ObjectId, ObjectIdentity, SubjectFlags, TableBinding, TableName,
+    CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, CreateConflictPolicy,
+    DependencyGraph, DependentFlags, DropBehavior, ObjectId, ObjectIdentity, SubjectFlags,
+    TableBinding, TableName, TypeBinding, TypeName,
 };
 
 const MAX_CATALOG_OBJECTS: usize = 1_000_000;
 const MAX_IDENTIFIER_BYTES: usize = 4_096;
 
 /// Canonical name inside one catalog. Schemas occupy the catalog namespace;
-/// tables occupy a schema namespace. Future object families must explicitly
-/// choose their reference-compatible namespace rather than aliasing this key.
+/// tables and types occupy distinct schema namespaces. Future object families
+/// must explicitly choose their reference-compatible namespace.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CatalogObjectName {
     kind: CatalogObjectKind,
@@ -38,6 +39,14 @@ impl CatalogObjectName {
     pub fn table(name: &TableName) -> Result<Self> {
         Ok(Self {
             kind: CatalogObjectKind::Table,
+            schema: Some(canonical_identifier(name.schema.clone())?),
+            name: canonical_identifier(name.name.clone())?,
+        })
+    }
+
+    pub fn named_type(name: &TypeName) -> Result<Self> {
+        Ok(Self {
+            kind: CatalogObjectKind::Type,
             schema: Some(canonical_identifier(name.schema.clone())?),
             name: canonical_identifier(name.name.clone())?,
         })
@@ -69,6 +78,21 @@ impl CatalogObjectName {
             &self.name,
         ))
     }
+
+    pub fn type_name(&self) -> Result<TypeName> {
+        if self.kind != CatalogObjectKind::Type {
+            return Err(Error::InvalidInput(format!(
+                "{} is not a type catalog name",
+                self.kind
+            )));
+        }
+        Ok(TypeName::new(
+            self.schema
+                .as_deref()
+                .ok_or_else(|| Error::Internal("type registry key has no schema".into()))?,
+            &self.name,
+        ))
+    }
 }
 
 /// An entry returned by a checked registry mutation. Payload owners use this
@@ -97,6 +121,54 @@ impl CatalogObjectRecord {
 pub struct PreparedCatalogInsert {
     record: CatalogObjectRecord,
     basis: CatalogVersion,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PreparedCreateAction {
+    Ignore(ObjectIdentity),
+    Insert(CatalogObjectRecord),
+    Replace {
+        previous: CatalogObjectRecord,
+        replacement: CatalogObjectRecord,
+    },
+}
+
+/// A conflict-checked named-type creation plan tied to one catalog version.
+/// Applying one plan to cloned transaction views preserves the exact identity
+/// of an insertion or replacement. Ignore plans are true no-ops.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparedCatalogCreate {
+    name: CatalogObjectName,
+    basis: CatalogVersion,
+    action: PreparedCreateAction,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl PreparedCatalogCreate {
+    pub const fn name(&self) -> &CatalogObjectName {
+        &self.name
+    }
+
+    /// Identity visible after application. Ignore returns the existing object;
+    /// insert and replace return the newly allocated object.
+    pub const fn identity(&self) -> ObjectIdentity {
+        match &self.action {
+            PreparedCreateAction::Ignore(identity) => *identity,
+            PreparedCreateAction::Insert(record) => record.identity,
+            PreparedCreateAction::Replace { replacement, .. } => replacement.identity,
+        }
+    }
+
+    pub const fn replaced_identity(&self) -> Option<ObjectIdentity> {
+        match &self.action {
+            PreparedCreateAction::Replace { previous, .. } => Some(previous.identity),
+            PreparedCreateAction::Ignore(_) | PreparedCreateAction::Insert(_) => None,
+        }
+    }
+
+    pub const fn changes_catalog(&self) -> bool {
+        !matches!(self.action, PreparedCreateAction::Ignore(_))
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -141,6 +213,14 @@ impl CatalogRegistry {
         schemas: impl IntoIterator<Item = String>,
         tables: impl IntoIterator<Item = TableName>,
     ) -> Result<Self> {
+        Self::rebuild_with_types(schemas, tables, [])
+    }
+
+    pub fn rebuild_with_types(
+        schemas: impl IntoIterator<Item = String>,
+        tables: impl IntoIterator<Item = TableName>,
+        types: impl IntoIterator<Item = TypeName>,
+    ) -> Result<Self> {
         let mut registry = Self::new()?;
         let mut input_count = 0usize;
         let mut schema_names = BTreeSet::new();
@@ -169,14 +249,32 @@ impl CatalogRegistry {
                 return Err(Error::Corrupt("duplicate durable table name".into()));
             }
         }
+        let mut type_names = BTreeSet::new();
+        for type_ in types {
+            input_count = input_count
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("catalog object count overflow".into()))?;
+            if input_count > MAX_CATALOG_OBJECTS {
+                return Err(Error::Resource("catalog object limit exceeded".into()));
+            }
+            let name = CatalogObjectName::named_type(&type_)?;
+            if !type_names.insert(name) {
+                return Err(Error::Corrupt("duplicate durable type name".into()));
+            }
+        }
         let count = schema_names
             .len()
             .checked_add(table_names.len())
+            .and_then(|count| count.checked_add(type_names.len()))
             .ok_or_else(|| Error::Resource("catalog object count overflow".into()))?;
         if count > MAX_CATALOG_OBJECTS {
             return Err(Error::Resource("catalog object limit exceeded".into()));
         }
-        for name in schema_names.into_iter().chain(table_names) {
+        for name in schema_names
+            .into_iter()
+            .chain(table_names)
+            .chain(type_names)
+        {
             registry.insert_without_version(name)?;
         }
         registry.validate()?;
@@ -207,6 +305,10 @@ impl CatalogRegistry {
         Ok(self.lookup(&CatalogObjectName::table(name)?))
     }
 
+    pub fn lookup_type(&self, name: &TypeName) -> Result<Option<ObjectIdentity>> {
+        Ok(self.lookup(&CatalogObjectName::named_type(name)?))
+    }
+
     pub fn name(&self, identity: ObjectIdentity) -> Result<&CatalogObjectName> {
         self.ensure_local(identity)?;
         self.names_by_identity
@@ -227,6 +329,14 @@ impl CatalogRegistry {
         TableBinding::identified(name.table_name()?, identity, self.identity())
     }
 
+    pub fn bind_type(&self, name: &TypeName) -> Result<TypeBinding> {
+        let name = CatalogObjectName::named_type(name)?;
+        let identity = self
+            .lookup(&name)
+            .ok_or_else(|| Error::Catalog(format!("type {} does not exist", name.name)))?;
+        TypeBinding::identified(name.type_name()?, identity, self.identity())
+    }
+
     /// True when a cached binding observed the current complete catalog
     /// version. False requires re-resolution, but does not imply the stable
     /// object itself was dropped or replaced.
@@ -243,6 +353,19 @@ impl CatalogRegistry {
                 .is_some_and(|name| &name == binding.name())
     }
 
+    pub fn type_binding_is_current(&self, binding: &TypeBinding) -> bool {
+        let Some(identity) = binding.identity() else {
+            return false;
+        };
+        identity.catalog == self.catalog
+            && binding.catalog_version() == Some(self.version)
+            && self
+                .names_by_identity
+                .get(&identity)
+                .and_then(|name| name.type_name().ok())
+                .is_some_and(|name| &name == binding.name())
+    }
+
     /// Resolve a stable binding to its current name. Rename preserves identity;
     /// drop/recreate under the old name does not.
     pub fn table_name_for_binding(&self, binding: &super::TableBinding) -> Result<TableName> {
@@ -250,6 +373,113 @@ impl CatalogRegistry {
             Error::InvalidInput("runtime registry requires an identified table binding".into())
         })?;
         self.name(identity)?.table_name()
+    }
+
+    pub fn type_name_for_binding(&self, binding: &TypeBinding) -> Result<TypeName> {
+        let identity = binding.identity().ok_or_else(|| {
+            Error::InvalidInput("runtime registry requires an identified type binding".into())
+        })?;
+        self.name(identity)?.type_name()
+    }
+
+    /// Prepare an ENUM type creation under the SQL conflict policy without
+    /// mutating registry state. Replace plans allocate a fresh identity and
+    /// retire the old one atomically when applied.
+    pub fn prepare_type_create(
+        &self,
+        name: &TypeName,
+        conflict: CreateConflictPolicy,
+    ) -> Result<PreparedCatalogCreate> {
+        self.validate()?;
+        let name = CatalogObjectName::named_type(name)?;
+        self.insert_schema(&name)?;
+        let existing = self.lookup(&name);
+        let action = match (existing, conflict) {
+            (Some(_), CreateConflictPolicy::Error) => {
+                return Err(Error::Catalog(format!("type {} already exists", name.name)));
+            }
+            (Some(identity), CreateConflictPolicy::Ignore) => {
+                PreparedCreateAction::Ignore(identity)
+            }
+            (Some(identity), CreateConflictPolicy::Replace) => {
+                let plan = self
+                    .dependencies
+                    .plan_drop(identity, DropBehavior::Restrict)?;
+                if plan != [identity] {
+                    return Err(Error::Internal(
+                        "type replacement produced an invalid dependency plan".into(),
+                    ));
+                }
+                PreparedCreateAction::Replace {
+                    previous: CatalogObjectRecord {
+                        identity,
+                        name: name.clone(),
+                    },
+                    replacement: CatalogObjectRecord {
+                        identity: ObjectIdentity::new(
+                            self.catalog,
+                            ObjectId::allocate()?,
+                            CatalogObjectKind::Type,
+                        ),
+                        name: name.clone(),
+                    },
+                }
+            }
+            (None, _) => PreparedCreateAction::Insert(CatalogObjectRecord {
+                identity: ObjectIdentity::new(
+                    self.catalog,
+                    ObjectId::allocate()?,
+                    CatalogObjectKind::Type,
+                ),
+                name: name.clone(),
+            }),
+        };
+        Ok(PreparedCatalogCreate {
+            name,
+            basis: self.version,
+            action,
+        })
+    }
+
+    pub fn apply_prepared_create(&mut self, prepared: &PreparedCatalogCreate) -> Result<bool> {
+        self.validate()?;
+        if prepared.basis != self.version {
+            return Err(Error::Catalog(
+                "prepared catalog creation observed a stale catalog version".into(),
+            ));
+        }
+        let mut candidate = self.clone();
+        match &prepared.action {
+            PreparedCreateAction::Ignore(identity) => {
+                if candidate.lookup(&prepared.name) != Some(*identity) {
+                    return Err(Error::Catalog(
+                        "ignored catalog creation no longer names the same object".into(),
+                    ));
+                }
+                return Ok(false);
+            }
+            PreparedCreateAction::Insert(record) => {
+                candidate.insert_identity_without_version(record.clone())?;
+            }
+            PreparedCreateAction::Replace {
+                previous,
+                replacement,
+            } => {
+                if candidate.lookup(&prepared.name) != Some(previous.identity)
+                    || candidate.name(previous.identity)? != &previous.name
+                {
+                    return Err(Error::Catalog(
+                        "replaced catalog object no longer matches its prepared identity".into(),
+                    ));
+                }
+                candidate.remove_identity_without_version(previous.identity)?;
+                candidate.insert_identity_without_version(replacement.clone())?;
+            }
+        }
+        candidate.advance_version()?;
+        candidate.validate()?;
+        *self = candidate;
+        Ok(true)
     }
 
     pub fn insert(&mut self, name: CatalogObjectName) -> Result<ObjectIdentity> {
@@ -320,9 +550,13 @@ impl CatalogRegistry {
         if current == &replacement {
             return Ok(());
         }
-        if identity.kind == CatalogObjectKind::Table && current.schema != replacement.schema {
+        if matches!(
+            identity.kind,
+            CatalogObjectKind::Table | CatalogObjectKind::Type
+        ) && current.schema != replacement.schema
+        {
             return Err(Error::InvalidInput(
-                "table rename cannot move an object between schemas".into(),
+                "schema-scoped rename cannot move an object between schemas".into(),
             ));
         }
         self.dependencies.ensure_can_alter(identity)?;
@@ -339,8 +573,10 @@ impl CatalogRegistry {
                 .names_by_identity
                 .iter()
                 .filter_map(|(child, name)| {
-                    (name.kind == CatalogObjectKind::Table
-                        && name.schema.as_deref() == Some(old.name.as_str()))
+                    (matches!(
+                        name.kind,
+                        CatalogObjectKind::Table | CatalogObjectKind::Type
+                    ) && name.schema.as_deref() == Some(old.name.as_str()))
                     .then_some((*child, name.clone()))
                 })
                 .collect::<Vec<_>>();
@@ -450,11 +686,13 @@ impl CatalogRegistry {
                     "catalog reverse name index disagrees".into(),
                 ));
             }
-            if name.kind == CatalogObjectKind::Table {
-                let schema = name
-                    .schema
-                    .as_deref()
-                    .ok_or_else(|| Error::Internal("table registry name has no schema".into()))?;
+            if matches!(
+                name.kind,
+                CatalogObjectKind::Table | CatalogObjectKind::Type
+            ) {
+                let schema = name.schema.as_deref().ok_or_else(|| {
+                    Error::Internal("schema-scoped registry name has no schema".into())
+                })?;
                 let schema = self
                     .lookup(&CatalogObjectName::schema(schema)?)
                     .ok_or_else(|| Error::Internal("table registry schema is missing".into()))?;
@@ -462,7 +700,7 @@ impl CatalogRegistry {
                     != Some((DependentFlags::blocking(), SubjectFlags::ordinary()))
                 {
                     return Err(Error::Internal(
-                        "table registry schema dependency is missing or invalid".into(),
+                        "schema-scoped registry dependency is missing or invalid".into(),
                     ));
                 }
             }
@@ -517,14 +755,42 @@ impl CatalogRegistry {
         Ok(())
     }
 
+    fn remove_identity_without_version(
+        &mut self,
+        identity: ObjectIdentity,
+    ) -> Result<CatalogObjectRecord> {
+        let plan = self
+            .dependencies
+            .plan_drop(identity, DropBehavior::Restrict)?;
+        if plan != [identity] {
+            return Err(Error::Internal(
+                "restricted catalog removal produced an invalid dependency plan".into(),
+            ));
+        }
+        let name = self
+            .names_by_identity
+            .remove(&identity)
+            .ok_or_else(|| Error::Catalog(format!("catalog object {identity} is missing")))?;
+        if self.identities_by_name.remove(&name) != Some(identity) {
+            return Err(Error::Internal(
+                "catalog name indexes disagree during removal".into(),
+            ));
+        }
+        self.dependencies.remove_object(identity)?;
+        Ok(CatalogObjectRecord { identity, name })
+    }
+
     fn insert_schema(&self, name: &CatalogObjectName) -> Result<Option<ObjectIdentity>> {
-        if name.kind != CatalogObjectKind::Table {
+        if !matches!(
+            name.kind,
+            CatalogObjectKind::Table | CatalogObjectKind::Type
+        ) {
             return Ok(None);
         }
         let schema = name
             .schema
             .as_deref()
-            .ok_or_else(|| Error::Internal("table registry name has no schema".into()))?;
+            .ok_or_else(|| Error::Internal("schema-scoped registry name has no schema".into()))?;
         self.lookup(&CatalogObjectName::schema(schema)?)
             .map(Some)
             .ok_or_else(|| Error::Catalog(format!("schema {schema} does not exist")))
@@ -624,6 +890,113 @@ mod tests {
             CatalogRegistry::rebuild(["main".into()], [TableName::new("missing", "events")]),
             Err(Error::Catalog(_))
         ));
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn type_and_table_namespaces_are_separate_and_types_depend_only_on_schema() {
+        let mut registry = CatalogRegistry::rebuild_with_types(
+            ["main".into(), "analytics".into()],
+            [TableName::new("analytics", "mood")],
+            [TypeName::new("analytics", "mood")],
+        )
+        .unwrap();
+        let table = registry
+            .lookup_table(&TableName::new("analytics", "mood"))
+            .unwrap()
+            .unwrap();
+        let type_ = registry
+            .lookup_type(&TypeName::new("analytics", "mood"))
+            .unwrap()
+            .unwrap();
+        assert_ne!(table, type_);
+        assert_eq!(table.kind, CatalogObjectKind::Table);
+        assert_eq!(type_.kind, CatalogObjectKind::Type);
+
+        let removed = registry.drop_object(type_, DropBehavior::Restrict).unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].identity(), type_);
+        assert_eq!(
+            registry
+                .lookup_table(&TableName::new("analytics", "mood"))
+                .unwrap(),
+            Some(table)
+        );
+
+        let type_ = registry
+            .insert(CatalogObjectName::named_type(&TypeName::new("analytics", "state")).unwrap())
+            .unwrap();
+        let schema = registry.lookup_schema("analytics").unwrap().unwrap();
+        assert!(matches!(
+            registry.drop_object(schema, DropBehavior::Restrict),
+            Err(Error::Catalog(_))
+        ));
+        registry
+            .rename(schema, CatalogObjectName::schema("reporting").unwrap())
+            .unwrap();
+        assert_eq!(
+            registry.name(type_).unwrap().type_name().unwrap(),
+            TypeName::new("reporting", "state")
+        );
+        assert!(matches!(
+            CatalogRegistry::rebuild_with_types(
+                ["main".into()],
+                [],
+                [TypeName::new("missing", "mood")]
+            ),
+            Err(Error::Catalog(_))
+        ));
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn prepared_type_conflicts_preserve_noop_and_replacement_identity_contracts() {
+        let mut registry =
+            CatalogRegistry::rebuild_with_types(["main".into()], [], [TypeName::main("mood")])
+                .unwrap();
+        let old = registry
+            .lookup_type(&TypeName::main("mood"))
+            .unwrap()
+            .unwrap();
+        let old_binding = registry.bind_type(&TypeName::main("mood")).unwrap();
+        let before = registry.clone();
+
+        assert!(matches!(
+            registry.prepare_type_create(&TypeName::main("mood"), CreateConflictPolicy::Error),
+            Err(Error::Catalog(_))
+        ));
+        let ignored = registry
+            .prepare_type_create(&TypeName::main("mood"), CreateConflictPolicy::Ignore)
+            .unwrap();
+        assert!(!ignored.changes_catalog());
+        assert_eq!(ignored.identity(), old);
+        assert!(!registry.apply_prepared_create(&ignored).unwrap());
+        assert_eq!(registry, before);
+
+        let replaced = registry
+            .prepare_type_create(&TypeName::main("mood"), CreateConflictPolicy::Replace)
+            .unwrap();
+        assert!(replaced.changes_catalog());
+        assert_eq!(replaced.replaced_identity(), Some(old));
+        assert_ne!(replaced.identity(), old);
+        let version = registry.identity().version.unwrap();
+        let mut sibling = registry.clone();
+        assert!(registry.apply_prepared_create(&replaced).unwrap());
+        assert!(sibling.apply_prepared_create(&replaced).unwrap());
+        assert_eq!(registry, sibling);
+        assert_eq!(
+            registry.identity().version,
+            Some(version.checked_next().unwrap())
+        );
+        assert_eq!(
+            registry.lookup_type(&TypeName::main("mood")).unwrap(),
+            Some(replaced.identity())
+        );
+        assert!(!registry.type_binding_is_current(&old_binding));
+        assert!(registry.type_name_for_binding(&old_binding).is_err());
+        assert!(
+            registry.type_binding_is_current(&registry.bind_type(&TypeName::main("mood")).unwrap())
+        );
     }
 
     #[test]

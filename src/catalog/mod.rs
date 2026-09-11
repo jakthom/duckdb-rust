@@ -12,11 +12,12 @@ mod search_path;
 pub use alter::TableAlteration;
 pub use dependency::{DependencyGraph, DependentFlags, SubjectFlags};
 pub use identity::{
-    CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, DropBehavior, ObjectId,
-    ObjectIdentity, ResolvedTable, TableBinding,
+    CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, CreateConflictPolicy,
+    DropBehavior, ObjectId, ObjectIdentity, ResolvedTable, ResolvedType, TableBinding, TypeBinding,
 };
 pub use registry::{
-    CatalogObjectName, CatalogObjectRecord, CatalogRegistry, PreparedCatalogInsert,
+    CatalogObjectName, CatalogObjectRecord, CatalogRegistry, PreparedCatalogCreate,
+    PreparedCatalogInsert,
 };
 pub use search_path::{SearchPath, SearchPathEntry};
 
@@ -37,6 +38,7 @@ impl TableName {
     pub fn main(name: impl Into<String>) -> Self {
         Self::new("main", name)
     }
+
     pub(crate) fn key(&self) -> String {
         format!("{}:{}{}", self.schema.len(), self.schema, self.name)
     }
@@ -46,6 +48,65 @@ impl TableName {
 impl std::fmt::Display for TableName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}", self.schema, self.name)
+    }
+}
+
+/// Schema-scoped durable name of a user-defined type. Type and table names
+/// intentionally occupy separate catalog namespaces.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct TypeName {
+    pub schema: String,
+    pub name: String,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TypeName {
+    pub fn new(schema: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            schema: schema.into().to_ascii_lowercase(),
+            name: name.into().to_ascii_lowercase(),
+        }
+    }
+
+    pub fn main(name: impl Into<String>) -> Self {
+        Self::new("main", name)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl std::fmt::Display for TypeName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.schema, self.name)
+    }
+}
+
+/// Durable payload of a schema-scoped named type. Runtime identity belongs to
+/// [`TypeBinding`], never to the physical [`DataType::Enum`] dictionary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypeDefinition {
+    pub name: TypeName,
+    pub data_type: DataType,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TypeDefinition {
+    pub fn enumeration(name: TypeName, labels: Vec<String>) -> Result<Self> {
+        Self::new(name, DataType::enumeration(labels)?)
+    }
+
+    pub fn new(name: TypeName, data_type: DataType) -> Result<Self> {
+        let definition = Self { name, data_type };
+        definition.validate()?;
+        Ok(definition)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        let DataType::Enum(metadata) = &self.data_type else {
+            return Err(Error::InvalidType(
+                "only named ENUM definitions are supported".into(),
+            ));
+        };
+        metadata.validate()
     }
 }
 
@@ -141,6 +202,16 @@ pub trait Catalog: Send {
     fn table(&self, name: &TableName) -> Result<TableDefinition>;
     fn tables(&self) -> Result<Vec<TableDefinition>>;
 
+    /// Resolves the durable payload of a schema-scoped named type. Adapters
+    /// that have not adopted named types fail explicitly.
+    fn named_type(&self, _name: &TypeName) -> Result<TypeDefinition> {
+        Err(Error::Unsupported("named types on this catalog".into()))
+    }
+
+    fn named_types(&self) -> Result<Vec<TypeDefinition>> {
+        Err(Error::Unsupported("named types on this catalog".into()))
+    }
+
     /// Resolves a table together with the strongest handle this catalog can
     /// provide. The compatibility implementation is deliberately name-only.
     fn table_entry(&self, name: &TableName) -> Result<ResolvedTable> {
@@ -167,6 +238,30 @@ pub trait Catalog: Send {
             .map(ResolvedTable::unversioned))
     }
 
+    /// Resolves a named type with the strongest runtime handle supplied by the
+    /// adapter. Identity-aware adapters must override this path.
+    fn type_entry(&self, name: &TypeName) -> Result<ResolvedType> {
+        if self.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware catalog must implement type entry resolution".into(),
+            ));
+        }
+        Ok(ResolvedType::unversioned(self.named_type(name)?))
+    }
+
+    fn type_entry_if_exists(&self, name: &TypeName) -> Result<Option<ResolvedType>> {
+        if self.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware catalog must implement optional type resolution".into(),
+            ));
+        }
+        Ok(self
+            .named_types()?
+            .into_iter()
+            .find(|definition| definition.name == *name)
+            .map(ResolvedType::unversioned))
+    }
+
     /// Resolves an identity-aware handle. Name-only catalog adapters must not
     /// guess, because doing so could bind a replacement object with the same
     /// name.
@@ -185,6 +280,21 @@ pub trait Catalog: Send {
     ) -> Result<Option<ResolvedTable>> {
         Err(Error::Unsupported(
             "optional identity-aware table lookup on this catalog".into(),
+        ))
+    }
+
+    fn type_by_identity(&self, _identity: &ObjectIdentity) -> Result<ResolvedType> {
+        Err(Error::Unsupported(
+            "identity-aware type lookup on this catalog".into(),
+        ))
+    }
+
+    fn type_by_identity_if_exists(
+        &self,
+        _identity: &ObjectIdentity,
+    ) -> Result<Option<ResolvedType>> {
+        Err(Error::Unsupported(
+            "optional identity-aware type lookup on this catalog".into(),
         ))
     }
 
@@ -264,6 +374,79 @@ pub trait Catalog: Send {
         }
         Ok(resolved)
     }
+
+    /// Resolves a stable type object. Identified bindings follow rename and do
+    /// not accept a drop/recreate replacement at the old name.
+    fn resolve_type_binding(&self, binding: &TypeBinding) -> Result<ResolvedType> {
+        let resolved = if let Some(identity) = binding.identity() {
+            let catalog = self.identity().ok_or_else(|| {
+                Error::Unsupported("identified binding on an unversioned catalog".into())
+            })?;
+            if identity.catalog != catalog.id {
+                return Err(Error::InvalidInput(format!(
+                    "type binding for {} belongs to a different catalog",
+                    binding.name()
+                )));
+            }
+            let resolved = self.type_by_identity(&identity)?;
+            if resolved.binding().identity() != Some(identity) {
+                return Err(Error::Internal(
+                    "catalog returned a different type identity".into(),
+                ));
+            }
+            resolved
+        } else {
+            self.type_entry(binding.name())?
+        };
+        Ok(resolved)
+    }
+
+    fn resolve_type_binding_if_exists(
+        &self,
+        binding: &TypeBinding,
+    ) -> Result<Option<ResolvedType>> {
+        let resolved = if let Some(identity) = binding.identity() {
+            let catalog = self.identity().ok_or_else(|| {
+                Error::Unsupported("identified binding on an unversioned catalog".into())
+            })?;
+            if identity.catalog != catalog.id {
+                return Err(Error::InvalidInput(format!(
+                    "type binding for {} belongs to a different catalog",
+                    binding.name()
+                )));
+            }
+            self.type_by_identity_if_exists(&identity)?
+        } else {
+            self.type_entry_if_exists(binding.name())?
+        };
+        if binding.identity().is_some()
+            && let Some(resolved) = &resolved
+            && resolved.binding().identity() != binding.identity()
+        {
+            return Err(Error::Internal(
+                "catalog returned a different type identity".into(),
+            ));
+        }
+        Ok(resolved)
+    }
+
+    /// Validates a type binding for a plan that captured its physical ENUM
+    /// dictionary. Any intervening catalog version requires rebinding.
+    fn current_type_binding(&self, binding: &TypeBinding) -> Result<ResolvedType> {
+        let resolved = self.resolve_type_binding(binding)?;
+        if binding.identity().is_some() {
+            let catalog = self
+                .identity()
+                .expect("stable resolution checked catalog identity");
+            if binding.catalog_version() != catalog.version || resolved.binding() != binding {
+                return Err(Error::Bind(format!(
+                    "type binding for {} requires rebinding after a catalog change",
+                    binding.name()
+                )));
+            }
+        }
+        Ok(resolved)
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -272,6 +455,43 @@ pub trait CatalogMut: Catalog {
     fn drop_schema(&mut self, name: &str, if_exists: bool) -> Result<()>;
     fn create_table(&mut self, definition: TableDefinition, if_not_exists: bool) -> Result<()>;
     fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()>;
+
+    /// Creates a named type under an explicit conflict policy. `Replace`
+    /// always installs a fresh object identity even when the payload is equal;
+    /// `Ignore` returns false and performs no catalog-version change.
+    fn create_type(
+        &mut self,
+        _definition: TypeDefinition,
+        _conflict: CreateConflictPolicy,
+    ) -> Result<bool> {
+        Err(Error::Unsupported(
+            "named type creation on this catalog".into(),
+        ))
+    }
+
+    fn drop_type(
+        &mut self,
+        _name: &TypeName,
+        _if_exists: bool,
+        _behavior: DropBehavior,
+    ) -> Result<bool> {
+        Err(Error::Unsupported("named type drop on this catalog".into()))
+    }
+
+    /// Drops a resolved stable type and cannot target a same-name replacement.
+    fn drop_type_identified(
+        &mut self,
+        type_: &TypeBinding,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        if self.identity().is_some() || type_.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware type drop on this catalog".into(),
+            ));
+        }
+        self.drop_type(type_.name(), if_exists, behavior)
+    }
 
     /// Drops a previously resolved table. Legacy adapters may safely use their
     /// name-based path only for a name-only binding.

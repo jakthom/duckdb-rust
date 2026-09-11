@@ -5,7 +5,10 @@ use super::{
     aggregation::{AggregateOutput, Aggregation},
 };
 use crate::{
-    catalog::{TableBinding, TableDefinition},
+    catalog::{
+        CreateConflictPolicy, DropBehavior, TableBinding, TableDefinition, TypeBinding,
+        TypeDefinition,
+    },
     common::{DataType, Result, Row},
     function::AggregateFunction,
 };
@@ -402,6 +405,15 @@ pub enum BoundStatement {
     DropTable {
         tables: Vec<TableBinding>,
         if_exists: bool,
+    },
+    CreateType {
+        definition: TypeDefinition,
+        conflict: CreateConflictPolicy,
+    },
+    DropType {
+        types: Vec<TypeBinding>,
+        if_exists: bool,
+        behavior: DropBehavior,
     },
     AlterTable {
         table: TableBinding,

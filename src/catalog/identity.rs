@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::common::{Error, Result};
 
-use super::{TableDefinition, TableName};
+use super::{TableDefinition, TableName, TypeDefinition, TypeName};
 
 // DuckDB starts runtime OIDs above PostgreSQL's built-in object range. A
 // single namespace prevents catalog and object handles from ever aliasing by
@@ -105,6 +105,7 @@ impl fmt::Display for CatalogIdentity {
 pub enum CatalogObjectKind {
     Schema,
     Table,
+    Type,
 }
 
 impl fmt::Display for CatalogObjectKind {
@@ -112,6 +113,7 @@ impl fmt::Display for CatalogObjectKind {
         match self {
             Self::Schema => f.write_str("schema"),
             Self::Table => f.write_str("table"),
+            Self::Type => f.write_str("type"),
         }
     }
 }
@@ -247,6 +249,120 @@ impl ResolvedTable {
     }
 }
 
+/// A transaction-resolved named-type reference. The physical ENUM dictionary
+/// remains a plain `DataType`; this handle carries catalog identity separately.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct TypeBinding {
+    name: TypeName,
+    identity: Option<ObjectIdentity>,
+    catalog_version: Option<CatalogVersion>,
+}
+
+impl TypeBinding {
+    pub fn unversioned(name: TypeName) -> Self {
+        Self {
+            name,
+            identity: None,
+            catalog_version: None,
+        }
+    }
+
+    pub fn identified(
+        name: TypeName,
+        identity: ObjectIdentity,
+        catalog: CatalogIdentity,
+    ) -> Result<Self> {
+        if identity.kind != CatalogObjectKind::Type {
+            return Err(Error::InvalidInput(format!(
+                "type binding requires a type identity, got {}",
+                identity.kind
+            )));
+        }
+        if identity.catalog != catalog.id {
+            return Err(Error::InvalidInput(
+                "type identity and resolved catalog identity do not match".into(),
+            ));
+        }
+        Ok(Self {
+            name,
+            identity: Some(identity),
+            catalog_version: catalog.version,
+        })
+    }
+
+    pub const fn name(&self) -> &TypeName {
+        &self.name
+    }
+
+    pub const fn identity(&self) -> Option<ObjectIdentity> {
+        self.identity
+    }
+
+    pub const fn catalog_version(&self) -> Option<CatalogVersion> {
+        self.catalog_version
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl fmt::Debug for TypeBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.name, f)
+    }
+}
+
+impl fmt::Display for TypeBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedType {
+    binding: TypeBinding,
+    definition: TypeDefinition,
+}
+
+impl ResolvedType {
+    pub fn unversioned(definition: TypeDefinition) -> Self {
+        Self {
+            binding: TypeBinding::unversioned(definition.name.clone()),
+            definition,
+        }
+    }
+
+    pub fn identified(
+        identity: ObjectIdentity,
+        catalog: CatalogIdentity,
+        definition: TypeDefinition,
+    ) -> Result<Self> {
+        Ok(Self {
+            binding: TypeBinding::identified(definition.name.clone(), identity, catalog)?,
+            definition,
+        })
+    }
+
+    pub const fn binding(&self) -> &TypeBinding {
+        &self.binding
+    }
+
+    pub const fn definition(&self) -> &TypeDefinition {
+        &self.definition
+    }
+
+    pub fn into_parts(self) -> (TypeBinding, TypeDefinition) {
+        (self.binding, self.definition)
+    }
+}
+
+/// Conflict handling is part of the create operation rather than the durable
+/// type payload. Successful replacement always receives a fresh ObjectId.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CreateConflictPolicy {
+    Error,
+    Ignore,
+    Replace,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DropBehavior {
     Restrict,
@@ -260,7 +376,9 @@ mod tests {
     use std::thread;
 
     use super::*;
-    use crate::catalog::{Catalog, CatalogMut, ColumnDefinition, TableAlteration, UniqueKey};
+    use crate::catalog::{
+        Catalog, CatalogMut, ColumnDefinition, TableAlteration, TypeDefinition, TypeName, UniqueKey,
+    };
     use crate::common::DataType;
 
     fn definition(name: &str) -> TableDefinition {
@@ -354,6 +472,52 @@ mod tests {
             TableBinding::identified(TableName::main("events"), identity, other_catalog),
             Err(Error::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn type_handles_keep_catalog_identity_outside_the_enum_dictionary() {
+        let definition = TypeDefinition::enumeration(
+            TypeName::new("Analytics", "Mood"),
+            vec!["sad".into(), "ok".into()],
+        )
+        .unwrap();
+        let catalog = CatalogIdentity::new(
+            CatalogId::allocate().unwrap(),
+            Some(CatalogVersion::new(11)),
+        );
+        let identity = ObjectIdentity::new(
+            catalog.id,
+            ObjectId::allocate().unwrap(),
+            CatalogObjectKind::Type,
+        );
+        let resolved = ResolvedType::identified(identity, catalog, definition.clone()).unwrap();
+
+        assert_eq!(resolved.definition(), &definition);
+        assert_eq!(
+            resolved.binding().name(),
+            &TypeName::new("analytics", "mood")
+        );
+        assert_eq!(resolved.binding().identity(), Some(identity));
+        assert_eq!(resolved.binding().catalog_version(), catalog.version);
+        assert_eq!(resolved.binding().to_string(), "analytics.mood");
+        assert_eq!(
+            identity.to_string(),
+            format!("type:{}:{}", identity.catalog, identity.object)
+        );
+
+        let table = ObjectIdentity::new(
+            catalog.id,
+            ObjectId::allocate().unwrap(),
+            CatalogObjectKind::Table,
+        );
+        assert!(matches!(
+            TypeBinding::identified(TypeName::main("mood"), table, catalog),
+            Err(Error::InvalidInput(_))
+        ));
+
+        let wire = serde_json::to_value(definition).unwrap();
+        assert!(!wire.to_string().contains("identity"));
+        assert!(!wire.to_string().contains(&identity.object.to_string()));
     }
 
     #[test]
@@ -543,5 +707,6 @@ mod tests {
     fn handles_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Arc<TableBinding>>();
+        assert_send_sync::<Arc<TypeBinding>>();
     }
 }

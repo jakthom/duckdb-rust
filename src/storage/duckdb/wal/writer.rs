@@ -211,6 +211,11 @@ impl LogSession for Session {
         for change in changes {
             context.check()?;
             match change {
+                TransactionChange::CreateType { .. } | TransactionChange::DropType(_) => {
+                    return Err(Error::Unsupported(
+                        "native named-type transaction log encoding".into(),
+                    ));
+                }
                 TransactionChange::CreateSchema(name) | TransactionChange::DropSchema(name) => {
                     let mut record =
                         record(if matches!(change, TransactionChange::CreateSchema(_)) {

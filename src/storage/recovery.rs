@@ -1,6 +1,8 @@
 //! Recovery reconstructs committed state without publishing files or invoking SQL.
 use crate::{
-    catalog::{Catalog, TableDefinition, TableName},
+    catalog::{
+        Catalog, CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName,
+    },
     common::{Error, Result, Row, Value},
     parallel::QueryContext,
 };
@@ -85,6 +87,11 @@ pub enum RecoveredChange {
     DropSchema(String),
     CreateTable(TableDefinition),
     DropTable(TableName),
+    CreateType {
+        definition: TypeDefinition,
+        conflict: CreateConflictPolicy,
+    },
+    DropType(TypeName),
     AlterTable {
         table: TableName,
         alteration: crate::catalog::TableAlteration,

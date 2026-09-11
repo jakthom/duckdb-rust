@@ -102,6 +102,7 @@ impl BoundStatement {
                 }
                 Ok(())
             }
+            Self::CreateType { definition, .. } => definition.validate(),
             Self::Insert {
                 table,
                 columns,
@@ -180,6 +181,18 @@ impl BoundStatement {
                         catalog.resolve_table_binding_if_exists(table)?;
                     } else {
                         catalog.resolve_table_binding(table)?;
+                    }
+                }
+                Ok(())
+            }
+            Self::DropType {
+                types, if_exists, ..
+            } => {
+                for type_ in types {
+                    if *if_exists {
+                        catalog.resolve_type_binding_if_exists(type_)?;
+                    } else {
+                        catalog.resolve_type_binding(type_)?;
                     }
                 }
                 Ok(())

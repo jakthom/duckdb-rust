@@ -82,6 +82,15 @@ impl RecoveryTarget for Snapshot {
                 RecoveredChange::CreateTable(definition) => {
                     next.create_table(definition.clone(), false)?
                 }
+                RecoveredChange::CreateType {
+                    definition,
+                    conflict,
+                } => {
+                    next.create_type(definition.clone(), *conflict)?;
+                }
+                RecoveredChange::DropType(name) => {
+                    next.drop_type(name, false, DropBehavior::Restrict)?;
+                }
                 RecoveredChange::DropTable(name) => {
                     next.drop_table(name, false)?;
                     validity.retain(|(table, _, _), _| table != name);
