@@ -4190,6 +4190,19 @@ impl<'a> Parser<'a> {
                 upper_bound: None,
                 stride: None,
             });
+        } else if self.consume_token(&Token::Colon) {
+            let stride = if self.consume_token(&Token::RBracket) {
+                None
+            } else {
+                let stride = self.parse_expr()?;
+                self.expect_token(&Token::RBracket)?;
+                Some(stride)
+            };
+            return Ok(Subscript::Slice {
+                lower_bound,
+                upper_bound: None,
+                stride,
+            });
         } else {
             // parse expr until we hit a colon (or any token with lower precedence)
             Some(self.parse_subexpr(self.dialect.prec_value(Precedence::Colon))?)

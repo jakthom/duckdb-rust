@@ -450,16 +450,44 @@ impl State<'_, '_> {
                     recurse(&ast::Expr::CompoundIdentifier(names))?
                 };
                 for access in &access_chain[consumed..] {
-                    let key = match access {
+                    match access {
                         ast::AccessExpr::Subscript(ast::Subscript::Index { index }) => {
-                            recurse(index)?
+                            value = self.nested_access(value, recurse(index)?)?;
                         }
                         ast::AccessExpr::Dot(ast::Expr::Identifier(name)) => {
-                            BoundExpr::literal(Value::Varchar(name.value.clone()))
+                            value = self.nested_access(
+                                value,
+                                BoundExpr::literal(Value::Varchar(name.value.clone())),
+                            )?;
                         }
-                        _ => return Err(unsupported("nested slice or accessor")),
-                    };
-                    value = self.nested_access(value, key)?;
+                        ast::AccessExpr::Subscript(ast::Subscript::Slice {
+                            lower_bound,
+                            upper_bound,
+                            stride,
+                        }) => {
+                            let omitted = || {
+                                crate::common::NestedValue::value(
+                                    crate::common::NestedType::List(DataType::Integer).data_type(),
+                                    crate::common::NestedPayload::Sequence(Vec::new()),
+                                )
+                                .map(BoundExpr::literal)
+                            };
+                            let mut arguments = vec![value];
+                            arguments.push(match lower_bound {
+                                Some(bound) => recurse(bound)?,
+                                None => omitted()?,
+                            });
+                            arguments.push(match upper_bound {
+                                Some(bound) => recurse(bound)?,
+                                None => omitted()?,
+                            });
+                            if let Some(stride) = stride {
+                                arguments.push(recurse(stride)?);
+                            }
+                            value = self.scalar_call("array_slice", arguments)?;
+                        }
+                        _ => return Err(unsupported("nested accessor")),
+                    }
                 }
                 Ok(value)
             }

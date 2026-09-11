@@ -142,8 +142,7 @@ fn invalid_infix_colon_does_not_change_dictionary_named_argument_or_slice_gramma
             "{sql}"
         );
     }
-    // Slices are a distinct grammar production; parsing success does not claim
-    // execution support for the still-unimplemented nested slice operator.
+    // Slices are a distinct grammar production from the rejected infix colon.
     for sql in [
         "SELECT [1,2,3][1:2]",
         "SELECT [1,2,3][:2]",
