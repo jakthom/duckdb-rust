@@ -15,7 +15,9 @@ pub use identity::{
     CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, DropBehavior, ObjectId,
     ObjectIdentity, ResolvedTable, TableBinding,
 };
-pub use registry::{CatalogObjectName, CatalogObjectRecord, CatalogRegistry};
+pub use registry::{
+    CatalogObjectName, CatalogObjectRecord, CatalogRegistry, PreparedCatalogInsert,
+};
 pub use search_path::{SearchPath, SearchPathEntry};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

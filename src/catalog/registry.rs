@@ -90,6 +90,26 @@ impl CatalogObjectRecord {
     }
 }
 
+/// One-shot insertion plan tied to the exact catalog version that allocated
+/// it. Cloned transaction views at that version may both apply the plan; a
+/// replay or application after any divergent catalog change is rejected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparedCatalogInsert {
+    record: CatalogObjectRecord,
+    basis: CatalogVersion,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl PreparedCatalogInsert {
+    pub const fn identity(&self) -> ObjectIdentity {
+        self.record.identity
+    }
+
+    pub const fn name(&self) -> &CatalogObjectName {
+        &self.record.name
+    }
+}
+
 /// Cloneable transaction-local runtime catalog metadata. Every successful
 /// mutation advances the catalog version once. Failed mutations leave all
 /// name, identity, dependency and version state unchanged.
@@ -229,7 +249,7 @@ impl CatalogRegistry {
 
     pub fn insert(&mut self, name: CatalogObjectName) -> Result<ObjectIdentity> {
         let prepared = self.prepare_insert(name)?;
-        let identity = prepared.identity;
+        let identity = prepared.identity();
         self.insert_prepared(&prepared)?;
         Ok(identity)
     }
@@ -237,7 +257,7 @@ impl CatalogRegistry {
     /// Allocate one identity for a catalog insertion without mutating state.
     /// Multiple transaction-local payload views can apply this same record and
     /// therefore cannot assign different identities to the same object.
-    pub fn prepare_insert(&self, name: CatalogObjectName) -> Result<CatalogObjectRecord> {
+    pub fn prepare_insert(&self, name: CatalogObjectName) -> Result<PreparedCatalogInsert> {
         self.validate()?;
         self.insert_schema(&name)?;
         if self.identities_by_name.contains_key(&name) {
@@ -246,24 +266,32 @@ impl CatalogRegistry {
                 name.kind, name.name
             )));
         }
-        Ok(CatalogObjectRecord {
-            identity: ObjectIdentity::new(self.catalog, ObjectId::allocate()?, name.kind),
-            name,
+        Ok(PreparedCatalogInsert {
+            record: CatalogObjectRecord {
+                identity: ObjectIdentity::new(self.catalog, ObjectId::allocate()?, name.kind),
+                name,
+            },
+            basis: self.version,
         })
     }
 
     /// Apply a previously allocated insertion to this catalog lineage.
     /// Failure, including a name or identity collision, is atomic.
-    pub fn insert_prepared(&mut self, prepared: &CatalogObjectRecord) -> Result<()> {
+    pub fn insert_prepared(&mut self, prepared: &PreparedCatalogInsert) -> Result<()> {
         self.validate()?;
-        self.ensure_local(prepared.identity)?;
-        if prepared.identity.kind != prepared.name.kind {
+        self.ensure_local(prepared.record.identity)?;
+        if prepared.basis != self.version {
+            return Err(Error::Catalog(
+                "prepared catalog insertion observed a stale catalog version".into(),
+            ));
+        }
+        if prepared.record.identity.kind != prepared.record.name.kind {
             return Err(Error::InvalidInput(
                 "prepared catalog identity kind differs from its name".into(),
             ));
         }
         let mut candidate = self.clone();
-        candidate.insert_identity_without_version(prepared.clone())?;
+        candidate.insert_identity_without_version(prepared.record.clone())?;
         candidate.advance_version()?;
         candidate.validate()?;
         *self = candidate;
@@ -659,6 +687,12 @@ mod tests {
             Some(prepared.identity())
         );
         assert_eq!(current, basis);
+        let before = current.clone();
+        assert!(matches!(
+            current.insert_prepared(&prepared),
+            Err(Error::Catalog(_))
+        ));
+        assert_eq!(current, before);
     }
 
     #[test]
