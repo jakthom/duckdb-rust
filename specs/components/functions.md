@@ -207,6 +207,13 @@ argument bounds, child order and acyclicity, at most 1,024 nodes, depth 64 and
 4,096 expanded occurrences. These provisional limits bound metadata expansion,
 not scalar-value domains. Validation checks cancellation and rejects malformed
 graphs explicitly. A flat owned representation avoids recursively owned foreign
-template drop; node reuse cannot trigger exponential unchecked expansion.
+template drop. SQL additionally preflights the actual retained argument subtrees
+before cloning, lowering or pruning: a bound-tree budget of 4,096 nodes and depth
+128 includes each occurrence's full argument subtree, with one possible ordinary
+cast reserved per template child edge. Thus nested selected expansions cannot
+amplify already-expanded arguments past the budget. Traversal borrows children,
+checks cancellation and bounds its own pending stack. Shared relational plans
+are not cloned; their scalar needle is conservatively counted. These provisional
+limits do not bound payload bytes or general query memory.
 Adapters with their own declared volatile/external effects cannot use this pure
 expansion seam. Effects of referenced argument expressions remain intact.

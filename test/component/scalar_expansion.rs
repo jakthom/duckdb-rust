@@ -247,6 +247,31 @@ fn selected_expansion_keeps_case_metadata_casts_lazy_branches_and_argument_occur
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn nested_selected_expansions_bound_actual_argument_copies_before_allocation() -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let nodes = vec![N::Argument(0), N::Equal { left: 0, right: 0 }];
+    let mut c = DatabaseBuilder::new()
+        .functions(functions(nodes, calls.clone())?)
+        .optimizer(Arc::new(IdentityOptimizer))
+        .build()?
+        .connect();
+    let mut expression = "expansion_occurrence()".to_string();
+    for _ in 0..16 {
+        expression = format!("selected_choose({expression})");
+    }
+    assert!(
+        matches!(c.query(&format!("SELECT {expression}")),Err(Error::Resource(message)) if message.contains("expanded bound-tree"))
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        c.query("SELECT selected_choose(1)")?.rows,
+        vec![vec![Value::Boolean(true)]]
+    );
+    Ok(())
+}
+
 #[derive(Debug)]
 struct RetainedCast(bool);
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

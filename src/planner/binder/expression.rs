@@ -28,6 +28,11 @@ impl State<'_, '_> {
                     "effectful scalar expansion metadata".into(),
                 ));
             }
+            super::scalar_expansion::validate_bound_expansion(
+                &expansion,
+                &arguments,
+                self.context.query,
+            )?;
             return self.expand_scalar(&expansion, expansion.nodes.len() - 1, &arguments);
         }
         let function_impl = function_impl

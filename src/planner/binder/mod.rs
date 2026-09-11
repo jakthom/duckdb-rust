@@ -5,6 +5,7 @@ mod grouping;
 mod nested;
 mod query;
 mod recursive;
+mod scalar_expansion;
 mod scope;
 mod settings;
 mod statement;

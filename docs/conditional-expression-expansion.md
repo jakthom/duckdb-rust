@@ -27,6 +27,18 @@ occurrence pattern above under both evaluators and optimizers. Malformed/cyclic
 graphs, invalid argument positions, depth/occurrence/node limits, cancellation,
 effectful-own expansion metadata and ordinary replacements have explicit tests.
 
+Review found that template-only occurrence counts treated Argument as one node,
+although lowering clones its entire already-bound scalar subtree. Nested selected
+calls could therefore amplify earlier expansions. The follow-up binder preflight
+measures those actual argument subtree weights before any occurrence is cloned,
+then combines weighted counts/depths across the complete template. It bounds the
+expanded bound tree to 4,096 nodes/depth 128, conservatively reserving one cast
+per child edge. A 16-deep duplicating custom call now fails Resource before large
+allocation or any volatile child execution; a separate test combines an 81-deep
+argument with a valid 32-node template. Both tests exercise limits not established
+by the original template-only validation. Payload byte sizes/general query memory
+and the referenced immutable relational plans are outside this scalar-tree budget.
+
 NULLIF registration and a shared comparison execution dependency follow this
 internal prerequisite. Development comparison expressions are now bound scalar
 functions (`src/function/scalar/comparison/comparison.cpp:147`), so default
