@@ -150,17 +150,11 @@ impl State<'_, '_> {
                     return self.stored_operator(name, arguments);
                 }
                 let name = match name.as_slice() {
-                    [function] => function,
-                    [schema, function] if schema.eq_ignore_ascii_case("main") => function,
-                    _ => {
-                        return Err(unsupported(format!(
-                            "qualified stored function {}",
-                            name.join(".")
-                        )));
-                    }
+                    [schema, function] if schema.eq_ignore_ascii_case("main") => function.clone(),
+                    _ => name.join("."),
                 };
                 // Match ordinary SQL's catalog-before-argument resolution.
-                let function = self.context.functions.scalar(name)?;
+                let function = self.context.functions.scalar(&name)?;
                 let names = arguments
                     .iter()
                     .map(|argument| {
