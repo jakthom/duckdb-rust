@@ -22,22 +22,29 @@ SET storage_compatibility_version='v1.5.0';
 CREATE TABLE cpp_origin(
     id INTEGER,
     payload BLOB DEFAULT from_base64('AP8='),
-    deferred BLOB DEFAULT from_base64('%%%')
+    deferred BLOB DEFAULT from_base64('%%%'),
+    absent INTEGER,
+    explicit_null INTEGER DEFAULT NULL
 );
-INSERT INTO cpp_origin VALUES (1,from_base64('AA=='),from_base64('AQ=='));
+INSERT INTO cpp_origin(id,payload,deferred)
+VALUES (1,from_base64('AA=='),from_base64('AQ=='));
 CHECKPOINT;
 """
 RUST_CHECKPOINT_SETUP = """
 CREATE TABLE rust_checkpoint(
     id INTEGER,
-    payload BLOB DEFAULT from_base64('AAE=')
+    payload BLOB DEFAULT from_base64('AAE='),
+    absent INTEGER,
+    explicit_null INTEGER DEFAULT NULL
 );
 INSERT INTO rust_checkpoint(id) VALUES (1);
 """
 RUST_WAL_SETUP = """
 CREATE TABLE rust_wal(
     id INTEGER,
-    payload BLOB DEFAULT from_base64('AA==')
+    payload BLOB DEFAULT from_base64('AA=='),
+    absent INTEGER,
+    explicit_null INTEGER DEFAULT NULL
 );
 INSERT INTO rust_wal(id) VALUES (1);
 """
@@ -55,6 +62,24 @@ def rows(engine, path, table):
         json_output=True,
         readonly=True,
     )
+
+
+def null_default_metadata(engine, path, table):
+    return command(
+        engine,
+        path,
+        "SELECT column_name,column_default FROM duckdb_columns() "
+        f"WHERE table_name='{table}' AND column_name IN ('absent','explicit_null') "
+        "ORDER BY column_index",
+        json_output=True,
+        readonly=True,
+    )
+
+
+EXPECTED_NULL_DEFAULT_METADATA = [
+    {"column_name": "absent", "column_default": None},
+    {"column_name": "explicit_null", "column_default": "NULL"},
+]
 
 
 def expect_error(engine, path, sql):
@@ -81,6 +106,7 @@ def cpp_origin(rust, cpp, directory):
     command(cpp, path, CPP_SETUP)
     produced = file_evidence(path)
     assert rows(rust, path, "cpp_origin") == [{"id": 1, "payload": "00"}]
+    assert null_default_metadata(cpp, path, "cpp_origin") == EXPECTED_NULL_DEFAULT_METADATA
 
     # Omitting only payload demands the valid retained FUNCTION while supplying
     # the intentionally failing sibling proves it is not evaluated eagerly.
@@ -115,12 +141,20 @@ def rust_checkpoint(rust, cpp, directory):
     command(rust, path, RUST_CHECKPOINT_SETUP)
     produced = file_evidence(path)
     assert rows(cpp, path, "rust_checkpoint") == [{"id": 1, "payload": "0001"}]
+    assert (
+        null_default_metadata(cpp, path, "rust_checkpoint")
+        == EXPECTED_NULL_DEFAULT_METADATA
+    )
     command(cpp, path, "INSERT INTO rust_checkpoint(id) VALUES (2); CHECKPOINT")
     expected = [
         {"id": 1, "payload": "0001"},
         {"id": 2, "payload": "0001"},
     ]
     assert rows(cpp, path, "rust_checkpoint") == expected
+    assert (
+        null_default_metadata(cpp, path, "rust_checkpoint")
+        == EXPECTED_NULL_DEFAULT_METADATA
+    )
     assert rows(rust, path, "rust_checkpoint") == expected
     return {
         "producer": "rust-native-checkpoint",
@@ -143,9 +177,11 @@ def rust_wal(rust, cpp, directory):
         {"id": 2, "payload": "00FF"},
     ]
     assert rows(cpp, path, "rust_wal") == expected_recovery
+    assert null_default_metadata(cpp, path, "rust_wal") == EXPECTED_NULL_DEFAULT_METADATA
     command(cpp, path, "INSERT INTO rust_wal(id) VALUES (3); CHECKPOINT")
     expected = [*expected_recovery, {"id": 3, "payload": "00FF"}]
     assert rows(cpp, path, "rust_wal") == expected
+    assert null_default_metadata(cpp, path, "rust_wal") == EXPECTED_NULL_DEFAULT_METADATA
     assert rows(rust, path, "rust_wal") == expected
     return {
         "producer": "rust-native-wal",

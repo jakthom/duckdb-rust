@@ -1,6 +1,10 @@
 use std::{fs, io::Read, path::Path};
 
-use duckdb_rust::{Database, Error, Result, Value};
+use duckdb_rust::{
+    DataType, Database, Error, Result, Value,
+    catalog::{Catalog, expression::StoredExpressionKind},
+    storage::{duckdb::DuckDbFormat, format::SnapshotFormat},
+};
 
 #[path = "compatibility/row_identity.rs"]
 mod row_identity;
@@ -531,6 +535,28 @@ fn independent_cpp_function_default_is_retained_until_rust_insert_demand() -> Re
     assert_eq!(
         checkpoint.len() as u64,
         manifest["checkpoint_bytes"].as_u64().unwrap()
+    );
+    let decoded = DuckDbFormat::default().decode(
+        checkpoint.clone(),
+        duckdb_rust::common::type_registry::builtin_types(),
+    )?;
+    let definition = decoded.table(&duckdb_rust::catalog::TableName::main("cpp_origin"))?;
+    assert_eq!(definition.columns[3].name, "absent");
+    assert!(definition.columns[3].default.is_none());
+    assert_eq!(definition.columns[4].name, "explicit_null");
+    assert!(
+        matches!(
+            definition.columns[4]
+                .default
+                .as_ref()
+                .map(|default| &default.kind),
+            Some(StoredExpressionKind::Literal {
+                data_type: DataType::Null,
+                value: Value::Null,
+            })
+        ),
+        "{:?}",
+        definition.columns[4].default
     );
 
     let directory = tempfile::tempdir()?;

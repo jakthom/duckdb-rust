@@ -8,8 +8,8 @@
     "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
     "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
   },
-  "sql": "\nSET storage_compatibility_version='v1.5.0';\nCREATE TABLE cpp_origin(\n    id INTEGER,\n    payload BLOB DEFAULT from_base64('AP8='),\n    deferred BLOB DEFAULT from_base64('%%%')\n);\nINSERT INTO cpp_origin VALUES (1,from_base64('AA=='),from_base64('AQ=='));\nCHECKPOINT;\n",
+  "sql": "\nSET storage_compatibility_version='v1.5.0';\nCREATE TABLE cpp_origin(\n    id INTEGER,\n    payload BLOB DEFAULT from_base64('AP8='),\n    deferred BLOB DEFAULT from_base64('%%%'),\n    absent INTEGER,\n    explicit_null INTEGER DEFAULT NULL\n);\nINSERT INTO cpp_origin(id,payload,deferred)\nVALUES (1,from_base64('AA=='),from_base64('AQ=='));\nCHECKPOINT;\n",
   "checkpoint_bytes": 536576,
-  "checkpoint_sha256": "f4579b74842327757caa404e73e69e9ce35e70accc5bdaab9fe4d6750d60e6bf",
-  "fixture_sha256": "3bedc2e0d6c3b296699dcd528ad2effa98c5933ad26c3fb68ef1eed55e5663d0"
+  "checkpoint_sha256": "86e28552e3196c7ba89fbeb7fbbb6f84f0f78feb84553f0b550fb273ceef3864",
+  "fixture_sha256": "bb5deb873f65447ff49a05b96e4a97dafa9765813a3608408572317ee55338f9"
 }
