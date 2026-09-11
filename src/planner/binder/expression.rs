@@ -9,7 +9,7 @@ impl State<'_, '_> {
         self.scalar_call_selected(function_impl, arguments)
     }
 
-    fn scalar_call_selected(
+    pub(super) fn scalar_call_selected(
         &self,
         function_impl: std::sync::Arc<dyn crate::function::ScalarFunction>,
         arguments: Vec<BoundExpr>,

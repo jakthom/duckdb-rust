@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::{DataType, Result, Value};
 
 mod alter;
+pub mod expression;
 pub use alter::TableAlteration;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

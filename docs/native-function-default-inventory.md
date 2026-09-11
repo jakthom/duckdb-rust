@@ -13,6 +13,10 @@ selected statement-context evaluation has been implemented. The existing native
 reader continues to return Unsupported for FUNCTION defaults. The integration
 lead owns that shared implementation; no Base64-specific exception is added.
 
+Follow-up: the lead's [stored-expression work](stored-expressions.md) now has an
+owned-tree and selected-binder prerequisite. Catalog/default migration, wire
+decoding and execution remain open; the independent failures above still apply.
+
 ## Verified parsed-expression wire shape
 
 The correctness source is development `99063af2bd`; release `d8cdaa33fd` is also

@@ -8,6 +8,7 @@ mod recursive;
 mod scope;
 mod settings;
 mod statement;
+mod stored;
 mod subquery;
 mod table;
 mod window;
@@ -38,6 +39,27 @@ pub struct SqlBinder;
 impl Binder for SqlBinder {
     fn name(&self) -> &'static str {
         "sql-binder"
+    }
+    fn bind_stored_expression(
+        &self,
+        expression: &crate::catalog::expression::StoredExpression,
+        context: &BindContext<'_>,
+    ) -> Result<BoundExpr> {
+        expression.validate(context.query)?;
+        let state = State {
+            context,
+            parameters_allowed: false,
+            ctes: BTreeMap::new(),
+            outer: Vec::new(),
+        };
+        let bound = state.stored_expression(expression)?;
+        if !constant_expression(&bound) {
+            return Err(unsupported(
+                "stored expression with volatile or external effects",
+            ));
+        }
+        context.query.check()?;
+        Ok(bound)
     }
     fn bind(
         &self,

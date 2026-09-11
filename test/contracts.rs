@@ -6,12 +6,14 @@ use std::{
     time::Duration,
 };
 
-#[path = "component/argument_provenance.rs"]
-mod argument_provenance;
 #[path = "component/argument_combination.rs"]
 mod argument_combination;
+#[path = "component/argument_provenance.rs"]
+mod argument_provenance;
 #[path = "component/closed_argument.rs"]
 mod closed_argument;
+#[path = "component/stored_expression.rs"]
+mod stored_expression;
 #[path = "component/typed_constant.rs"]
 mod typed_constant;
 #[path = "component/value_binding.rs"]
