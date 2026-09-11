@@ -141,6 +141,31 @@ pub trait ScalarBindArguments {
     fn integer_literal(&self, index: usize) -> Result<Option<i128>> {
         self.data_type(index).map(|_| None)
     }
+    /// Full-width integer literal identity, without evaluating the argument.
+    /// Existing frontends retain their signed hook; unsigned-aware frontends
+    /// override this method rather than narrowing or partially dropping hints.
+    fn full_integer_literal(
+        &self,
+        index: usize,
+    ) -> Result<Option<crate::common::type_registry::IntegerLiteral>> {
+        self.data_type(index)?;
+        self.integer_literal(index)
+            .map(|value| value.map(crate::common::type_registry::IntegerLiteral::Signed))
+    }
+    /// Select the ordinary Implicit-first/Explicit-fallback combination mode
+    /// for this source and an already inferred target. This does not evaluate
+    /// the argument or cast it. The frontend must subsequently bind and validate
+    /// the selected cast; a mode alone grants no implementation capability.
+    fn combination_cast_mode(
+        &self,
+        index: usize,
+        _target: &DataType,
+    ) -> Result<crate::common::cast::CastMode> {
+        self.data_type(index)?;
+        Err(Error::Unsupported(
+            "frontend does not support selected combination cast modes".into(),
+        ))
+    }
     /// Infer a common type in increasing source-index order, normalizing each
     /// pair, and retain each selected Implicit-or-Explicit combination mode.
     /// This request evaluates nothing, including closed or effectful children.

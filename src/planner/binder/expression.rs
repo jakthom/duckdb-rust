@@ -751,6 +751,19 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
             .map(super::coercion::integer_literal)
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))
     }
+    fn full_integer_literal(
+        &self,
+        index: usize,
+    ) -> Result<Option<crate::common::type_registry::IntegerLiteral>> {
+        self.arguments
+            .get(index)
+            .map(super::coercion::full_integer_literal)
+            .ok_or_else(|| Error::Bind("function argument outside signature".into()))
+    }
+    fn combination_cast_mode(&self, index: usize, target: &DataType) -> Result<CastMode> {
+        let source = self.data_type(index)?;
+        super::coercion::combination_cast_mode(self.context, &source, target)
+    }
     fn combination(&self, indices: &[usize]) -> Result<crate::function::ArgumentCombination> {
         self.combination_in(indices, super::coercion::CombinationSequence::Ordered)
     }
