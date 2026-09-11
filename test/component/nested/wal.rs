@@ -72,6 +72,12 @@ fn independent_nested_child_update_paths_preserve_parent_and_child_validity() ->
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn independent_variant_wal_vectors_preserve_typed_tags_and_nested_values() -> Result<()> {
+    independent_fixture("wal-variant", &["i", "v", "tag", "s", "l"])
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn independent_fixture(suite: &str, fields: &[&str]) -> Result<()> {
     use std::{fs, io::Read};
     for target in ["release", "development"] {

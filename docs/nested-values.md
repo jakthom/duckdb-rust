@@ -2,6 +2,10 @@
 
 This is an in-progress part of the [value-and-expression milestone](../specs/value-expression-milestone.md), not a completed family or parity claim.
 
+The [native VARIANT WAL codec increment](nested-variant-wal.md) adds bounded
+read/write vector handling and independent producer fixtures while preserving
+the separate successor/WAL publication gates.
+
 Latest lead integration: ROARING, DICT_FSST and EMPTY_VALIDITY now clear all six
 original native nested fixtures. Their exact-value tests no longer skip either
 development child codec. Additional independent fixtures cover all DICT_FSST
