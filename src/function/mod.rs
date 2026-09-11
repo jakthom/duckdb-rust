@@ -44,6 +44,52 @@ pub enum ArgumentProvenance {
     Unknown,
 }
 
+/// Owned frontend combination metadata in the requested argument order. It
+/// contains no values, borrowed expressions or ambient evaluation services.
+#[derive(Debug, Clone)]
+pub struct ArgumentCombination {
+    pub data_type: DataType,
+    pub cast_modes: Vec<crate::common::cast::CastMode>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ArgumentCombination {
+    pub fn validate(
+        &self,
+        count: usize,
+        types: &crate::common::type_registry::TypeRegistry,
+    ) -> Result<()> {
+        if count == 0
+            || self.cast_modes.len() != count
+            || self
+                .cast_modes
+                .contains(&crate::common::cast::CastMode::Assignment)
+        {
+            return Err(Error::Internal(
+                "invalid argument combination proposal".into(),
+            ));
+        }
+        types.bind(&self.data_type)?;
+        Ok(())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn validate_combination_indices<A: ScalarBindArguments + ?Sized>(
+    arguments: &A,
+    indices: &[usize],
+) -> Result<()> {
+    if indices.is_empty() || indices.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(Error::Bind(
+            "combination arguments must be nonempty and in source order".into(),
+        ));
+    }
+    for &index in indices {
+        arguments.data_type(index)?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Language-owned argument metadata for contextual function binding. A
 /// constant request may evaluate only a closed expression without effects,
@@ -65,6 +111,16 @@ pub trait ScalarBindArguments {
     /// literals. This is binding metadata, not a global narrowing conversion.
     fn integer_literal(&self, index: usize) -> Result<Option<i128>> {
         self.data_type(index).map(|_| None)
+    }
+    /// Infer a common type in increasing source-index order, normalizing each
+    /// pair, and retain each selected Implicit-or-Explicit combination mode.
+    /// This request evaluates nothing, including closed or effectful children.
+    /// Consumers validate metadata/cardinality and retain the returned modes.
+    fn combination(&self, indices: &[usize]) -> Result<ArgumentCombination> {
+        validate_combination_indices(self, indices)?;
+        Err(Error::Unsupported(
+            "frontend does not support argument combination metadata".into(),
+        ))
     }
     fn constant(&self, index: usize) -> Result<Value>;
     /// Classify a closed, effect-free argument without evaluating it, invoking
@@ -151,6 +207,13 @@ pub trait ScalarFunction: Debug + Send + Sync {
     /// Other frontends must honor this policy or reject unsupported binding.
     fn argument_cast_mode(&self, _index: usize) -> crate::common::cast::CastMode {
         crate::common::cast::CastMode::Implicit
+    }
+    /// Whether the frontend may apply its ordinary literal privilege after
+    /// selecting this argument's mode. False preserves that mode exactly; it
+    /// does not reject literal inputs. Combination specializations use false
+    /// when the frontend has already supplied their final selected modes.
+    fn argument_literal_coercion(&self, _index: usize) -> bool {
+        true
     }
     fn return_type(
         &self,

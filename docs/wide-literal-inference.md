@@ -88,3 +88,30 @@ Release passes 462/803 SQL cases and all three persistence paths. The runner's
 nonzero exit retains those release disagreements; it is not a development
 correctness failure. This campaign predates the COALESCE follow-up and does not
 claim that its separately retained regression is covered or fixed.
+
+## Selected scalar combination prerequisite
+
+COALESCE's C++ `ResolveCoalesceType` starts with argument zero and normalizes
+each subsequent pair in source order. Direct development probes confirm that
+`coalesce(1,NULL,1::UHUGEINT)` is BIGINT while
+`coalesce(1,1::UHUGEINT,NULL)` is UHUGEINT. The frontend's new selected request
+therefore shares the pairwise inference helper but supplies argument order,
+not CASE's ELSE-first traversal or collection skip rules.
+
+The owned proposal retains its common type and every selected combination cast
+mode. Its requesting specialization disables only the later scalar literal-mode
+rewrite, so available selected Implicit casts remain selected. The defaulted
+hooks preserve other scalar adapters. Tests check source order, unsigned hints,
+typed parameters, unevaluated failing/effectful children, malformed proposals,
+missing frontend capability, invalid positions and cancellation. Separate cast
+counter tests distinguish ordinary literal privilege from exact selected mode.
+Initial tests incorrectly assumed signed-to-UHUGEINT was implicit and attempted
+to replace an unregistered narrowing cast; they now reflect the existing selected
+registry and explicitly register that test-only capability. A test Debug derive
+also required excluding the non-Debug interruption handle. No production casts
+or interruption contracts were altered to satisfy those test setup errors.
+
+The preceding core inference trace compatibility check passed with zero error
+returns, panics or open spans; its temporary telemetry was deleted. Combined
+maintained Kani remains pending the integration checkpoint, not claimed by these
+prerequisite commits.

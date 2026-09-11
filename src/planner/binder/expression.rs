@@ -38,11 +38,12 @@ impl State<'_, '_> {
             .zip(argument_types.iter())
             .enumerate()
             .map(|(index, (e, target))| {
-                let mode = super::coercion::scalar_argument_cast_mode(
-                    &e,
-                    target,
-                    function_impl.argument_cast_mode(index),
-                );
+                let selected = function_impl.argument_cast_mode(index);
+                let mode = if function_impl.argument_literal_coercion(index) {
+                    super::coercion::scalar_argument_cast_mode(&e, target, selected)
+                } else {
+                    selected
+                };
                 e.cast(
                     target.clone(),
                     mode,
@@ -699,6 +700,32 @@ impl crate::function::ScalarBindArguments for FunctionArguments<'_, '_> {
             .get(index)
             .map(super::coercion::integer_literal)
             .ok_or_else(|| Error::Bind("function argument outside signature".into()))
+    }
+    fn combination(&self, indices: &[usize]) -> Result<crate::function::ArgumentCombination> {
+        self.context.query.check()?;
+        crate::function::validate_combination_indices(self, indices)?;
+        let data_type = super::coercion::ordered_combination_type(
+            self.context,
+            indices.iter().map(|&index| &self.arguments[index]),
+            super::coercion::CombinationSequence::Ordered,
+        )?;
+        let cast_modes = indices
+            .iter()
+            .map(|&index| {
+                self.context.query.check()?;
+                super::coercion::combination_cast_mode(
+                    self.context,
+                    &self.arguments[index].data_type,
+                    &data_type,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let proposal = crate::function::ArgumentCombination {
+            data_type,
+            cast_modes,
+        };
+        proposal.validate(indices.len(), self.context.query.types())?;
+        Ok(proposal)
     }
     fn constant(&self, index: usize) -> Result<Value> {
         self.evaluate_constant(self.required_constant_argument(index)?)

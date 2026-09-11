@@ -10,6 +10,8 @@ pub(super) enum CombinationSequence {
     Collection,
     /// CASE normalizes each pair, including equal literals and later NULLs.
     Case,
+    /// A selected scalar requests left-to-right pair normalization.
+    Ordered,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -78,57 +80,7 @@ impl State<'_, '_> {
         arguments: impl IntoIterator<Item = &'b BoundExpr>,
         context: CombinationSequence,
     ) -> Result<DataType> {
-        self.context.query.check()?;
-        let mut arguments = arguments.into_iter();
-        let Some(first) = arguments.next() else {
-            return Ok(DataType::Null);
-        };
-        let types = self.context.query.types();
-        let mut child = first.data_type.clone();
-        let mut literal = string_literal(first);
-        let mut integer = full_integer_literal(first);
-        for argument in arguments {
-            self.context.query.check()?;
-            let other_literal = string_literal(argument);
-            let other_integer = full_integer_literal(argument);
-            if matches!(context, CombinationSequence::Collection) {
-                // These are collection-template rules, not generic CASE
-                // combination. CASE must normalize even equal pseudo-types.
-                if argument.data_type == DataType::Null
-                    || (literal && other_literal)
-                    || (integer.is_some()
-                        && integer == other_integer
-                        && child == argument.data_type)
-                {
-                    continue;
-                }
-            }
-            let inferred = types.try_common_type_with_literals(
-                &child,
-                &argument.data_type,
-                integer,
-                other_integer,
-            )?;
-            child = if let Some(inferred) = inferred {
-                inferred
-            } else if literal {
-                argument.data_type.clone()
-            } else if other_literal && child != DataType::Null {
-                child
-            } else {
-                let context = match context {
-                    CombinationSequence::Case => "CASE expression",
-                    CombinationSequence::Collection => "sequence children",
-                };
-                return Err(Error::Bind(format!(
-                    "Cannot combine {context} of type {child} and {}",
-                    argument.data_type
-                )));
-            };
-            literal = false;
-            integer = None;
-        }
-        Ok(child)
+        ordered_combination_type(self.context, arguments, context)
     }
 
     pub(super) fn combination_cast_mode(
@@ -136,23 +88,7 @@ impl State<'_, '_> {
         source: &DataType,
         target: &DataType,
     ) -> Result<CastMode> {
-        Ok(
-            if self
-                .context
-                .casts
-                .coercion_cost_with_types(
-                    source,
-                    target,
-                    CastMode::Implicit,
-                    self.context.query.types(),
-                )?
-                .is_some()
-            {
-                CastMode::Implicit
-            } else {
-                CastMode::Explicit
-            },
-        )
+        combination_cast_mode(self.context, source, target)
     }
     pub(super) fn combination_cast(
         &self,
@@ -167,6 +103,87 @@ impl State<'_, '_> {
             self.context.query.types(),
         )
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn ordered_combination_type<'b>(
+    binding: &BindContext<'_>,
+    arguments: impl IntoIterator<Item = &'b BoundExpr>,
+    context: CombinationSequence,
+) -> Result<DataType> {
+    binding.query.check()?;
+    let mut arguments = arguments.into_iter();
+    let Some(first) = arguments.next() else {
+        return Ok(DataType::Null);
+    };
+    let types = binding.query.types();
+    let mut child = first.data_type.clone();
+    let mut literal = string_literal(first);
+    let mut integer = full_integer_literal(first);
+    for argument in arguments {
+        binding.query.check()?;
+        let other_literal = string_literal(argument);
+        let other_integer = full_integer_literal(argument);
+        if matches!(context, CombinationSequence::Collection) {
+            // These are collection-template rules, not generic CASE
+            // combination. CASE must normalize even equal pseudo-types.
+            if argument.data_type == DataType::Null
+                || (literal && other_literal)
+                || (integer.is_some() && integer == other_integer && child == argument.data_type)
+            {
+                continue;
+            }
+        }
+        let inferred = types.try_common_type_with_literals(
+            &child,
+            &argument.data_type,
+            integer,
+            other_integer,
+        )?;
+        child = if let Some(inferred) = inferred {
+            inferred
+        } else if literal {
+            argument.data_type.clone()
+        } else if other_literal && child != DataType::Null {
+            child
+        } else {
+            let context = match context {
+                CombinationSequence::Case => "CASE expression",
+                CombinationSequence::Collection => "sequence children",
+                CombinationSequence::Ordered => "function arguments",
+            };
+            return Err(Error::Bind(format!(
+                "Cannot combine {context} of type {child} and {}",
+                argument.data_type
+            )));
+        };
+        literal = false;
+        integer = None;
+    }
+    Ok(child)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn combination_cast_mode(
+    binding: &BindContext<'_>,
+    source: &DataType,
+    target: &DataType,
+) -> Result<CastMode> {
+    Ok(
+        if binding
+            .casts
+            .coercion_cost_with_types(source, target, CastMode::Implicit, binding.query.types())?
+            .is_some()
+        {
+            CastMode::Implicit
+        } else {
+            CastMode::Explicit
+        },
+    )
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl State<'_, '_> {
     pub(super) fn comparison_type(
         &self,
         left: &DataType,

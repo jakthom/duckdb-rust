@@ -8,6 +8,8 @@ use std::{
 
 #[path = "component/argument_provenance.rs"]
 mod argument_provenance;
+#[path = "component/argument_combination.rs"]
+mod argument_combination;
 #[path = "component/closed_argument.rs"]
 mod closed_argument;
 #[path = "component/typed_constant.rs"]

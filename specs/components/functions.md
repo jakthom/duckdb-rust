@@ -119,3 +119,39 @@ Development's expression executor explicitly converts a non-volatile function
 result to CONSTANT_VECTOR when all executed arguments are constant. This is
 execution metadata, distinct from the binder's foldability classification.
 Source: [function execution](../../../duckdb/src/execution/expression_executor/execute_function.cpp).
+
+`is_closed(index)` is metadata only. SQL uses the same selected bound-expression
+dependency/effect classification as the constant requests, with cancellation and
+index validation, but does not invoke an evaluator, cast, or function. A closed
+expression can still fail when later evaluated; this request cannot establish a
+NULL value or discard that failure. Typed parameters are closed in the current
+binding, whereas columns, subqueries and expressions with declared volatile or
+external effects are not. The returned Boolean is owned statement-local metadata,
+not a claim about a later plan's constant-vector encoding. Frontends without this
+capability validate the index and return Unsupported. This keeps lazy branches
+lazy when a selected function needs provenance rather than a computed constant.
+
+## Rewrite selected combination requests
+
+`ScalarBindArguments::combination(indices)` is a provisional metadata-only
+request for a nonempty, strictly increasing list of argument positions. SQL
+infers a common type from those retained expressions in source order, with
+pairwise normalization and exact full-width literal provenance, then chooses
+each mode through the same selected Implicit-if-available, otherwise Explicit
+rule used by CASE combination casts. It does not evaluate any child, infer
+constants from values, or broaden ordinary implicit conversion.
+
+The owned `ArgumentCombination` contains one result DataType and one CastMode
+per requested position. Its validation rejects malformed metadata, a changed
+cardinality or Assignment modes. Selected function specializations must validate
+and retain the proposal, then expose its modes through ordinary argument binding.
+Other frontends validate indices and explicitly return Unsupported unless they
+implement this capability; no built-in registry or evaluator fallback exists.
+
+`ScalarFunction::argument_literal_coercion(index)` defaults to true, preserving
+ordinary SQL literal privilege. False means the selected argument mode is final,
+not that literal inputs are forbidden. Combination specializations disable the
+additional rewrite so a selected Implicit cast is not replaced by an Explicit
+cast merely because the source is a fitting literal. Existing Explicit and
+Assignment policies remain unchanged. A future single typed cast-policy object
+can replace these provisional hooks if shared use warrants it.
