@@ -358,10 +358,24 @@ fn date_literals_defaults_and_try_cast_honor_selected_adapters() -> Result<()> {
         "SELECT DATE('epoch')",
         "SELECT ignored.\"DATE\"('epoch') FILTER (WHERE nonexistent)",
         "SELECT TRY_CAST('epoch' AS DATE)",
-        "CREATE TABLE defaults(d DATE DEFAULT DATE 'epoch')",
-        "CREATE TABLE defaults(d DATE DEFAULT DATE('epoch'))",
     ] {
         assert!(matches!(c.execute(sql), Err(Error::Resource(_))), "{sql}");
+    }
+    // Default DDL retains the selected cast without executing it. Omitted-row
+    // demand invokes the retained adapter later and publishes no failed row.
+    for (table, default) in [
+        ("defaults_literal", "DATE 'epoch'"),
+        ("defaults_function", "DATE('epoch')"),
+    ] {
+        c.execute(&format!("CREATE TABLE {table}(d DATE DEFAULT {default})"))?;
+        assert!(matches!(
+            c.execute(&format!("INSERT INTO {table} DEFAULT VALUES")),
+            Err(Error::Resource(_))
+        ));
+        assert_eq!(
+            c.query(&format!("SELECT count(*) FROM {table}"))?.rows,
+            vec![vec![Value::Integer(0)]]
+        );
     }
     c.execute("CREATE TABLE t(d DATE)")?;
     assert!(matches!(
