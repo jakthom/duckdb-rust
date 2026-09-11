@@ -41,6 +41,57 @@ fn spec(target: DataType, mode: CastMode) -> CastSpec {
     }
 }
 
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn temporal_coercion_costs_rank_only_available_selected_casts() -> Result<()> {
+    let query = QueryContext::background();
+    let casts = CastRegistry::builtins();
+    for (target, cost) in [
+        (DataType::Date, 110),
+        (DataType::Time, 110),
+        (DataType::Interval, 110),
+        (DataType::TimestampNs, 119),
+        (DataType::Timestamp, 120),
+        (DataType::TimestampMs, 121),
+        (DataType::TimestampS, 122),
+        (DataType::TimestampTz, 123),
+        (DataType::TimestampTzNs, 124),
+    ] {
+        assert_eq!(
+            casts.coercion_cost_with_types(
+                &DataType::Null,
+                &target,
+                CastMode::Implicit,
+                query.types()
+            )?,
+            Some(cost)
+        );
+        assert_eq!(
+            casts.coercion_cost_with_types(&target, &target, CastMode::Implicit, query.types())?,
+            Some(0)
+        );
+    }
+    assert_eq!(
+        casts.coercion_cost_with_types(
+            &DataType::Date,
+            &DataType::Time,
+            CastMode::Implicit,
+            query.types()
+        )?,
+        None
+    );
+    assert_eq!(
+        casts.coercion_cost_with_types(
+            &DataType::Varchar,
+            &DataType::Timestamp,
+            CastMode::Implicit,
+            query.types()
+        )?,
+        None
+    );
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn integer_registry(adapter: Arc<dyn CastFunction>) -> Result<CastRegistry> {
     let mut registry = CastRegistry::builtins();

@@ -138,6 +138,12 @@ pub trait CastFunction: Debug + Send + Sync {
             DataType::HugeInt => 103,
             DataType::Double => 104,
             DataType::Decimal { .. } => 105,
+            DataType::TimestampNs => 119,
+            DataType::Timestamp => 120,
+            DataType::TimestampMs => 121,
+            DataType::TimestampS => 122,
+            DataType::TimestampTz => 123,
+            DataType::TimestampTzNs => 124,
             DataType::Varchar => 149,
             _ => 110,
         }
