@@ -3,6 +3,8 @@ pub mod bignum;
 mod binary_scalar;
 mod bit;
 mod enumeration;
+mod expansion;
+pub use expansion::{ScalarExpansion, ScalarExpansionNode};
 pub mod grouped;
 pub(crate) mod nested;
 pub mod operator;
@@ -181,6 +183,18 @@ pub trait ScalarFunction: Debug + Send + Sync {
     }
     fn argument_evaluation(&self) -> ArgumentEvaluation {
         ArgumentEvaluation::Eager
+    }
+    /// Optional owned expression template, lowered through selected frontend
+    /// expression services before ordinary scalar specialization. The complete
+    /// template is validated before lowering or pruning. None preserves the
+    /// ordinary selected adapter. An adapter requiring expansion must reject
+    /// ordinary bind/evaluate in frontends that do not support this capability.
+    fn expansion(
+        &self,
+        _arguments: &dyn ScalarBindArguments,
+        _query: &QueryContext,
+    ) -> Result<Option<ScalarExpansion>> {
+        Ok(None)
     }
     /// Pure statement-local specialization. None retains this adapter. A
     /// returned adapter owns all retained state and uses the ordinary signature,

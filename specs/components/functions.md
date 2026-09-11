@@ -184,3 +184,29 @@ those errors. Development governs these disagreements. Ordinary VALUES NULL
 arguments remain nonconstant and preserve the function's existing dispatch/error
 order. The family differential retains both outcomes rather than weakening its
 exact result/error comparator.
+
+## Rewrite selected scalar expansion
+
+The provisional `ScalarFunction::expansion` capability returns an optional owned
+expression template before ordinary scalar specialization. Default None keeps
+the selected ordinary function unchanged. SQL lowers a returned template through
+its selected comparison and CASE/type/cast services; the scalar adapter does not
+evaluate children or select private casts. An adapter that requires expansion
+must explicitly reject ordinary bind/evaluate in a frontend that does not
+support expansion. This is not general macro or catalog completeness.
+
+Templates contain a child-before-parent node list with Argument, Null, Equal and
+Case nodes; the final node is the root. Reusing a node is another expression
+occurrence, not a cached value. Argument occurrences retain the bound expression,
+including its literal/parameter identity, selected adapters and effects. CASE
+inference remains ELSE-first while child lowering follows source order. Required
+comparison/cast failures and lazy branch behavior follow those ordinary paths.
+
+The complete template is validated before lowering or pruning: nonempty shape,
+argument bounds, child order and acyclicity, at most 1,024 nodes, depth 64 and
+4,096 expanded occurrences. These provisional limits bound metadata expansion,
+not scalar-value domains. Validation checks cancellation and rejects malformed
+graphs explicitly. A flat owned representation avoids recursively owned foreign
+template drop; node reuse cannot trigger exponential unchecked expansion.
+Adapters with their own declared volatile/external effects cannot use this pure
+expansion seam. Effects of referenced argument expressions remain intact.

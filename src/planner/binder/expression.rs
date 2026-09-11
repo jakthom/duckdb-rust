@@ -14,6 +14,22 @@ impl State<'_, '_> {
         function_impl: std::sync::Arc<dyn crate::function::ScalarFunction>,
         arguments: Vec<BoundExpr>,
     ) -> Result<BoundExpr> {
+        if let Some(expansion) = function_impl.expansion(
+            &FunctionArguments {
+                arguments: &arguments,
+                context: self.context,
+            },
+            self.context.query,
+        )? {
+            expansion.validate(arguments.len(), self.context.query)?;
+            let effects = function_impl.effects();
+            if effects.volatile || effects.external_access {
+                return Err(Error::Unsupported(
+                    "effectful scalar expansion metadata".into(),
+                ));
+            }
+            return self.expand_scalar(&expansion, expansion.nodes.len() - 1, &arguments);
+        }
         let function_impl = function_impl
             .bind(
                 &FunctionArguments {
@@ -57,6 +73,58 @@ impl State<'_, '_> {
             data_type,
             kind: ExprKind::Scalar(function_impl, arguments),
         })
+    }
+    fn expand_scalar(
+        &self,
+        expansion: &crate::function::ScalarExpansion,
+        index: usize,
+        arguments: &[BoundExpr],
+    ) -> Result<BoundExpr> {
+        use crate::function::ScalarExpansionNode;
+        self.context.query.check()?;
+        // Complete validation has already bounded every node, argument,
+        // occurrence and recursive depth before any CASE pruning can execute.
+        let child = |index| self.expand_scalar(expansion, index, arguments);
+        match &expansion.nodes[index] {
+            ScalarExpansionNode::Argument(index) => Ok(arguments[*index].clone()),
+            ScalarExpansionNode::Null => Ok(BoundExpr::literal(Value::Null)),
+            ScalarExpansionNode::Equal { left, right } => {
+                self.binary(BinaryOp::Equal, child(*left)?, child(*right)?)
+            }
+            ScalarExpansionNode::Case {
+                condition,
+                then_value,
+                otherwise,
+            } => {
+                let predicate = self.boolean(child(*condition)?)?;
+                let value = child(*then_value)?;
+                let otherwise = child(*otherwise)?;
+                self.bound_case(vec![(predicate, value)], otherwise)
+            }
+        }
+    }
+    fn bound_case(
+        &self,
+        branches: Vec<(BoundExpr, BoundExpr)>,
+        otherwise: BoundExpr,
+    ) -> Result<BoundExpr> {
+        // Inference is ELSE-first; child binding/expansion remains source-order.
+        let data_type = self.ordered_combination_type(
+            std::iter::once(&otherwise).chain(branches.iter().map(|(_, value)| value)),
+            super::coercion::CombinationSequence::Case,
+        )?;
+        Ok(self.prune_case(BoundExpr {
+            kind: ExprKind::Case(
+                branches
+                    .into_iter()
+                    .map(|(predicate, value)| {
+                        Ok((predicate, self.combination_cast(value, &data_type)?))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                Box::new(self.combination_cast(otherwise, &data_type)?),
+            ),
+            data_type,
+        }))
     }
     /// Bind/type-check every branch first, then remove statically unreachable
     /// CASE dependencies before nested relational plans are prepared.
@@ -585,23 +653,7 @@ impl State<'_, '_> {
                     .map(|e| recurse(e))
                     .transpose()?
                     .unwrap_or_else(|| BoundExpr::literal(Value::Null));
-                // Development binds all children in source order, then infers
-                // result metadata starting with ELSE and visiting each THEN.
-                // This is selected metadata inference, not child evaluation.
-                let data_type = self.ordered_combination_type(
-                    std::iter::once(&otherwise).chain(branches.iter().map(|(_, value)| value)),
-                    super::coercion::CombinationSequence::Case,
-                )?;
-                Ok(self.prune_case(BoundExpr {
-                    kind: ExprKind::Case(
-                        branches
-                            .into_iter()
-                            .map(|(p, v)| Ok((p, self.combination_cast(v, &data_type)?)))
-                            .collect::<Result<Vec<_>>>()?,
-                        Box::new(self.combination_cast(otherwise, &data_type)?),
-                    ),
-                    data_type,
-                }))
+                self.bound_case(branches,otherwise)
             }
             ast::Expr::Between {
                 expr,

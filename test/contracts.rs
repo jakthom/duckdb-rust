@@ -14,6 +14,8 @@ mod argument_provenance;
 mod closed_argument;
 #[path = "component/stored_expression.rs"]
 mod stored_expression;
+#[path = "component/scalar_expansion.rs"]
+mod scalar_expansion;
 #[path = "component/typed_constant.rs"]
 mod typed_constant;
 #[path = "component/value_binding.rs"]
