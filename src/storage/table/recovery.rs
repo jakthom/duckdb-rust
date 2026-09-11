@@ -33,7 +33,12 @@ impl Snapshot {
                 RestoredSlot::Live(id, row) => (id, Some(row)),
                 RestoredSlot::Deleted(id) => (id, None),
             };
-            if id >= next_id || !physical.insert(id) || row.as_ref().is_some_and(|row| table.rows.insert(id, row.clone()).is_some()) {
+            if id >= next_id
+                || !physical.insert(id)
+                || row
+                    .as_ref()
+                    .is_some_and(|row| table.rows.insert(id, row.clone()).is_some())
+            {
                 return Err(Error::Corrupt("invalid restored row identity".into()));
             }
         }

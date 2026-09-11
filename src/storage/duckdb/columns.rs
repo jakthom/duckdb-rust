@@ -20,10 +20,13 @@ pub(super) struct ReadContext<'a> {
 
 use crate::{
     parallel::QueryContext,
-    storage::{compression::{
-        CodecId, DecodeContext, DecodeInput, DecoderRegistry, SegmentStatistics as Statistics,
-        SegmentType,
-    }, table::RestoredSlot},
+    storage::{
+        compression::{
+            CodecId, DecodeContext, DecodeInput, DecoderRegistry, SegmentStatistics as Statistics,
+            SegmentType,
+        },
+        table::RestoredSlot,
+    },
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -122,10 +125,20 @@ pub(super) fn read_table(
                 row[index] = value;
             }
         }
-        rows.extend(group.into_iter().zip(deleted).enumerate().map(|(index, (row, deleted))| {
-            let id = start + index as u64;
-            if deleted { RestoredSlot::Deleted(id) } else { RestoredSlot::Live(id, row) }
-        }));
+        rows.extend(
+            group
+                .into_iter()
+                .zip(deleted)
+                .enumerate()
+                .map(|(index, (row, deleted))| {
+                    let id = start + index as u64;
+                    if deleted {
+                        RestoredSlot::Deleted(id)
+                    } else {
+                        RestoredSlot::Live(id, row)
+                    }
+                }),
+        );
     }
     identities.finish()?;
     context.query.check()?;

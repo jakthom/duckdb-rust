@@ -54,6 +54,7 @@ impl State<'_, '_> {
             }
             ast::Expr::TypedString(typed) => Ok(StoredExpression {
                 alias: None,
+                source_span: None,
                 kind: StoredExpressionKind::Cast {
                     expression: Box::new(
                         self.capture_literal(&ast::Expr::Value(typed.value.clone()))?,
@@ -70,6 +71,7 @@ impl State<'_, '_> {
                 format: None,
             } => Ok(StoredExpression {
                 alias: None,
+                source_span: None,
                 kind: StoredExpressionKind::Cast {
                     expression: Box::new(self.capture_stored_expression(expr)?),
                     target: self.data_type(data_type)?,
@@ -153,6 +155,7 @@ impl State<'_, '_> {
             .collect::<Result<Vec<_>>>()?;
         Ok(StoredExpression {
             alias: None,
+            source_span: None,
             kind: StoredExpressionKind::Function {
                 name,
                 arguments,
@@ -169,6 +172,7 @@ impl State<'_, '_> {
     ) -> Result<StoredExpression> {
         Ok(StoredExpression {
             alias: None,
+            source_span: None,
             kind: StoredExpressionKind::Function {
                 name: vec![name.into()],
                 arguments: children
