@@ -339,11 +339,12 @@ general non-literal defaults and the broader lifetime matrix remain open.
 - **G09.3 Connect native serialization.** Integrate the existing parsed/value codecs,
   unresolved/named type binding, private format, native checkpoints and WAL. Support
   reference-valid version conversions and reject unrepresentable conversions explicitly.
-- **G09.4 Finish lifetime/effect semantics.** Closed retained binding now permits
-  volatile/external effects and omitted INSERT evaluates volatile defaults per row.
-  Test prepared-setting retention,
-  current-time/sequence/volatile defaults, failed statements, rollback, reopen,
-  old snapshots and error timing. Coordinate CHECK/generated expressions with G11.
+- **G09.4 Finish lifetime/effect semantics (selected lifecycle implemented).** Closed
+  retained binding permits volatile/external effects. Prepared omitted INSERT uses
+  execution-time settings; tests cover per-row order, failed-statement atomicity,
+  CREATE/SET rollback, old catalog snapshots, reopen and deferred error timing.
+  Built-in current-time/sequence defaults remain with G04/G10; coordinate CHECK and
+  generated expressions with G11.
 
 **Exit:** independent C++ function-default files and Rust-origin files work through
 read/write/recovery; a one-time evaluated literal or codec-only round trip cannot pass.
