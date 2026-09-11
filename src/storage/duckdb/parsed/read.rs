@@ -12,13 +12,21 @@ pub(super) fn expression(
     reader.field(101)?;
     let kind = reader.unsigned()?;
     let alias = state.optional_name(reader, 102)?;
-    if reader.optional(103)? {
-        reader.unsigned()?;
+    let offset = reader
+        .optional(103)?
+        .then(|| reader.unsigned())
+        .transpose()?;
+    let length = reader
+        .optional(104)?
+        .then(|| reader.unsigned())
+        .transpose()?
+        .map(|length| u32::try_from(length).map_err(|_| corrupt("expression source span overflow")))
+        .transpose()?;
+    if offset.is_none() && length.is_some() {
+        return Err(corrupt("expression source length without location"));
     }
-    if reader.optional(104)? {
-        u32::try_from(reader.unsigned()?)
-            .map_err(|_| corrupt("expression source span overflow"))?;
-    }
+    let source_span =
+        offset.map(|offset| crate::catalog::expression::StoredSourceSpan { offset, length });
     let kind = match (class, kind) {
         (7, 75) => {
             reader.field(200)?;
@@ -61,7 +69,11 @@ pub(super) fn expression(
         }
     };
     reader.end()?;
-    Ok(StoredExpression { alias, kind })
+    Ok(StoredExpression {
+        alias,
+        source_span,
+        kind,
+    })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

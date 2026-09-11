@@ -161,8 +161,20 @@ impl Services {
                     let mut row: Row = definition
                         .columns
                         .iter()
-                        .map(|c| c.default.clone())
-                        .collect();
+                        .map(|column| {
+                            column
+                                .default
+                                .as_ref()
+                                .map_or(Ok(Value::Null), |expression| {
+                                    query.stored_expressions()?.evaluate(
+                                        expression,
+                                        &column.data_type,
+                                        transaction.catalog(),
+                                        query,
+                                    )
+                                })
+                        })
+                        .collect::<Result<_>>()?;
                     for (&column, value) in columns.iter().zip(input) {
                         row[column] = value;
                     }

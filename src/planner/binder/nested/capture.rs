@@ -46,6 +46,7 @@ pub(in crate::planner::binder) fn capture(
                 .collect::<Result<Vec<_>>>()?;
             StoredExpression {
                 alias: None,
+                source_span: None,
                 kind: StoredExpressionKind::Function {
                     name: vec!["struct_pack".into()],
                     arguments,
@@ -133,6 +134,7 @@ fn bounded(children: usize) -> Result<()> {
 fn call(name: &str, children: Vec<StoredExpression>) -> StoredExpression {
     StoredExpression {
         alias: None,
+        source_span: None,
         kind: StoredExpressionKind::Function {
             name: vec![name.into()],
             arguments: children
@@ -152,6 +154,7 @@ fn call(name: &str, children: Vec<StoredExpression>) -> StoredExpression {
 fn operator(kind: StoredOperator, children: Vec<StoredExpression>) -> StoredExpression {
     StoredExpression {
         alias: None,
+        source_span: None,
         kind: StoredExpressionKind::Operator { kind, children },
     }
 }
@@ -210,6 +213,7 @@ mod tests {
                 ..
             } => Ok(StoredExpression {
                 alias: None,
+                source_span: None,
                 kind: StoredExpressionKind::Cast {
                     expression: Box::new(retained(expr)?),
                     target: DataType::SmallInt,
@@ -233,6 +237,7 @@ mod tests {
                     .collect::<Result<Vec<_>>>()?;
                 Ok(StoredExpression {
                     alias: None,
+                    source_span: None,
                     kind: StoredExpressionKind::Function {
                         name: function
                             .name

@@ -1,6 +1,9 @@
 //! Owned table mutations shared by binding, transaction adapters and recovery.
 use super::{ColumnDefinition, TableDefinition, TableName};
-use crate::common::{Error, Result, Value};
+use crate::{
+    catalog::expression::StoredExpression,
+    common::{Error, Result},
+};
 
 #[derive(Clone, Debug)]
 pub enum TableAlteration {
@@ -19,7 +22,9 @@ pub enum TableAlteration {
     },
     SetDefault {
         column: String,
-        value: Value,
+        /// Some(expression) is SET DEFAULT, including explicit DEFAULT NULL;
+        /// None is DROP DEFAULT.
+        expression: Option<StoredExpression>,
     },
     SetNullability {
         column: String,
@@ -126,8 +131,8 @@ impl TableAlteration {
                 }
                 after.columns.remove(index);
             }
-            Self::SetDefault { column, value } => {
-                after.columns[before.column_index(column)?].default = value.clone();
+            Self::SetDefault { column, expression } => {
+                after.columns[before.column_index(column)?].default = expression.clone();
             }
             Self::SetNullability { column, nullable } => {
                 let index = before.column_index(column)?;

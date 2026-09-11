@@ -13,6 +13,7 @@ fn named(
 ) -> StoredExpression {
     StoredExpression {
         alias: None,
+        source_span: None,
         kind: StoredExpressionKind::Function {
             name: vec![name.into()],
             arguments: fields
@@ -32,6 +33,7 @@ fn named(
 fn operator(kind: StoredOperator, children: Vec<StoredExpression>) -> StoredExpression {
     StoredExpression {
         alias: None,
+        source_span: None,
         kind: StoredExpressionKind::Operator { kind, children },
     }
 }

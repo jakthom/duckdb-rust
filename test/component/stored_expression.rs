@@ -25,6 +25,7 @@ use duckdb_rust::{
 fn call(name: &str, arguments: Vec<StoredExpression>) -> StoredExpression {
     StoredExpression {
         alias: None,
+        source_span: None,
         kind: StoredExpressionKind::Function {
             name: vec![name.into()],
             arguments: arguments
@@ -44,6 +45,7 @@ fn call(name: &str, arguments: Vec<StoredExpression>) -> StoredExpression {
 fn cast(expression: StoredExpression, target: DataType, try_cast: bool) -> StoredExpression {
     StoredExpression {
         alias: None,
+        source_span: None,
         kind: StoredExpressionKind::Cast {
             expression: Box::new(expression),
             target,
@@ -64,6 +66,7 @@ fn stored_nested_operator_preflight_preserves_identity_and_bounds_all_children()
     ] {
         let expression = StoredExpression {
             alias: Some("retained".into()),
+            source_span: None,
             kind: StoredExpressionKind::Operator {
                 kind,
                 children: vec![literal.clone(), literal.clone()],
@@ -78,6 +81,7 @@ fn stored_nested_operator_preflight_preserves_identity_and_bounds_all_children()
     }
     let operator = |kind, children| StoredExpression {
         alias: None,
+        source_span: None,
         kind: StoredExpressionKind::Operator { kind, children },
     };
     operator(StoredOperator::ListConstructor, vec![]).validate(&query)?;

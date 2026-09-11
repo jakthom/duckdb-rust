@@ -108,6 +108,37 @@ impl Rows {
         }
         Ok(())
     }
+    pub fn add_column_values(
+        &mut self,
+        data_type: &DataType,
+        values: &BTreeMap<RowId, Value>,
+        context: &QueryContext,
+    ) -> Result<()> {
+        context.check()?;
+        if values.len() != self.len() || self.keys().any(|id| !values.contains_key(id)) {
+            return Err(Error::Internal(
+                "ADD COLUMN values differ from live physical slots".into(),
+            ));
+        }
+        match self {
+            Self::Writable(rows) => {
+                for (id, row) in rows {
+                    context.check()?;
+                    row.push(values[id].clone());
+                }
+            }
+            Self::Published { ids, data, types } => {
+                let column = ids.iter().map(|id| values[id].clone()).collect::<Vec<_>>();
+                let mut columns = data.columns().to_vec();
+                columns.push(Vector::flat(data_type.clone(), column)?);
+                *data = DataChunk::new(columns, data.len())?;
+                let mut next = types.to_vec();
+                next.push(data_type.clone());
+                *types = next.into();
+            }
+        }
+        Ok(())
+    }
     pub fn drop_column(&mut self, column: usize, context: &QueryContext) -> Result<()> {
         context.check()?;
         match self {

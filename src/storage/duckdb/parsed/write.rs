@@ -24,6 +24,12 @@ pub(super) fn expression(
     output.property(100, class);
     output.property(101, kind);
     state.write_name(output, 102, expression.alias.as_deref())?;
+    if let Some(span) = expression.source_span {
+        output.property(103, span.offset);
+        if let Some(length) = span.length {
+            output.property(104, u64::from(length));
+        }
+    }
     match &expression.kind {
         StoredExpressionKind::Literal { data_type, value } => {
             output.field(200);

@@ -11,7 +11,19 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StoredExpression {
     pub alias: Option<String>,
+    /// Optional byte position from the original statement. This is diagnostic
+    /// provenance, not identity; catalog storage must retain it without using
+    /// it to reparse or evaluate the expression.
+    #[serde(default)]
+    pub source_span: Option<StoredSourceSpan>,
     pub kind: StoredExpressionKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredSourceSpan {
+    pub offset: u64,
+    /// Older native formats retain the start but not the span length.
+    pub length: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -86,7 +98,15 @@ impl StoredExpression {
     pub fn literal(data_type: DataType, value: Value) -> Self {
         Self {
             alias: None,
+            source_span: None,
             kind: StoredExpressionKind::Literal { data_type, value },
+        }
+    }
+
+    pub fn as_literal(&self) -> Option<(&DataType, &Value)> {
+        match &self.kind {
+            StoredExpressionKind::Literal { data_type, value } => Some((data_type, value)),
+            _ => None,
         }
     }
 

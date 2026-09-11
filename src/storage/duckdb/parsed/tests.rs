@@ -25,6 +25,7 @@ fn retained_native_tree_preserves_typed_nulls_failing_casts_aliases_and_argument
     let null = StoredExpression::literal(DataType::UTinyInt, Value::Null);
     let bad_cast = StoredExpression {
         alias: Some("child_alias".into()),
+        source_span: None,
         kind: StoredExpressionKind::Cast {
             expression: Box::new(StoredExpression::literal(
                 DataType::Varchar,
@@ -36,6 +37,7 @@ fn retained_native_tree_preserves_typed_nulls_failing_casts_aliases_and_argument
     };
     let mut tree = StoredExpression {
         alias: Some("root_alias".into()),
+        source_span: None,
         kind: StoredExpressionKind::Function {
             name: vec!["catalog".into(), "schema".into(), "struct_pack".into()],
             arguments: vec![
@@ -112,6 +114,7 @@ fn native_expression_read_is_bounded_and_writes_are_atomic() -> Result<()> {
     for _ in 0..65 {
         tree = StoredExpression {
             alias: None,
+            source_span: None,
             kind: StoredExpressionKind::Cast {
                 expression: Box::new(tree),
                 target: DataType::Integer,
@@ -240,6 +243,7 @@ fn native_expression_pending_children_share_root_budget_and_literal_bits_survive
     // component from the end for nested schemas.
     let tree = StoredExpression {
         alias: None,
+        source_span: None,
         kind: StoredExpressionKind::Function {
             name: vec![
                 "catalog".into(),

@@ -67,10 +67,10 @@ impl BoundStatement {
             Self::AlterTable { table, alteration } => {
                 if let Some(definition) = alteration.definition(&catalog.table(table)?)? {
                     for column in &definition.columns {
-                        query
-                            .types()
-                            .bind(&column.data_type)?
-                            .validate(&column.default, query)?;
+                        query.types().bind(&column.data_type)?;
+                        if let Some(default) = &column.default {
+                            default.validate(query)?;
+                        }
                     }
                 }
                 Ok(())
@@ -79,10 +79,10 @@ impl BoundStatement {
                 definition, source, ..
             } => {
                 for column in &definition.columns {
-                    query
-                        .types()
-                        .bind(&column.data_type)?
-                        .validate(&column.default, query)?;
+                    query.types().bind(&column.data_type)?;
+                    if let Some(default) = &column.default {
+                        default.validate(query)?;
+                    }
                 }
                 if let Some(source) = source {
                     source.validate_at(scope, level + 1)?;

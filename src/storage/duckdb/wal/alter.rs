@@ -5,7 +5,7 @@ use super::super::{
     catalog, writer,
 };
 use crate::{
-    Error, Result, Value,
+    Error, Result,
     catalog::{TableAlteration, TableDefinition, TableName},
 };
 
@@ -47,9 +47,12 @@ pub(super) fn write(
         TableAlteration::AddColumn { column, .. } => writer::column_definition(output, column)?,
         TableAlteration::DropColumn { column, .. }
         | TableAlteration::SetNullability { column, .. } => output.string(column)?,
-        TableAlteration::SetDefault { column, value } => {
+        TableAlteration::SetDefault { column, expression } => {
             output.string(column)?;
-            if !value.is_null() {
+            if let Some(expression) = expression {
+                let (_, value) = expression.as_literal().ok_or_else(|| {
+                    Error::Unsupported("native WAL non-literal column default".into())
+                })?;
                 output.field(401);
                 output.boolean(true);
                 writer::constant::write(
@@ -156,12 +159,16 @@ pub(super) fn read(reader: &mut Reader) -> Result<(TableName, TableAlteration)> 
         }
         6 => {
             let column = reader.string()?;
-            let value = if reader.optional(401)? && reader.boolean()? {
-                catalog::constant_expression(reader)?
+            let expression = if reader.optional(401)? && reader.boolean()? {
+                let value = catalog::constant_expression(reader)?;
+                Some(crate::catalog::expression::StoredExpression::literal(
+                    value.data_type(),
+                    value,
+                ))
             } else {
-                Value::Null
+                None
             };
-            TableAlteration::SetDefault { column, value }
+            TableAlteration::SetDefault { column, expression }
         }
         8 | 9 => TableAlteration::SetNullability {
             column: reader.string()?,

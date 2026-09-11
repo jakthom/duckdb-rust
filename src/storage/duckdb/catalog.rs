@@ -86,9 +86,12 @@ pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
     reader.field(101)?;
     let data_type = logical_type(reader)?;
     let default = if reader.optional(102)? && reader.boolean()? {
-        constant::read(reader, 0)?.cast(&data_type)?
+        Some(crate::catalog::expression::StoredExpression::literal(
+            data_type.clone(),
+            constant::read(reader, 0)?.cast(&data_type)?,
+        ))
     } else {
-        Value::Null
+        None
     };
     reader.field(103)?;
     if reader.unsigned()? != 0 {

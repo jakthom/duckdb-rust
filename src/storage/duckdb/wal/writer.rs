@@ -260,7 +260,18 @@ impl LogSession for Session {
                             context.check()?;
                             match alteration {
                                 crate::catalog::TableAlteration::AddColumn { column, .. } => {
-                                    row.push(column.default.clone())
+                                    let value = column
+                                        .default
+                                        .as_ref()
+                                        .map(|expression| {
+                                            expression
+                                                .as_literal()
+                                                .map(|(_, value)| value.clone())
+                                                .ok_or_else(|| invalid("non-literal ADD default"))
+                                        })
+                                        .transpose()?
+                                        .unwrap_or(crate::Value::Null);
+                                    row.push(value)
                                 }
                                 crate::catalog::TableAlteration::DropColumn { column, .. } => {
                                     row.remove(state.definition.column_index(column)?);

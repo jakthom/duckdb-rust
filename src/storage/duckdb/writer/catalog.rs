@@ -63,10 +63,13 @@ pub(in crate::storage::duckdb) fn column_definition(
     output.string(&column.name)?;
     output.field(101);
     super::super::primitive::write_type(output, &column.data_type)?;
-    if !column.default.is_null() {
+    if let Some(default) = &column.default {
+        let (_, value) = default
+            .as_literal()
+            .ok_or_else(|| crate::Error::Unsupported("native non-literal column default".into()))?;
         output.field(102);
         output.boolean(true);
-        constant::write(output, &column.default, &column.data_type)?;
+        constant::write(output, value, &column.data_type)?;
     }
     output.property(103, 0);
     output.property(104, 0);

@@ -58,7 +58,12 @@ impl State<'_, '_> {
                 for option in &column_def.options {
                     match &option.option {
                         ast::ColumnOption::Default(value) => {
-                            column.default = self.alter_default(value, &column.data_type)?
+                            let value = self.alter_default(value, &column.data_type)?;
+                            column.default =
+                                Some(crate::catalog::expression::StoredExpression::literal(
+                                    column.data_type.clone(),
+                                    value,
+                                ));
                         }
                         ast::ColumnOption::Null => {}
                         _ => {
@@ -91,14 +96,21 @@ impl State<'_, '_> {
                     },
                     C::DropDefault => TableAlteration::SetDefault {
                         column,
-                        value: Value::Null,
+                        expression: None,
                     },
                     C::SetDefault { value } => {
                         let index = definition.column_index(&column)?;
                         TableAlteration::SetDefault {
                             column,
-                            value: self
-                                .alter_default(value, &definition.columns[index].data_type)?,
+                            expression: Some(
+                                crate::catalog::expression::StoredExpression::literal(
+                                    definition.columns[index].data_type.clone(),
+                                    self.alter_default(
+                                        value,
+                                        &definition.columns[index].data_type,
+                                    )?,
+                                ),
+                            ),
                         }
                     }
                     _ => return Err(unsupported(op)),

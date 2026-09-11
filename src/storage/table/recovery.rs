@@ -38,6 +38,9 @@ impl Snapshot {
             }
         }
         table.next_id = next_id;
+        table.physical_slots = (0..next_id)
+            .map(|id| table.rows.contains_key(&id).then_some(id))
+            .collect();
         table.validate(
             self.indexes.as_ref(),
             &context.clone().with_types(self.types.clone()),
@@ -93,6 +96,7 @@ impl RecoveryTarget for Snapshot {
                             .checked_add(1)
                             .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
                         table.rows.insert(id, row.clone());
+                        table.physical_slots.push(Some(id));
                     }
                 }
                 RecoveredChange::Delete { table, ids } => {
@@ -102,7 +106,16 @@ impl RecoveryTarget for Snapshot {
                         if *id >= table.next_id {
                             return Err(Error::Corrupt("WAL delete row ID out of bounds".into()));
                         }
-                        table.rows.remove(id);
+                        if table.rows.remove(id).is_some() {
+                            let slot = table
+                                .physical_slots
+                                .iter_mut()
+                                .find(|slot| **slot == Some(*id))
+                                .ok_or_else(|| {
+                                    Error::Corrupt("live row has no physical slot".into())
+                                })?;
+                            *slot = None;
+                        }
                     }
                 }
                 RecoveredChange::Update {

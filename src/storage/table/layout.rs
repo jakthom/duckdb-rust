@@ -59,7 +59,10 @@ impl Snapshot {
                 || source.definition.unique_keys != destination.definition.unique_keys
                 || columns.len() != other.len()
                 || !columns.iter().zip(other).all(|(a, b)| {
-                    a.name == b.name && a.data_type == b.data_type && a.nullable == b.nullable
+                    a.name == b.name
+                        && a.data_type == b.data_type
+                        && a.nullable == b.nullable
+                        && a.default == b.default
                 })
                 || mapping.next_row_id != destination.next_id
                 || !source.rows.keys().eq(mapping.rows.keys())
@@ -77,15 +80,6 @@ impl Snapshot {
                         .collect::<Result<Vec<_>>>()
                 })
                 .transpose()?;
-            if !equal(
-                columns.iter().map(|column| &column.default),
-                other.iter().map(|column| &column.default),
-                selected.as_deref(),
-                format,
-                context,
-            )? {
-                return Err(invalid());
-            }
             let mut seen = BTreeSet::new();
             for (&old, &new) in &mapping.rows {
                 context.check()?;

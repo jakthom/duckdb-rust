@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::{DataType, Result, Value};
+use expression::StoredExpression;
 
 mod alter;
 pub mod expression;
@@ -35,12 +36,57 @@ impl std::fmt::Display for TableName {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ColumnDefinition {
     pub name: String,
     pub data_type: DataType,
     pub nullable: bool,
-    pub default: Value,
+    /// The owned, unbound DEFAULT syntax. Absence is distinct from an explicit
+    /// typed `DEFAULT NULL`; evaluation belongs to the operation that demands a
+    /// value, never catalog copying, validation, or serialization.
+    pub default: Option<StoredExpression>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ColumnDefaultWire {
+    Expression(StoredExpression),
+    /// Private snapshots written before retained defaults stored only the
+    /// eagerly evaluated payload. Read them conservatively while new snapshots
+    /// always write the owned expression form.
+    Legacy(Value),
+}
+
+#[derive(Deserialize)]
+struct ColumnDefinitionWire {
+    name: String,
+    data_type: DataType,
+    nullable: bool,
+    #[serde(default)]
+    default: Option<ColumnDefaultWire>,
+}
+
+impl<'de> Deserialize<'de> for ColumnDefinition {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let wire = ColumnDefinitionWire::deserialize(deserializer)?;
+        let default = match wire.default {
+            Some(ColumnDefaultWire::Expression(expression)) => Some(expression),
+            // The old representation could not distinguish no DEFAULT from
+            // DEFAULT NULL. Preserve its historical no-default interpretation.
+            Some(ColumnDefaultWire::Legacy(Value::Null)) | None => None,
+            Some(ColumnDefaultWire::Legacy(value)) => {
+                Some(StoredExpression::literal(wire.data_type.clone(), value))
+            }
+        };
+        Ok(Self {
+            name: wire.name,
+            data_type: wire.data_type,
+            nullable: wire.nullable,
+            default,
+        })
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -50,8 +96,13 @@ impl ColumnDefinition {
             name: name.into(),
             data_type,
             nullable: true,
-            default: Value::Null,
+            default: None,
         }
+    }
+
+    pub fn with_default(mut self, expression: StoredExpression) -> Self {
+        self.default = Some(expression);
+        self
     }
 }
 

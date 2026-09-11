@@ -157,10 +157,16 @@ impl TransactionManager for SnapshotTransactions {
             .lock()
             .map_err(|_| Error::Internal("transaction mutex poisoned".into()))?;
         state.check()?;
-        if let Err(error) = self.durability.checkpoint(&state.snapshot, context) {
+        let compacted = state.snapshot.reclaim_for_checkpoint();
+        if let Err(error) = self.durability.checkpoint(&compacted, context) {
             state.failed(&error);
             return Err(error);
         }
+        state.snapshot = compacted;
+        state.generation = state
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| Error::Resource("transaction identity exhausted".into()))?;
         Ok(())
     }
     fn types(&self) -> Arc<crate::common::type_registry::TypeRegistry> {

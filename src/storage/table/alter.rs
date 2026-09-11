@@ -1,5 +1,6 @@
 use super::*;
 use crate::{catalog::TableAlteration, common::Value};
+use std::collections::BTreeMap;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
@@ -25,12 +26,31 @@ impl Snapshot {
         let mut after = before.clone();
         match alteration {
             TableAlteration::AddColumn { column, .. } => {
-                if !column.nullable && column.default.is_null() && !after.rows.is_empty() {
-                    return Err(not_null(name, &column.name));
+                let mut values = BTreeMap::new();
+                for slot in &before.physical_slots {
+                    context.check()?;
+                    let value = match &column.default {
+                        Some(expression) => context.stored_expressions()?.evaluate(
+                            expression,
+                            &column.data_type,
+                            self,
+                            context,
+                        )?,
+                        None => Value::Null,
+                    };
+                    self.types
+                        .bind(&column.data_type)?
+                        .validate(&value, context)?;
+                    if value.is_null() && !column.nullable {
+                        return Err(not_null(name, &column.name));
+                    }
+                    if let Some(id) = slot {
+                        values.insert(*id, value);
+                    }
                 }
                 after
                     .rows
-                    .add_column(&column.data_type, &column.default, context)?;
+                    .add_column_values(&column.data_type, &values, context)?;
             }
             TableAlteration::DropColumn { column, .. } => {
                 after

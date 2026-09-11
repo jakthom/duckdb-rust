@@ -130,7 +130,14 @@ impl State<'_, '_> {
                             columns
                                 .iter()
                                 .map(|&i| {
-                                    BoundExpr::literal(definition.columns[i].default.clone()).cast(
+                                    BoundExpr::literal(
+                                        definition.columns[i]
+                                            .default
+                                            .as_ref()
+                                            .and_then(|expression| expression.as_literal())
+                                            .map_or(Value::Null, |(_, value)| value.clone()),
+                                    )
+                                    .cast(
                                         fields[i].data_type.clone(),
                                         CastMode::Assignment,
                                         self.context.casts,
@@ -313,7 +320,7 @@ impl State<'_, '_> {
                     ast::ColumnOption::NotNull => definition.nullable = false,
                     ast::ColumnOption::Default(expr) => {
                         let value = self.literal(expr)?;
-                        definition.default = self
+                        let value = self
                             .context
                             .casts
                             .bind(
@@ -322,7 +329,12 @@ impl State<'_, '_> {
                                 CastMode::Assignment,
                                 self.context.query.types(),
                             )?
-                            .apply(&value, self.context.query)?
+                            .apply(&value, self.context.query)?;
+                        definition.default =
+                            Some(crate::catalog::expression::StoredExpression::literal(
+                                definition.data_type.clone(),
+                                value,
+                            ));
                     }
                     ast::ColumnOption::Unique(_) => unique_keys.push(crate::catalog::UniqueKey {
                         columns: vec![index],

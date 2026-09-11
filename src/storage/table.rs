@@ -58,6 +58,11 @@ struct TableData {
     definition: TableDefinition,
     rows: Rows,
     next_id: RowId,
+    /// Physical evaluation order retained between checkpoints. Deleted slots
+    /// remain as None until checkpoint reclamation; live slots identify the
+    /// logical row that receives an ADD COLUMN default result.
+    #[serde(default)]
+    physical_slots: Vec<Option<RowId>>,
     #[serde(skip)]
     indexes: Vec<Arc<dyn KeyIndex>>,
 }
@@ -98,9 +103,17 @@ impl Snapshot {
         Self::restore(state, types)
     }
     fn restore(
-        state: SnapshotState,
+        mut state: SnapshotState,
         types: Arc<crate::common::type_registry::TypeRegistry>,
     ) -> Result<Self> {
+        for table in state.tables.values_mut() {
+            let table = Arc::make_mut(table);
+            if table.physical_slots.is_empty() && table.next_id != 0 {
+                table.physical_slots = (0..table.next_id)
+                    .map(|id| table.rows.contains_key(&id).then_some(id))
+                    .collect();
+            }
+        }
         Self {
             schemas: state.schemas,
             tables: state.tables,
@@ -124,6 +137,16 @@ impl Snapshot {
     /// Live row IDs in ascending order without copying row payloads.
     pub fn row_ids(&self, table: &TableName) -> Result<Vec<RowId>> {
         Ok(self.get(table)?.rows.keys().copied().collect())
+    }
+    /// Return a snapshot with checkpoint-reclaimed physical slots. Existing
+    /// clones remain unchanged and continue to represent their older demand.
+    pub(crate) fn reclaim_for_checkpoint(&self) -> Self {
+        let mut compacted = self.clone();
+        for table in compacted.tables.values_mut() {
+            let table = Arc::make_mut(table);
+            table.physical_slots = table.rows.keys().copied().map(Some).collect();
+        }
+        compacted
     }
     /// Rebuilds derived index state before exposing a newly selected adapter.
     /// The returned snapshot owns its selection; old snapshots remain usable.
@@ -175,6 +198,17 @@ impl Snapshot {
                 return Err(Error::Corrupt("invalid table or row identity".into()));
             }
             validate_definition(&table.definition, &self.types)?;
+            let live_slots = table
+                .physical_slots
+                .iter()
+                .filter_map(|slot| *slot)
+                .collect::<Vec<_>>();
+            if live_slots.len() != table.rows.len()
+                || live_slots.iter().copied().collect::<HashSet<_>>().len() != live_slots.len()
+                || live_slots.iter().any(|id| !table.rows.contains_key(id))
+            {
+                return Err(Error::Corrupt("invalid physical row slots".into()));
+            }
             table.validate_rows(context)?;
         }
         Ok(())
@@ -207,18 +241,17 @@ fn validate_definition(
         if !names.insert(column.name.to_ascii_lowercase()) {
             return Err(Error::Catalog(format!("duplicate column {}", column.name)));
         }
-        types
-            .bind(&column.data_type)?
-            .validate(
-                &column.default,
-                &QueryContext::background().with_types(types.clone()),
-            )
-            .map_err(|error| match error {
-                Error::Conversion(message) => {
-                    Error::Catalog(format!("invalid default for {}: {message}", column.name))
-                }
-                other => other,
-            })?;
+        types.bind(&column.data_type)?;
+        if let Some(default) = &column.default {
+            default
+                .validate(&QueryContext::background().with_types(types.clone()))
+                .map_err(|error| match error {
+                    Error::Conversion(message) => {
+                        Error::Catalog(format!("invalid default for {}: {message}", column.name))
+                    }
+                    other => other,
+                })?;
+        }
     }
     for key in &definition.unique_keys {
         if key.columns.is_empty()
@@ -305,6 +338,7 @@ impl CatalogMut for Snapshot {
             definition,
             rows: Rows::default(),
             next_id: 0,
+            physical_slots: Vec::new(),
             indexes: Vec::new(),
         };
         table.rebuild_indexes(
@@ -495,6 +529,7 @@ impl TableStorageMut for Snapshot {
                 .checked_add(1)
                 .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
             next.rows.insert(id, row);
+            next.physical_slots.push(Some(id));
         }
         next.validate(
             self.indexes.as_ref(),
@@ -537,7 +572,15 @@ impl TableStorageMut for Snapshot {
         let mut count = 0;
         for id in ids {
             context.check()?;
-            count += usize::from(next.rows.remove(id).is_some());
+            if next.rows.remove(id).is_some() {
+                let slot = next
+                    .physical_slots
+                    .iter_mut()
+                    .find(|slot| **slot == Some(*id))
+                    .ok_or_else(|| Error::Internal("live row has no physical slot".into()))?;
+                *slot = None;
+                count += 1;
+            }
         }
         next.rebuild_indexes(
             self.indexes.as_ref(),
