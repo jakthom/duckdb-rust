@@ -1,8 +1,9 @@
-use duckdb_rust::{DataType, Database, Result, TemporalValue, Value};
+use duckdb_rust::{DataType, Database, Error, Result, TemporalValue, Value};
 use duckdb_rust::{
     DatabaseBuilder,
+    common::cast::{CastFunction, CastMode, CastRegistry, CastSpec},
     execution::{
-        expression_executor::{BatchedEvaluator, ScalarEvaluator},
+        expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
         index::{BTreeIndexFactory, HashIndexFactory, IndexFactory},
         operator::join::{HashJoin, JoinAlgorithm, NestedLoopJoin},
         physical_plan::NativePhysicalPlanner,
@@ -18,7 +19,10 @@ use duckdb_rust::{
         logged::FileWal,
     },
 };
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 mod temporal_calendar;
 mod temporal_difference;
@@ -26,6 +30,192 @@ mod temporal_format;
 mod temporal_minimum;
 mod temporal_provenance;
 mod temporal_variant;
+
+#[derive(Debug)]
+struct SelectedIntervalCast(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for SelectedIntervalCast {
+    fn name(&self) -> &'static str {
+        "selected-default-interval-cast"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Varchar
+            && spec.target == DataType::Interval
+            && spec.mode == CastMode::Explicit
+    }
+    fn cast(
+        &self,
+        value: &Value,
+        _: &CastSpec,
+        query: &duckdb_rust::parallel::QueryContext,
+    ) -> Result<Value> {
+        query.check()?;
+        self.0.fetch_add(1, Ordering::SeqCst);
+        let Value::Varchar(text) = value else {
+            return Err(Error::Internal("selected interval cast input".into()));
+        };
+        if text == "deferred failure" {
+            return Err(Error::Conversion("selected interval failure".into()));
+        }
+        Ok(Value::Temporal(TemporalValue::Interval {
+            months: 9,
+            days: 8,
+            micros: 7,
+        }))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn interval_defaults_retain_selected_cast_and_defer_failures() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut casts = CastRegistry::builtins();
+        casts.replace(
+            CastSpec {
+                source: DataType::Varchar,
+                target: DataType::Interval,
+                mode: CastMode::Explicit,
+            },
+            Arc::new(SelectedIntervalCast(calls.clone())),
+        )?;
+        let mut connection = DatabaseBuilder::new()
+            .casts(casts)
+            .expressions(expressions)
+            .build()?
+            .connect();
+
+        let selected = Value::Temporal(TemporalValue::Interval {
+            months: 9,
+            days: 8,
+            micros: 7,
+        });
+        assert_eq!(
+            connection.query("SELECT INTERVAL 'ordinary'")?.rows,
+            vec![vec![selected.clone()]]
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        calls.store(0, Ordering::SeqCst);
+
+        connection.execute(
+            "CREATE TABLE retained_interval(
+                id INTEGER,
+                value INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'
+            )",
+        )?;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        connection.execute("INSERT INTO retained_interval(id) VALUES (1)")?;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            connection
+                .query("SELECT value FROM retained_interval")?
+                .rows,
+            vec![vec![selected.clone()]]
+        );
+
+        calls.store(0, Ordering::SeqCst);
+        connection.execute(
+            "ALTER TABLE retained_interval ALTER COLUMN value
+             SET DEFAULT INTERVAL 'deferred failure'",
+        )?;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            connection.execute("INSERT INTO retained_interval(id) VALUES (2)"),
+            Err(Error::Conversion(message)) if message == "selected interval failure"
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            connection
+                .query("SELECT count(*) FROM retained_interval")?
+                .rows,
+            vec![vec![Value::Integer(1)]]
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn qualified_interval_defaults_share_ordinary_lowering_and_alter_add_demand() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    let cases = [
+        ("y", "INTERVAL '1.9' YEAR", "1 year"),
+        ("mon", "INTERVAL 2.9 MONTH", "2 months"),
+        ("d", "INTERVAL '2.9' DAY", "2 days"),
+        ("w", "INTERVAL 2.9 WEEK", "14 days"),
+        ("q", "INTERVAL '2.9' QUARTER", "6 months"),
+        ("dec", "INTERVAL 2.9 DECADE", "20 years"),
+        ("cent", "INTERVAL '2.9' CENTURY", "200 years"),
+        ("mil", "INTERVAL 2.9 MILLENNIUM", "2000 years"),
+        ("h", "INTERVAL '2.9' HOUR", "02:00:00"),
+        ("min", "INTERVAL 2.9 MINUTE", "00:02:00"),
+        ("us", "INTERVAL '2.9' MICROSECOND", "00:00:00.000002"),
+        ("ms", "INTERVAL 2.5 MILLISECOND", "00:00:00.0025"),
+        ("s", "INTERVAL '2.5' SECOND", "00:00:02.5"),
+        ("negative", "INTERVAL (-1.9) MONTH", "-1 month"),
+        ("recursive", "-INTERVAL '2.9' DAY", "-2 days"),
+    ];
+    let columns = cases
+        .iter()
+        .map(|(name, expression, _)| format!("{name} INTERVAL DEFAULT {expression}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    connection.execute(&format!("CREATE TABLE retained_units({columns})"))?;
+    connection.execute("INSERT INTO retained_units DEFAULT VALUES")?;
+    let row = &connection.query("SELECT * FROM retained_units")?.rows[0];
+    for ((name, _, expected), actual) in cases.iter().zip(row) {
+        assert_eq!(actual.to_string(), *expected, "{name}");
+    }
+
+    // The retained conversion remains deferred: DDL binds the conversion but
+    // the invalid text fails only when an omitted value demands the default.
+    connection.execute(
+        "CREATE TABLE deferred_unit(id INTEGER,value INTERVAL DEFAULT INTERVAL 'bad' DAY)",
+    )?;
+    connection.execute("INSERT INTO deferred_unit VALUES (1, INTERVAL '1 day')")?;
+    assert!(
+        connection
+            .execute("INSERT INTO deferred_unit(id) VALUES (1)")
+            .is_err()
+    );
+    assert_eq!(
+        connection.query("SELECT count(*) FROM deferred_unit")?.rows,
+        vec![vec![Value::Integer(1)]]
+    );
+
+    connection.execute("CREATE TABLE add_unit(id INTEGER); INSERT INTO add_unit VALUES (1)")?;
+    connection
+        .execute("ALTER TABLE add_unit ADD COLUMN value INTERVAL DEFAULT INTERVAL '2.5' SECOND")?;
+    connection.execute("INSERT INTO add_unit(id) VALUES (2)")?;
+    assert_eq!(
+        connection
+            .query("SELECT value FROM add_unit ORDER BY id")?
+            .rows,
+        vec![
+            vec![Value::Temporal(TemporalValue::Interval {
+                months: 0,
+                days: 0,
+                micros: 2_500_000,
+            })],
+            vec![Value::Temporal(TemporalValue::Interval {
+                months: 0,
+                days: 0,
+                micros: 2_500_000,
+            })],
+        ]
+    );
+    assert!(matches!(
+        connection.execute(
+            "CREATE TABLE rejected(value INTERVAL DEFAULT INTERVAL '2 10' YEAR TO MONTH)"
+        ),
+        Err(Error::Parse(message)) if message.contains("not supported")
+    ));
+    Ok(())
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
@@ -321,11 +511,13 @@ fn temporal_mixed_schema_defaults_indexes_mutations_rollback_and_reopen() -> Res
                 c.execute("INSERT INTO t(ts) VALUES (TIMESTAMP 'epoch')")
                     .is_err()
             );
+            c.execute("INSERT INTO t(ts) VALUES (TIMESTAMP '2001-01-01')")?;
             c.execute("BEGIN; UPDATE t SET iv=INTERVAL '1 year'; DELETE FROM t WHERE ts=TIMESTAMP 'epoch'; ROLLBACK; UPDATE t SET ts=TIMESTAMP '1970-01-02', iv=iv+INTERVAL '1 day' WHERE ts=TIMESTAMP 'epoch'")?;
             let before = c.query("SELECT * FROM t ORDER BY ts")?.rows;
-            assert_eq!(before.len(), 2);
+            assert_eq!(before.len(), 3);
             assert_eq!(before[0][9].to_string(), "1 month 3 days 03:04:05");
             assert!(before[1][1].is_null());
+            assert_eq!(before[2][9].to_string(), "1 month 2 days 03:04:05");
             drop(c);
             assert_eq!(
                 open()?.connect().query("SELECT * FROM t ORDER BY ts")?.rows,
@@ -357,15 +549,32 @@ fn temporal_wal_replay_preserves_commits_and_discards_rolled_back_mutations() ->
     };
     {
         let mut c = open()?.connect();
-        c.execute("INSERT INTO t VALUES (TIMESTAMP 'epoch',INTERVAL '1 month',TIME '12:00',TIMETZ '13:00:00+02'); BEGIN; INSERT INTO t VALUES (TIMESTAMP '2000-01-01',NULL,NULL,NULL); ROLLBACK; UPDATE t SET iv=INTERVAL '30 days' WHERE ts=TIMESTAMP 'epoch'")?;
+        c.execute("CREATE TABLE interval_defaults(id INTEGER,iv INTERVAL DEFAULT INTERVAL '1 month 2 days 03:04:05'); INSERT INTO t VALUES (TIMESTAMP 'epoch',INTERVAL '1 month',TIME '12:00',TIMETZ '13:00:00+02'); BEGIN; INSERT INTO t VALUES (TIMESTAMP '2000-01-01',NULL,NULL,NULL); ROLLBACK; UPDATE t SET iv=INTERVAL '30 days' WHERE ts=TIMESTAMP 'epoch'")?;
     }
     let mut c = open()?.connect();
+    c.execute("INSERT INTO interval_defaults(id) VALUES (1)")?;
+    let expected_default = vec![vec![Value::Temporal(TemporalValue::Interval {
+        months: 1,
+        days: 2,
+        micros: 11_045_000_000,
+    })]];
+    assert_eq!(
+        c.query("SELECT iv FROM interval_defaults")?.rows,
+        expected_default.clone()
+    );
     let rows = c.query("SELECT * FROM t")?.rows;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0][1].to_string(), "30 days");
     assert_eq!(rows[0][3].to_string(), "13:00:00+02");
     c.checkpoint()?;
     drop(c);
+    assert_eq!(
+        Database::open_read_only(&path)?
+            .connect()
+            .query("SELECT iv FROM interval_defaults")?
+            .rows,
+        expected_default
+    );
     assert_eq!(
         Database::open_read_only(&path)?
             .connect()
@@ -621,6 +830,7 @@ fn temporal_functions_cross_nested_values_parameters_indexes_mutations_and_reope
 struct SelectedTemporalSyntaxFunction {
     name: &'static str,
     result: Value,
+    calls: Option<Arc<AtomicUsize>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -633,10 +843,10 @@ impl duckdb_rust::function::ScalarFunction for SelectedTemporalSyntaxFunction {
         _arguments: &[DataType],
         _types: &duckdb_rust::common::type_registry::TypeRegistry,
     ) -> Result<DataType> {
-        Ok(if matches!(self.result, Value::Double(_)) {
-            DataType::Double
-        } else {
-            DataType::BigInt
+        Ok(match self.result {
+            Value::Double(_) => DataType::Double,
+            Value::Temporal(TemporalValue::Interval { .. }) => DataType::Interval,
+            _ => DataType::BigInt,
         })
     }
     fn evaluate(
@@ -645,6 +855,9 @@ impl duckdb_rust::function::ScalarFunction for SelectedTemporalSyntaxFunction {
         query: &duckdb_rust::parallel::QueryContext,
     ) -> Result<Value> {
         query.check()?;
+        if let Some(calls) = &self.calls {
+            calls.fetch_add(1, Ordering::SeqCst);
+        }
         Ok(self.result.clone())
     }
 }
@@ -652,17 +865,28 @@ impl duckdb_rust::function::ScalarFunction for SelectedTemporalSyntaxFunction {
 #[test]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn temporal_syntax_uses_selected_scalar_adapters() -> Result<()> {
-    let builtins = duckdb_rust::function::FunctionRegistry::builtins();
+    let trunc_calls = Arc::new(AtomicUsize::new(0));
+    let unit_calls = Arc::new(AtomicUsize::new(0));
     let mut functions = duckdb_rust::function::FunctionRegistry::default();
     functions.register_scalar(Arc::new(SelectedTemporalSyntaxFunction {
         name: "date_part",
         result: Value::Integer(77),
+        calls: None,
     }))?;
     functions.register_scalar(Arc::new(SelectedTemporalSyntaxFunction {
         name: "trunc",
         result: Value::Double(2.0),
+        calls: Some(trunc_calls.clone()),
     }))?;
-    functions.register_scalar(builtins.scalar("to_days")?)?;
+    functions.register_scalar(Arc::new(SelectedTemporalSyntaxFunction {
+        name: "to_days",
+        result: Value::Temporal(TemporalValue::Interval {
+            months: 0,
+            days: 6,
+            micros: 0,
+        }),
+        calls: Some(unit_calls.clone()),
+    }))?;
     let mut c = DatabaseBuilder::new()
         .functions(functions)
         .build()?
@@ -671,7 +895,26 @@ fn temporal_syntax_uses_selected_scalar_adapters() -> Result<()> {
         .query("SELECT EXTRACT(year FROM DATE '2000-01-01'),INTERVAL 9 DAY")?
         .rows;
     assert_eq!(rows[0][0], Value::Integer(77));
-    assert_eq!(rows[0][1].to_string(), "2 days");
+    assert_eq!(rows[0][1].to_string(), "6 days");
+    assert_eq!(trunc_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(unit_calls.load(Ordering::SeqCst), 1);
+
+    trunc_calls.store(0, Ordering::SeqCst);
+    unit_calls.store(0, Ordering::SeqCst);
+    c.execute("CREATE TABLE retained_selected(v INTERVAL DEFAULT INTERVAL 9 DAY)")?;
+    assert_eq!(trunc_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(unit_calls.load(Ordering::SeqCst), 0);
+    c.execute("INSERT INTO retained_selected DEFAULT VALUES")?;
+    assert_eq!(trunc_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(unit_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        c.query("SELECT v FROM retained_selected")?.rows,
+        vec![vec![Value::Temporal(TemporalValue::Interval {
+            months: 0,
+            days: 6,
+            micros: 0,
+        })]]
+    );
     Ok(())
 }
 

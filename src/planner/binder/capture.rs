@@ -90,6 +90,29 @@ impl State<'_, '_> {
                     try_cast: false,
                 },
             }),
+            ast::Expr::Interval(interval) => {
+                let inner = self.capture_stored_expression(&interval.value)?;
+                match super::expression::interval_lowering(interval)? {
+                    super::expression::IntervalLowering::Cast => {
+                        // DuckDB retains an unqualified INTERVAL literal as a
+                        // VARCHAR-to-INTERVAL cast. Keep the selected cast
+                        // unresolved until the default is demanded.
+                        Ok(stored_cast(inner, DataType::Interval))
+                    }
+                    super::expression::IntervalLowering::Unit { function, target } => {
+                        // Qualified interval syntax is parser sugar for the
+                        // same DOUBLE/trunc/cast/to_unit graph ordinary
+                        // binding uses. Retain that graph without evaluating
+                        // any selected cast or scalar adapter during DDL.
+                        let mut inner = stored_cast(inner, DataType::Double);
+                        if target != DataType::Double {
+                            inner = stored_scalar_function("trunc", vec![inner]);
+                            inner = stored_cast(inner, target);
+                        }
+                        Ok(stored_scalar_function(function, vec![inner]))
+                    }
+                }
+            }
             ast::Expr::Cast {
                 kind,
                 expr,
@@ -345,6 +368,40 @@ fn stored_syntax_operator(name: &'static str, children: Vec<StoredExpression>) -
                 })
                 .collect(),
             is_operator: true,
+            argument_style: StoredArgumentStyle::Named,
+        },
+    }
+}
+
+fn stored_cast(expression: StoredExpression, target: DataType) -> StoredExpression {
+    StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Cast {
+            expression: Box::new(expression),
+            target,
+            try_cast: false,
+        },
+    }
+}
+
+fn stored_scalar_function(
+    name: &'static str,
+    arguments: Vec<StoredExpression>,
+) -> StoredExpression {
+    StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Function {
+            name: vec![name.into()],
+            arguments: arguments
+                .into_iter()
+                .map(|expression| StoredArgument {
+                    name: None,
+                    expression,
+                })
+                .collect(),
+            is_operator: false,
             argument_style: StoredArgumentStyle::Named,
         },
     }

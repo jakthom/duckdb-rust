@@ -1,5 +1,47 @@
 use super::*;
 
+pub(super) enum IntervalLowering {
+    Cast,
+    Unit {
+        function: &'static str,
+        target: DataType,
+    },
+}
+
+pub(super) fn interval_lowering(interval: &ast::Interval) -> Result<IntervalLowering> {
+    if interval.last_field.is_some()
+        || interval.leading_precision.is_some()
+        || interval.fractional_seconds_precision.is_some()
+    {
+        return Err(Error::Parse(
+            "INTERVAL precision and TO qualifiers are not supported".into(),
+        ));
+    }
+    let Some(field) = &interval.leading_field else {
+        return Ok(IntervalLowering::Cast);
+    };
+    // Development's parser uses DOUBLE, truncation, then the unit's declared
+    // integer width. This description is shared by ordinary and retained
+    // lowering so both select the same casts and scalar function graph.
+    let (function, target) = match field.to_string().to_ascii_lowercase().as_str() {
+        "year" | "years" => ("to_years", DataType::Integer),
+        "month" | "months" => ("to_months", DataType::Integer),
+        "day" | "days" => ("to_days", DataType::Integer),
+        "week" | "weeks" => ("to_weeks", DataType::Integer),
+        "quarter" | "quarters" => ("to_quarters", DataType::Integer),
+        "decade" | "decades" => ("to_decades", DataType::Integer),
+        "century" | "centuries" => ("to_centuries", DataType::Integer),
+        "millennium" | "millennia" => ("to_millennia", DataType::Integer),
+        "hour" | "hours" => ("to_hours", DataType::BigInt),
+        "minute" | "minutes" => ("to_minutes", DataType::BigInt),
+        "microsecond" | "microseconds" => ("to_microseconds", DataType::BigInt),
+        "millisecond" | "milliseconds" => ("to_milliseconds", DataType::Double),
+        "second" | "seconds" => ("to_seconds", DataType::Double),
+        _ => return Err(Error::Unsupported(format!("INTERVAL unit {field}"))),
+    };
+    Ok(IntervalLowering::Unit { function, target })
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     /// Bind an already parsed scalar call through the selected catalog and
@@ -310,11 +352,7 @@ impl State<'_, '_> {
                     recurse(expr)?,
                 ],
             ),
-            ast::Expr::Interval(interval)
-                if interval.last_field.is_none()
-                    && interval.leading_precision.is_none()
-                    && interval.fractional_seconds_precision.is_none() =>
-            {
+            ast::Expr::Interval(interval) => {
                 let explicit_cast = |inner: BoundExpr, target: DataType| -> Result<BoundExpr> {
                     let cast = self.context.casts.bind(
                         &inner.data_type,
@@ -328,37 +366,18 @@ impl State<'_, '_> {
                     })
                 };
                 let inner = recurse(&interval.value)?;
-                let Some(field) = &interval.leading_field else {
-                    return explicit_cast(inner, DataType::Interval);
-                };
-                // Development's parser uses DOUBLE, truncation, then the unit's
-                // declared integer width. Retain selected casts/functions here.
-                let (name, target) = match field.to_string().to_ascii_lowercase().as_str() {
-                    "year" | "years" => ("to_years", DataType::Integer),
-                    "month" | "months" => ("to_months", DataType::Integer),
-                    "day" | "days" => ("to_days", DataType::Integer),
-                    "week" | "weeks" => ("to_weeks", DataType::Integer),
-                    "quarter" | "quarters" => ("to_quarters", DataType::Integer),
-                    "decade" | "decades" => ("to_decades", DataType::Integer),
-                    "century" | "centuries" => ("to_centuries", DataType::Integer),
-                    "millennium" | "millennia" => ("to_millennia", DataType::Integer),
-                    "hour" | "hours" => ("to_hours", DataType::BigInt),
-                    "minute" | "minutes" => ("to_minutes", DataType::BigInt),
-                    "microsecond" | "microseconds" => ("to_microseconds", DataType::BigInt),
-                    "millisecond" | "milliseconds" => ("to_milliseconds", DataType::Double),
-                    "second" | "seconds" => ("to_seconds", DataType::Double),
-                    _ => return Err(Error::Unsupported(format!("INTERVAL unit {field}"))),
-                };
-                let mut inner = explicit_cast(inner, DataType::Double)?;
-                if target != DataType::Double {
-                    inner = self.scalar_call("trunc", vec![inner])?;
-                    inner = explicit_cast(inner, target)?;
+                match interval_lowering(interval)? {
+                    IntervalLowering::Cast => explicit_cast(inner, DataType::Interval),
+                    IntervalLowering::Unit { function, target } => {
+                        let mut inner = explicit_cast(inner, DataType::Double)?;
+                        if target != DataType::Double {
+                            inner = self.scalar_call("trunc", vec![inner])?;
+                            inner = explicit_cast(inner, target)?;
+                        }
+                        self.scalar_call(function, vec![inner])
+                    }
                 }
-                self.scalar_call(name, vec![inner])
             }
-            ast::Expr::Interval(_) => Err(Error::Parse(
-                "INTERVAL precision and TO qualifiers are not supported".into(),
-            )),
             ast::Expr::TypedString(typed) => {
                 let literal =
                     BoundExpr::literal(self.literal(&ast::Expr::Value(typed.value.clone()))?);

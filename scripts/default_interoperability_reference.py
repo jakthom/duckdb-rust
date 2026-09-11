@@ -64,7 +64,9 @@ SYNTAX_COLUMNS = """
     in_test BOOLEAN,
     not_in_test BOOLEAN,
     like_test BOOLEAN,
-    not_like_test BOOLEAN
+    not_like_test BOOLEAN,
+    interval_value INTERVAL,
+    interval_unit INTERVAL
 """
 SYNTAX_DEFAULTS = (
     "ALTER TABLE {table} ALTER COLUMN searched SET DEFAULT CASE WHEN 1=1 THEN 7 ELSE 0 END;"
@@ -77,6 +79,8 @@ SYNTAX_DEFAULTS = (
     "ALTER TABLE {table} ALTER COLUMN not_in_test SET DEFAULT 2 NOT IN (1,3);"
     "ALTER TABLE {table} ALTER COLUMN like_test SET DEFAULT 'duck' LIKE 'd%';"
     "ALTER TABLE {table} ALTER COLUMN not_like_test SET DEFAULT 'duck' NOT LIKE 'd%';"
+    "ALTER TABLE {table} ALTER COLUMN interval_value SET DEFAULT INTERVAL '1 month 2 days 03:04:05';"
+    "ALTER TABLE {table} ALTER COLUMN interval_unit SET DEFAULT INTERVAL '2.5' SECOND;"
 )
 RUST_SYNTAX_CHECKPOINT_SETUP = f"""
 CREATE TABLE rust_syntax_checkpoint({SYNTAX_COLUMNS});
@@ -144,6 +148,8 @@ def expected_syntax_rows(count):
             "not_in_test": True,
             "like_test": True,
             "not_like_test": False,
+            "interval_value": "1 month 2 days 03:04:05",
+            "interval_unit": "00:00:02.5",
         }
         for row in range(1, count + 1)
     ]
