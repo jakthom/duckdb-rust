@@ -12,9 +12,12 @@ an explicit typed `DEFAULT NULL`. Catalog validation and private snapshots retai
 the owned syntax and provenance. SQL CREATE/SET/ADD capture and selected native
 checkpoint/WAL integration are connected for closed representable trees. Native
 CASE, comparison, conjunction, NULL-test, BETWEEN, IN and LIKE trees use DuckDB's
-parsed-node representation. Built-in current-date/time and timezone/calendar defaults
-remain G04 work. Real sequence objects and `nextval`, catalog function/object identity,
-search-path resolution, dependencies and prepared invalidation remain G10 work.
+parsed-node representation. Unqualified `INTERVAL` retains the native VARCHAR-to-
+INTERVAL cast, and supported qualified units retain the ordinary DOUBLE/trunc/width-
+cast/`to_*` lowering without executing it during DDL. Built-in current-date/time and
+timezone/calendar defaults remain G04 work. Real sequence objects and `nextval`,
+catalog function/object identity, search-path resolution, dependencies and prepared
+invalidation remain G10 work.
 DML-level explicit `DEFAULT`, CHECK constraints and generated columns remain G11 work.
 Independent Base64 (`DEFAULT from_base64('AP8=')`) and calendar function defaults
 expose this difference. A Rust-produced file can appear to work because the writer
@@ -75,9 +78,9 @@ release remains valid for checkpoint-origin cases.
 check, and `scripts/generate_default_function_fixture.py` owns the checked-in
 development FUNCTION checkpoint used by the focused Rust regression. The process
 runs every case independently, so a known release WAL failure cannot hide later
-checkpoint results. It covers FUNCTION/CASE/predicate checkpoint exchange in both
-directions, Rust-origin WAL recovery, deferred failures, and DuckDB metadata for an
-absent default versus explicit `DEFAULT NULL`.
+checkpoint results. It covers FUNCTION/CASE/predicate/interval checkpoint exchange
+in both directions, Rust-origin WAL recovery, deferred failures, and DuckDB metadata
+for an absent default versus explicit `DEFAULT NULL`.
 
 Relevant sources: Rust `src/catalog/expression.rs`, `src/main/client_context.rs`,
 `src/planner/binder/{capture,stored}.rs`, `src/planner/stored.rs`,

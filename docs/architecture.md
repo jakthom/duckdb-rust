@@ -1,6 +1,6 @@
 # Rust implementation map
 
-Source-checked 2026-09-11 at `e0cb423`. This is a navigation map, not a parity
+Source-checked 2026-09-11 at `3cec56e`. This is a navigation map, not a parity
 claim. Current work and dependencies live in the [parity backlog](parity-backlog.md);
 the [rewrite principles](../specs/rewrite-principles.md) define required replaceability.
 
@@ -69,12 +69,14 @@ simple in development but not in v1.5.5.
 
 The native default boundary retains absence separately from explicit `DEFAULT NULL`
 and carries selected function identity, qualification and argument provenance through
-checkpoint and WAL exchange. Ambiguous named-to-legacy conversion is rejected.
+checkpoint and WAL exchange. Unqualified interval syntax retains its VARCHAR-to-
+INTERVAL cast, while qualified units retain their cast/function graph. Ambiguous
+named-to-legacy conversion is rejected.
 The checked-in development fixture covers FUNCTION checkpoint input. The independent
-process gate covers FUNCTION/CASE/predicate checkpoint exchange in both directions
-and Rust-origin WAL recovery. The pinned release accepts the checkpoint cases but
-its two Rust-origin WAL cases containing FUNCTION nodes retain the upstream startup
-limitation.
+process gate covers FUNCTION/CASE/predicate/interval checkpoint exchange in both
+directions and Rust-origin WAL recovery. The pinned release accepts the checkpoint
+cases but its two Rust-origin WAL cases containing FUNCTION nodes retain the upstream
+startup limitation.
 
 ## Finding the right evidence
 

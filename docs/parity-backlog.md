@@ -343,16 +343,16 @@ Successful manual and automatic checkpoints reclaim only the current acknowledge
 snapshot; failed checkpoints leave slots, generation and the durable image unchanged,
 and older snapshots retain their holes.
 Native checkpoint/WAL expression codecs preserve selected function/default metadata,
-including absent versus explicit `DEFAULT NULL`, with bidirectional FUNCTION, CASE
-and predicate acceptance against the pinned development process. Both release
+including absent versus explicit `DEFAULT NULL`, with bidirectional FUNCTION, CASE,
+predicate and interval acceptance against the pinned development process. Both release
 checkpoint directions pass independently; its two Rust-origin WAL cases containing
 FUNCTION nodes retain the known upstream startup failure.
 
 - **G09.1 Retain catalog expressions — implemented.** Optional owned expressions
   now retain declared types, aliases/argument provenance, qualification, operators
   and source spans through catalog alteration and private snapshot round trips.
-  Closed CASE, NULL-test, BETWEEN, IN and LIKE defaults share ordinary binding;
-  conditional ADD no-ops are resolved before type/default binding.
+  Closed CASE, NULL-test, BETWEEN, IN, LIKE and interval defaults share ordinary
+  binding; conditional ADD no-ops are resolved before type/default binding.
 - **G09.2 Connect DDL and evaluation demand — implemented.** Capture
   and bind CREATE/SET/ADD defaults without executing during those stages. Evaluate
   omitted INSERT values column-major per source vector while interleaving source
@@ -361,7 +361,7 @@ FUNCTION nodes retain the known upstream startup failure.
   across catalog-basis, current-snapshot and WAL paths.
 - **G09.3 Connect native serialization — implemented representable scope.** Integrate
   parsed/value codecs, unresolved/named type binding, private format, native
-  checkpoints and WAL. Selected FUNCTION, CASE and predicate defaults plus
+  checkpoints and WAL. Selected FUNCTION, CASE, predicate and interval defaults plus
   absence/explicit-NULL metadata pass independent exchange. Reject unrepresentable
   legacy argument provenance.
 - **G09.4 Preserve lifetime/effect semantics — implemented for closed defaults.** Closed
@@ -378,9 +378,9 @@ FUNCTION nodes retain the known upstream startup failure.
 
 **Exit achieved for this slice:** the checked-in development fixture covers FUNCTION
 checkpoint input, and the independent process gate passes FUNCTION/CASE/predicate
-checkpoint exchange in both directions plus Rust-origin WAL recovery. A one-time
-evaluated literal or codec-only round trip cannot pass. Release checkpoint exchange
-passes separately from its documented upstream FUNCTION-node WAL startup limit.
+and interval checkpoint exchange in both directions plus Rust-origin WAL recovery. A
+one-time evaluated literal or codec-only round trip cannot pass. Release checkpoint
+exchange passes separately from its documented upstream FUNCTION-node WAL startup limit.
 Sources: `src/catalog/{mod,expression}.rs`, `src/planner/binder/stored.rs`,
 `src/storage/duckdb/{parsed,value}/`, [implementation notes](implementation-notes.md#retained-defaults).
 
