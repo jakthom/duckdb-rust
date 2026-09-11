@@ -16,7 +16,7 @@ parsed-node representation. Unqualified `INTERVAL` retains the native VARCHAR-to
 INTERVAL cast, and supported qualified units retain the ordinary DOUBLE/trunc/width-
 cast/`to_*` lowering without executing it during DDL. Built-in current-date/time and
 timezone/calendar defaults remain G04 work. Real sequence objects and `nextval`,
-general catalog function identity, search-path resolution, non-schema dependencies
+general catalog function identity, multi-catalog routing, non-schema dependencies
 and prepared-plan invalidation remain G10 work.
 DML-level explicit `DEFAULT`, CHECK constraints and generated columns remain G11 work.
 Independent Base64 (`DEFAULT from_base64('AP8=')`) and calendar function defaults
@@ -107,11 +107,14 @@ again for direct public physical-plan callers. Optional identity lookup distingu
 absence explicitly so `IF EXISTS` does not hide arbitrary catalog errors. Alternative
 frontends obtain owned definitions/bindings through `Connection::resolve_table`.
 
-The pure search-path model is not connected to session settings. Prepared API
-statements retain syntax and rebind rather than retaining plans. General objects,
-attachments, temporary scope and metadata catalogs remain G10 work. Ordinary quoted
-function identifiers and the supported `main` qualification use the selected registry;
-retained native `main.list_value` follows the same rule without fake alias entries.
+The pure search-path model is connected to a session-only setting for the current
+catalog. Binder lookup searches its normalized schema list before `main`; unqualified
+creation uses the current schema, and prepared API statements retain syntax and rebind
+against the execution session. Catalog-qualified entries are rejected until attachment
+routing exists. General objects, attachments, temporary scope and metadata catalogs
+remain G10 work. Ordinary quoted function identifiers and the supported `main`
+qualification use the selected registry; retained native `main.list_value` follows
+the same rule without fake alias entries.
 
 ## Native parsed expressions and values
 
@@ -213,6 +216,15 @@ DATE/TIME/TIMESTAMP inputs as offset zero. `timezone(INTERVAL, TIMETZ)` wraps th
 adjusted wall clock modulo one day and retains the requested second-granularity offset.
 Rust rejects offsets outside +/-15:59:59 before physical encoding; named zones, DST,
 ambient timezone and ICU calendars are separate work.
+
+Core `strptime` binds `text` and `format` by semantic name, compiles only constant
+scalar/list formats, and keeps each output timestamp precision and timezone identity.
+For format lists, ordinary `strptime` stops on a syntactically matched conversion
+failure while `try_strptime` may continue to a later format. TRY also follows the
+pinned helper's unusual initialized-1900 result for special timestamp words and
+rejects finite calendar parses that collide with infinity sentinels. Nanosecond
+composition adds fraction to time-of-day before the date; changing that checked
+arithmetic order rejects valid exact boundary values.
 
 Generated math catalog aliases are callable by quoted identifier. This does not add
 SQL grammar for exponentiation or postfix factorial. Gamma/log-gamma use the selected

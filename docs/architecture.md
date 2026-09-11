@@ -21,7 +21,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 
 | Boundary | Existing implementations / location | Important limit |
 | --- | --- | --- |
-| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs), [runtime registry](../src/catalog/registry.rs), [runtime identity](../src/catalog/identity.rs), [dependency graph](../src/catalog/dependency.rs), [search path](../src/catalog/search_path.rs) | Snapshots, transaction-local DDL and table plans consume stable identities; session search paths, general objects and multiple catalogs remain open |
+| Catalog | [schemas/tables and alterations](../src/catalog/mod.rs), [runtime registry](../src/catalog/registry.rs), [runtime identity](../src/catalog/identity.rs), [dependency graph](../src/catalog/dependency.rs), [search path](../src/catalog/search_path.rs) | Snapshots, transaction-local DDL and table plans consume stable identities; current-catalog session search paths resolve tables, while general objects and multiple catalogs remain open |
 | Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs) | Every intervening writer conflicts, even disjoint writes |
 | Values/types | [type/value definitions](../src/common/types.rs), [registry](../src/common/type_registry.rs) | Broad scalar/temporal/nested foundation; function and consumer coverage incomplete |
 | Vectors | [flat/constant/dictionary vectors and chunks](../src/common/vector.rs) | Immutable owned/shared data; not complete native or Arrow vector parity |
@@ -36,7 +36,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 | Formats | [private snapshot](../src/storage/format.rs), [DuckDB native](../src/storage/duckdb/mod.rs) | Versioned values/codecs/identity; general external formats absent |
 | Native codecs | [decoder registry](../src/storage/duckdb/compression/mod.rs) | Thirteen readers registered; compressed writer coverage is separate |
 | Filesystem | [local publication and locks](../src/storage/filesystem.rs) | No general remote routing, secret manager or encrypted storage |
-| Settings | [registry/providers](../src/main/settings/mod.rs), [built-ins](../src/main/settings/builtin.rs) | Three built-in definitions: ordering, NULL ordering and IEEE floating operations |
+| Settings | [registry/providers](../src/main/settings/mod.rs), [built-ins](../src/main/settings/builtin.rs) | Four built-in definitions: ordering, NULL ordering, IEEE floating operations and session search path |
 | Scheduling/resources | [InlineScheduler/QueryContext](../src/parallel/mod.rs) | Synchronous task execution and row limits; no byte allocator/buffer pool/spill |
 | Public consumers | [Rust connection/result](../src/main/connection.rs), [small CLI](../tools/shell/main.rs) | DuckDB C APIs, language clients, Arrow/ADBC and binary extensions incomplete |
 

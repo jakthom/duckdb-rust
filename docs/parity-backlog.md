@@ -53,7 +53,7 @@ ignored test, doctest, external harness or platform. G01/G24 own those obligatio
 | SQL | SELECT/VALUES, ordinary DML, schemas/tables, selected ALTER, transactions, EXPLAIN | Many statement families/modifiers and exact binding behavior |
 | Relations | Ordinary outer/semi/anti joins, NATURAL/USING, subqueries, set operations, recursive UNION, grouping sets, core windows/QUALIFY | Lateral/ASOF/positional joins, richer CTEs, PIVOT/UNPIVOT, sampling, remaining frames and syntax |
 | Values | Signed/unsigned integers, DECIMAL, floating, BLOB/UUID/ENUM/BIT/BIGNUM, temporal and nested families including VARIANT/TUPLE | Complete coercion/function coverage, named types, GEOMETRY, context-sensitive behavior |
-| Expressions | Selected registered casts/operators/scalars/aggregates, scalar/batch evaluators, retained-expression and native-codec prerequisites | End-to-end retained defaults and complete function/overload semantics |
+| Expressions | Selected registered casts/operators/scalars/aggregates, scalar/batch evaluators, and a closed retained-default lifecycle | Broader retained-expression consumers and complete function/overload semantics |
 | State | Copy-on-write snapshots, rollback, basic uniqueness/NOT NULL, prepared rebinding, hash/B-tree indexes | DuckDB conflict timing, independent concurrent writers, catalog dependencies and incremental index maintenance |
 | Native persistence | Selected storage versions 64–69, many native readers, selected WAL/checkpoint/recovery and crash tests | All objects/types/versions, compressed writing, large/partial I/O, concurrent maintenance and encryption |
 | Execution | Pull/eager alternatives, selected joins/grouping/sorting and cancellation | Cost-based planning, byte accounting, buffer management, spilling, parallel/pending execution |
@@ -226,8 +226,11 @@ saturating behavior. ISO/BCE-aware `era`, `isoyear`, `week`/`weekofyear`, `weekd
 pinned NULL-overload and invalid-specifier ordering. Core `timezone`,
 `timezone_hour` and `timezone_minute` cover fixed-offset TIMETZ and zero-offset
 DATE/TIME/TIMESTAMP behavior; unsafe offsets outside +/-15:59:59 are rejected
-instead of constructing invalid physical values. Text parsing, transaction-time,
-named-zone and ICU work remains open.
+instead of constructing invalid physical values. Core `strptime` and `try_strptime`
+accept scalar or constant-list formats, retain named argument order, distinguish
+parse from conversion fallback, and match pinned nanosecond sentinel boundaries
+through defaults and native reopen. The remaining parsing/format catalog,
+transaction-time, named-zone and ICU work stays open.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -261,7 +264,10 @@ native values from both producer directions. Rust intentionally rejects a sequen
 or shallow zipped expansion above 16,777,216 logical children before allocation;
 the pinned implementation has no
 equivalent fixed ceiling. The shared multi-family `contains` name, higher-order/lambda
-functions and the broader nested catalog remain open. Retained native constructors
+functions and the broader nested catalog remain open. Stable LIST/ARRAY sort and
+grade-up aliases honor explicit or session-default order/NULL order, selected child
+comparison, named argument reordering, ARRAY-to-LIST results and bounded cancellation
+through scalar/batched execution. Retained native constructors
 qualified as `main.list_value` now resolve through the same bounded built-in lookup
 as ordinary `main`-qualified calls. Core GEOMETRY is present in the pinned C++ type
 enum and absent from Rust's built-in DataType enum; it is not solely a
@@ -433,9 +439,12 @@ plans require their exact observed catalog version at logical validation and phy
 scan open; stable ALTER/DROP follows rename, rejects replacements, and preserves
 `IF EXISTS` without classifying arbitrary catalog failures as absence. Alternative
 frontends can resolve the same handles through `Connection::resolve_table`. Prepared
-API statements still retain syntax and rebind on each execution, and the pure search
-path is not yet connected to session resolution. Three built-in setting definitions
-exist; there is no general catalog object model.
+API statements still retain syntax and rebind on each execution. The pure search-path
+model is connected to a bounded, normalized session setting: unqualified table lookup
+searches configured schemas before `main`, creation uses the current schema, and
+prepared statements rebind on each execution. Catalog-qualified path entries fail
+explicitly until attachment routing exists. Four built-in setting definitions exist;
+there is no general catalog object model.
 
 - **G10.1 Establish identity and dependencies.** Add catalog/object IDs, search paths,
   dependency tracking, invalidation, temporary object scope and transaction visibility.
