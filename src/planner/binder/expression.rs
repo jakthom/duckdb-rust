@@ -355,6 +355,16 @@ impl State<'_, '_> {
             if fields.resolve_optional(parts)?.is_some() {
                 return self.column(parts, fields, grouping);
             }
+            if let Some(columns) = fields.relation_columns_optional(name)? {
+                let names = columns
+                    .clone()
+                    .map(|index| fields[index].name.clone())
+                    .collect();
+                let arguments = columns
+                    .map(|index| self.resolved_column(index, &fields[index].name, fields, grouping))
+                    .collect::<Result<Vec<_>>>()?;
+                return self.nested_constructor(arguments, Some(names));
+            }
             return self.scalar_call("get_current_timestamp", Vec::new());
         }
         let recurse = |e: &ast::Expr| self.expr(e, fields, grouping);

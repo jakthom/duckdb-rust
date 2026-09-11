@@ -17,18 +17,8 @@ impl State<'_, '_> {
         grouping: Option<&GroupScope>,
     ) -> Result<BoundExpr> {
         if let Some((index, prefix)) = fields.resolve_prefix(parts)? {
-            let column = if let Some(grouping) = grouping {
-                grouping.groups.iter().position(
-                    |(_, expression)| matches!(expression.kind, ExprKind::Column(column) if column == index),
-                ).ok_or_else(|| Error::Bind(format!(
-                    "column \"{}\" must appear in the GROUP BY clause or must be part of an aggregate function.",
-                    parts.join(".")
-                )))?
-            } else {
-                index
-            };
             return self.column_fields(
-                BoundExpr::column(column, fields[index].data_type.clone()),
+                self.resolved_column(index, &parts.join("."), fields, grouping)?,
                 &parts[prefix..],
             );
         }
@@ -53,6 +43,31 @@ impl State<'_, '_> {
             }
         }
         Err(Error::Bind(format!("column {} not found", parts.join("."))))
+    }
+
+    pub(super) fn resolved_column(
+        &self,
+        index: usize,
+        name: &str,
+        fields: &Scope,
+        grouping: Option<&GroupScope>,
+    ) -> Result<BoundExpr> {
+        let column = if let Some(grouping) = grouping {
+            grouping
+                .groups
+                .iter()
+                .position(
+                    |(_, expression)| matches!(expression.kind, ExprKind::Column(column) if column == index),
+                )
+                .ok_or_else(|| {
+                    Error::Bind(format!(
+                        "column \"{name}\" must appear in the GROUP BY clause or must be part of an aggregate function."
+                    ))
+                })?
+        } else {
+            index
+        };
+        Ok(BoundExpr::column(column, fields[index].data_type.clone()))
     }
 
     fn column_fields(&self, mut value: BoundExpr, fields: &[String]) -> Result<BoundExpr> {

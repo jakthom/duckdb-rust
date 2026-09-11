@@ -121,6 +121,22 @@ impl Scope {
         Ok(first)
     }
 
+    /// Resolve a relation namespace as the contiguous columns used by
+    /// table-as-STRUCT binding. A suffix qualifier is valid, but two matching
+    /// namespaces remain ambiguous.
+    pub fn relation_columns_optional(&self, name: &str) -> Result<Option<std::ops::Range<usize>>> {
+        let qualifier = [name.to_owned()];
+        let mut matches = self
+            .bindings
+            .iter()
+            .filter(|binding| binding.matches(&qualifier));
+        let first = matches.next().map(|binding| binding.columns.clone());
+        if matches.next().is_some() {
+            return Err(Error::Bind(format!("ambiguous reference to table {name}")));
+        }
+        Ok(first)
+    }
+
     pub fn resolve(&self, parts: &[String]) -> Result<usize> {
         self.resolve_optional(parts)?
             .ok_or_else(|| Error::Bind(format!("column {} not found", parts.join("."))))

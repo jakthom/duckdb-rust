@@ -137,8 +137,7 @@ fn function_name(name: &ast::ObjectName) -> Result<String> {
 
 fn bare_current_timestamp(expression: &ast::Expr) -> bool {
     if let ast::Expr::Identifier(identifier) = expression {
-        return identifier.quote_style.is_none()
-            && identifier.value.eq_ignore_ascii_case("current_timestamp");
+        return identifier.value.eq_ignore_ascii_case("current_timestamp");
     }
     let ast::Expr::Function(function) = expression else {
         return false;

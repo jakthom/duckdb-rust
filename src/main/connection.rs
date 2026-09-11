@@ -265,10 +265,11 @@ impl Connection {
         let (transaction, timestamp_micros) = match previous {
             Session::Active(active) => (active.transaction, active.timestamp_micros),
             _ => {
-                let transaction = self.services.transactions.begin()?;
                 context.check()?;
                 let timestamp_micros =
                     self.services.transaction_clock.timestamp_micros(&context)?;
+                context.check()?;
+                let transaction = self.services.transactions.begin()?;
                 context.check()?;
                 (transaction, timestamp_micros)
             }
@@ -409,10 +410,11 @@ impl Connection {
                 "plan API requires an idle connection".into(),
             ));
         }
-        let transaction = self.services.transactions.begin()?;
         let context = self.context()?;
         context.check()?;
         let timestamp_micros = self.services.transaction_clock.timestamp_micros(&context)?;
+        context.check()?;
+        let transaction = self.services.transactions.begin()?;
         context.check()?;
         let context = context.with_transaction_timestamp(timestamp_micros);
         if let BoundStatement::Configure(change) = statement {
