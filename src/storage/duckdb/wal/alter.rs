@@ -14,6 +14,8 @@ pub(super) fn write(
     output: &mut Encoder,
     before: &TableDefinition,
     alteration: &TableAlteration,
+    version: u64,
+    context: &crate::parallel::QueryContext,
 ) -> Result<()> {
     output.field(101);
     output.boolean(true);
@@ -44,7 +46,7 @@ pub(super) fn write(
             output.field(401);
             output.string(name)?;
         }
-        TableAlteration::AddColumn { column, .. } => writer::column_definition(output, column)?,
+        TableAlteration::AddColumn { column, .. } => writer::column_definition(output, column, version, context)?,
         TableAlteration::DropColumn { column, .. }
         | TableAlteration::SetNullability { column, .. } => output.string(column)?,
         TableAlteration::SetDefault { column, expression } => {

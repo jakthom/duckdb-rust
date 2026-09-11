@@ -215,7 +215,12 @@ impl LogSession for Session {
                     let mut record = record(1);
                     record.field(101);
                     record.boolean(true);
-                    table_definition(&mut record, definition)?;
+                    table_definition(
+                        &mut record,
+                        definition,
+                        next.storage_version.unwrap_or(64),
+                        context,
+                    )?;
                     output.push(record)?;
                     next.tables.insert(
                         definition.name.clone(),
@@ -282,7 +287,7 @@ impl LogSession for Session {
                         pending.insert(definition.name.clone(), changes);
                     }
                     let mut entry = record(20);
-                    super::alter::write(&mut entry, &state.definition, alteration)?;
+                    super::alter::write(&mut entry, &state.definition, alteration, next.storage_version.unwrap_or(64), context)?;
                     output.push(entry)?;
                     state.definition = definition;
                     next.tables.insert(state.definition.name.clone(), state);

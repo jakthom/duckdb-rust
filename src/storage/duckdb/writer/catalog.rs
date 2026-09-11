@@ -1,9 +1,11 @@
-use super::{Encoder, Result, TableDefinition, constant};
+use super::{Encoder, Result, TableDefinition};
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(in crate::storage::duckdb) fn table_definition(
     output: &mut Encoder,
     table: &TableDefinition,
+    version: u64,
+    context: &crate::parallel::QueryContext,
 ) -> Result<()> {
     output.property(100, 1);
     // Development replay/checkpoint binding navigates the schema components
@@ -20,7 +22,7 @@ pub(in crate::storage::duckdb) fn table_definition(
     output.field(201);
     output.property(100, table.columns.len() as u64);
     for column in &table.columns {
-        column_definition(output, column)?;
+        column_definition(output, column, version, context)?;
     }
     output.end();
     let constraints: Vec<_> = table
@@ -58,18 +60,17 @@ pub(in crate::storage::duckdb) fn table_definition(
 pub(in crate::storage::duckdb) fn column_definition(
     output: &mut Encoder,
     column: &crate::catalog::ColumnDefinition,
+    version: u64,
+    context: &crate::parallel::QueryContext,
 ) -> Result<()> {
     output.field(100);
     output.string(&column.name)?;
     output.field(101);
     super::super::primitive::write_type(output, &column.data_type)?;
     if let Some(default) = &column.default {
-        let (_, value) = default
-            .as_literal()
-            .ok_or_else(|| crate::Error::Unsupported("native non-literal column default".into()))?;
         output.field(102);
         output.boolean(true);
-        constant::write(output, value, &column.data_type)?;
+        super::super::parsed::write(output, default, version, context)?;
     }
     output.property(103, 0);
     output.property(104, 0);

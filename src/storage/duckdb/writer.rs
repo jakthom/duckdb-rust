@@ -254,7 +254,7 @@ fn encode_checkpoint(
         catalog.property(99, 1);
         catalog.field(100);
         catalog.boolean(true);
-        table_definition(&mut catalog, &table)?;
+        table_definition(&mut catalog, &table, version, &context)?;
         catalog.field(101);
         catalog.pointer(pointer);
         catalog.property(102, rows.len() as u64);
