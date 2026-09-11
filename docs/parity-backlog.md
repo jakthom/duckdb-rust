@@ -247,12 +247,19 @@ and native paths. LIST/ARRAY slicing now implements pinned 1-based inclusive,
 negative, omitted-bound and stride semantics through both evaluators and reopen;
 omitted syntax is retained as binder provenance and cannot be forged by a user
 empty-list expression. LIST/ARRAY contains/position/select/resize/reverse families
-now preserve ARRAY-to-LIST results, pinned NULL demand and bounded allocation. The
-shared multi-family `contains` name, higher-order/lambda functions and the broader
-nested catalog remain open. Native files produced upstream can still qualify retained
-list constructors as `main.list_value`, which the exact stored-function lookup does
-not yet resolve. Core GEOMETRY is present in the pinned C++ type enum and absent from
-Rust's built-in DataType enum; it is not solely a spatial-extension question.
+now preserve ARRAY-to-LIST results, pinned NULL demand and bounded allocation.
+LIST/ARRAY `where` masks and variadic `zip` additionally preserve long-mask NULL
+padding, truncate-to-shortest, heterogeneous tuple children and NULL-list behavior
+through scalar/batched execution, Rust-origin retained defaults and materialized
+native values from both producer directions. Rust intentionally rejects a sequence
+or shallow zipped expansion above 16,777,216 logical children before allocation;
+the pinned implementation has no
+equivalent fixed ceiling. The shared multi-family `contains` name, higher-order/lambda
+functions and the broader nested catalog remain open. Native files produced upstream
+can still qualify retained list constructors as `main.list_value`, which the exact
+stored-function lookup does not yet resolve. Core GEOMETRY is present in the pinned
+C++ type enum and absent from Rust's built-in DataType enum; it is not solely a
+spatial-extension question.
 
 - **G05.1 Complete nested semantics.** Finish slicing, constructors/accessors,
   UNION promotion, STRUCT field combination, ARRAY shapes, MAP duplicates/lookup,

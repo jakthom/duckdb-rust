@@ -10,8 +10,10 @@ enum SequenceOperation {
     Contains,
     Position,
     Select,
+    Where,
     Resize,
     Reverse,
+    Zip,
 }
 
 #[derive(Debug)]
@@ -51,10 +53,14 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         ("array_indexof", SequenceOperation::Position),
         ("list_select", SequenceOperation::Select),
         ("array_select", SequenceOperation::Select),
+        ("list_where", SequenceOperation::Where),
+        ("array_where", SequenceOperation::Where),
         ("list_resize", SequenceOperation::Resize),
         ("array_resize", SequenceOperation::Resize),
         ("list_reverse", SequenceOperation::Reverse),
         ("array_reverse", SequenceOperation::Reverse),
+        ("list_zip", SequenceOperation::Zip),
+        ("array_zip", SequenceOperation::Zip),
     ] {
         registry
             .register_scalar(Arc::new(SequenceFunction { name, operation }))
@@ -85,13 +91,15 @@ impl ScalarFunction for SequenceFunction {
                 query,
             )?,
             SequenceOperation::Select => bind_select(&actual, query)?,
+            SequenceOperation::Where => bind_where(&actual, query)?,
             SequenceOperation::Resize => bind_resize(arguments, &actual, query)?,
             SequenceOperation::Reverse => bind_reverse(&actual, query)?,
+            SequenceOperation::Zip => bind_zip(arguments, &actual, query)?,
         };
         let mut known_null = false;
         if matches!(
             self.operation,
-            SequenceOperation::Contains | SequenceOperation::Select
+            SequenceOperation::Contains | SequenceOperation::Select | SequenceOperation::Where
         ) {
             for index in 0..arguments.len() {
                 if arguments.is_provably_null(index)? {
@@ -146,7 +154,7 @@ impl ScalarFunction for BoundSequenceFunction {
             ArgumentEvaluation::TypeOnly
         } else if matches!(
             self.operation,
-            SequenceOperation::Contains | SequenceOperation::Select
+            SequenceOperation::Contains | SequenceOperation::Select | SequenceOperation::Where
         ) {
             ArgumentEvaluation::NullOnConstant
         } else {
@@ -211,8 +219,10 @@ impl ScalarFunction for BoundSequenceFunction {
             SequenceOperation::Contains => self.search(arguments, false, query)?,
             SequenceOperation::Position => self.search(arguments, true, query)?,
             SequenceOperation::Select => self.select(arguments, query)?,
+            SequenceOperation::Where => self.select_where(arguments, query)?,
             SequenceOperation::Resize => self.resize(arguments, query)?,
             SequenceOperation::Reverse => self.reverse(arguments, query)?,
+            SequenceOperation::Zip => self.zip(arguments, query)?,
         };
         self.result.validate(&result, query)?;
         Ok(result)
@@ -288,6 +298,43 @@ impl BoundSequenceFunction {
         sequence_result(self.result.data_type(), output)
     }
 
+    fn select_where(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        if arguments.iter().any(Value::is_null) {
+            return Ok(Value::Null);
+        }
+        let input = sequence_values(&arguments[0], self.name)?;
+        let mask = sequence_values(&arguments[1], self.name)?;
+        let mut selected = 0usize;
+        for (index, value) in mask.iter().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            if value.is_null() {
+                return Err(Error::InvalidInput(
+                    "NULLs are not allowed as list elements in the second input parameter.".into(),
+                ));
+            }
+            let Value::Boolean(value) = value else {
+                return Err(Error::Internal("list_where mask was not BOOLEAN[]".into()));
+            };
+            selected += usize::from(*value);
+        }
+        check_output_count(selected, "filtered list", query)?;
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(selected)
+            .map_err(|_| Error::Resource("cannot allocate filtered list values".into()))?;
+        for (index, value) in mask.iter().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            if value == &Value::Boolean(true) {
+                output.push(input.get(index).cloned().unwrap_or(Value::Null));
+            }
+        }
+        sequence_result(self.result.data_type(), output)
+    }
+
     fn resize(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         if arguments[0].is_null() {
             return Ok(Value::Null);
@@ -335,6 +382,73 @@ impl BoundSequenceFunction {
                 query.check()?;
             }
             output.push(value.clone());
+        }
+        sequence_result(self.result.data_type(), output)
+    }
+
+    fn zip(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        let has_truncate = self
+            .arguments
+            .last()
+            .is_some_and(|argument| argument.data_type() == &DataType::Boolean);
+        let source_count = arguments.len() - usize::from(has_truncate);
+        let truncate = if has_truncate {
+            match &arguments[source_count] {
+                Value::Null => false,
+                Value::Boolean(value) => *value,
+                _ => return Err(Error::Internal("list_zip flag was not BOOLEAN".into())),
+            }
+        } else {
+            false
+        };
+        let lengths = arguments[..source_count]
+            .iter()
+            .map(|value| {
+                if value.is_null() {
+                    Ok(0)
+                } else {
+                    Ok(sequence_values(value, self.name)?.len())
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let length = if truncate {
+            lengths.iter().copied().min().unwrap_or(0)
+        } else {
+            lengths.iter().copied().max().unwrap_or(0)
+        };
+        check_zip_output(length, source_count, query)?;
+        let tuple = match self.result.data_type() {
+            DataType::Nested(metadata) => match metadata.as_ref() {
+                NestedType::List(tuple) => tuple,
+                _ => return Err(Error::Internal("list_zip result was not LIST".into())),
+            },
+            _ => return Err(Error::Internal("list_zip result was not nested".into())),
+        };
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(length)
+            .map_err(|_| Error::Resource("cannot allocate zipped list values".into()))?;
+        for index in 0..length {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let values = arguments[..source_count]
+                .iter()
+                .map(|value| {
+                    if value.is_null() {
+                        Ok(Value::Null)
+                    } else {
+                        Ok(sequence_values(value, self.name)?
+                            .get(index)
+                            .cloned()
+                            .unwrap_or(Value::Null))
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?;
+            output.push(NestedValue::value(
+                tuple.clone(),
+                NestedPayload::Struct(values),
+            )?);
         }
         sequence_result(self.result.data_type(), output)
     }
@@ -422,6 +536,85 @@ fn bind_select(actual: &[DataType], _: &QueryContext) -> Result<SequenceBinding>
         modes: vec![CastMode::Implicit; 2],
         result,
         child,
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn bind_where(actual: &[DataType], _: &QueryContext) -> Result<SequenceBinding> {
+    let [source, mask] = actual else {
+        return Err(Error::Bind(
+            "list_where requires a list and a boolean mask".into(),
+        ));
+    };
+    let child = (*source != DataType::Null)
+        .then(|| sequence_child(source, "list_where"))
+        .transpose()?;
+    if *mask != DataType::Null {
+        sequence_child(mask, "list_where mask")?;
+    }
+    let result = match (&child, mask) {
+        (Some(child), mask) if *mask != DataType::Null => {
+            NestedType::List(child.clone()).data_type()
+        }
+        _ => DataType::Null,
+    };
+    let source_target = child
+        .as_ref()
+        .map(|child| NestedType::List(child.clone()).data_type())
+        .unwrap_or(DataType::Null);
+    let mask_target = if *mask == DataType::Null {
+        DataType::Null
+    } else {
+        NestedType::List(DataType::Boolean).data_type()
+    };
+    Ok(SequenceBinding {
+        arguments: vec![source_target, mask_target],
+        modes: vec![CastMode::Implicit; 2],
+        result,
+        child,
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn bind_zip(
+    arguments: &dyn ScalarBindArguments,
+    actual: &[DataType],
+    query: &QueryContext,
+) -> Result<SequenceBinding> {
+    if actual.is_empty() {
+        return Err(Error::Bind(
+            "Provide at least one argument to list_zip".into(),
+        ));
+    }
+    let has_truncate = actual.last() == Some(&DataType::Boolean);
+    let source_count = actual.len() - usize::from(has_truncate);
+    if source_count == 0 {
+        return Err(Error::Bind(
+            "Provide at least one list argument to list_zip".into(),
+        ));
+    }
+    let mut targets = Vec::with_capacity(actual.len());
+    let mut children = Vec::with_capacity(source_count);
+    for source in &actual[..source_count] {
+        query.check()?;
+        if *source == DataType::Null {
+            targets.push(DataType::Null);
+            children.push(DataType::Null);
+        } else {
+            let child = sequence_child(source, "list_zip")?;
+            targets.push(NestedType::List(child.clone()).data_type());
+            children.push(child);
+        }
+    }
+    if has_truncate {
+        targets.push(DataType::Boolean);
+    }
+    let modes = selected_modes(arguments, actual, &targets)?;
+    Ok(SequenceBinding {
+        arguments: targets,
+        modes,
+        result: NestedType::List(NestedType::Tuple(children).data_type()).data_type(),
+        child: None,
     })
 }
 
@@ -548,6 +741,24 @@ fn check_output_count(count: usize, operation: &str, query: &QueryContext) -> Re
         )));
     }
     query.check_rows(count)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn check_zip_output(length: usize, width: usize, query: &QueryContext) -> Result<()> {
+    check_output_count(length, "zipped list", query)?;
+    // Each output position owns one tuple plus one field per input. Bound the
+    // shallow logical expansion before allocating it; recursively shared child
+    // payloads remain governed by the common nested-value traversal budget.
+    let logical_children = length
+        .checked_mul(width.saturating_add(1))
+        .and_then(|children| children.checked_add(1))
+        .ok_or_else(|| Error::Resource("zipped list child count overflow".into()))?;
+    if logical_children > MAX_SEQUENCE_CHILDREN {
+        return Err(Error::Resource(
+            "zipped list exceeds 16 million logical child values".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -722,6 +933,60 @@ mod tests {
         assert_eq!(resize.argument_cast_mode(0), CastMode::Explicit);
         assert_eq!(resize.argument_cast_mode(1), CastMode::Explicit);
         assert_eq!(resize.argument_cast_mode(2), CastMode::Explicit);
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn positional_reshaping_binds_list_results_and_bounds_tuple_expansion() -> Result<()> {
+        let query = QueryContext::background();
+        let integer_array = NestedType::Array {
+            element: DataType::Integer,
+            length: 2,
+        }
+        .data_type();
+        let boolean_array = NestedType::Array {
+            element: DataType::Boolean,
+            length: 2,
+        }
+        .data_type();
+        let integer_list = NestedType::List(DataType::Integer).data_type();
+        let boolean_list = NestedType::List(DataType::Boolean).data_type();
+
+        let where_args = Arguments::new(vec![integer_array.clone(), boolean_array]);
+        let bound = function("array_where", SequenceOperation::Where)
+            .bind(&where_args, &query)?
+            .unwrap();
+        let required = bound.argument_types(&where_args.types, query.types())?;
+        assert_eq!(required, vec![integer_list.clone(), boolean_list]);
+        assert_eq!(bound.return_type(&required, query.types())?, integer_list);
+
+        let varchar_list = NestedType::List(DataType::Varchar).data_type();
+        let zip_args = Arguments::new(vec![integer_array, varchar_list.clone(), DataType::Boolean]);
+        let bound = function("list_zip", SequenceOperation::Zip)
+            .bind(&zip_args, &query)?
+            .unwrap();
+        let required = bound.argument_types(&zip_args.types, query.types())?;
+        assert_eq!(
+            required,
+            vec![
+                NestedType::List(DataType::Integer).data_type(),
+                varchar_list,
+                DataType::Boolean,
+            ]
+        );
+        assert_eq!(
+            bound.return_type(&required, query.types())?,
+            NestedType::List(
+                NestedType::Tuple(vec![DataType::Integer, DataType::Varchar]).data_type()
+            )
+            .data_type()
+        );
+        assert!(check_zip_output(8_388_607, 1, &query).is_ok());
+        assert!(matches!(
+            check_zip_output(8_388_608, 1, &query),
+            Err(Error::Resource(_))
+        ));
         Ok(())
     }
 

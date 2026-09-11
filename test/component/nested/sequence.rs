@@ -255,6 +255,136 @@ fn sequence_aliases_and_constant_null_demand_match_pinned_functions() -> Result<
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn positional_where_and_zip_match_pinned_array_null_and_shape_contracts() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut connection = DatabaseBuilder::new()
+            .expressions(expressions)
+            .build()?
+            .connect();
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT
+                        list_where([10,NULL,30],[true,true,false])::VARCHAR,
+                        list_where([1],[true,false,true])::VARCHAR,
+                        array_where([1,2,3]::INTEGER[3],[true,false,true]::BOOLEAN[3])::VARCHAR,
+                        typeof(array_where([1,2]::INTEGER[2],[true]::BOOLEAN[1])),
+                        list_zip([1,2],['a'])::VARCHAR,
+                        list_zip([1,2],['a'],true)::VARCHAR,
+                        list_zip([1,2],NULL)::VARCHAR,
+                        list_zip([1,2],NULL,true)::VARCHAR,
+                        list_zip(NULL::BOOLEAN[],[1],NULL::BOOLEAN)::VARCHAR,
+                        array_zip([1,2]::INTEGER[2],[true]::BOOLEAN[1])::VARCHAR,
+                        typeof(list_zip(NULL))",
+                )?
+                .rows,
+            vec![vec![
+                Value::Varchar("[10, NULL]".into()),
+                Value::Varchar("[1, NULL]".into()),
+                Value::Varchar("[1, 3]".into()),
+                Value::Varchar("INTEGER[]".into()),
+                Value::Varchar("[(1, a), (2, NULL)]".into()),
+                Value::Varchar("[(1, a)]".into()),
+                Value::Varchar("[(1, NULL), (2, NULL)]".into()),
+                Value::Varchar("[]".into()),
+                Value::Varchar("[(NULL, 1)]".into()),
+                Value::Varchar("[(1, true), (2, NULL)]".into()),
+                Value::Varchar("TUPLE(\"NULL\")[]".into()),
+            ]],
+        );
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT
+                        list_where(NULL::INTEGER[],['bad'::BOOLEAN]),
+                        list_where(['bad'::INTEGER],NULL::BOOLEAN[]),
+                        typeof(list_where(NULL,[true])),
+                        typeof(list_where([1],NULL))",
+                )?
+                .rows,
+            vec![vec![
+                Value::Null,
+                Value::Null,
+                Value::Varchar("\"NULL\"".into()),
+                Value::Varchar("\"NULL\"".into()),
+            ]],
+        );
+        for sql in [
+            "SELECT list_where([1,2],[true,NULL])",
+            "SELECT list_where([1,2],[1,0])",
+            "SELECT list_where([1])",
+            "SELECT list_zip()",
+            "SELECT list_zip(true)",
+            "SELECT list_zip([1],2)",
+            "SELECT list_zip(NULL::BOOLEAN)",
+        ] {
+            assert!(connection.query(sql).is_err(), "{sql}");
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn positional_where_and_zip_cross_parameters_and_multi_vector_batches() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut connection = DatabaseBuilder::new()
+            .expressions(expressions)
+            .build()?
+            .connect();
+        let input = connection.query("SELECT [1,NULL,3]")?.rows[0][0].clone();
+        let labels = connection.query("SELECT ['a','b']")?.rows[0][0].clone();
+        let mask = connection.query("SELECT [true,false,true,true]")?.rows[0][0].clone();
+        let prepared =
+            connection.prepare("SELECT list_where($1,$2)::VARCHAR,list_zip($1,$3,$4)::VARCHAR")?;
+        assert_eq!(
+            connection
+                .execute_prepared(&prepared, &[input, mask, labels, Value::Boolean(false)],)?
+                .rows,
+            vec![vec![
+                Value::Varchar("[1, 3, NULL]".into()),
+                Value::Varchar("[(1, a), (NULL, b), (3, NULL)]".into()),
+            ]],
+        );
+
+        let rows = connection
+            .query(
+                "SELECT
+                    i,
+                    list_where([i,NULL,i+1],[true,false,true,true])::VARCHAR,
+                    list_zip([i,i+1],[i*2],i%2=0)::VARCHAR
+                 FROM range(2050) t(i)",
+            )?
+            .rows;
+        assert_eq!(rows.len(), 2050);
+        for (index, row) in rows.iter().enumerate() {
+            let index = index as i128;
+            let zipped = if index % 2 == 0 {
+                format!("[({index}, {})]", index * 2)
+            } else {
+                format!("[({index}, {}), ({}, NULL)]", index * 2, index + 1)
+            };
+            assert_eq!(
+                row,
+                &vec![
+                    Value::Integer(index),
+                    Value::Varchar(format!("[{index}, {}, NULL]", index + 1)),
+                    Value::Varchar(zipped),
+                ]
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn create_retained_sequence_defaults(connection: &mut duckdb_rust::Connection) -> Result<()> {
     connection.execute(
         "CREATE TABLE seq(id INTEGER PRIMARY KEY,xs INTEGER[]);
@@ -262,8 +392,10 @@ fn create_retained_sequence_defaults(connection: &mut duckdb_rust::Connection) -
          ALTER TABLE seq ADD COLUMN has BOOLEAN DEFAULT list_contains([1,NULL],1);
          ALTER TABLE seq ADD COLUMN pos INTEGER DEFAULT list_position([1,NULL],NULL);
          ALTER TABLE seq ADD COLUMN selected INTEGER[] DEFAULT list_select([10,20],[2,0]);
+         ALTER TABLE seq ADD COLUMN filtered INTEGER[] DEFAULT list_where([10,20],[true,false,true]);
          ALTER TABLE seq ADD COLUMN resized INTEGER[] DEFAULT list_resize([1],3,9);
          ALTER TABLE seq ADD COLUMN reversed INTEGER[] DEFAULT list_reverse([1,NULL,3]);
+         ALTER TABLE seq ADD COLUMN zipped STRUCT(a INTEGER,b VARCHAR)[] DEFAULT list_zip([1,2],['a']);
          INSERT INTO seq(id,xs) VALUES(2,[4,5])",
     )?;
     Ok(())
@@ -275,7 +407,8 @@ fn mutate_retained_sequences(connection: &mut duckdb_rust::Connection) -> Result
     let before = connection.query("SELECT * FROM seq ORDER BY id")?.rows;
     connection.execute(
         "BEGIN;
-         UPDATE seq SET xs=list_resize(list_reverse(xs),5,id);
+         UPDATE seq SET xs=list_resize(list_reverse(xs),5,id),
+             zipped=list_zip([id,id+1],['rollback']);
          DELETE FROM seq WHERE id=2;
          ROLLBACK",
     )?;
@@ -284,7 +417,7 @@ fn mutate_retained_sequences(connection: &mut duckdb_rust::Connection) -> Result
         before
     );
     connection.execute(
-        "UPDATE seq SET xs=list_select(list_reverse(xs),[1,3,9]) WHERE id=1;
+        "UPDATE seq SET xs=list_where(list_reverse(xs),[true,false,true,true]) WHERE id=1;
          INSERT INTO seq(id,xs) VALUES(3,[7,NULL])",
     )?;
     Ok(())
@@ -300,8 +433,10 @@ fn assert_sequence_rows(
             .query(
                 "SELECT count(*),count(*) FILTER(WHERE has),min(pos),
                     count(*) FILTER(WHERE selected::VARCHAR='[20, NULL]'),
+                    count(*) FILTER(WHERE filtered::VARCHAR='[10, NULL]'),
                     count(*) FILTER(WHERE resized::VARCHAR='[1, 9, 9]'),
-                    count(*) FILTER(WHERE reversed::VARCHAR='[3, NULL, 1]')
+                    count(*) FILTER(WHERE reversed::VARCHAR='[3, NULL, 1]'),
+                    count(*) FILTER(WHERE zipped::VARCHAR='[{''a'': 1, ''b'': a}, {''a'': 2, ''b'': NULL}]')
                  FROM seq",
             )?
             .rows,
@@ -309,6 +444,8 @@ fn assert_sequence_rows(
             Value::Integer(expected_count),
             Value::Integer(expected_count),
             Value::Integer(2),
+            Value::Integer(expected_count),
+            Value::Integer(expected_count),
             Value::Integer(expected_count),
             Value::Integer(expected_count),
             Value::Integer(expected_count),
