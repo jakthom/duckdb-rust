@@ -14,6 +14,7 @@ mod calendar_extract;
 mod difference;
 mod epoch_extra;
 mod formatting;
+mod timezone_core;
 mod truncation;
 mod units;
 
@@ -31,6 +32,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     epoch_extra::register(registry);
     truncation::register(registry);
     formatting::register(registry);
+    timezone_core::register(registry);
     for name in [
         "year",
         "month",
@@ -701,6 +703,16 @@ fn extract(value: &Value, part: &str) -> Result<Value> {
         "decade" if interval => i64::from(months / 120),
         "millennium" if interval => i64::from(months / 12000),
         "timezone" | "timezone_hour" | "timezone_minute" => {
+            let domain = match value {
+                Value::Date(_) => Some("date"),
+                Value::Temporal(TemporalValue::Interval { .. }) => Some("interval"),
+                _ => None,
+            };
+            if let Some(domain) = domain {
+                return Err(Error::NotImplemented(format!(
+                    "\"{domain}\" units \"{part}\" not recognized"
+                )));
+            }
             let offset = match value {
                 Value::Temporal(TemporalValue::TimeTz { offset, .. }) => i64::from(*offset),
                 _ => 0,

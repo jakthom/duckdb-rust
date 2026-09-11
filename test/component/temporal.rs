@@ -31,6 +31,7 @@ mod temporal_epoch_extra;
 mod temporal_format;
 mod temporal_minimum;
 mod temporal_provenance;
+mod temporal_timezone_core;
 mod temporal_variant;
 
 #[derive(Debug)]
