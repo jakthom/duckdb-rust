@@ -50,5 +50,35 @@ seconds with zero error returns, panics or open spans; temporary telemetry was
 deleted. This instrumented duration is not a performance measurement.
 The substantial integrated Kani checkpoint belongs to the integration lead;
 there is no new proof or acceptance timing claim in this worker increment.
-Manual Rust-vector/C++-reader evidence and full integrated publication remain
-separate follow-ups.
+Manual Rust-vector/C++-reader evidence and full integrated publication were left
+separate at this first delivery.
+
+## Independent C++ reader follow-up
+
+The [manual codec report](nested-variant-wal-codec-reference.json) passes 5/5
+independent reader cases (1,492 selected result rows). Test-only framing wraps
+production vector encoding in table-selection, insertion and flush records. It
+re-encodes recovered typed rows from all three independent fixtures into fresh
+version-appropriate checkpoint/WAL pairs. Development reads all three pairs;
+release additionally reads both storage-v1.5 pairs. Development reading each
+original C++ fixture is the oracle; the retained producer expectations agree.
+Read-only consumers leave both generated and original file pairs unchanged.
+
+`scripts/variant_wal_codec_reference.py` records the exact test command, source,
+test binary, script, file and pinned executable hashes. Source stayed unchanged
+throughout the campaign. The harness also runs as an ordinary unit test, comparing
+the canonical physical rows after local recovery with exact serialized float
+bits. Export is optional, confined to an explicitly supplied isolated directory,
+and refuses existing output files.
+
+This does not use or enable public VARIANT WAL sessions. Actual storage-version
+handoff, successor publication and canonical non-NULL nested defaults still need
+their separate integrated contracts and tests. No new timing or Kani result is
+claimed by this manual wire campaign.
+
+After merging integration base `83f0ae5`, ordinary verification passes library
+66, nested 42, checkpointing 17, contracts 33 and types 20 tests, plus all-target
+clippy. Coverage reports 336 files, 3,135 functions and 222 interface methods with
+no missing attributes.
+The final all-target trace check passes (68.86 seconds instrumented wall time),
+with zero error returns, panics or open spans and temporary telemetry deleted.

@@ -7,6 +7,7 @@ use std::{
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
     },
 };
+mod manual;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn encode(
