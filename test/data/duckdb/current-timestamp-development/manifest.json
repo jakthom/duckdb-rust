@@ -1,0 +1,93 @@
+{
+  "writer": {
+    "target": "development",
+    "required_version": "2.0.0-dev84019",
+    "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "reported_source_id": "99063af2bd",
+    "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+    "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+  },
+  "raw_expression_writer": {
+    "target": "development",
+    "required_version": "2.0.0-dev84019",
+    "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+    "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+    "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2",
+    "library_sha256": "74b604b07e2c7d0f3d1e60afcbcfc388390f51d016d079f75aced1e6c1637240",
+    "helper_sha256": "61d7babe508b8a18cc17c0b994558d194257bd5dc241d7bb2d89ebd597b20702",
+    "helper_source_sha256": "ca07b1e325e0100d430278412e1ed7cbea6fc433d7b3fbfc9ec1423be4eb070a"
+  },
+  "parsed_expressions": {
+    "keyword": {
+      "wire_hex": "6400046500cb01670007c800011143555252454e545f54494d455354414d50ffff",
+      "display": "CURRENT_TIMESTAMP",
+      "inventory": [
+        "node 0 4 203 ",
+        "column 43555252454e545f54494d455354414d50"
+      ],
+      "stable_after_decode": true
+    },
+    "get_call": {
+      "wire_hex": "64000965008c01670007c800156765745f63757272656e745f74696d657374616d70cc0001640002ffffffff",
+      "display": "get_current_timestamp()",
+      "inventory": [
+        "node 0 9 140 ",
+        "function 0 named 6765745f63757272656e745f74696d657374616d70"
+      ],
+      "stable_after_decode": true
+    },
+    "now_call": {
+      "wire_hex": "64000965008c01670007c800036e6f77cc0001640002ffffffff",
+      "display": "now()",
+      "inventory": [
+        "node 0 9 140 ",
+        "function 0 named 6e6f77"
+      ],
+      "stable_after_decode": true
+    },
+    "transaction_call": {
+      "wire_hex": "64000965008c01670007c800157472616e73616374696f6e5f74696d657374616d70cc0001640002ffffffff",
+      "display": "transaction_timestamp()",
+      "inventory": [
+        "node 0 9 140 ",
+        "function 0 named 7472616e73616374696f6e5f74696d657374616d70"
+      ],
+      "stable_after_decode": true
+    }
+  },
+  "checkpoint": {
+    "storage_version": "v1.5.0",
+    "sql": "\nBEGIN TRANSACTION;\nCREATE TABLE reference_current_defaults(\n    id INTEGER PRIMARY KEY,\n    keyword TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,\n    get_call TIMESTAMPTZ DEFAULT get_current_timestamp(),\n    now_call TIMESTAMPTZ DEFAULT now(),\n    transaction_call TIMESTAMPTZ DEFAULT transaction_timestamp()\n);\nINSERT INTO reference_current_defaults(id) VALUES (1);\nINSERT INTO reference_current_defaults(id) VALUES (2);\nCOMMIT;\nCHECKPOINT;\n",
+    "column_defaults": [
+      {
+        "column_name": "id",
+        "column_default": null
+      },
+      {
+        "column_name": "keyword",
+        "column_default": "CURRENT_TIMESTAMP"
+      },
+      {
+        "column_name": "get_call",
+        "column_default": "get_current_timestamp()"
+      },
+      {
+        "column_name": "now_call",
+        "column_default": "now()"
+      },
+      {
+        "column_name": "transaction_call",
+        "column_default": "transaction_timestamp()"
+      }
+    ],
+    "transaction_invariants": {
+      "rows": 2,
+      "aliases_equal": true,
+      "transaction_values": 1
+    },
+    "checkpoint_bytes": 798720,
+    "checkpoint_sha256": "060512c5661fe1d8a6ac95565a9f59c143956ad04e036b0a3dd74d0dc0f0fffa",
+    "fixture_sha256": "f166c7cbbf0db5cc7bbbaa4993ad4a8fa54e3f7114493cd591fa3ebeec8e22d0"
+  }
+}
