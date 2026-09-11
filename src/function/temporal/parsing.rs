@@ -19,6 +19,7 @@ struct Strptime {
     signature: Option<ScalarSignature>,
     formats: Option<Vec<Format>>,
     result: DataType,
+    text_index: usize,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -30,6 +31,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
                 signature: None,
                 formats: None,
                 result: DataType::Timestamp,
+                text_index: 0,
             }))
             .expect("unique temporal parsing function");
     }
@@ -57,24 +59,28 @@ impl ScalarFunction for Strptime {
         // In particular, an input error is not hidden by a constant NULL format.
         ArgumentEvaluation::Eager
     }
+    fn accepts_named_arguments(&self) -> bool {
+        true
+    }
     fn bind(
         &self,
         arguments: &dyn ScalarBindArguments,
         query: &QueryContext,
     ) -> Result<Option<Arc<dyn ScalarFunction>>> {
-        let candidates = candidates();
+        let [text_index, format_index] = argument_sources(arguments, self.name)?;
+        let candidates = source_ordered_candidates(text_index, format_index);
         ScalarSignature::validate_candidates(self.name, &candidates, query)?;
         let selected = arguments.select_overload(self.name, &candidates)?;
         let signature = ScalarSignature::selected(&candidates, selected)?.clone();
-        if !arguments.is_closed(1)? {
+        if !arguments.is_closed(format_index)? {
             return Err(Error::Bind(format!(
                 "The \"format\" argument in function \"{}\" must be a constant expression",
                 self.name
             )));
         }
         let format_value = arguments.constant_as(
-            1,
-            &signature.arguments[1],
+            format_index,
+            &signature.arguments[format_index],
             crate::common::cast::CastMode::Implicit,
         )?;
         let formats = compile_formats(format_value, query)?;
@@ -93,6 +99,7 @@ impl ScalarFunction for Strptime {
             signature: Some(signature),
             formats,
             result,
+            text_index,
         })))
     }
     fn argument_types(
@@ -131,7 +138,7 @@ impl ScalarFunction for Strptime {
         if arguments.iter().any(Value::is_null) || self.formats.is_none() {
             return Ok(Value::Null);
         }
-        let Value::Varchar(text) = &arguments[0] else {
+        let Value::Varchar(text) = &arguments[self.text_index] else {
             return Err(Error::Internal("strptime text was not coerced".into()));
         };
         if text.len() > MAX_INPUT_BYTES {
@@ -141,30 +148,116 @@ impl ScalarFunction for Strptime {
         let mut last = None;
         for format in formats {
             query.check()?;
-            match parse(format, text, &self.result, query)? {
-                Ok(value) => return Ok(value),
-                Err(error) => last = Some(error),
+            match parse(
+                format,
+                text,
+                &self.result,
+                self.name == "try_strptime",
+                query,
+            ) {
+                Ok(Ok(value)) => return Ok(value),
+                Ok(Err(error)) => last = Some(AttemptFailure::Parse(error)),
+                Err(error @ (Error::Conversion(_) | Error::OutOfRange(_)))
+                    if self.name == "try_strptime" =>
+                {
+                    last = Some(AttemptFailure::Conversion(error));
+                }
+                Err(error) => return Err(error),
             }
         }
         if self.name == "try_strptime" {
             Ok(Value::Null)
         } else {
-            let error = last.unwrap_or_else(|| ParseFailure::new(0, "No format matched"));
-            Err(Error::InvalidInput(format!(
-                "Could not parse string \"{text}\" according to format specifier \"{}\"\n{text}\n{}^\nError: {}",
-                formats[0].text(),
-                " ".repeat(error.position.min(4096)),
-                error.message
-            )))
+            match last
+                .unwrap_or_else(|| AttemptFailure::Parse(ParseFailure::new(0, "No format matched")))
+            {
+                AttemptFailure::Conversion(error) => Err(error),
+                AttemptFailure::Parse(error) => Err(Error::InvalidInput(format!(
+                    "Could not parse string \"{text}\" according to format specifier \"{}\"\n{text}\n{}^\nError: {}",
+                    formats[0].text(),
+                    " ".repeat(error.position.min(4096)),
+                    error.message
+                ))),
+            }
         }
     }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn argument_sources(arguments: &dyn ScalarBindArguments, name: &str) -> Result<[usize; 2]> {
+    if arguments.len() != 2 {
+        return Err(Error::Bind(format!("{name} requires two arguments")));
+    }
+    let labels = ["text", "format"];
+    let mut sources = [None, None];
+    let mut positional = 0_usize;
+    let mut named = false;
+    for source in 0..arguments.len() {
+        let semantic = if let Some(argument_name) = arguments.argument_name(source)? {
+            named = true;
+            labels
+                .iter()
+                .position(|label| label.eq_ignore_ascii_case(argument_name))
+                .ok_or_else(|| {
+                    Error::Bind(format!(
+                        "no {name} overload has an argument named {argument_name}"
+                    ))
+                })?
+        } else {
+            if named {
+                return Err(Error::Bind(format!(
+                    "positional arguments cannot follow named arguments in {name}"
+                )));
+            }
+            let semantic = positional;
+            positional += 1;
+            semantic
+        };
+        if sources[semantic].replace(source).is_some() {
+            return Err(Error::Bind(format!(
+                "duplicate named argument {} in {name}",
+                labels[semantic]
+            )));
+        }
+    }
+    Ok([
+        sources[0].ok_or_else(|| Error::Bind(format!("{name} requires argument text")))?,
+        sources[1].ok_or_else(|| Error::Bind(format!("{name} requires argument format")))?,
+    ])
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn source_ordered_candidates(text_index: usize, format_index: usize) -> Vec<ScalarSignature> {
+    candidates()
+        .into_iter()
+        .map(|candidate| {
+            let mut arguments = vec![DataType::Null; 2];
+            arguments[text_index] = candidate.arguments[0].clone();
+            arguments[format_index] = candidate.arguments[1].clone();
+            let mut argument_names = vec![String::new(); 2];
+            argument_names[text_index] = "text".into();
+            argument_names[format_index] = "format".into();
+            ScalarSignature {
+                arguments,
+                return_type: candidate.return_type,
+                argument_names: Some(argument_names),
+            }
+        })
+        .collect()
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn compile_formats(value: Value, query: &QueryContext) -> Result<Option<Vec<Format>>> {
-    let texts = match value {
+    let values = match value {
         Value::Null => return Ok(None),
-        Value::Varchar(text) => vec![text],
+        Value::Varchar(text) => {
+            if text.len() > MAX_FORMAT_BYTES {
+                return Err(Error::Resource(
+                    "strptime aggregate format byte limit".into(),
+                ));
+            }
+            return Ok(Some(vec![Format::compile(&text, query)?]));
+        }
         Value::Nested(value) => {
             let NestedPayload::Sequence(values) = &value.payload else {
                 return Err(Error::Internal("strptime format list payload".into()));
@@ -177,30 +270,31 @@ fn compile_formats(value: Value, query: &QueryContext) -> Result<Option<Vec<Form
             if values.len() > MAX_FORMATS {
                 return Err(Error::Resource("strptime format count limit".into()));
             }
-            values
-                .iter()
-                .map(|value| match value {
-                    Value::Varchar(text) => Ok(text.clone()),
-                    // DuckDB's list binder calls Value::ToString on children.
-                    Value::Null => Ok("NULL".into()),
-                    _ => Err(Error::Internal("strptime list element type".into())),
-                })
-                .collect::<Result<Vec<_>>>()?
+            value
         }
         _ => return Err(Error::Internal("strptime format was not coerced".into())),
+    };
+    let NestedPayload::Sequence(values) = &values.payload else {
+        unreachable!("validated strptime format list")
     };
     let mut total = 0_usize;
     let mut formats = Vec::new();
     formats
-        .try_reserve(texts.len())
+        .try_reserve(values.len())
         .map_err(|_| Error::Resource("strptime format allocation".into()))?;
-    for text in texts {
+    for value in values {
         query.check()?;
+        let text = match value {
+            Value::Varchar(text) => text.as_str(),
+            // DuckDB's list binder calls Value::ToString on children.
+            Value::Null => "NULL",
+            _ => return Err(Error::Internal("strptime list element type".into())),
+        };
         total = total
             .checked_add(text.len())
             .filter(|total| *total <= MAX_FORMAT_BYTES)
             .ok_or_else(|| Error::Resource("strptime aggregate format byte limit".into()))?;
-        formats.push(Format::compile(&text, query)?);
+        formats.push(Format::compile(text, query)?);
     }
     Ok(Some(formats))
 }
@@ -209,6 +303,12 @@ fn compile_formats(value: Value, query: &QueryContext) -> Result<Option<Vec<Form
 struct ParseFailure {
     position: usize,
     message: String,
+}
+
+#[derive(Debug)]
+enum AttemptFailure {
+    Parse(ParseFailure),
+    Conversion(Error),
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -290,6 +390,7 @@ fn parse(
     format: &Format,
     text: &str,
     target: &DataType,
+    try_mode: bool,
     query: &QueryContext,
 ) -> Result<std::result::Result<Value, ParseFailure>> {
     let bytes = text.as_bytes();
@@ -305,6 +406,11 @@ fn parse(
             let mut end = pos + word.len();
             skip_space(bytes, &mut end, query)?;
             if end == bytes.len() {
+                // Native TryToTimestamp ignores parsed special values and
+                // converts its initialized 1900-01-01 fields instead.
+                if try_mode {
+                    return Ok(Ok(Value::Temporal(default_timestamp(target)?)));
+                }
                 return Ok(Ok(Value::Temporal(TemporalValue::from_ticks(
                     target, ticks,
                 )?)));
@@ -347,10 +453,7 @@ fn parse(
             parsed.hour += 12;
         }
     }
-    let date = match finish_date(&parsed) {
-        Ok(date) => date,
-        Err(error) => return Ok(Err(error)),
-    };
+    let date = finish_date(&parsed)?;
     let precision = target
         .timestamp_precision()
         .ok_or_else(|| Error::Internal("strptime result is not timestamp".into()))?;
@@ -360,38 +463,63 @@ fn parse(
         (parsed.nanos + 500) / 1000
     };
     let seconds = parsed.hour * 3600 + parsed.minute * 60 + parsed.second - parsed.utc_offset;
-    let ticks = i128::from(date.days()) * i128::from(precision * 86_400)
-        + i128::from(seconds) * i128::from(precision)
-        + i128::from(fraction);
-    let ticks = match i64::try_from(ticks) {
-        Ok(ticks) if ticks.abs_diff(0) < i64::MAX as u64 => ticks,
-        _ => {
-            return Ok(Err(ParseFailure::new(
-                pos,
-                "Date and time not in timestamp range",
-            )));
-        }
+    let ticks = i64::from(date.days())
+        .checked_mul(
+            precision
+                .checked_mul(86_400)
+                .ok_or_else(|| Error::Internal("strptime timestamp precision overflow".into()))?,
+        )
+        .and_then(|date| {
+            seconds
+                .checked_mul(precision)
+                .and_then(|time| date.checked_add(time))
+        })
+        .and_then(|ticks| ticks.checked_add(fraction));
+    let Some(ticks) = ticks else {
+        return Err(Error::Conversion(
+            "Date and time not in timestamp range".into(),
+        ));
     };
+    // Native TryToTimestamp rejects a finite calendar parse that collides
+    // with an infinity sentinel, while strptime retains that sentinel.
+    if try_mode && (ticks == i64::MAX || ticks == -i64::MAX) {
+        return Err(Error::Conversion(
+            "Date and time not in timestamp range".into(),
+        ));
+    }
     Ok(Ok(Value::Temporal(TemporalValue::from_ticks(
         target, ticks,
     )?)))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn finish_date(parsed: &Parsed) -> std::result::Result<Date, ParseFailure> {
+fn default_timestamp(target: &DataType) -> Result<TemporalValue> {
+    let precision = target
+        .timestamp_precision()
+        .ok_or_else(|| Error::Internal("strptime result is not timestamp".into()))?;
+    let ticks = i64::from(Date::from_ymd(1900, 1, 1)?.days())
+        .checked_mul(
+            precision
+                .checked_mul(86_400)
+                .ok_or_else(|| Error::Internal("strptime timestamp precision overflow".into()))?,
+        )
+        .ok_or_else(|| Error::Internal("strptime default timestamp overflow".into()))?;
+    TemporalValue::from_ticks(target, ticks)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn finish_date(parsed: &Parsed) -> Result<Date> {
     let date = match parsed.date_offset {
         DateOffset::Iso => {
             let year = parsed.iso_year.unwrap_or(1900);
             let week = parsed.iso_week.unwrap_or(1);
             let weekday = parsed.iso_weekday.unwrap_or(1);
-            let jan4 = Date::from_ymd(year, 1, 4)
-                .map_err(|error| ParseFailure::new(0, error.to_string()))?;
+            let jan4 = Date::from_ymd(year, 1, 4)?;
             let jan4_weekday = (i64::from(jan4.days()) + 3).rem_euclid(7);
             add_days(jan4, -jan4_weekday + (week - 1) * 7 + weekday - 1)?
         }
         DateOffset::WeekSun | DateOffset::WeekMon => {
-            let jan1 = Date::from_ymd(parsed.year, 1, 1)
-                .map_err(|error| ParseFailure::new(0, error.to_string()))?;
+            let jan1 = Date::from_ymd(parsed.year, 1, 1)?;
             let monday = i64::from(jan1.days()) - (i64::from(jan1.days()) + 3).rem_euclid(7);
             let mut start = monday - i64::from(parsed.date_offset == DateOffset::WeekSun);
             if start >= i64::from(jan1.days()) {
@@ -404,28 +532,24 @@ fn finish_date(parsed: &Parsed) -> std::result::Result<Date, ParseFailure> {
             };
             Date::from_days(
                 i32::try_from(start + parsed.week * 7 + weekday)
-                    .map_err(|_| ParseFailure::new(0, "DATE outside finite range"))?,
-            )
-            .map_err(|error| ParseFailure::new(0, error.to_string()))?
+                    .map_err(|_| Error::Conversion("DATE outside finite range".into()))?,
+            )?
         }
         DateOffset::YearDay => {
-            let jan1 = Date::from_ymd(parsed.year, 1, 1)
-                .map_err(|error| ParseFailure::new(0, error.to_string()))?;
+            let jan1 = Date::from_ymd(parsed.year, 1, 1)?;
             add_days(jan1, parsed.year_day - 1)?
         }
-        _ => Date::from_ymd(parsed.year, parsed.month, parsed.day)
-            .map_err(|error| ParseFailure::new(0, error.to_string()))?,
+        _ => Date::from_ymd(parsed.year, parsed.month, parsed.day)?,
     };
     Ok(date)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn add_days(date: Date, offset: i64) -> std::result::Result<Date, ParseFailure> {
+fn add_days(date: Date, offset: i64) -> Result<Date> {
     let days = i64::from(date.days()) + offset;
     Date::from_days(
-        i32::try_from(days).map_err(|_| ParseFailure::new(0, "DATE outside finite range"))?,
+        i32::try_from(days).map_err(|_| Error::Conversion("DATE outside finite range".into()))?,
     )
-    .map_err(|error| ParseFailure::new(0, error.to_string()))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -848,16 +972,26 @@ fn match_literal(
                 return Err(ParseFailure::new(*pos, "Space does not match"));
             }
             while bytes.get(*pos).is_some_and(u8::is_ascii_whitespace) {
+                if (*pos).is_multiple_of(1024) && query.check().is_err() {
+                    return Err(ParseFailure::new(*pos, "Interrupted"));
+                }
                 *pos += 1;
             }
             while literal.get(index).is_some_and(u8::is_ascii_whitespace) {
+                if index.is_multiple_of(1024) && query.check().is_err() {
+                    return Err(ParseFailure::new(*pos, "Interrupted"));
+                }
                 index += 1;
             }
         } else if bytes.get(*pos) == Some(&literal[index]) {
             *pos += 1;
             index += 1;
         } else {
-            return Err(ParseFailure::new(*pos, "Literal does not match"));
+            let expected = String::from_utf8_lossy(&literal[index..index + 1]);
+            return Err(ParseFailure::new(
+                *pos,
+                format!("Literal does not match, expected {expected}"),
+            ));
         }
     }
     Ok(())

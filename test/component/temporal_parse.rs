@@ -144,6 +144,20 @@ fn strptime_constant_lists_nulls_prepared_arguments_and_error_boundary_match_cor
     }
     let mut c = Database::memory()?.connect();
     assert_eq!(
+        c.query(
+            "SELECT
+               strptime(format := '%Y-%m-%d', text := '2001-02-03'),
+               try_strptime(format := ['%Y/%m/%d','%Y-%m-%d'], text := '2001-02-03'),
+               strptime('2001-02-03', format := '%Y-%m-%d')"
+        )?
+        .rows,
+        vec![vec![
+            timestamp("2001-02-03", &DataType::Timestamp)?,
+            timestamp("2001-02-03", &DataType::Timestamp)?,
+            timestamp("2001-02-03", &DataType::Timestamp)?,
+        ]]
+    );
+    assert_eq!(
         c.query("SELECT strptime('2000/02/29',['%Y-%m-%d','%Y/%m/%d'])")?
             .rows,
         vec![vec![timestamp("2000-02-29", &DataType::Timestamp)?]]
@@ -180,6 +194,9 @@ fn strptime_constant_lists_nulls_prepared_arguments_and_error_boundary_match_cor
         "SELECT try_strptime('2000-01-01',['%Y-%m-%d','%Q'])",
         "SELECT strptime('2000-01-01',f) FROM (VALUES ('%Y-%m-%d')) t(f)",
         "SELECT strptime('2000',(SELECT '%Y'))",
+        "SELECT strptime(text := '2000', '%Y')",
+        "SELECT strptime(text := '2000', text := '%Y')",
+        "SELECT strptime(unknown := '2000', format := '%Y')",
     ] {
         assert!(c.query(sql).is_err(), "{sql}");
     }
@@ -202,6 +219,62 @@ fn strptime_constant_lists_nulls_prepared_arguments_and_error_boundary_match_cor
     assert_eq!(
         result.rows,
         vec![vec![timestamp("1969-07-20", &DataType::Timestamp)?]]
+    );
+
+    assert_eq!(
+        c.query(
+            "SELECT
+               try_strptime('1677-09-21 12:00:00.000000000','%Y-%m-%d %H:%M:%S.%n'),
+               strptime('2262-04-11 23:47:16.854775807','%Y-%m-%d %H:%M:%S.%n')"
+        )?
+        .rows,
+        vec![vec![
+            Value::Null,
+            timestamp("infinity", &DataType::TimestampNs)?,
+        ]]
+    );
+    assert!(matches!(
+        c.query("SELECT strptime('1677-09-21 12:00:00.000000000','%Y-%m-%d %H:%M:%S.%n')"),
+        Err(Error::Conversion(_))
+    ));
+    assert!(matches!(
+        c.query("SELECT strptime('2001-02-30','%Y-%m-%d')"),
+        Err(Error::Conversion(_))
+    ));
+    assert_eq!(
+        c.query("SELECT try_strptime('2001-02-30','%Y-%m-%d')")?
+            .rows,
+        vec![vec![Value::Null]]
+    );
+    assert_eq!(
+        c.query(
+            "SELECT
+               try_strptime('2262-04-11 23:47:16.854775807','%Y-%m-%d %H:%M:%S.%n'),
+               try_strptime('infinity','%Y-%m-%d'),
+               try_strptime('-infinity','%n'),
+               try_strptime('epoch','%Y-%m-%d')"
+        )?
+        .rows,
+        vec![vec![
+            Value::Null,
+            timestamp("1900-01-01", &DataType::Timestamp)?,
+            timestamp("1900-01-01", &DataType::TimestampNs)?,
+            timestamp("1900-01-01", &DataType::Timestamp)?,
+        ]]
+    );
+    assert_eq!(
+        c.query("SELECT strptime('2020-13-01',['%Y-%m-%d','%Y-%d-%m'])")?
+            .rows,
+        vec![vec![timestamp("2020-01-13", &DataType::Timestamp)?]]
+    );
+    assert!(matches!(
+        c.query("SELECT strptime('2001-02-30',['%Y-%m-%d','2001-02-30'])"),
+        Err(Error::Conversion(_))
+    ));
+    assert_eq!(
+        c.query("SELECT try_strptime('2001-02-30',['%Y-%m-%d','2001-02-30'])")?
+            .rows,
+        vec![vec![timestamp("1900-01-01", &DataType::Timestamp)?]]
     );
     Ok(())
 }
