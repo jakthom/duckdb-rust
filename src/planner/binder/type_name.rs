@@ -275,6 +275,7 @@ mod tests {
         assert!(!if_exists);
         assert_eq!(behavior, DropBehavior::Restrict);
         assert!(bind(&catalog, "DROP TYPE mood CASCADE", "s").is_err());
+        assert!(bind(&catalog, "DROP TYPE main.mood, s.mood", "s").is_err());
         Ok(())
     }
 

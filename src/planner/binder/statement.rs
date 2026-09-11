@@ -116,18 +116,23 @@ impl State<'_, '_> {
                 temporary: false,
                 table: None,
                 ..
-            } => Ok(BoundStatement::DropType {
-                types: names
-                    .iter()
-                    .map(|name| self.resolve_existing_type(name, *if_exists))
-                    .collect::<Result<Vec<_>>>()?
-                    .into_iter()
-                    .flatten()
-                    .map(|resolved| resolved.binding().clone())
-                    .collect(),
-                if_exists: *if_exists,
-                behavior: DropBehavior::Restrict,
-            }),
+            } => {
+                if names.len() != 1 {
+                    return Err(unsupported("dropping multiple types"));
+                }
+                Ok(BoundStatement::DropType {
+                    types: names
+                        .iter()
+                        .map(|name| self.resolve_existing_type(name, *if_exists))
+                        .collect::<Result<Vec<_>>>()?
+                        .into_iter()
+                        .flatten()
+                        .map(|resolved| resolved.binding().clone())
+                        .collect(),
+                    if_exists: *if_exists,
+                    behavior: DropBehavior::Restrict,
+                })
+            }
             S::Insert(insert) => {
                 if insert.on.is_some()
                     || insert.returning.is_some()
