@@ -83,7 +83,7 @@ impl RecordState {
                 None
             }
             20 => {
-                let (table, mut alteration) = super::alter::read(reader)?;
+                let (table, mut alteration) = super::alter::read(reader, self.storage_version, context)?;
                 let before = self
                     .tables
                     .get(&table)

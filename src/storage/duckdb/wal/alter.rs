@@ -52,16 +52,9 @@ pub(super) fn write(
         TableAlteration::SetDefault { column, expression } => {
             output.string(column)?;
             if let Some(expression) = expression {
-                let (_, value) = expression.as_literal().ok_or_else(|| {
-                    Error::Unsupported("native WAL non-literal column default".into())
-                })?;
                 output.field(401);
                 output.boolean(true);
-                writer::constant::write(
-                    output,
-                    value,
-                    &before.columns[before.column_index(column)?].data_type,
-                )?;
+                super::super::parsed::write(output, expression, version, context)?;
             }
         }
     }
@@ -70,7 +63,7 @@ pub(super) fn write(
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn read(reader: &mut Reader) -> Result<(TableName, TableAlteration)> {
+pub(super) fn read(reader: &mut Reader, version: u64, context: &crate::parallel::QueryContext) -> Result<(TableName, TableAlteration)> {
     reader.field(101)?;
     if !reader.boolean()? {
         return Err(corrupt("NULL WAL ALTER"));
@@ -144,7 +137,7 @@ pub(super) fn read(reader: &mut Reader) -> Result<(TableName, TableAlteration)> 
         }
         2 => TableAlteration::RenameTable(reader.string()?),
         3 => {
-            let column = catalog::column(reader)?;
+            let column = catalog::column_at(reader, version, context)?;
             let if_not_exists = reader.optional(401)? && reader.boolean()?;
             TableAlteration::AddColumn {
                 column,
@@ -162,11 +155,7 @@ pub(super) fn read(reader: &mut Reader) -> Result<(TableName, TableAlteration)> 
         6 => {
             let column = reader.string()?;
             let expression = if reader.optional(401)? && reader.boolean()? {
-                let value = catalog::constant_expression(reader)?;
-                Some(crate::catalog::expression::StoredExpression::literal(
-                    value.data_type(),
-                    value,
-                ))
+                Some(super::super::parsed::read(reader, version, context)?)
             } else {
                 None
             };
