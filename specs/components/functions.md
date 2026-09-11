@@ -99,13 +99,23 @@ outside this speculative error boundary and remains fatal. The default validates
 the argument index then reports Unsupported. This capability does not weaken
 required constant evaluation or permit a scalar adapter to swallow failures.
 
-`is_closed(index)` is metadata only. SQL uses the same selected bound-expression
-dependency/effect classification as the constant requests, with cancellation and
-index validation, but does not invoke an evaluator, cast, or function. A closed
-expression can still fail when later evaluated; this request cannot establish a
-NULL value or discard that failure. Typed parameters are closed in the current
-binding, whereas columns, subqueries and expressions with declared volatile or
-external effects are not. The returned Boolean is owned statement-local metadata,
-not a claim about a later plan's constant-vector encoding. Frontends without this
-capability validate the index and return Unsupported. This keeps lazy branches
-lazy when a selected function needs provenance rather than a computed constant.
+## Rewrite execution argument provenance
+
+`ArgumentProvenance` describes already executed input in its actual batch scope.
+Constant is a physical encoding claim, not bound-expression closedness, equal
+values, or a one-row relation. Unknown includes ordinary flat/dictionary inputs
+and selected frontends that cannot supply this metadata.
+
+The selected scalar callback `evaluate_with_provenance` receives one metadata
+entry per already evaluated value. Its default checks cardinality and delegates
+the existing callback. The selected expression evaluator has a separate owned
+result callback; its default evaluates once through that adapter and reports
+Unknown. Replacement evaluators therefore do not inherit another evaluator's
+encoding claims. Query contexts default input/subquery provenance to Unknown.
+No hook authorizes child reevaluation, changed lazy-branch demand, lost errors
+or effects, bypassed logical validation, or a private adapter lookup.
+
+Development's expression executor explicitly converts a non-volatile function
+result to CONSTANT_VECTOR when all executed arguments are constant. This is
+execution metadata, distinct from the binder's foldability classification.
+Source: [function execution](../../../duckdb/src/execution/expression_executor/execute_function.cpp).

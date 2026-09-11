@@ -33,6 +33,17 @@ pub enum ArgumentEvaluation {
     TypeOnly,
 }
 
+/// Execution-owned encoding information for an already evaluated argument.
+/// Constant means one physical value for the current input batch, not merely
+/// equal observed values, a one-row relation, or a closed bound expression.
+/// Unknown includes flat/dictionary inputs and frontends without this metadata.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ArgumentProvenance {
+    Constant,
+    #[default]
+    Unknown,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Language-owned argument metadata for contextual function binding. A
 /// constant request may evaluate only a closed expression without effects,
@@ -147,6 +158,24 @@ pub trait ScalarFunction: Debug + Send + Sync {
         types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<DataType>;
     fn evaluate(&self, arguments: &[Value], context: &QueryContext) -> Result<Value>;
+    /// Execute with owned metadata for arguments already evaluated in ordinary
+    /// child order. This does not authorize reevaluation, eager lazy branches,
+    /// suppressed errors, or a lookup outside the retained selected adapter.
+    /// Existing adapters keep their exact scalar callback through the default.
+    fn evaluate_with_provenance(
+        &self,
+        arguments: &[Value],
+        provenance: &[ArgumentProvenance],
+        context: &QueryContext,
+    ) -> Result<Value> {
+        context.check()?;
+        if arguments.len() != provenance.len() {
+            return Err(Error::Internal(
+                "scalar argument provenance differs from argument count".into(),
+            ));
+        }
+        self.evaluate(arguments, context)
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

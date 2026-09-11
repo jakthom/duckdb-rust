@@ -2,7 +2,7 @@ use super::subquery::SubqueryRequest;
 mod batch;
 use crate::{
     common::{Error, Result, Row, Value},
-    function::ArgumentEvaluation,
+    function::{ArgumentEvaluation, ArgumentProvenance},
     parallel::QueryContext,
     planner::{
         BoundExpr, ExprKind,
@@ -12,12 +12,33 @@ use crate::{
 pub(crate) use batch::select_boolean;
 pub use batch::{BatchedEvaluator, evaluate_expression_rows};
 
+/// An evaluated value and its encoding in the actual current execution scope.
+/// Unknown metadata must never be upgraded by comparing result values. An
+/// evaluator claiming Constant promises batch invariance without discarding
+/// required evaluation, effects, validation, or errors.
+pub struct EvaluatedValue {
+    pub value: Value,
+    pub provenance: ArgumentProvenance,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Explicit expression inputs beyond the current row. Resource-only evaluation
 /// rejects relational dependencies. Execution supplies lexical outer rows and
 /// nested plans through the same contract, without SQL or concrete storage.
 pub trait EvaluationContext {
     fn query(&self) -> &QueryContext;
+    /// Encoding supplied by the current physical input, not its cardinality.
+    fn column_provenance(&self, _column: usize) -> ArgumentProvenance {
+        ArgumentProvenance::Unknown
+    }
+    /// A successfully materialized statement-local scalar reduction may be
+    /// shared across this scope. Per-row/correlated results remain Unknown.
+    fn subquery_provenance(
+        &self,
+        _query: &std::sync::Arc<crate::planner::expression::BoundSubquery>,
+    ) -> ArgumentProvenance {
+        ArgumentProvenance::Unknown
+    }
     /// A value already produced by this row's relational dependency stage.
     fn prepared_subquery(
         &self,
@@ -73,6 +94,21 @@ pub trait ExpressionEvaluator: Send + Sync {
         row: &Row,
         context: &dyn EvaluationContext,
     ) -> Result<Value>;
+    /// Preserve selected ordinary evaluation unless this evaluator explicitly
+    /// owns physical provenance. Default Unknown is important for replacement
+    /// adapters: delegating a value does not delegate an encoding assertion.
+    fn evaluate_with_provenance(
+        &self,
+        expression: &BoundExpr,
+        row: &Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<EvaluatedValue> {
+        self.evaluate(expression, row, context)
+            .map(|value| EvaluatedValue {
+                value,
+                provenance: ArgumentProvenance::Unknown,
+            })
+    }
     /// Evaluate an owned result column with exactly the input cardinality.
     /// Preserve row order, lazy branches, the first error and declared effects.
     /// Batch evaluation may reorder only expressions proved total and without
