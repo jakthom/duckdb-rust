@@ -444,3 +444,69 @@ fn values_binding_retains_selected_full_hints_but_not_parameter_or_assignment_pr
     assert!(calls.lock().unwrap().is_empty());
     Ok(())
 }
+
+#[derive(Debug)]
+struct RejectedCombination(u8);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl RejectedCombination {
+    fn error(&self) -> Error {
+        match self.0 {
+            0 => Error::Unsupported("selected missing combination capability".into()),
+            1 => Error::Internal("selected combination invariant".into()),
+            2 => Error::Resource("selected combination budget".into()),
+            3 => Error::Interrupted,
+            _ => Error::Bind("selected combination rejection".into()),
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TypeAdapter for RejectedCombination {
+    fn name(&self) -> &'static str {
+        "selected-rejected-combination"
+    }
+    fn validate_type(&self, ty: &DataType) -> Result<()> {
+        TypeRegistry::builtins().bind(ty).map(|_| ())
+    }
+    fn validate_value(&self, ty: &DataType, value: &Value, query: &QueryContext) -> Result<()> {
+        TypeRegistry::builtins().bind(ty)?.validate(value, query)
+    }
+    fn common_type(&self, _: &DataType, _: &DataType) -> Result<Option<DataType>> {
+        Err(self.error())
+    }
+    fn compare(&self, _: &DataType, _: &Value, _: &Value, _: &QueryContext) -> Result<Ordering> {
+        unreachable!("binding rejects before execution")
+    }
+    fn write_key(
+        &self,
+        _: &DataType,
+        _: &Value,
+        _: &mut KeyWriter<'_>,
+        _: &QueryContext,
+    ) -> Result<()> {
+        unreachable!("binding rejects before execution")
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn values_no_common_type_category_does_not_replace_selected_adapter_failures() -> Result<()> {
+    for code in 0..5 {
+        let mut types = TypeRegistry::builtins();
+        types.replace("builtin.integer", Arc::new(RejectedCombination(code)))?;
+        let mut c = DatabaseBuilder::new()
+            .types(Arc::new(types))
+            .build()?
+            .connect();
+        let error = c
+            .query("SELECT a FROM(VALUES(1::INTEGER),(DATE '2024-01-01'))t(a)")
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            RejectedCombination(code).error().to_string()
+        );
+        assert!(!matches!(error, Error::NotImplemented(_)));
+    }
+    Ok(())
+}

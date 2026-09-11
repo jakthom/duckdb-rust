@@ -149,6 +149,23 @@ pub(super) fn ordered_combination_type<'b>(
         } else if other_literal && child != DataType::Null {
             child
         } else {
+            if matches!(context, CombinationSequence::Values) {
+                // ExpressionListRef calls MaxLogicalType, whose recognized
+                // no-common-type result is NotImplementedException. Selected
+                // adapter failures above are not caught or recategorized.
+                let name = |ty: &DataType, hint: Option<IntegerLiteral>| {
+                    if hint.is_some() {
+                        "INTEGER_LITERAL".to_owned()
+                    } else {
+                        ty.to_string()
+                    }
+                };
+                return Err(Error::NotImplemented(format!(
+                    "Cannot combine types {} and {} - an explicit cast is required",
+                    name(&child, integer),
+                    name(&argument.data_type, other_integer)
+                )));
+            }
             let context = match context {
                 CombinationSequence::Case => "CASE expression",
                 CombinationSequence::Collection => "sequence children",

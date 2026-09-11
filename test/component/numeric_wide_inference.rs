@@ -168,7 +168,7 @@ fn values_literal_inference_keeps_null_seed_source_order_and_connected_nullif_re
             }
             assert!(matches!(
                 c.query("SELECT a FROM(VALUES('1'),(2))t(a)"),
-                Err(Error::Bind(_))
+                Err(Error::NotImplemented(_))
             ));
             let rows=c.query("SELECT nullif(a,b),count(*) FROM(VALUES(1::UHUGEINT,1::INTEGER),(2,9),(NULL,NULL))t(a,b) GROUP BY nullif(a,b) ORDER BY 1")?;
             assert_eq!(rows.columns[0].data_type, DataType::UHugeInt);
@@ -221,6 +221,90 @@ fn values_literal_inference_keeps_null_seed_source_order_and_connected_nullif_re
 
 #[derive(Debug)]
 struct SelectedWideCast(bool);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn incompatible_values_reject_without_recategorizing_other_combination_contexts() -> Result<()> {
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            let mut c = DatabaseBuilder::new()
+                .expressions(evaluator.clone())
+                .optimizer(optimizer)
+                .build()?
+                .connect();
+            for (values, types) in [
+                ("('1'),(2)", "VARCHAR and INTEGER_LITERAL"),
+                ("('1'),(2::INTEGER)", "VARCHAR and INTEGER"),
+                (
+                    "('1'),(340282366920938463463374607431768211455)",
+                    "VARCHAR and INTEGER_LITERAL",
+                ),
+                ("(1::INTEGER),(DATE '2024-01-01')", "INTEGER and DATE"),
+                ("(DATE '2024-01-01'),(2::INTEGER)", "DATE and INTEGER"),
+                ("([1]),(2)", "INTEGER[] and INTEGER_LITERAL"),
+                ("(2),([1])", "INTEGER and INTEGER[]"),
+            ] {
+                let error = c
+                    .query(&format!("SELECT a FROM(VALUES{values})t(a)"))
+                    .unwrap_err();
+                assert!(
+                    matches!(error, Error::NotImplemented(_)),
+                    "{values}: {error}"
+                );
+                assert_eq!(
+                    error.to_string(),
+                    format!(
+                        "Not implemented Error: Cannot combine types {types} - an explicit cast is required"
+                    )
+                );
+            }
+            for expression in [
+                "CASE WHEN true THEN 1::INTEGER ELSE DATE '2024-01-01' END",
+                "coalesce(1::INTEGER,DATE '2024-01-01')",
+            ] {
+                assert!(matches!(
+                    c.query(&format!("SELECT {expression}")),
+                    Err(Error::Bind(_))
+                ));
+            }
+            let prepared = c.prepare("SELECT a FROM(VALUES('1'),($1))t(a)")?;
+            assert_eq!(
+                c.execute_prepared(&prepared, &[Value::Null])?.rows,
+                vec![vec![Value::Varchar("1".into())], vec![Value::Null]]
+            );
+            let error = c
+                .execute_prepared(&prepared, &[Value::Integer(2)])
+                .unwrap_err();
+            assert!(matches!(error, Error::NotImplemented(_)));
+            assert_eq!(
+                error.to_string(),
+                "Not implemented Error: Cannot combine types VARCHAR and INTEGER - an explicit cast is required"
+            );
+            // Destination assignment does not invoke unrelated VALUES inference;
+            // a rejected source SELECT cannot partially mutate that destination.
+            c.execute("CREATE TABLE assigned(v VARCHAR); INSERT INTO assigned VALUES('1'),(2)")?;
+            assert!(matches!(
+                c.execute("INSERT INTO assigned SELECT a FROM(VALUES('3'),(4))t(a)"),
+                Err(Error::NotImplemented(_))
+            ));
+            assert_eq!(
+                c.query("SELECT v FROM assigned ORDER BY v")?.rows,
+                vec![
+                    vec![Value::Varchar("1".into())],
+                    vec![Value::Varchar("2".into())]
+                ]
+            );
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for SelectedWideCast {
     fn name(&self) -> &'static str {

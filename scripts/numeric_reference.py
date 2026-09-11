@@ -375,7 +375,17 @@ SQL += [
 ]
 ERROR_CASES += [
     ('SELECT a FROM(VALUES(1),(340282366920938463463374607431768211455))t(a)','Conversion Error'),
-    ("SELECT a FROM(VALUES('1'),(2))t(a)",'Binder Error'),
+    # The immutable 935/936 checkpoint retains this initial Binder mismatch.
+    # MaxLogicalType rejects it as NotImplementedException in both references.
+    ("SELECT a FROM(VALUES('1'),(2))t(a)",'Not implemented Error'),
+    ("SELECT a FROM(VALUES('1'),(2::INTEGER))t(a)",'Not implemented Error'),
+    ("SELECT a FROM(VALUES('1'),(340282366920938463463374607431768211455))t(a)",'Not implemented Error'),
+    ("SELECT a FROM(VALUES(1::INTEGER),(DATE '2024-01-01'))t(a)",'Not implemented Error'),
+    ("SELECT a FROM(VALUES(DATE '2024-01-01'),(2::INTEGER))t(a)",'Not implemented Error'),
+    ("SELECT a FROM(VALUES([1]),(2))t(a)",'Not implemented Error'),
+    ("SELECT a FROM(VALUES(2),([1]))t(a)",'Not implemented Error'),
+    ("SELECT CASE WHEN true THEN 1::INTEGER ELSE DATE '2024-01-01' END",'Binder Error'),
+    ("SELECT coalesce(1::INTEGER,DATE '2024-01-01')",'Binder Error'),
 ]
 ERROR_CASES += [(f'SELECT {expression}','Parser Error') for expression in (
     'nullif(1,2,)', 'nullif(DISTINCT 1,2)', 'nullif(1,2 ORDER BY 1)',

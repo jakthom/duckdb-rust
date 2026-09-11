@@ -225,3 +225,25 @@ missing operation implemented. Check, worker tests (2), casts (12), Python
 harness tests (40), all-target clippy, trace compatibility and coverage (349 files
 / 3,333 functions / 227 interface methods, missing 0) pass; the combined Kani obligation remains
 with the parent checkpoint.
+
+### VALUES recognized-rejection consumer
+
+The VALUES-only no-common-type branch now returns the selected frontend's
+source-confirmed `NotImplemented` rejection. It preserves full signed/unsigned
+literal provenance in the diagnostic (`INTEGER_LITERAL`), while explicit casts
+and prepared typed parameters name their actual logical type. It does not catch
+or reclassify errors from a selected type adapter. CASE, COALESCE and collection
+policies are unchanged; ordinary destination Assignment still bypasses unrelated
+VALUES inference.
+
+Independent development CLI probes confirm exact messages for VARCHAR/integer
+literal, explicit INTEGER, max UHUGEINT literal, DATE/INTEGER and list/scalar
+ordering, as well as Binder rejections in the corresponding CASE/COALESCE paths.
+Connected tests cover both evaluators/optimizers, prepared NULL and typed values,
+successful mixed VARCHAR destination assignment and atomic failed INSERT SELECT.
+Replacement-adapter tests preserve Unsupported, Internal, Resource, Interrupted
+and Binder failures verbatim. Check, contracts 51, numeric 51, types 24,
+all-target clippy and coverage (349 files / 3,342 functions / 227 interface
+methods, missing 0) pass. The next immutable paired report refreshes all 944
+cases without replacing the initial 935/936 evidence; no timing or new Kani
+outcome is claimed by this internal consumer commit.
