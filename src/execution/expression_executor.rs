@@ -3,7 +3,7 @@ mod batch;
 mod provenance;
 use crate::{
     common::{Error, Result, Row, Value},
-    function::{ArgumentEvaluation, ArgumentProvenance},
+    function::{ArgumentEvaluation, ArgumentProvenance, operator::Operator},
     parallel::QueryContext,
     planner::{
         BoundExpr, ExprKind,
@@ -111,6 +111,17 @@ pub trait ExpressionEvaluator: Send + Sync {
                 provenance: ArgumentProvenance::Unknown,
             })
     }
+    /// Evaluate a Boolean expression in predicate mode. Conjunctions can stop
+    /// once the current row cannot be selected, unlike projected Boolean
+    /// values, whose runtime children retain ordinary value-mode demand.
+    fn select(
+        &self,
+        expression: &BoundExpr,
+        row: &Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<bool> {
+        selection_matches(self, expression, row, context)
+    }
     /// Evaluate an owned result column with exactly the input cardinality.
     /// Preserve row order, lazy branches, the first error and declared effects.
     /// Batch evaluation may reorder only expressions proved total and without
@@ -134,6 +145,9 @@ pub trait ExpressionEvaluator: Send + Sync {
         input: &crate::common::vector::DataChunk,
         context: &dyn EvaluationContext,
     ) -> Result<Vec<usize>> {
+        if let Some(selected) = select_conjunction_rows(self, expression, input, context)? {
+            return Ok(selected);
+        }
         select_boolean(
             &self.evaluate_batch(expression, input, context)?,
             input.len(),
@@ -144,6 +158,63 @@ pub trait ExpressionEvaluator: Send + Sync {
 
 #[derive(Default)]
 pub struct ScalarEvaluator;
+
+/// DuckDB's predicate executor short-circuits conjunctions per selected row,
+/// even though projecting the same Boolean expression preserves value-mode
+/// demand for both runtime children. Keep that distinction at the evaluator
+/// boundary so scalar and batched adapters agree without changing expression
+/// value semantics.
+fn select_conjunction_rows<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &crate::common::vector::DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Option<Vec<usize>>> {
+    if !matches!(
+        expression.kind,
+        ExprKind::Binary(BinaryOp::And | BinaryOp::Or, ..)
+    ) {
+        return Ok(None);
+    }
+    let context = BatchContext {
+        parent: context,
+        input,
+    };
+    let mut row = Vec::with_capacity(input.columns().len());
+    let mut selected = Vec::with_capacity(input.len());
+    for index in 0..input.len() {
+        context.query().check()?;
+        input.read_row(index, &mut row)?;
+        if selection_matches(evaluator, expression, &row, &context)? {
+            selected.push(index);
+        }
+    }
+    context.query().check()?;
+    Ok(Some(selected))
+}
+
+fn selection_matches<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    row: &Row,
+    context: &dyn EvaluationContext,
+) -> Result<bool> {
+    match &expression.kind {
+        ExprKind::Binary(BinaryOp::And, left, right, _) => {
+            if !selection_matches(evaluator, left, row, context)? {
+                return Ok(false);
+            }
+            selection_matches(evaluator, right, row, context)
+        }
+        ExprKind::Binary(BinaryOp::Or, left, right, _) => {
+            if selection_matches(evaluator, left, row, context)? {
+                return Ok(true);
+            }
+            selection_matches(evaluator, right, row, context)
+        }
+        _ => Ok(evaluator.evaluate(expression, row, context)?.as_bool()? == Some(true)),
+    }
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for ScalarEvaluator {
@@ -259,8 +330,58 @@ impl ExpressionEvaluator for ScalarEvaluator {
                 }
             }
             ExprKind::Binary(op, left, right, operand_type) => {
-                let left_value = eval(left)?;
-                if ordinary_comparison(*op) && left_value.is_null() && constant.get() {
+                let comparison = ordinary_comparison(*op);
+                if comparison && constant_null_expression(right) {
+                    if literal_cast_expression(left) {
+                        self.evaluate_with_provenance(left, row, context)?;
+                    }
+                    if &left.data_type != operand_type.data_type() {
+                        return Err(Error::Internal(
+                            "comparison operand metadata mismatch".into(),
+                        ));
+                    }
+                    validate_comparison_null(
+                        &right.data_type,
+                        &expression.data_type,
+                        operand_type,
+                        query,
+                    )?;
+                    return checked_evaluated(Value::Null, &expression.data_type, true);
+                }
+                let mut right_value =
+                    if comparison && right.is_pure_and_total() && !row_dependent(right) {
+                        let result = self.evaluate_with_provenance(right, row, context)?;
+                        constant.set(
+                            constant.get() && result.provenance == ArgumentProvenance::Constant,
+                        );
+                        Some(result)
+                    } else {
+                        None
+                    };
+                if right_value.as_ref().is_some_and(|right| {
+                    right.value.is_null() && right.provenance == ArgumentProvenance::Constant
+                }) {
+                    if &left.data_type != operand_type.data_type() {
+                        return Err(Error::Internal(
+                            "comparison operand metadata mismatch".into(),
+                        ));
+                    }
+                    validate_comparison_null(
+                        &right.data_type,
+                        &expression.data_type,
+                        operand_type,
+                        query,
+                    )?;
+                    return checked_evaluated(Value::Null, &expression.data_type, true);
+                }
+                let left_result = self.evaluate_with_provenance(left, row, context)?;
+                constant
+                    .set(constant.get() && left_result.provenance == ArgumentProvenance::Constant);
+                let left_value = left_result.value;
+                if comparison
+                    && left_value.is_null()
+                    && left_result.provenance == ArgumentProvenance::Constant
+                {
                     validate_comparison_null(
                         &left.data_type,
                         &expression.data_type,
@@ -269,24 +390,30 @@ impl ExpressionEvaluator for ScalarEvaluator {
                     )?;
                     return checked_evaluated(Value::Null, &expression.data_type, true);
                 }
-                if *op == BinaryOp::And && left_value.as_bool()? == Some(false) {
+                let foldable_left = left.is_pure_and_total() && !row_dependent(left);
+                if *op == BinaryOp::And && foldable_left && left_value.as_bool()? == Some(false) {
                     return checked_evaluated(
                         Value::Boolean(false),
                         &expression.data_type,
                         constant.get(),
                     );
                 }
-                if *op == BinaryOp::Or && left_value.as_bool()? == Some(true) {
+                if *op == BinaryOp::Or && foldable_left && left_value.as_bool()? == Some(true) {
                     return checked_evaluated(
                         Value::Boolean(true),
                         &expression.data_type,
                         constant.get(),
                     );
                 }
-                let right_value = self.evaluate_with_provenance(right, row, context)?;
-                constant
-                    .set(constant.get() && right_value.provenance == ArgumentProvenance::Constant);
-                if ordinary_comparison(*op)
+                let right_value = if let Some(right) = right_value.take() {
+                    right
+                } else {
+                    let result = self.evaluate_with_provenance(right, row, context)?;
+                    constant
+                        .set(constant.get() && result.provenance == ArgumentProvenance::Constant);
+                    result
+                };
+                if comparison
                     && right_value.value.is_null()
                     && right_value.provenance == ArgumentProvenance::Constant
                 {
@@ -313,6 +440,60 @@ impl ExpressionEvaluator for ScalarEvaluator {
                 constant.set(!effects.volatile && !effects.external_access);
                 match arguments.as_slice() {
                     [argument] => function.apply(&[eval(argument)?], query)?,
+                    [left, right]
+                        if matches!(
+                            function.signature().operator,
+                            Operator::Like | Operator::NotLike
+                        ) =>
+                    {
+                        if constant_null_expression(right) {
+                            if literal_cast_expression(left) {
+                                self.evaluate_with_provenance(left, row, context)?;
+                            }
+                            return checked_evaluated(Value::Null, &expression.data_type, true);
+                        }
+                        let mut right_value = if right.is_pure_and_total() && !row_dependent(right)
+                        {
+                            Some(self.evaluate_with_provenance(right, row, context)?)
+                        } else {
+                            None
+                        };
+                        if let Some(right) = &right_value {
+                            constant.set(
+                                constant.get() && right.provenance == ArgumentProvenance::Constant,
+                            );
+                        }
+                        if right_value.as_ref().is_some_and(|right| {
+                            right.value.is_null()
+                                && right.provenance == ArgumentProvenance::Constant
+                        }) {
+                            Value::Null
+                        } else {
+                            let left_value = self.evaluate_with_provenance(left, row, context)?;
+                            constant.set(
+                                constant.get()
+                                    && left_value.provenance == ArgumentProvenance::Constant,
+                            );
+                            if left_value.value.is_null()
+                                && left_value.provenance == ArgumentProvenance::Constant
+                            {
+                                Value::Null
+                            } else {
+                                let right_value = if let Some(right) = right_value.take() {
+                                    right
+                                } else {
+                                    let result =
+                                        self.evaluate_with_provenance(right, row, context)?;
+                                    constant.set(
+                                        constant.get()
+                                            && result.provenance == ArgumentProvenance::Constant,
+                                    );
+                                    result
+                                };
+                                function.apply(&[left_value.value, right_value.value], query)?
+                            }
+                        }
+                    }
                     [left, right] => function.apply(&[eval(left)?, eval(right)?], query)?,
                     _ => return Err(Error::Internal("operator argument count".into())),
                 }
@@ -386,40 +567,103 @@ impl ExpressionEvaluator for ScalarEvaluator {
                     None => eval(otherwise)?,
                 }
             }
-            ExprKind::Between(input, lower, upper, operand_type) => {
-                let input = eval(input)?;
-                let lower = eval(lower)?;
-                let upper = eval(upper)?;
-                if input.is_null() || lower.is_null() || upper.is_null() {
+            ExprKind::Between(input, lower, upper, operand_type, eager_bounds) => {
+                let input = self.evaluate_with_provenance(input, row, context)?;
+                let input_is_constant = input.provenance == ArgumentProvenance::Constant;
+                constant.set(constant.get() && input_is_constant);
+                let input = input.value;
+                if input.is_null() && (input_is_constant || *eager_bounds) {
                     Value::Null
+                } else if *eager_bounds {
+                    let lower = eval(lower)?;
+                    let upper = eval(upper)?;
+                    if input.is_null() || lower.is_null() || upper.is_null() {
+                        Value::Null
+                    } else {
+                        Value::Boolean(
+                            !operand_type.compare(&input, &lower, query)?.is_lt()
+                                && !operand_type.compare(&input, &upper, query)?.is_gt(),
+                        )
+                    }
                 } else {
-                    Value::Boolean(
-                        !operand_type.compare(&input, &lower, query)?.is_lt()
-                            && !operand_type.compare(&input, &upper, query)?.is_gt(),
-                    )
+                    let mut unknown = input.is_null();
+                    let mut failed = false;
+                    'bounds: for total in [true, false] {
+                        for (bound, lower_bound) in
+                            [(lower.as_ref(), true), (upper.as_ref(), false)]
+                        {
+                            if bound.is_pure_and_total() != total {
+                                continue;
+                            }
+                            let bound = eval(bound)?;
+                            if bound.is_null() {
+                                unknown = true;
+                                continue;
+                            }
+                            if input.is_null() {
+                                continue;
+                            }
+                            let ordering = operand_type.compare(&input, &bound, query)?;
+                            if (lower_bound && ordering.is_lt())
+                                || (!lower_bound && ordering.is_gt())
+                            {
+                                failed = true;
+                                break 'bounds;
+                            }
+                        }
+                    }
+                    if failed {
+                        Value::Boolean(false)
+                    } else if unknown {
+                        Value::Null
+                    } else {
+                        Value::Boolean(true)
+                    }
                 }
             }
             ExprKind::InList(needle, list, negated, operand_type) => {
-                let needle = eval(needle)?;
-                let mut unknown = needle.is_null();
-                let mut matched = false;
-                for candidate in list {
-                    let candidate = eval(candidate)?;
-                    if candidate.is_null() {
-                        unknown = true;
-                    } else if !needle.is_null()
-                        && operand_type.compare(&needle, &candidate, query)?.is_eq()
-                    {
-                        matched = true;
-                        break;
-                    }
-                }
-                if matched {
-                    Value::Boolean(!negated)
-                } else if unknown {
+                let row_independent_needle = !row_dependent(needle);
+                let needle = self.evaluate_with_provenance(needle, row, context)?;
+                let needle_is_constant = needle.provenance == ArgumentProvenance::Constant;
+                constant.set(constant.get() && needle_is_constant);
+                let needle = needle.value;
+                if needle.is_null() && (needle_is_constant || row_independent_needle) {
                     Value::Null
                 } else {
-                    Value::Boolean(*negated)
+                    let mut unknown = needle.is_null();
+                    let mut matched = false;
+                    // DuckDB lowers an IN list with a non-foldable RHS to a
+                    // conjunction of comparisons instead of its large-list join.
+                    // Total branches may therefore establish the result before an
+                    // effectful or failing sibling is demanded. Keep source order
+                    // within each class and defer only expressions whose evaluation
+                    // can have observable behavior.
+                    for total in [true, false] {
+                        for candidate in list {
+                            if candidate.is_pure_and_total() != total {
+                                continue;
+                            }
+                            let candidate = eval(candidate)?;
+                            if candidate.is_null() {
+                                unknown = true;
+                            } else if !needle.is_null()
+                                && operand_type.compare(&needle, &candidate, query)?.is_eq()
+                            {
+                                matched = true;
+                                break;
+                            }
+                        }
+                        if matched {
+                            break;
+                        }
+                    }
+                    if matched {
+                        Value::Boolean(!negated)
+                    } else if unknown {
+                        Value::Null
+                    } else {
+                        Value::Boolean(*negated)
+                    }
                 }
             }
         };
@@ -468,6 +712,31 @@ fn comparison_validation_error(error: Error) -> Error {
         }
         other => other,
     }
+}
+
+fn row_dependent(expression: &BoundExpr) -> bool {
+    let mut dependent = matches!(
+        expression.kind,
+        ExprKind::Column(_) | ExprKind::OuterColumn { .. } | ExprKind::Subquery(_)
+    );
+    expression.visit_children(&mut |child| dependent |= row_dependent(child));
+    dependent
+}
+
+fn constant_null_expression(expression: &BoundExpr) -> bool {
+    match &expression.kind {
+        ExprKind::Literal(Value::Null) | ExprKind::Parameter(Value::Null) => true,
+        ExprKind::Cast(inner, _, _) => constant_null_expression(inner),
+        _ => false,
+    }
+}
+
+fn literal_cast_expression(expression: &BoundExpr) -> bool {
+    let ExprKind::Cast(inner, _, _) = &expression.kind else {
+        return false;
+    };
+    matches!(inner.kind, ExprKind::Literal(_) | ExprKind::Parameter(_))
+        || literal_cast_expression(inner)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

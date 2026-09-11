@@ -117,6 +117,9 @@ impl ExpressionEvaluator for BatchedEvaluator {
         input: &DataChunk,
         context: &dyn EvaluationContext,
     ) -> Result<Vec<usize>> {
+        if let Some(selected) = select_conjunction_rows(self, expression, input, context)? {
+            return Ok(selected);
+        }
         if input.len() > 1
             && expression.is_pure_and_total()
             && let ExprKind::Binary(op, left, right, data_type) = &expression.kind

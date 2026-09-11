@@ -44,7 +44,7 @@ pub(crate) fn filtered<'a>(
             } else {
                 for index in 0..batch.len() {
                     let input = batch.read_row(index, &mut row)?;
-                    if predicate.evaluate(input, context)?.as_bool()? == Some(true) {
+                    if predicate.select(input, context)? {
                         selected.push(index);
                     }
                 }

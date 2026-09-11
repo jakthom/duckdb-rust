@@ -553,7 +553,7 @@ impl BoundExpr {
                 }
                 otherwise.data_type.clone()
             }
-            ExprKind::Between(input, lower, upper, operand_type) => {
+            ExprKind::Between(input, lower, upper, operand_type, _) => {
                 require(
                     operand_type.data_type() == &input.data_type,
                     "BETWEEN operand type adapter",

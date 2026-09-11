@@ -68,7 +68,8 @@ impl ScalarFunction for Effect {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
-fn comparisons_skip_only_after_an_executed_physical_constant_null() -> Result<()> {
+fn comparisons_skip_static_null_siblings_but_preserve_cast_failures_and_physical_provenance()
+-> Result<()> {
     for evaluator in [
         Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
         Arc::new(BatchedEvaluator),
@@ -114,7 +115,7 @@ fn comparisons_skip_only_after_an_executed_physical_constant_null() -> Result<()
                         .rows,
                     vec![vec![Value::Null]; 3]
                 );
-                assert_eq!(effects.load(Ordering::SeqCst), 3);
+                assert_eq!(effects.load(Ordering::SeqCst), 0);
                 assert_eq!(
                     c.query(
                         "SELECT a=comparison_effect() FROM (VALUES(NULL::INTEGER),(NULL))t(a)"
@@ -122,7 +123,7 @@ fn comparisons_skip_only_after_an_executed_physical_constant_null() -> Result<()
                     .rows,
                     vec![vec![Value::Null]; 2]
                 );
-                assert_eq!(effects.load(Ordering::SeqCst), 5);
+                assert_eq!(effects.load(Ordering::SeqCst), 2);
                 let p = c.prepare("SELECT $1::INTEGER=CAST('bad' AS INTEGER)")?;
                 assert_eq!(
                     c.execute_prepared(&p, &[Value::Null])?.rows,

@@ -65,6 +65,9 @@ pub enum ExprKind {
         Box<BoundExpr>,
         Box<BoundExpr>,
         Arc<crate::common::type_registry::BoundType>,
+        /// DuckDB retains a direct bound BETWEEN when its input cannot be
+        /// duplicated; its non-NULL path demands both bounds eagerly.
+        bool,
     ),
     InList(
         Box<BoundExpr>,
@@ -160,7 +163,7 @@ impl BoundExpr {
                 }
                 visit(otherwise);
             }
-            ExprKind::Between(input, lower, upper, _) => {
+            ExprKind::Between(input, lower, upper, ..) => {
                 visit(input);
                 visit(lower);
                 visit(upper);
@@ -225,12 +228,15 @@ impl BoundExpr {
                     .collect::<Result<_>>()?,
                 Box::new(map(*otherwise)?),
             ),
-            ExprKind::Between(input, lower, upper, operand_type) => ExprKind::Between(
-                Box::new(map(*input)?),
-                Box::new(map(*lower)?),
-                Box::new(map(*upper)?),
-                operand_type,
-            ),
+            ExprKind::Between(input, lower, upper, operand_type, eager_bounds) => {
+                ExprKind::Between(
+                    Box::new(map(*input)?),
+                    Box::new(map(*lower)?),
+                    Box::new(map(*upper)?),
+                    operand_type,
+                    eager_bounds,
+                )
+            }
             ExprKind::InList(needle, list, negated, operand_type) => ExprKind::InList(
                 Box::new(map(*needle)?),
                 list.into_iter().map(&mut map).collect::<Result<_>>()?,

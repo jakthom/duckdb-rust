@@ -138,6 +138,16 @@ impl<'a> PreparedExpression<'a> {
         }
         context.expressions.evaluate(self.expression, row, &frame)
     }
+    pub fn select(&self, row: &Row, context: &ExecutionContext<'_>) -> Result<bool> {
+        if self.dependencies.is_empty() {
+            return context.expressions.select(self.expression, row, context);
+        }
+        let frame = Frame::new(context);
+        for dependency in &self.dependencies {
+            context.expressions.evaluate(dependency, row, &frame)?;
+        }
+        context.expressions.select(self.expression, row, &frame)
+    }
     /// Preserve the current input's encoding while keeping relational
     /// preparation and selected child evaluation in the ordinary row order.
     pub fn evaluate_with_provenance(

@@ -165,6 +165,7 @@ impl State<'_, '_> {
         lower: BoundExpr,
         upper: BoundExpr,
     ) -> Result<BoundExpr> {
+        let eager_bounds = window::has_effects(&input) || has_runtime_bound_input(&input);
         let input_literal = super::coercion::string_literal(&input);
         let lower_literal = super::coercion::string_literal(&lower);
         let upper_literal = super::coercion::string_literal(&upper);
@@ -189,6 +190,7 @@ impl State<'_, '_> {
                 Box::new(self.combination_cast(lower, &data_type)?),
                 Box::new(self.combination_cast(upper, &data_type)?),
                 self.context.query.types().bind(&data_type)?.into(),
+                eager_bounds,
             ),
         })
     }
@@ -911,4 +913,13 @@ fn aggregate_references(expression: &BoundExpr, local: &mut bool, outer: &mut bo
         ExprKind::OuterColumn { .. } => *outer = true,
         _ => expression.visit_children(&mut |child| aggregate_references(child, local, outer)),
     }
+}
+
+fn has_runtime_bound_input(expression: &BoundExpr) -> bool {
+    let mut found = matches!(
+        expression.kind,
+        ExprKind::Parameter(_) | ExprKind::Subquery(_)
+    );
+    expression.visit_children(&mut |child| found |= has_runtime_bound_input(child));
+    found
 }
