@@ -48,6 +48,37 @@ checkpoint integrates NULLIF, its comparison-runtime and expansion-resource
 repairs, calendar grids, and selected stored-expression startup/recovery context.
 No new follow-up push has occurred.
 
+## Thirteenth integrated validation checkpoint
+
+Frozen engine `26c709b` adds ordered VALUES literal inference, reserved NULLIF
+syntax and qualified-name regression repair, the complete physical timestamp
+MIN domain, and the independent native typed-Value codec prerequisite. The latter
+still has test-only registration pending parsed-expression integration; its
+fixtures are not evidence of connected native DEFAULT support.
+
+Full workspace check/tests and all-target clippy with warnings denied pass. Only
+the same two external-CLI analytics tests are ignored. Library 78, compatibility
+19, contracts 60, numeric 50, temporal 38, nested 42, DATE 11, casts 12, types 23,
+execution 51, checkpointing 18, logging 7 and recovery 14 pass. The exhaustive
+recovery-tail sweep took 63.52 seconds. Coverage reports 368 files, 3,506
+functions and 231 interface methods with none missing. Traced all-target check
+passes in 51.523 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted. These durations are not performance measurements.
+
+Full `python3 scripts/verify_kani.py`, Kani 0.67.0, passes all six maintained
+harnesses with zero failures: TIMETZ packing 48.375 s, unsigned keys 0.800 s,
+dense offsets 0.489 s, ROWS clipping 2.222 s, uniform bounds 2.723 s and packed
+byte counts 80.098 s. The same unreachable caller-location/foreign-function,
+sequential atomic-fence/subtract, and vendor-parser warnings remain. These proofs
+do not establish the new native Value protocol, DEFAULT behavior, general
+concurrency, calendar semantics or expansion resource bounds.
+
+Native parsed DEFAULTs, retained catalog expressions and connected default demand
+remain open. No new production performance, native-file or full-upstream campaign
+ran on this source. Checkpoint nine remains the latest pushed faster-reference
+and full-upstream acceptance, and checkpoint ten the latest production native-file
+campaign. No follow-up push is implied by this internal checkpoint.
+
 ## Twelfth integrated validation checkpoint
 
 Frozen engine `6f5e6ac` combines the lead's selected closed-expression evaluation
@@ -78,7 +109,8 @@ expression evaluation/composition, expansion budgets, calendar semantics,
 native protocols or general concurrent durability.
 
 The source-specific [NULLIF campaign](numeric-nullif-reference.json), retained
-in `f7bc459`, passes 894/899 exact development cases and 538/899 release cases;
+in `f7bc459`, passes 894/899 development cases and 538/899 release cases under
+the retained value/type and declared-error-category oracle (not full error text);
 native paths pass 3/3 per pin. All preceding 830 development passes remain.
 Five new cases exposed VALUES literal-inference and reserved NULLIF arity gaps;
 their worker repairs are not part of this frozen source. The timestamp MIN
