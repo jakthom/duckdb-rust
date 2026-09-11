@@ -36,6 +36,7 @@ enum Operation {
     Exp,
     Pi,
     SignBit,
+    IsNan,
     Even,
     NextAfter,
 }
@@ -77,6 +78,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         ("exp", Operation::Exp),
         ("pi", Operation::Pi),
         ("signbit", Operation::SignBit),
+        ("isnan", Operation::IsNan),
         ("even", Operation::Even),
         ("nextafter", Operation::NextAfter),
     ] {
@@ -100,7 +102,7 @@ impl FloatingMath {
         };
         match self.operation {
             Operation::Pi => vec![signature(Vec::new(), DataType::Double)],
-            Operation::SignBit => [DataType::Float, DataType::Double]
+            Operation::SignBit | Operation::IsNan => [DataType::Float, DataType::Double]
                 .into_iter()
                 .map(|input| signature(vec![input], DataType::Boolean))
                 .collect(),
@@ -264,6 +266,11 @@ impl ScalarFunction for FloatingMath {
                 Value::Double(value) => Value::Boolean(value.is_sign_negative()),
                 _ => unreachable!("selected signbit input"),
             },
+            Operation::IsNan => match arguments[0] {
+                Value::Float(value) => Value::Boolean(value.is_nan()),
+                Value::Double(value) => Value::Boolean(value.is_nan()),
+                _ => unreachable!("selected isnan input"),
+            },
             Operation::NextAfter => match (&arguments[0], &arguments[1]) {
                 (Value::Float(input), Value::Float(toward)) => {
                     Value::Float(next_after_f32(*input, *toward))
@@ -386,7 +393,7 @@ fn evaluate_double(
         Operation::Radians => input * (PI / 180.0),
         Operation::Exp => input.exp(),
         Operation::Even => even(input),
-        Operation::Pi | Operation::SignBit | Operation::NextAfter => {
+        Operation::Pi | Operation::SignBit | Operation::IsNan | Operation::NextAfter => {
             return Err(Error::Internal(
                 "non-DOUBLE operation reached DOUBLE evaluator".into(),
             ));

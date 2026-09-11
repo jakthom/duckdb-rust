@@ -10,34 +10,40 @@ use crate::{
 
 #[derive(Debug)]
 struct Absolute {
+    name: &'static str,
     input: Option<DataType>,
     known_null: bool,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
-    registry
-        .register_scalar(Arc::new(Absolute {
-            input: None,
-            known_null: false,
-        }))
-        .expect("unique absolute scalar function");
+    for name in ["abs", "@"] {
+        registry
+            .register_scalar(Arc::new(Absolute {
+                name,
+                input: None,
+                known_null: false,
+            }))
+            .expect("unique absolute scalar function");
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn target(arguments: &[DataType]) -> Result<DataType> {
+fn target(name: &str, arguments: &[DataType]) -> Result<DataType> {
     match arguments {
         [DataType::Null] => Ok(DataType::BigInt),
         [DataType::Bignum] => Ok(DataType::Double),
         [input] if input.is_numeric() => Ok(input.clone()),
-        _ => Err(Error::Bind(format!("no overload for abs({arguments:?})"))),
+        _ => Err(Error::Bind(format!(
+            "no overload for {name}({arguments:?})"
+        ))),
     }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for Absolute {
     fn name(&self) -> &str {
-        "abs"
+        self.name
     }
 
     fn bind(
@@ -47,13 +53,14 @@ impl ScalarFunction for Absolute {
     ) -> Result<Option<Arc<dyn ScalarFunction>>> {
         query.check()?;
         if arguments.len() != 1 {
-            return Err(Error::Bind("abs requires one argument".into()));
+            return Err(Error::Bind(format!("{} requires one argument", self.name)));
         }
-        let input = target(&[arguments.data_type(0)?])?;
+        let input = target(self.name, &[arguments.data_type(0)?])?;
         // The native decimal template resolves a provably NULL child to SQL
         // NULL. Failed/effectful probes must retain their ordinary lazy path.
         let known_null = input.is_decimal() && arguments.is_provably_null(0)?;
         Ok(Some(Arc::new(Self {
+            name: self.name,
             input: Some(input),
             known_null,
         })))
@@ -68,11 +75,11 @@ impl ScalarFunction for Absolute {
     }
 
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
-        Ok(vec![target(arguments)?])
+        Ok(vec![target(self.name, arguments)?])
     }
 
     fn return_type(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<DataType> {
-        let target = target(arguments)?;
+        let target = target(self.name, arguments)?;
         if self.input.as_ref().is_some_and(|input| *input != target) {
             return Err(Error::Bind("abs input type changed after binding".into()));
         }

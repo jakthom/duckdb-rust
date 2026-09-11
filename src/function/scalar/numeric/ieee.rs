@@ -10,6 +10,8 @@ enum Operation {
     Log,
     Log2,
     Power,
+    Gamma,
+    LogGamma,
 }
 
 #[derive(Debug)]
@@ -30,6 +32,10 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         ("log2", Operation::Log2),
         ("pow", Operation::Power),
         ("power", Operation::Power),
+        ("**", Operation::Power),
+        ("^", Operation::Power),
+        ("gamma", Operation::Gamma),
+        ("lgamma", Operation::LogGamma),
     ] {
         registry
             .register_scalar(Arc::new(Math {
@@ -222,6 +228,18 @@ impl ScalarFunction for Math {
                     ));
                 }
                 a.powf(b)
+            }
+            Operation::Gamma => {
+                if !ieee && a == 0.0 {
+                    return Err(Error::OutOfRange("cannot take gamma of zero".into()));
+                }
+                libm::tgamma(a)
+            }
+            Operation::LogGamma => {
+                if !ieee && a == 0.0 {
+                    return Err(Error::OutOfRange("cannot take log gamma of zero".into()));
+                }
+                libm::lgamma(a)
             }
         };
         query.check()?;
