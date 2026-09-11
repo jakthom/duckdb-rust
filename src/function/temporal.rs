@@ -14,6 +14,7 @@ mod calendar_extract;
 mod difference;
 mod epoch_extra;
 mod formatting;
+mod parsing;
 mod timezone_core;
 mod truncation;
 mod units;
@@ -32,6 +33,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     epoch_extra::register(registry);
     truncation::register(registry);
     formatting::register(registry);
+    parsing::register(registry);
     timezone_core::register(registry);
     for name in [
         "year",

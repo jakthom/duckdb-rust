@@ -27,20 +27,21 @@ const DAYS: [&str; 7] = [
     "Saturday",
 ];
 
-#[derive(Debug)]
-enum Part {
+#[derive(Clone, Debug)]
+pub(in crate::function::temporal) enum Part {
     Literal(String),
     Directive(char, bool),
 }
 
-#[derive(Debug)]
-pub(super) struct Format {
+#[derive(Clone, Debug)]
+pub(in crate::function::temporal) struct Format {
+    text: String,
     parts: Vec<Part>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Format {
-    pub(super) fn compile(text: &str, query: &QueryContext) -> Result<Self> {
+    pub(in crate::function::temporal) fn compile(text: &str, query: &QueryContext) -> Result<Self> {
         query.check()?;
         if text.len() > MAX_BYTES {
             return Err(Error::Resource("temporal format byte limit".into()));
@@ -106,7 +107,21 @@ impl Format {
         if parts.len() > MAX_PARTS {
             return Err(Error::Resource("temporal format part limit".into()));
         }
-        Ok(Self { parts })
+        Ok(Self {
+            text: text.into(),
+            parts,
+        })
+    }
+    pub(in crate::function::temporal) fn text(&self) -> &str {
+        &self.text
+    }
+    pub(in crate::function::temporal) fn parts(&self) -> &[Part] {
+        &self.parts
+    }
+    pub(in crate::function::temporal) fn has(&self, directive: char) -> bool {
+        self.parts
+            .iter()
+            .any(|part| matches!(part, Part::Directive(code, _) if *code == directive))
     }
     pub(super) fn render(&self, value: &Value, query: &QueryContext) -> Result<String> {
         query.check()?;

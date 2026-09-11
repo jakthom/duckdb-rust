@@ -4,7 +4,7 @@ use crate::{
     common::cast::CastMode,
     function::{ArgumentEvaluation, ScalarSignature},
 };
-mod format;
+pub(super) mod format;
 
 #[derive(Debug)]
 struct Strftime {
