@@ -29,6 +29,8 @@ mod nullif;
 mod precision;
 #[path = "numeric_rounding.rs"]
 mod rounding;
+#[path = "numeric_transcendental.rs"]
+mod transcendental;
 #[path = "numeric_wide_inference.rs"]
 mod wide_inference;
 

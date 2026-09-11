@@ -5,6 +5,7 @@ mod absolute;
 mod discrete;
 mod ieee;
 mod rounding;
+mod transcendental;
 
 use crate::{
     common::{
@@ -23,6 +24,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     discrete::register(registry);
     ieee::register(registry);
     rounding::register(registry);
+    transcendental::register(registry);
     for name in ["ceil", "ceiling", "floor", "sign"] {
         registry
             .register_scalar(Arc::new(IntegralDirection(name)))
