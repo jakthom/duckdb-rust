@@ -21,8 +21,30 @@ pub(super) fn write(
     depth: usize,
     state: &mut State<'_>,
 ) -> Result<()> {
+    write_at(output, ty, depth, state, true)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn write_for_cast(
+    output: &mut Encoder,
+    ty: &DataType,
+    state: &mut State<'_>,
+) -> Result<()> {
+    write_at(output, ty, 0, state, false)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn write_at(
+    output: &mut Encoder,
+    ty: &DataType,
+    depth: usize,
+    state: &mut State<'_>,
+    literal: bool,
+) -> Result<()> {
     state.visit(depth)?;
-    state.version_type(ty)?;
+    if literal {
+        state.version_type(ty)?;
+    }
     crate::common::type_registry::check_metadata(ty)?;
     if *ty == DataType::Null {
         output.property(100, 1);
@@ -61,11 +83,12 @@ pub(super) fn write(
                 },
             );
             output.field(200);
-            write(
+            write_at(
                 output,
                 &super::super::nested::list_child(metadata)?,
                 depth + 1,
                 state,
+                literal,
             )?;
             if let NestedType::Array { length, .. } = metadata.as_ref() {
                 output.property(201, *length as u64);
@@ -79,7 +102,7 @@ pub(super) fn write(
                 output.field(0);
                 state.write_blob(output, name.as_bytes())?;
                 output.field(1);
-                write(output, &child, depth + 1, state)?;
+                write_at(output, &child, depth + 1, state, literal)?;
                 output.end();
             }
         }
@@ -91,7 +114,12 @@ pub(super) fn write(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read(reader: &mut Reader, depth: usize, state: &mut State<'_>) -> Result<DataType> {
-    read_at(reader, depth, state, &mut 4096)
+    read_at(reader, depth, state, &mut 4096, true)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn read_for_cast(reader: &mut Reader, state: &mut State<'_>) -> Result<DataType> {
+    read_at(reader, 0, state, &mut 4096, false)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -100,6 +128,7 @@ fn read_at(
     depth: usize,
     state: &mut State<'_>,
     type_nodes: &mut usize,
+    literal: bool,
 ) -> Result<DataType> {
     state.visit(depth)?;
     *type_nodes = type_nodes
@@ -107,7 +136,7 @@ fn read_at(
         .ok_or_else(|| Error::Resource("native literal type exceeds 4096 nodes".into()))?;
     reader.field(100)?;
     let id = reader.unsigned()?;
-    if id == 109 && state.version < 68 || id == 110 && state.version < 69 {
+    if literal && (id == 109 && state.version < 68 || id == 110 && state.version < 69) {
         return Err(Error::Unsupported(format!(
             "native literal type ID {id} at storage version {}",
             state.version
@@ -169,7 +198,9 @@ fn read_at(
             reader.end()?;
             DataType::enumeration(labels).map_err(wire_error)?
         }
-        100 | 101 | 102 | 107 | 108 | 109 | 110 => nested(reader, id, depth, state, type_nodes)?,
+        100 | 101 | 102 | 107 | 108 | 109 | 110 => {
+            nested(reader, id, depth, state, type_nodes, literal)?
+        }
         _ => {
             return Err(Error::Unsupported(format!(
                 "native literal logical type {id}"
@@ -204,6 +235,7 @@ fn nested(
     depth: usize,
     state: &mut State<'_>,
     type_nodes: &mut usize,
+    literal: bool,
 ) -> Result<DataType> {
     info(
         reader,
@@ -217,7 +249,7 @@ fn nested(
     let metadata = match id {
         101 | 102 | 108 => {
             reader.field(200)?;
-            let child = read_at(reader, depth + 1, state, type_nodes)?;
+            let child = read_at(reader, depth + 1, state, type_nodes, literal)?;
             match id {
                 101 => NestedType::List(child),
                 108 => NestedType::Array {
@@ -261,7 +293,7 @@ fn nested(
                 reader.field(0)?;
                 let name = state.string(reader)?;
                 reader.field(1)?;
-                let ty = read_at(reader, depth + 1, state, type_nodes)?;
+                let ty = read_at(reader, depth + 1, state, type_nodes, literal)?;
                 reader.end()?;
                 fields.push((name, ty));
             }

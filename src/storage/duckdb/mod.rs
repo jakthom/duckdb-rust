@@ -4,6 +4,9 @@ mod columns;
 pub mod compression;
 mod nested;
 mod primitive;
+// Retained parsed codec is connected with the catalog-default migration.
+#[cfg(test)]
+mod parsed;
 mod temporal;
 // Typed literal codec prerequisite; the parsed-expression owner wires callers.
 #[cfg(test)]

@@ -161,6 +161,38 @@ impl<'a> ValueCodec<'a> {
         }
         Ok(())
     }
+    /// Resolved CAST metadata shares this root's type/payload budget. UNBOUND
+    /// parsed type expressions remain unsupported here, not eagerly resolved.
+    pub(in crate::storage::duckdb) fn read_type(
+        &mut self,
+        reader: &mut Reader,
+    ) -> Result<DataType> {
+        self.active()?;
+        let result = metadata::read_for_cast(reader, &mut self.state).and_then(|ty| {
+            self.state.binding(&ty)?;
+            self.state.query.check()?;
+            Ok(ty)
+        });
+        self.failed = result.is_err();
+        result
+    }
+    pub(in crate::storage::duckdb) fn write_type(
+        &mut self,
+        output: &mut Encoder,
+        ty: &DataType,
+    ) -> Result<()> {
+        self.active()?;
+        let mut staged = Encoder::default();
+        let result = (|| {
+            self.state.binding(ty)?;
+            metadata::write_for_cast(&mut staged, ty, &mut self.state)?;
+            self.state.query.check()
+        })();
+        self.failed = result.is_err();
+        result?;
+        output.0.extend(staged.0);
+        Ok(())
+    }
     pub(in crate::storage::duckdb) fn read_typed(
         &mut self,
         reader: &mut Reader,
