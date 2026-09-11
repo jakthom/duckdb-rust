@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+#[path = "enumeration/named.rs"]
+mod named;
+
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
     common::{
