@@ -200,6 +200,27 @@ fn strptime_constant_lists_nulls_prepared_arguments_and_error_boundary_match_cor
     ] {
         assert!(c.query(sql).is_err(), "{sql}");
     }
+    for (sql, detail) in [
+        (
+            "SELECT strptime('x','y')",
+            "x\n ^\nError: Literal does not match, expected y",
+        ),
+        (
+            "SELECT strptime('x','é')",
+            "x\n ^\nError: Literal does not match, expected é",
+        ),
+        (
+            "SELECT strptime('axc','abc')",
+            "axc\n  ^\nError: Literal does not match, expected abc",
+        ),
+        (
+            "SELECT strptime('x',' ')",
+            "x\n^\nError: Space does not match, expected  ",
+        ),
+    ] {
+        let error = c.query(sql).expect_err(sql);
+        assert!(error.to_string().contains(detail), "{error}");
+    }
     assert!(matches!(
         c.query("SELECT strptime('not-a-date','%Y-%m-%d')"),
         Err(Error::InvalidInput(message)) if message.contains("Could not parse string")

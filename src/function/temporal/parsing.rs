@@ -959,15 +959,18 @@ fn match_literal(
     literal: &str,
     query: &QueryContext,
 ) -> std::result::Result<(), ParseFailure> {
-    let literal = literal.as_bytes();
+    let literal_bytes = literal.as_bytes();
     let mut index = 0;
-    while index < literal.len() {
+    while index < literal_bytes.len() {
         if index.is_multiple_of(1024) && query.check().is_err() {
             return Err(ParseFailure::new(*pos, "Interrupted"));
         }
-        if literal[index].is_ascii_whitespace() {
+        if literal_bytes[index].is_ascii_whitespace() {
             if !bytes.get(*pos).is_some_and(u8::is_ascii_whitespace) {
-                return Err(ParseFailure::new(*pos, "Space does not match"));
+                return Err(ParseFailure::new(
+                    *pos,
+                    format!("Space does not match, expected {literal}"),
+                ));
             }
             while bytes.get(*pos).is_some_and(u8::is_ascii_whitespace) {
                 if (*pos).is_multiple_of(1024) && query.check().is_err() {
@@ -975,20 +978,22 @@ fn match_literal(
                 }
                 *pos += 1;
             }
-            while literal.get(index).is_some_and(u8::is_ascii_whitespace) {
+            while literal_bytes
+                .get(index)
+                .is_some_and(u8::is_ascii_whitespace)
+            {
                 if index.is_multiple_of(1024) && query.check().is_err() {
                     return Err(ParseFailure::new(*pos, "Interrupted"));
                 }
                 index += 1;
             }
-        } else if bytes.get(*pos) == Some(&literal[index]) {
+        } else if bytes.get(*pos) == Some(&literal_bytes[index]) {
             *pos += 1;
             index += 1;
         } else {
-            let expected = String::from_utf8_lossy(&literal[index..index + 1]);
             return Err(ParseFailure::new(
-                *pos,
-                format!("Literal does not match, expected {expected}"),
+                pos.saturating_add(1),
+                format!("Literal does not match, expected {literal}"),
             ));
         }
     }
