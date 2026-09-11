@@ -7,12 +7,14 @@ mod alter;
 mod dependency;
 pub mod expression;
 mod identity;
+mod search_path;
 pub use alter::TableAlteration;
 pub use dependency::{DependencyGraph, DependentFlags, SubjectFlags};
 pub use identity::{
     CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, DropBehavior, ObjectId,
     ObjectIdentity, ResolvedTable, TableBinding,
 };
+pub use search_path::{SearchPath, SearchPathEntry};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TableName {
