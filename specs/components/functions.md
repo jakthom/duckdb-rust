@@ -217,3 +217,33 @@ are not cloned; their scalar needle is conservatively counted. These provisional
 limits do not bound payload bytes or general query memory.
 Adapters with their own declared volatile/external effects cannot use this pure
 expansion seam. Effects of referenced argument expressions remain intact.
+
+## Rewrite core calendar grids
+
+The provisional temporal adapters register `date_trunc`/`datetrunc` and
+`time_bucket` through the ordinary selected function catalog. Truncation keeps
+DATE/TIMESTAMP results as microsecond TIMESTAMP and INTERVAL results as INTERVAL;
+unit timestamp arguments use selected casts. Calendar periods, fixed timestamp
+units and signed interval components retain their distinct algorithms. A closed
+DATE/TIMESTAMP truncation specifier is validated during binding, matching the
+reference statistics callback; the INTERVAL overload has no such callback.
+Actual Constant/Unknown input provenance still governs execution dispatch and
+the selected constant-NULL policy. Neither equal VALUES nor one row establishes
+constant encoding.
+
+Bucketing separates positive fixed-duration widths from positive pure-month
+widths and rejects mixed month/day/time widths. Default origins are Monday
+2000-01-03 for fixed widths and 2000-01-01 for month widths. Interval offsets and
+temporal origins are distinct overloads with retained bound metadata, including
+their different classification/NULL/infinity demand order. Development adds
+TIME overloads with midnight wrapping; release lacks those overloads. Calendar
+and clock arithmetic is deterministic and does not consult the host timezone.
+ICU timezone behavior, statistics/planning parity, diagnostics, native defaults
+and performance remain independently measured obligations.
+
+Sources: [truncation](../../../duckdb/extension/core_functions/scalar/date/date_trunc.cpp)
+and [bucketing](../../../duckdb/extension/core_functions/scalar/date/time_bucket.cpp).
+The pinned development fixed-unit truncation kernel uses unchecked multiplication
+at the lower timestamp boundary. The rewrite explicitly models the observed
+modular result without Rust overflow or undefined behavior; retained release
+errors remain disagreements, not a reason to change correctness authority.

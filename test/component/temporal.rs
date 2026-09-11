@@ -20,6 +20,7 @@ use duckdb_rust::{
 };
 use std::sync::Arc;
 
+mod temporal_calendar;
 mod temporal_difference;
 mod temporal_provenance;
 mod temporal_variant;
