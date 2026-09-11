@@ -42,7 +42,7 @@ and automatic checkpoint policies, VARIANT parameters with decimal/timestamp/
 array content, relational comparisons/groups/windows, rollback, rebasing and
 exact live-versus-reopened display/type results.
 
-The [initial bidirectional WAL campaign](fresh-native-wal-initial.json) passes
+The initial bidirectional WAL campaign passes
 all six versions and seven stages each using a debug Rust shell: creation,
 initial checkpoint, rollback, Rust commit, C++ commit, a subsequent Rust commit,
 and final checkpoint. Both C++ pins read storage 64–68; development also reads

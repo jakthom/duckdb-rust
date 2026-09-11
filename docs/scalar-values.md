@@ -8,7 +8,7 @@ performance reference. The [third integrated checkpoint](value-expression-progre
 preserves all 34 existing faster-reference workloads on the combined engine;
 broader scalar performance coverage remains open.
 
-The lead's [NULL-metadata repair campaign](value-expression-binary-reference-checkpoint3.json)
+The lead's NULL-metadata repair campaign
 now passes 25/25 BLOB/UUID development SQL cases and 3/3 native paths per pin.
 The 23/25 release result retains development-only UUID/UHUGEINT casts and
 constant-NULL concatenation metadata. Earlier reports below remain historical

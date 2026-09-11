@@ -36,7 +36,7 @@ membership set, not a claim that this EXISTS plan uses it.
 
 The earlier reports do not isolate a release-to-release C++ speedup. Identical
 Rust source and binary hashes had substantially different absolute timings
-between those runs. A fresh [pre-change measurement](before-release.json)
+between those runs. A fresh pre-change measurement
 reproduced the actual regressions against v1.5.5: SUM was 10.7% slower and EXISTS
 9.6% slower. The failed measurements remain failures in the retained history.
 
@@ -71,7 +71,7 @@ the replaceable hash-join adapter; nested-loop joins use the same public contrac
 `cargo test --offline --all-targets` passed **178 tests**, with no failures or
 ignored tests. All **51 execution, type, and subquery tests** also passed in an
 optimized release build. `cargo clippy --offline --all-targets -- -D warnings`
-passed. The [validation record](validation.json) retains commands, test logs,
+passed. The validation record retains commands, test logs,
 counts, source identities, and artifact hashes.
 New conformance checks compare scalar and batch SUM across signed widths,
 overflowing partials, NULLs, constants, slices, selections, and batch boundaries.
@@ -85,15 +85,15 @@ The original twelve workloads, setup, worker timing contract, three warmups,
 materializes results and checks row counts and checksums. Builds and tests were
 finished before the final sequential measurements.
 
-Retained development steps are [before](before-release.json),
-[membership with a single narrow accumulator](membership-release.json), and
-[independent partial sums](partial-sums-release.json). The first two fail; the
+Retained development steps are before,
+membership with a single narrow accumulator, and
+independent partial sums. The first two fail; the
 third passed with only a 0.9% aggregation margin. Profiling identified the scan
 copy as remaining work before the final comparisons. These reports have not
 been overwritten or relabeled as final results.
 
-The final reports are [v1.5.5](release-performance.json) and
-[development](development-performance.json). They record source and binary
+The final reports are v1.5.5 and
+development. They record source and binary
 hashes, reference identities, every sample, and each workload's result.
 **All twelve workloads pass against each reference.** The same Rust source and
 binary hashes appear in both final reports.
@@ -108,5 +108,5 @@ binary hashes appear in both final reports.
 Full performance and test parity remain unproven: these twelve serial in-memory
 cases do not cover general grouped aggregation, all subquery shapes, cold I/O,
 concurrency, or the full DuckDB workload suite. Existing file and ALTER
-compatibility failures in the [combined campaign](../references-source-builds/summary.json)
+compatibility failures in the combined campaign
 remain unresolved by this change.

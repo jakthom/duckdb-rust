@@ -4,7 +4,7 @@ This inspection tests the current uncommitted Rust implementation without changi
 engine code. Its native source SHA-256 is `0a1501343aede7b8af12f9922411d5eddd061a14a4b28a3200e6c8629fe18e93`;
 its measurement binary SHA-256 is `7acc4cd658c05e2dbe7840990a235e62d16dcc7878beab5d079fa9b068d9a92f`.
 All six campaigns use that same source and binary. The full source, test and
-harness fingerprint is in [validation.json](validation.json), with an unchanged
+harness fingerprint is in validation.json, with an unchanged
 source check after testing and measurement.
 
 **15 specific workloads pass their relevant local correctness/interface
@@ -61,7 +61,7 @@ Full upstream case mappings/execution, broad SQL/types/functions/catalog
 compatibility, current native-file compatibility and extension/client/UI parity
 remain incomplete. The [SQL/catalog worklist](../sql-catalog-parity.md) and
 [testing worklist](../testing-parity.md) describe those gaps. The earlier
-[persistent reference campaign](../settings/reference-final.json) records
+persistent reference campaign records
 settings diagnostics/transaction differences and an empty grouping-set EXISTS
 discrepancy. It predates this source and was not rerun for this inspection.
 Earlier failed performance runs remain in their original directories.
@@ -75,7 +75,7 @@ Earlier failed performance runs remain in their original directories.
   settings, SQL and types: **77 passed**, no failures or ignored tests.
 - Python harness self-tests: **24 passed**; see [python-tests.log](python-tests.log).
 
-The [validation manifest](validation.json) preserves each exact command, exit
+The validation manifest preserves each exact command, exit
 code, duration, log and source fingerprint. These are local test counts, not
 upstream DuckDB parity counts. Local compatibility tests include historical
 fixtures; their success does not establish v1.5.5 file compatibility.
@@ -125,10 +125,10 @@ All values are microseconds. Each C++ reference has its own paired Rust samples.
 | order_all | 3455.208 | 6459.417 | 3438.750 | 14761.750 |
 
 Raw samples, workload SQL, hashes, configurations and adapter selections:
-[core-release.json](core-release.json),
-[grouping-release.json](grouping-release.json),
-[ordering-release.json](ordering-release.json),
-[core-development.json](core-development.json),
-[grouping-development.json](grouping-development.json),
-[ordering-development.json](ordering-development.json).
-The [machine-readable assessment](assessment.json) maps each workload to its tests and measurements.
+core-release.json,
+grouping-release.json,
+ordering-release.json,
+core-development.json,
+grouping-development.json,
+ordering-development.json.
+The machine-readable assessment maps each workload to its tests and measurements.

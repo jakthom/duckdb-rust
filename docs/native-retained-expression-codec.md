@@ -44,7 +44,7 @@ without changing its error policy. All 59 native library tests, ordinary workspa
 check and warnings-denied all-target clippy pass; coverage reports 382 files,
 3,693 functions and 239 methods, none missing.
 
-The [reverse-read campaign](native-retained-expression-codec-reference.json) on
+The reverse-read campaign on
 frozen `65bf5d3` now records 129 passed, zero failed and the same 71 unsupported
 fixtures. Each supported Rust export is read by its independently pinned producing
 C++ engine with identical raw structural/name inventory and diagnostic display.

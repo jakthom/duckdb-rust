@@ -55,7 +55,7 @@ the selected expression and logical type adapters.
 
 The original measured `ORDER BY ALL DESC` regression was
 **32.826 ms Rust versus 6.239 ms C++ v1.5.5**, or **5.26 times the C++ latency**.
-The [original report](ordering-performance-initial-release.json) remains intact.
+The original report remains intact.
 The final campaign below measures the replacement on the same 50,000-row workload
 and reruns the existing fifteen workloads. This is regression removal, with no
 relaxed threshold or omitted slower workload.
@@ -112,13 +112,13 @@ Formatting and Clippy with warnings denied pass. **209 local Rust tests pass**;
 **87 selected component tests also pass in release mode**. All **24 Python
 harness tests pass**. There are no failed or ignored local Rust tests.
 
-The [final validation manifest](final-validation.json) records exact commands,
+The final validation manifest records exact commands,
 exit codes, test counts, source fingerprints and logs. Its debug suite covers all
 local targets; selected execution, settings, grouping, recursion, ALTER, index,
 SQL and type contracts also run in release mode. The Python harness tests run
 separately. These are local test counts, not upstream case-parity counts.
 
-The [persistent SQL comparison](final-reference.json) runs all 120 local records
+The persistent SQL comparison runs all 120 local records
 against **v1.5.5** (`d8cdaa33fda8df955cc76ef58a280f68f4cd43fa`) and pinned
 development **v2.0.0-dev84019** (`99063af2bd7092aff02e14184a20e24699d34d71`).
 The development reference is not asserted to be the latest remote main. Its
@@ -136,8 +136,8 @@ original assertions and described below; neither C++ baseline substitutes for
 the other.
 
 The unchanged upstream campaigns select all eight
-[grouping-set files](final-upstream-grouping.json), including slow cases, and
-all 35 [ordering files](final-upstream-order.json). Unsupported capabilities,
+grouping-set files, including slow cases, and
+all 35 ordering files. Unsupported capabilities,
 failed assertions and missing settings remain failures or explicit gaps.
 
 | Unchanged upstream selection | Passed files | Failed files | Unsupported files |
@@ -174,12 +174,12 @@ Durable DDL, cold I/O, concurrency and memory/CPU/I/O cost parity are not covere
 
 Raw reports include every sample, SQL, expected result, build identity, workload
 hash and adapter selection:
-[core release](final-core-release.json),
-[grouping release](final-grouping-release.json),
-[ordering release](final-ordering-release.json),
-[core development](final-core-development.json),
-[grouping development](final-grouping-development.json),
-[ordering development](final-ordering-development.json).
+core release,
+grouping release,
+ordering release,
+core development,
+grouping development,
+ordering development.
 
 ## Remaining requirements
 
@@ -193,7 +193,7 @@ key diagnostic differs; the development build aborts an explicit transaction
 after an invalid setting where Rust and v1.5.5 retain it; both C++ references
 disagree with Rust on an EXISTS/duplicate-empty-grouping-set LIMIT/OFFSET case.
 Rust also accepts bare ASC/DESC setting values that both C++ parsers reject; the
-[initial ordering comparison](reference-ordering.json) preserves that finding.
+initial ordering comparison preserves that finding.
 
 Upstream grouping files still encounter missing `random()`, NATURAL/USING joins
 and an empty-ROLLUP parser diagnostic difference. Full SQL/catalog and native-file

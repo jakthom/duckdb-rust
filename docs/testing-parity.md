@@ -37,7 +37,7 @@ The [earlier performance comparisons](settings/README.md) pass all sixteen
 measured workloads against both **v1.5.5** (`d8cdaa33fd`) and the pinned
 development build. ORDER BY ALL joins grouped SUM, ROLLUP, CUBE and the original
 twelve passing cases. Each uses 21 paired samples and the unchanged 1.0 maximum. The
-[earlier combined campaign](references-source-builds/summary.json), including
+earlier combined campaign, including
 its failed performance measurements, is retained. Its file/ALTER compatibility
 failures remain unresolved. Passing sixteen cases does not establish full
 performance parity. [Builds, commands and compatibility gaps](reference-builds.md).
@@ -78,7 +78,7 @@ full gate requires exact case identities and every scope obligation; a selected
 passing subset cannot satisfy it. A JSON-lines journal preserves each completed
 file even if the larger campaign stops before the final report.
 
-The [numeric foundation campaign](upstream-parity-numeric.json) records **305 passed
+The numeric foundation campaign records **305 passed
 files**, 1,887 failures, 3,435 unsupported files, eight timeouts and three
 incomplete files. All 5,638 identities have exactly one outcome. Its 16,968
 passed SQL instances include prefixes of files that later fail; they are not
@@ -90,7 +90,7 @@ Against the older report, 110 files moved into passing status and two formerly
 passing files now fail: `test/issues/rigger/test_536.test` exposes a VARCHAR
 value changed by numeric VALUES coercion, and `test/sql/cte/cte_schema.test`
 fails with an ambiguous table reference. Both are fixed in the
-[binding-only serial refresh](upstream-parity-binding-regressions-final.json):
+binding-only serial refresh:
 313 passed files, 1,877 failures, 3,437 unsupported files, eight timeouts and
 three incomplete files. All 5,638 identities are accounted for, with 17,018
 passed records including prefixes of failed files. Eight files newly pass and
@@ -98,7 +98,7 @@ none of the prior 305 passes is lost. This is not evidence for later batch
 source changes; their fresh validation is tracked separately. Many formerly
 unsupported files now reach an assertion failure instead.
 
-The [final batch-code refresh](upstream-parity-batches-final.json) repeats all
+The final batch-code refresh repeats all
 5,638 files after the performance changes: 313 passed, 1,877 failed, 3,437
 unsupported, eight timeouts and three incomplete. Its 17,018 passed records
 include failed-file prefixes. No file changes status relative to the valid
@@ -108,14 +108,14 @@ passes each workload against the faster C++ reference in both Rust campaigns.
 These are scoped regression checks, not full test, native-file or performance
 parity; earlier failed campaigns remain retained.
 
-The [preceding full campaign](upstream-parity-final.json), recorded before the
+The preceding full campaign, recorded before the
 subsequent performance changes, records 197 passed files,
 1,197 failures, 4,234 unsupported files, seven timeouts and three incomplete
 files. All 5,638 source identities have exactly one outcome. Its 14,583 passed
 SQL instances include prefixes of files that subsequently failed; they do not
 establish that those files passed. No native/client declarations are mapped yet.
 
-The [initial full campaign](upstream-parity-initial.json) executed all 5,638 files:
+The initial full campaign executed all 5,638 files:
 161 passed, 1,611 failed, 3,861 were unsupported, three timed out and two were
 incomplete. This predates corrections to path substitution and lifecycle
 semantics. Its 12,012 passed SQL instances before subsequent file failures are
@@ -169,13 +169,13 @@ Reports identify source, workload, compiler, library, executable, configuration
 and host. They retain failed measurements. The C++ worker is an independent
 oracle and is not linked into the Rust engine.
 
-The [initial comparison](native-regressions-initial.json) failed scans, filtering,
+The initial comparison failed scans, filtering,
 aggregation and correlated EXISTS. Their measured Rust/C++ ratios were 2.679,
 7.109, 28.505 and 76.419. Those failures are acceptance failures, even though
 other cases passed. Subsequent changes must be checked against the same C++
 baseline; unrelated performance improvement is not the objective.
 
-The [earlier development comparison](native-regressions-alter.json) passes all 12 measured
+The earlier development comparison passes all 12 measured
 workloads over 21 paired samples against the unchanged C++ release baseline
 and 1.0 limit. The prior nine query definitions and setup remain unchanged.
 The workers and driver now also accept explicit DDL reset/effect-check phases.
@@ -211,14 +211,14 @@ The [architecture](architecture.md) records contracts and fallback conditions.
 All intermediate performance reports remain in `native-regressions-*.json`,
 including the column-only scan trial that slowed correlated requests, later SUM
 failures, the first semi-join trial with missing transaction metadata, and the
-[decorrelated run](native-regressions-decorrelated.json) that still failed by
-28.6%. An earlier nine-pair [reusable-key run](native-regressions-reusable-keys.json)
-passed, but its [21-pair confirmation](native-regressions-cleared.json) failed
+decorrelated run that still failed by
+28.6%. An earlier nine-pair reusable-key run
+passed, but its 21-pair confirmation failed
 EXISTS by 2.5%; the filename does not indicate acceptance. An
-[inlining trial](native-regressions-inlined-keys.json) also failed and its hints
-were removed. The [previous checkpoint](native-regressions-final.json) failed scan,
+inlining trial also failed and its hints
+were removed. The previous checkpoint failed scan,
 filter, aggregation and correlated EXISTS at 1.197, 5.856, 3.287 and 62.517 times
-C++ respectively. The [six-case column-key comparison](native-regressions-column-keys.json)
+C++ respectively. The six-case column-key comparison
 first cleared those measured development regressions. The later 12-case
 development comparison preserved that result and covered recursive queries and
 three DDL operations. These results do not override the v1.5.5 failures recorded
@@ -241,21 +241,21 @@ the remaining allocator, crash simulation, concurrency and coverage work.
 
 ## Local validation
 
-The [earlier ALTER validation record](alter-validation.json) records 175 passing
+The earlier ALTER validation record records 175 passing
 Cargo tests, 16 Python harness tests, 23 release ALTER/logging/checkpointing
 tests, formatting and Clippy. It checks source and executable hashes against the
 performance and file-oracle reports. Its 12-case development performance gate passes;
 full upstream test and full performance acceptance remain unmet, as described
 above. Local conformance success cannot override those wider gaps.
 
-The [earlier recursive validation](recursive-validation.json),
-[earlier regression validation](regression-validation.json),
-[earlier parity validation](parity-validation.json) and
-[mutation campaign](mutation-report-isolated.json) retain their original source
+The earlier recursive validation,
+earlier regression validation,
+earlier parity validation and
+mutation campaign retain their original source
 provenance. The latter detected all three injected semantic faults after an
 unchanged passing baseline; it was not rerun for this record.
 
-The [historical independent native-file check](reference-alter.json)
+The historical independent native-file check
 also passed 39 top-level compatibility checks against DuckDB v1.3.0,
 including continued reads and writes in both engines. This is a file/behavior
 oracle for the supported subset; the performance baseline remains the separately
@@ -263,7 +263,7 @@ pinned C++ v2.0 development checkout.
 
 The [SQL/catalog worklist](sql-catalog-parity.md) retains the complete active
 goal. Targeted CTE and ALTER campaigns remain incomplete. The
-[ALTER campaign](upstream-alter-initial.json) passed 17 of 117 files, with 23
-failures and 77 unsupported outcomes. The [local SQL comparison](alter-sql-reference.json)
+ALTER campaign passed 17 of 117 files, with 23
+failures and 77 unsupported outcomes. The local SQL comparison
 also records a pinned C++ ADD COLUMN constraint discrepancy. The historical
 full campaign above has not been rerun for these changes.

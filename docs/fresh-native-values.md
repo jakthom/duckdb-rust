@@ -6,7 +6,7 @@ duplicate and incompatible options before file creation, and never upgrades an
 existing file. The default remains 64. Native version/type capability checks
 remain owned by the format rather than duplicated in SQL binding.
 
-The [initial six-version campaign](fresh-native-values-checkpoint9.json) creates
+The initial six-version campaign creates
 equivalent Rust and development files, with decimal/nanosecond structs, nullable
 lists, embedded-NUL binary values and full unsigned integers. Storage 68 adds
 VARIANT objects/lists; 69 adds TUPLE and empty containers. Each stage checks
@@ -18,7 +18,7 @@ Storage 64–68 pass all four stages, including the release reader. Storage 69
 passes creation, rollback and Rust commit. After C++ updates its nested columns,
 Rust rejects the checkpoint as `noncontiguous row group identity`; development
 still reads exactly the expected rows. Release's inability to read 69 is a
-separate expected version limitation. The [repeat fixture campaign](fresh-native-values-checkpoint9-fixture.json)
+separate expected version limitation. The repeat fixture campaign
 reproduces the failure and exports both final images under
 `test/data/native-row-identity-initial/`, with their uncompressed digests and
 producer/query provenance in the report. The Rust image is a hybrid producer
@@ -77,10 +77,10 @@ unchanged. Native VARIANT/TUPLE WAL publication remains separately unsupported.
 
 ## Repaired combined checkpoint
 
-On integrated `27d190b`, the [production rerun](fresh-native-values-checkpoint9-repaired.json)
+On integrated `27d190b`, the production rerun
 passes all six versions and all five stages each, including Rust reading every
 development twin and mutation after C++ publication. Release agrees for storage
-64–68 and rejects 69 as expected. The [preceding debug run](fresh-native-values-checkpoint9-debug.json)
+64–68 and rejects 69 as expected. The preceding debug run
 also passes and is retained. Production source and binary hashes remain unchanged
 through the campaign. The [combined checkpoint](value-expression-progress.md)
 passes workspace tests/check/clippy, trace compatibility and all six maintained

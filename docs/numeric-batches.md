@@ -77,25 +77,25 @@ trials are historical evidence, not overwritten by later measurements.
 
 | Trial | Failed faster-reference workloads |
 | --- | ---: |
-| [Foundation](numeric-performance-fastest.json) | 7 |
-| [A](numeric-performance-batched-a-fastest.json) | 6 |
-| [B](numeric-performance-batched-b-fastest.json) | 6 |
-| [C](numeric-performance-batched-c-fastest.json) | 6 |
-| [D](numeric-performance-batched-d-fastest.json) | 5 |
-| [E](numeric-performance-batched-e-fastest.json) | 5 |
-| [F](numeric-performance-batched-f-fastest.json) | 4 |
-| [G](numeric-performance-batched-g-fastest.json) | 3 |
-| [H](numeric-performance-batched-h-fastest.json) | 2 |
-| [I](numeric-performance-batched-i-fastest.json) | 2 |
-| [J](numeric-performance-batched-j-fastest.json) | 3 |
-| [K](numeric-performance-batched-k-fastest.json) | 2 |
-| [L](numeric-performance-batched-l-fastest.json) | 1 |
-| [M](numeric-performance-batched-m-fastest.json) | 1 |
-| [N](numeric-performance-batched-n-fastest.json) | 0 |
-| [O](numeric-performance-batched-o-fastest.json) | 0 |
-| [P](numeric-performance-batched-p-fastest.json) | 0 |
-| [Q](numeric-performance-batched-q-fastest.json) | 0 |
-| [R](numeric-performance-batched-r-fastest.json) | 0 |
+| Foundation | 7 |
+| A | 6 |
+| B | 6 |
+| C | 6 |
+| D | 5 |
+| E | 5 |
+| F | 4 |
+| G | 3 |
+| H | 2 |
+| I | 2 |
+| J | 3 |
+| K | 2 |
+| L | 1 |
+| M | 1 |
+| N | 0 |
+| O | 0 |
+| P | 0 |
+| Q | 0 |
+| R | 0 |
 
 H and I fail decimal total and grouped total; J also fails decimal join. K
 clears total and join, but still fails unsigned filtering and grouped total.
@@ -111,10 +111,10 @@ not a percentage allowance. N passes all eight numeric cases; both Rust
 medians pass the release baseline, which is faster for all eight in that run.
 
 The first older-workload refresh nevertheless finds six failures:
-[correlated recursion](numeric-batches-native-fastest.json),
-[grouped SUM and CUBE](numeric-batches-grouping-fastest.json), and
-[USING inner/full joins and partitioned SUM](numeric-batches-relational-fastest.json).
-[ORDER BY ALL](numeric-batches-ordering-fastest.json) passes. These results
+correlated recursion,
+grouped SUM and CUBE, and
+USING inner/full joins and partitioned SUM.
+ORDER BY ALL passes. These results
 prevent a push despite the numeric subset passing. Subsequent changes restore
 small-build join preselection, retain flat signed window delivery, inline
 compact key helpers and decline whole-batch proof overhead for one-row inputs.
@@ -130,17 +130,17 @@ Temporary sampling files are deleted; sampling durations are not acceptance
 evidence. Signed extrema are added to the independent scalar aggregate/window
 comparisons.
 
-P nevertheless fails [correlated recursion](numeric-batches-p-native-fastest.json)
-(1.012) and [USING inner](numeric-batches-p-relational-fastest.json) (1.319).
-Its [grouping](numeric-batches-p-grouping-fastest.json),
-[ordering](numeric-batches-p-ordering-fastest.json), and numeric groups pass.
+P nevertheless fails correlated recursion
+(1.012) and USING inner (1.319).
+Its grouping,
+ordering, and numeric groups pass.
 The follow-up remained unpushed. The next changes decline dictionary analysis
 for single-row input, move signed membership dispatch outside the row loop, and
 use constructor-proved bounded dense offsets without repeated checked-conversion
 chains. Full-width outliers still cannot alias in-range keys.
 
 Q clears recursion and the inner join but fails
-[partitioned SUM](numeric-batches-q-relational-fastest.json) at 1.043; the other
+partitioned SUM at 1.043; the other
 33 cases pass. Its short sampling profile shows repeated inline-value copying
 and partition-vector growth. The next source change specializes copying for
 physically validated non-NULL signed flat vectors and reserves a bounded initial
@@ -159,11 +159,11 @@ All campaigns ran serially without concurrent builds or diagnostic workloads.
 
 | Workload group | Passing cases | Largest Rust/faster-C++ ratio |
 | --- | ---: | ---: |
-| [Numeric](numeric-performance-batched-r-fastest.json) | 8/8 | 0.971 |
-| [Original engine workloads](numeric-batches-r-native-fastest.json) | 12/12 | 0.972 |
-| [Grouping](numeric-batches-r-grouping-fastest.json) | 3/3 | 0.882 |
-| [Ordering](numeric-batches-r-ordering-fastest.json) | 1/1 | 0.736 |
-| [Relational](numeric-batches-r-relational-fastest.json) | 10/10 | 0.890 |
+| Numeric | 8/8 | 0.971 |
+| Original engine workloads | 12/12 | 0.972 |
+| Grouping | 3/3 | 0.882 |
+| Ordering | 1/1 | 0.736 |
+| Relational | 10/10 | 0.890 |
 
 Table ratios are rounded upward to three decimals; the gate uses exact medians.
 The previously failing grouped SUM, CUBE, inner join, and partitioned SUM now
@@ -181,12 +181,12 @@ parity. Every preceding failed campaign remains retained.
 
 ## Refreshed correctness evidence
 
-The [final session report](binding-batches-reference-final.json) repeats all
+The final session report repeats all
 92 binding/relational assertions against each C++ reference and passes, including
 the unchanged upstream VALUES and schema/CTE regressions. It verifies that both
 Rust source and worker identities remain unchanged throughout the run.
 
-The [final numeric reference report](numeric-reference-batches-final.json)
+The final numeric reference report
 matches development for all 38 selected typed SQL/error cases. Release matches
 20/38; the same 18 documented reference-version divergences remain and Rust
 continues to follow development. All three release persistence scenarios pass.
@@ -195,8 +195,8 @@ internal catalog errors reading Rust checkpoints/WAL), just as at the foundation
 checkpoint. These are unresolved compatibility gaps, not passing cases or new
 batch regressions. This command correctly exits nonzero for those gaps.
 
-The [full upstream refresh](upstream-parity-batches-final.json) and its
-[journal](upstream-parity-batches-final.jsonl) account for all 5,638 identities:
+The full upstream refresh and its
+journal account for all 5,638 identities:
 **313 passed**, 1,877 failed, 3,437 unsupported, eight timeouts and three
 incomplete files. The 17,018 passed records include prefixes of failed files.
 Every file retains the same status and passed-record count as the valid

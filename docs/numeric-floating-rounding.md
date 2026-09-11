@@ -20,7 +20,7 @@ floating boundary is in `duckdb/src/common/types/hugeint.cpp`. Independent SQL
 observations validate those distinctions rather than treating all numeric casts
 as one rounding policy.
 
-The [retained campaign](numeric-floating-rounding-reference.json) records exact
+The retained campaign records exact
 typed results, complete diagnostics, source fingerprints and binary/library
 identities. Development matches all 62 SQL cases. Release matches 34/62, with all
 28 mismatches identified as release/development disagreements: the 18 previously

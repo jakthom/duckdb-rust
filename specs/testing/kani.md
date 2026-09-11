@@ -119,7 +119,7 @@ upstream parity suite nor establishes zero performance regressions. Proof scope
 can grow as useful contracts emerge; this initial suite does not cover each
 future feature, and its existence does not freeze the current design.
 
-The [initial integration record](../../docs/kani-validation.json) contains the
+The initial integration record contains the
 executed results and checked source hashes, including the independently
 reproduced SQL-suite failure on the unmodified PR base. It is historical evidence
 from the original integration; its gate terminology predates this exploratory

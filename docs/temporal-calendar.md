@@ -101,24 +101,24 @@ nonzero while any exact mismatch remains.
 
 | Calendar trial | Development exact / outcomes | Release exact / outcomes | Native paths per pin |
 | --- | --- | --- | --- |
-| [Initial](temporal-calendar-initial.json) | 340 / 459 of 827 | 318 / 495 of 827 | Not run |
-| [Bucket implementation](temporal-calendar-bucket-first.json) | 726 / 827 of 827 | 638 / 742 of 827 | Not run |
-| [First native campaign](temporal-calendar-native-first.json) | 726 / 827 of 827 | 638 / 742 of 827 | 3 / 3 |
-| [Combined checkpoint](temporal-calendar-checkpoint.json) | 726 / 827 of 827 | 638 / 742 of 827 | 3 / 3 |
+| Initial | 340 / 459 of 827 | 318 / 495 of 827 | Not run |
+| Bucket implementation | 726 / 827 of 827 | 638 / 742 of 827 | Not run |
+| First native campaign | 726 / 827 of 827 | 638 / 742 of 827 | 3 / 3 |
+| Combined checkpoint | 726 / 827 of 827 | 638 / 742 of 827 | 3 / 3 |
 
-The [initial MIN campaign](temporal-minimum-initial.json),
-[native MIN campaign](temporal-minimum-native-first.json) and
-[final MIN checkpoint](temporal-minimum-checkpoint.json) retain development
+The initial MIN campaign,
+native MIN campaign and
+final MIN checkpoint retain development
 23/32 exact and 32/32 outcomes, release 20/32 exact and 29/32 outcomes. The latter
 two add the eight successful native publication/readback paths; the final
 helper also checks every logical type before raw typed extraction. Reports retain
 source, binary, script, library and fixture hashes plus the exact pinned
 identities. Performance was not measured here.
 
-The [unchanged broader temporal refresh](temporal-calendar-regressions.json)
+The unchanged broader temporal refresh
 retains all 1,288 development and 1,206 release SQL passes out of 1,289, with no
 lost previously passing SQL compared with
-[the provenance checkpoint](temporal-provenance-family-reference.json).
+the provenance checkpoint.
 Its existing comparator treats paired rejection more coarsely than the new
 drivers. Both Rust native producers still pass per pin. The preexisting raw
 DEFAULT planning discrepancy and C++ function-default catalog decoding gap

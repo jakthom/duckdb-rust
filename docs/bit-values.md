@@ -97,7 +97,7 @@ performance comparisons before declaring the substantial stage complete.
 
 ## Continuing work and limits
 
-The [cast-context follow-up](bit-reference-cast-context.json) records development
+The cast-context follow-up records development
 61/62 SQL, release 52/62 SQL, and all three native producer/mutation paths passing
 on both pins with unchanged source fingerprints. The only remaining development
 campaign mismatch is signed BITSTRING modifier grammar. XOR now uses the shared
@@ -144,7 +144,7 @@ replaced by this BIT increment or classified away as an unavailable extension.
 
 ## Shared modifier integration and retained regression trial
 
-The [expanded modifier trial](bit-reference-modifier-integration.json) retains
+The expanded modifier trial retains
 development 69/70 and release 55/70 selected SQL cases, with all three native
 producer paths passing against both pins and unchanged source. It exposed a
 new parser bug: accepting `BITSTRING(+1)` as an integer constant. Development
@@ -161,7 +161,7 @@ lexical. Other dialects keep their original precision/modifier grammar.
 Normal checks pass BIT (8), types (14), contracts (25) and all-target clippy.
 The expanded repaired differential campaign is still pending at this commit.
 
-The subsequent [repaired campaign](bit-reference-modifier-repaired.json), on
+The subsequent repaired campaign, on
 integrated source `b1cb75c`, records development 77/77 SQL and release 60/77.
 All three native producer/mutation/reopen paths pass against each pin and the
 source remained unchanged. The earlier 69/70 failure remains retained above.

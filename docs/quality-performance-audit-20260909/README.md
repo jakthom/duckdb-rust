@@ -50,18 +50,18 @@ which the Rust SQL harness does not support. Cargo stopped at that binary; the
 remaining subquery and type binaries were run separately and passed. The failure
 remains recorded; no assertion or directive was skipped or weakened.
 
-See the [validation manifest](validation.json), [full test log](debug-tests.log),
+See the validation manifest, [full test log](debug-tests.log),
 [remaining component tests](remaining-contracts.log), [Clippy](clippy.log) and
 [format check](format.log). The test count is local coverage, not a count of mapped
 or passing upstream DuckDB cases.
 
-The existing [persistent settings comparison](../settings/reference-debug.json)
+The existing persistent settings comparison
 also records differences between the two C++ references: v1.5.5 differs in the
 empty-key error text, and the development build aborts an explicit transaction
 after an invalid setting value where Rust and v1.5.5 retain it. This inspection
 did not rerun that comparison and does not claim settings parity.
 
-Broader [grouping](../grouping/reference-batched.json),
+Broader grouping,
 [SQL/catalog](../sql-catalog-parity.md), native-file and upstream-suite obligations
 remain open. A passing workload here does not clear those failures.
 
@@ -110,6 +110,6 @@ All values below are microseconds. Each reference has its own paired Rust sample
 | cube_sum | 1125.083 | 1744.750 | 1104.458 | 1371.083 |
 
 Raw samples, SQL, expected results, adapter selections and build identities:
-[core release](core-release.json), [core development](core-development.json),
-[grouping release](grouping-release.json), [grouping development](grouping-development.json).
-The [machine-readable assessment](assessment.json) links each row to its tests and measurements.
+core release, core development,
+grouping release, grouping development.
+The machine-readable assessment links each row to its tests and measurements.

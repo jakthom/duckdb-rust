@@ -1,9 +1,0 @@
-{
-  "recorded_at": "2026-09-09T14:04:49.117308+00:00",
-  "results": [],
-  "passed": false,
-  "scope": "Three explicit semantic mutants and the unchanged subquery conformance suite. Compile errors and timeouts do not count as detected semantic faults. This is not a whole-engine mutation-coverage result.",
-  "source_sha256": "d52b887ef65a98754298d525da4b350bc9c5ed79596ef2de3fb955df6f56093b",
-  "baseline": "killed",
-  "error": "unchanged tests do not pass; mutation results would be invalid"
-}

@@ -1,7 +1,7 @@
 # Independent nested ParsedExpression fixtures
 
-The [initial campaign](nested-parsed-expression-reference.json) and
-[explicit-column-name campaign](nested-parsed-expression-names-reference.json)
+The initial campaign and
+explicit-column-name campaign
 each retain 203 pinned source/version attempts. Each parsed 200 expressions and
 completed 200 stable C++ deserialize/reserialize cycles. The other three attempts
 are release parsing `{}` at storage 64, 65 and 68: the pinned release rejects this

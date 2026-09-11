@@ -53,10 +53,10 @@ SQL, and failures are retained. Reference sources/binaries were not modified.
 
 | Trial | Development | Release |
 | --- | --- | --- |
-| [Initial physical-provenance corpus](temporal-provenance-initial.json) | 60 / 88 | 60 / 88 |
-| [Runtime dispatch repaired](temporal-provenance-runtime.json) | 88 / 88 | 88 / 88 |
-| [Expanded constant-NULL initial](temporal-provenance-null-initial.json) | 92 / 112 | 104 / 112 |
-| [Development NULL policy repaired](temporal-provenance-null-repaired.json) | 112 / 112 | 92 / 112 |
+| Initial physical-provenance corpus | 60 / 88 | 60 / 88 |
+| Runtime dispatch repaired | 88 / 88 | 88 / 88 |
+| Expanded constant-NULL initial | 92 / 112 | 104 / 112 |
+| Development NULL policy repaired | 112 / 112 | 92 / 112 |
 
 The twenty remaining release disagreements are intentional development-policy
 choices, not accepted development failures. The earlier release initial trial
@@ -65,7 +65,7 @@ The exact driver therefore still returns nonzero for the repaired paired run:
 its overall flag requires agreement with both references, not just the
 development correctness authority. No failed trial was overwritten or relabeled.
 
-The [full temporal-family refresh](temporal-provenance-family-reference.json)
+The full temporal-family refresh
 passes 1,288 / 1,289 development SQL cases and 1,206 / 1,289 release cases. Every
 previously passing case remains passing: development gains exactly the four
 recorded gaps (1,284 to 1,288), as does release (1,202 to 1,206). This broader

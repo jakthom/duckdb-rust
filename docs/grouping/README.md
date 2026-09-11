@@ -6,7 +6,7 @@ and CUBE now pass the zero-regression gate against both pinned C++ references,
 along with the twelve existing native workloads. Full SQL, catalog, test and
 performance parity remain unfinished.
 
-The [validation manifest](validation.json) records current Rust source SHA-256
+The validation manifest records current Rust source SHA-256
 `f52f51fa1ab0db25fd6e041738f36018191088d05158f31d3de9025f7a27678f`,
 binary identities, commands, logs and evidence hashes. These results include
 uncommitted code on the existing rewrite branch.
@@ -70,10 +70,10 @@ checksum. The maximum Rust/C++ median ratio remains 1.0 per case.
 | Development | ROLLUP with SUM, COUNT and mask | 0.408 ms | 0.791 ms | 1.94× |
 | Development | CUBE with SUM, COUNT and mask | 1.049 ms | 1.259 ms | 1.20× |
 
-Raw grouping results: [release](final-grouping-release.json) and
-[development](final-grouping-development.json). The existing twelve cases also
-pass: [core release](final-core-release.json) and
-[core development](final-core-development.json).
+Raw grouping results: release and
+development. The existing twelve cases also
+pass: core release and
+core development.
 
 Query timings include execution and complete result consumption through each
 engine's embedded API. DDL timings include execution and any required rebind;
@@ -83,8 +83,8 @@ serial in-memory workloads do not establish cold-I/O, durable-write, concurrency
 memory, isolated-kernel, client or whole-engine performance parity.
 
 The original row driver took 13.86–37.02 ms for the release grouping cases and
-failed all three gates by 19–24×: [release baseline](grouping-release-performance.json)
-and [development baseline](grouping-development-performance.json). Intermediate
+failed all three gates by 19–24×: release baseline
+and development baseline. Intermediate
 failed measurements remain in this directory. The
 [preceding inspection](../quality-performance-current/README.md) still failed
 grouped SUM against release and CUBE against development. No failed measurement
@@ -92,7 +92,7 @@ was removed, tolerance added or workload assertion weakened.
 
 The [sample profile](grouped-profile.txt) is historical: it predates the fixed
 integer index, column arithmetic dispatch and count-histogram changes, and
-corresponds to the [clustered initial build](clustered-initial-release.json).
+corresponds to the clustered initial build.
 It identified grouping lookup, destination preparation and per-value arithmetic
 dispatch as costs to investigate. C++'s clustered integer SUM updates informed
 the work; the Rust representation ultimately benefits from sequential Value
@@ -120,16 +120,16 @@ widths, vector encodings and batch sizes; COUNT additionally covers nullable
 strings and cancellation of empty states. Malformed adapters cannot publish
 incorrect group counts, result lengths or logical values.
 
-The [current reference campaign](reference-batched.json) still fails overall:
+The current reference campaign still fails overall:
 **34 of 35 corpus records match each C++ reference**. Rust returns true for an
 EXISTS query over two empty grouping sets with `LIMIT 1 OFFSET 1`; both C++
 references return false. The local assertion remains unchanged. Earlier
-[direct probes](reference-probes.json) reproduced the discrepancy with C++
+direct probes reproduced the discrepancy with C++
 optimization disabled, so it is not characterized as only an optimizer issue.
 Separately, zero-argument GROUPING matches development but is rejected by
 v1.5.5. Neither discrepancy is counted as a pass.
 
-The [current unchanged upstream campaign](upstream-batched.json) selects all
+The current unchanged upstream campaign selects all
 eight files under `test/sql/aggregate/grouping_sets/`: **two pass and six are
 unsupported**, with no skipped assertions counted as passes. Five files stop
 at `SET default_null_order='nulls_first'`; the sixth reaches four successful
@@ -140,8 +140,8 @@ the source tests. The remaining complete SQL/catalog objective is tracked in
 
 ## Next configuration blocker
 
-The independent [ordering probes](ordering-reference-probes.json) and
-[lifecycle probes](ordering-lifecycle-probes.json) establish the behavior needed
+The independent ordering probes and
+lifecycle probes establish the behavior needed
 for real ordering settings. Both references support global defaults and SESSION
 overrides; setting changes survive transaction rollback. RESET or SET DEFAULT
 removes the selected override, so a reset SESSION value falls back to the global

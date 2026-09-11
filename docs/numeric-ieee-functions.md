@@ -1,6 +1,6 @@
 # IEEE-dependent numeric functions: initial evidence
 
-The retained [initial CLI probes](numeric-ieee-initial-cli-probes.json) record
+The retained initial CLI probes record
 unmodified outputs, commands, source commits, binary hashes and reference
 versions. Each sequence runs in a separate in-memory process. Development
 `99063af2bd` is the correctness authority; release `d8cdaa33fd` remains an
@@ -138,7 +138,7 @@ not these later IEEE additions or full prepared-plan parity.
 
 ## Initial paired math refresh and regression investigation
 
-[The initial paired report](numeric-ieee-reference-initial.json), on frozen
+The initial paired report, on frozen
 37c2962 source, records 1,086/1,088 development SQL passes and 3/3 native numeric
 round trips on both pins. All earlier 944 development passing SQL identities
 remain passing. Exact FLOAT/DOUBLE text is checked without numerical tolerance;

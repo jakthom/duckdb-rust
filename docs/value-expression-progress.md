@@ -88,7 +88,7 @@ implemented by setting registration alone. The upcoming integrated checkpoint
 will validate this new source; checkpoint fourteen's proof result is not reused
 as its acceptance.
 
-The retained [numeric repair campaign](numeric-nullif-values-errors-reference.json)
+The retained numeric repair campaign
 passes 944/944 development cases, 588/944 release cases and native 3/3 per pin,
 preserving all prior development passes. Its oracle compares retained value/type
 results and declared error categories, not complete error text. The
@@ -203,7 +203,7 @@ parser's unused-variable warning remains. These proofs do not cover stored
 expression evaluation/composition, expansion budgets, calendar semantics,
 native protocols or general concurrent durability.
 
-The source-specific [NULLIF campaign](numeric-nullif-reference.json), retained
+The source-specific NULLIF campaign, retained
 in `f7bc459`, passes 894/899 development cases and 538/899 release cases under
 the retained value/type and declared-error-category oracle (not full error text);
 native paths pass 3/3 per pin. All preceding 830 development passes remain.
@@ -289,14 +289,14 @@ format validation, native codec/recovery protocols, general expressions or
 concurrent durability. Connected tests and independent file readers are separate
 evidence for the new storage paths.
 
-The production [checkpoint campaign](fresh-native-values-checkpoint10.json)
+The production checkpoint campaign
 passes all six versions and all five stages per version. The production
-[WAL campaign](fresh-native-wal-checkpoint10.json) passes all six versions and
+WAL campaign passes all six versions and
 all seven stages, including initial/final checkpoints, rollback, Rust and C++
 mutations, and Rust mutation after a C++ checkpoint. Every development twin is
 also read by Rust. Release agrees for storage 64–68; its storage-69 rejection
 remains an explicit version limit. The production
-[deletion-mask campaign](native-deletion-identity-checkpoint10.json) passes all
+deletion-mask campaign passes all
 four retained independent fixtures. All three reports record unchanged source
 `defec4314138d31a8165b827dd4dc5a2c2aa2644e47afc9049bc965e9728973b`
 and production shell binary
@@ -337,12 +337,12 @@ actual vector-index addressing and preserves the obsolete wire field. The
 historical regression and all new independent fixtures now pass without removing
 assertions or mask bounds. Initial failures remain recorded.
 
-The [expanded production file campaign](fresh-native-values-checkpoint9-repaired.json)
+The expanded production file campaign
 passes all six storage versions and all five stages per version: creation,
 rollback, Rust commit, C++ commit, and a Rust mutation after C++ checkpointing.
 Rust also reads every independently produced development twin. Release agrees
 for storage 64–68; its storage-69 rejection remains an expected version limit.
-The [repaired production deletion campaign](native-deletion-identity-checkpoint9.json)
+The repaired production deletion campaign
 passes all four retained release/development files. Both production reports
 record unchanged source `4ce64917ee194eff0d2628cbfffce8caa10663ab499ce8de146064f64feea328`
 and shell binary `dca261a4e93f537387e061fce10bb1b6d82f2f0ea6f0523cbc6d2aed5af99869`.
@@ -362,7 +362,7 @@ Workers and root proof/build jobs were finished before measurement. This is
 serial in-memory embedded-API latency evidence, not coverage of new types,
 CPU/memory, cold I/O, durability, concurrency or the entire performance target.
 
-The [controlled full upstream refresh](value-expression-upstream-checkpoint9.json)
+The controlled full upstream refresh
 accounts for the same 5,638 unique file identities, archive, manifest and upstream
 revision as checkpoint5-d, with the same three-second deadline and two workers.
 Outcomes are 487 passed, 2,027 failed, 3,110 unsupported, 11 timeout and three
@@ -455,7 +455,7 @@ native VARIANT codec, SQL binding, general temporal semantics or concurrency.
 The command was run at the combined checkpoint; that is not a proof of every
 changed invariant.
 
-The new [native publication diagnostic](nested-publication-initial.json) retains
+The new native publication diagnostic retains
 four independent C++-produced files: development unshredded/shredded VARIANT,
 release shredded VARIANT, and development TUPLE/empty STRUCT. Original reads and
 rollback paths match development in all four. Committed Rust mutations fail
@@ -499,7 +499,7 @@ The first combined `cargo test --workspace` passed, with the two existing
 external-CLI analytics tests ignored. Ordinary focused checks/tests/clippy,
 instrumentation coverage and tracing compatibility were also run during
 integration; retained telemetry is deleted. The numeric
-[checkpoint campaign](value-expression-numeric-reference-checkpoint1.json)
+checkpoint campaign
 retains 38/38 development SQL passes and the 18 known release disagreements.
 Release native cases pass 3/3; development passes 2/3, with its own newly produced
 file still stopped by the then-unhandled segment byte-size field. This report
@@ -543,7 +543,7 @@ quoted/comment text does not consume positions. Mixed-schema tests cover typed
 inserts, updates and rollback. CTAS resolves untyped NULL children recursively
 before assignment, publication and private-format reopen.
 
-The immutable [numeric campaign](value-expression-numeric-reference-checkpoint2.json)
+The immutable numeric campaign
 records unchanged sources during the run: development 38/38 SQL and 3/3 native
 cases, release 20/38 SQL and 3/3 native cases. The same 18 release disagreements
 remain governed by development. Newly consumed development ownership metadata
@@ -607,21 +607,21 @@ Selected reference evidence (each report retains its own exact source identity):
 
 | Campaign | Development SQL | Release SQL | Native paths per pin |
 | --- | ---: | ---: | ---: |
-| [Numeric](value-expression-numeric-reference-checkpoint3.json) | 38/38 | 20/38 | 3/3 |
-| [BLOB/UUID](value-expression-binary-reference-checkpoint3.json) | 25/25 | 23/25 | 3/3 |
-| [ENUM](enum-reference-integrated.json) | 28/29 | 28/29 | 6/6 |
-| [Temporal functions](temporal-functions-reference-integrated.json) | 437/437 | 412/437 | 3/3 |
+| Numeric | 38/38 | 20/38 | 3/3 |
+| BLOB/UUID | 25/25 | 23/25 | 3/3 |
+| ENUM | 28/29 | 28/29 | 6/6 |
+| Temporal functions | 437/437 | 412/437 | 3/3 |
 
 The numeric/BLOB refreshes use engine `28063ef`, preceding the catalog-order
 repair below. Development remains authoritative for the retained release
 differences. ENUM boundary row-zero broadcasting remains open. The
-[binding corpus](value-expression-binding-reference-checkpoint3.json) preserves
+binding corpus preserves
 all 92 records against each reference. These are selected workloads, not full
 type/function/catalog/native parity.
 
 ### Regressions investigated before pushing
 
-The first [full upstream run](value-expression-upstream-checkpoint3-a.json)
+The first full upstream run
 increased passing files but lost two previously passing negative-test files and
 three passing records in another file. Shared scalar-call refactoring had moved
 catalog lookup after argument binding: unsupported ANY/star/tuple arguments
@@ -629,7 +629,7 @@ masked a missing-function error. `2536548` restores catalog-first lookup and
 passes the same selected function into binding. Regression tests retain this
 ordering and still check known functions' arguments.
 
-The [repaired run](value-expression-upstream-checkpoint3-b.json) accounts for all
+The repaired run accounts for all
 5,638 original file identities: 391 passed, 2,072 failed, 3,162 unsupported,
 10 timed out and three incomplete. Its 18,606 passing records include prefixes
 of failing files. Compared with `upstream-parity-batches-final.json` (313 files,
@@ -644,11 +644,11 @@ was discarded or compensated by a faster workload:
 
 | Manifest / faster-reference report | Cases | Maximum Rust/faster-C++ ratio |
 | --- | ---: | ---: |
-| [Numeric](value-expression-performance-checkpoint3-a-numeric-fastest.json) | 8 | 0.968104 |
-| [Native API](value-expression-performance-checkpoint3-a-native-fastest.json) | 12 | 0.955703 |
-| [Grouping](value-expression-performance-checkpoint3-a-grouping-fastest.json) | 3 | 0.936352 |
-| [Ordering](value-expression-performance-checkpoint3-a-ordering-fastest.json) | 1 | 0.748576 |
-| [Relational](value-expression-performance-checkpoint3-a-relational-fastest.json) | 10 | 0.950477 |
+| Numeric | 8 | 0.968104 |
+| Native API | 12 | 0.955703 |
+| Grouping | 3 | 0.936352 |
+| Ordering | 1 | 0.748576 |
+| Relational | 10 | 0.950477 |
 
 The linked summaries retain the release/development input reports and hashes.
 All groups share source fingerprint
@@ -709,7 +709,7 @@ same milestone remains active:
   SQL constructors and casts can produce clocks slightly beyond 24h. The
   provisional physical domain includes these source-backed witnesses without
   broadening text grammar or claiming arbitrary native/API raw-value support.
-  The [clock campaign](temporal-clock-domain-integrated.json) records development
+  The clock campaign records development
   667/667 selected SQL cases and 2/3 expanded native producers; release is 602/667
   and 1/3. Nested native WAL remains an executable failing obligation at
   `cargo run --example temporal_nested_wal_obligation`, not an ignored pass.
@@ -782,7 +782,7 @@ Confirmed repairs and usable subsequent increments include:
   unchanged. This is a repaired plan regression, not a measured latency claim.
 - FLOAT/DOUBLE integral casts use development's ties-to-even rounding before
   checked conversion. DECIMAL rounding remains distinct. The retained
-  [floating campaign](numeric-floating-rounding-reference.json) reports 62/62
+  floating campaign reports 62/62
   development cases and 34/62 release cases, with native producers 3/3 on both.
 - Shared recursive WAL vectors now carry nested temporal, decimal and BIT
   values through prepared mutations and reopen. Physical STRUCT child and
@@ -790,16 +790,16 @@ Confirmed repairs and usable subsequent increments include:
   including temporarily inconsistent UNION states. Independent fixtures cover
   12 committed states and 10 writable recovery/checkpoint/reopen continuations.
   Scalar WAL traversal borrows values, removing an introduced deep-copy cost.
-  The [interchange refresh](nested-wal-recovery-followup-reference.json) records
+  The interchange refresh records
   all four producer paths passing against both references; no throughput claim.
 - Calendar timestamp construction checks the same ordered intermediate
   arithmetic as development. The previously failing mixed nested-clock WAL
   obligation now passes unchanged and is an ordinary component test. The
-  [boundary campaign](temporal-calendar-boundary-integrated.json) records
+  boundary campaign records
   development 688/688 SQL and 3/3 native producers, release 623/688 and 2/3.
   Subsequent renderability work separates valid raw instants, infallible
   diagnostic display, fatal SQL casts and fallible result serialization; its
-  [696-case campaign](temporal-renderability-integrated.json) preserves exact
+  696-case campaign preserves exact
   reference categories and remaining lower-nanosecond parsing work.
 - Expanded BIT modifier testing exposed a new parser bug after the original
   signed-modifier repair: custom `BITSTRING(+1)` must reject a nonconstant
@@ -841,26 +841,26 @@ implicit cast, then retains an explicit cast when needed after common-type
 selection. It does not widen normal function overloads or table-assignment
 casts. Tests exercise both evaluator/optimizer compositions and selected
 implicit/explicit replacements. The prior implicit-only implementation fails
-the new test. The [paired combination corpus](value-expression-combination-reference-checkpoint5.json)
+the new test. The paired combination corpus
 passes unchanged against Rust and both C++ pins, including typed results,
 joins, grouping, windows, table mutations and rollback. Broader CASE/literal
 and recursive-CTE type selection remain separate obligations.
 
-The [full upstream refresh](value-expression-upstream-checkpoint5-a.json) retains
+The full upstream refresh retains
 all 5,638 identities with the same three-second deadline and two workers:
 423 passed, 2,090 failed, 3,111 unsupported, 11 timed out and three incomplete.
 It records 19,241 passed SQL instances, including prefixes of failing files;
 these are not all passing files. None of checkpoint three's 391 full passes
 is lost. Its sole shorter record prefix is the already-timing-out million-row
 `constant_columns.test_slow` (seven records instead of eight) during concurrent
-correctness builds. A [quiet three-second retry](value-expression-upstream-checkpoint5-constant-quiet.json)
-also reached seven. The [extended diagnostic](value-expression-upstream-checkpoint5-constant-extended.json)
+correctness builds. A quiet three-second retry
+also reached seven. The extended diagnostic
 preserves all 13 successful assertions before the existing 512 MiB checkpoint
 writer limit, so it covers the previously successful prefix without declaring
 the file passed. The limit exists unchanged in `ae0cd51`.
 
 A separate clean worktree rebuilt `ae0cd51` with the same production flags.
-The [paired deadline investigation](value-expression-constant-deadline-paired.json)
+The paired deadline investigation
 ran that source and current source alternately, three pairs, without worker
 build/proof load. Both completed seven, eight and eight records in the same
 pairs before the unchanged three-second deadline. All outcomes and source/
@@ -894,7 +894,7 @@ parsing/rendering, native interchange or concurrent durability. Faster-reference
 performance acceptance and the pre-push report update are still pending.
 
 The first isolated faster-reference campaign records 33/34 passing workloads.
-The [numeric matrix](value-expression-performance-checkpoint5-a-numeric-fastest.json)
+The numeric matrix
 fails `decimal_total_cents`: release C++ is faster at 50,292 ns, while the two
 Rust medians are 49,792 ns and 54,042 ns (maximum ratio 1.074565). Passing each
 pin separately does not satisfy the faster-reference rule. The other numeric
@@ -902,13 +902,13 @@ cases and all native/grouping/ordering/relational cases pass. All 21 paired
 samples per pin and all failed results remain retained; the follow-up push is
 held for repair of this failed gate. The shared aggregation repair is ongoing.
 
-The second [numeric trial](value-expression-performance-checkpoint5-b-numeric-fastest.json)
+The second numeric trial
 on `c3a03f6` keeps all 34 workload identities and again passes 33. Independent
 arithmetic/validity lanes reduce the worst decimal ratio to 1.020428, but the
 threshold is not rounded into a pass: the exact baseline is 50,959 ns,
 and Rust medians are 49,125 ns and 52,000 ns. This trial remains failed.
 
-The third [numeric trial](value-expression-performance-checkpoint5-c-numeric-fastest.json)
+The third numeric trial
 on `487d8f0` replaces conditional-zero/validity bookkeeping with checked
 coefficient loads; arithmetic lanes, prefix bounds, cancellation and wide
 fallbacks remain. Again 33/34 cases pass: decimal total has Rust medians
@@ -927,22 +927,22 @@ passed all six harnesses: TIMETZ 49.038 s, unsigned keys 0.837 s, dense offsets
 The same unreachable/unsupported constructs and sequential-concurrency limits
 apply. No new proof of SUM arithmetic or end-to-end engine correctness is claimed.
 
-The [post-reduction full upstream run](value-expression-upstream-checkpoint5-b.json)
+The post-reduction full upstream run
 again executes all 5,638 files: 423 passed, 2,091 failed, 3,110 unsupported,
 11 timed out and three incomplete, with 19,240 passed records. No full-file
 pass is lost. The dictionary-emission join file reaches 29 records before its
 three-second deadline, instead of the preceding 30 then unsupported result.
-The first [focused diagnostic](value-expression-upstream-checkpoint5-join-quiet.json)
+The first focused diagnostic
 was named `quiet` prematurely: another worker's already-running compilation
-was still active; it reached 26. The actual [isolated retry](value-expression-upstream-checkpoint5-join-isolated.json)
-reaches 29. An [extended diagnostic](value-expression-upstream-checkpoint5-join-extended.json)
+was still active; it reached 26. The actual isolated retry
+reaches 29. An extended diagnostic
 passes all 30 prior assertions in 3.040 s, then reaches the same unsupported
 `IS NOT DISTINCT FROM` join. This restores assertion coverage, not the
 three-second outcome; source-paired timing investigation remains open. The
 other changed outcome is the already-failing large grouping-set insert reaching
 its existing 512 MiB writer limit before the deadline instead of timing out.
 
-The [source-paired join diagnosis](value-expression-join-deadline-paired.json)
+The source-paired join diagnosis
 now compares a clean production rebuild of last-pushed `ae0cd51` with `7812862`:
 three alternating pairs reach 26/29, 30/30 and 30/30 previous/current records.
 Both final pairs reach the same unsupported expression; neither loses a prior
@@ -958,13 +958,13 @@ candidate (`7812862`) moves loader/magnitude selection outside individual blocks
 and widens the final proven block rather than each arithmetic lane. Its new
 scalar-versus-column regression covers widths 12/15/16/18, signed tails, empty
 input, block boundaries and totals beyond i64. Focused checks/tests/clippy pass.
-The fourth [numeric trial](value-expression-performance-checkpoint5-d-numeric-fastest.json)
+The fourth numeric trial
 still fails decimal total: 49,083/51,291 ns against release 50,750 ns, maximum
 ratio 1.010660. Only the eight numeric cases were rerun in this trial (seven
 pass); the remaining 26 were not repeated for this failed candidate. No new
 full-suite/Kani completion is claimed for this ongoing reduction experiment.
 
-The fifth [numeric trial](value-expression-performance-checkpoint5-e-numeric-fastest.json)
+The fifth numeric trial
 on `88e9094` uses four checked arithmetic lanes with the retained column-level
 selection and completed-block widening. Decimal total passes with Rust medians
 46,917/48,125 ns against the faster release median of 50,458 ns (maximum ratio
@@ -977,10 +977,10 @@ The same quiet campaign completes all 34 unchanged workload identities, each
 with three warmups and 21 paired samples against both pins. All pass the strict
 faster-reference gate, with one identical Rust source fingerprint across the
 ten reports. Maximum ratios by suite are numeric 0.953764,
-[native](value-expression-performance-checkpoint5-e-native-fastest.json) 0.964852,
-[grouping](value-expression-performance-checkpoint5-e-grouping-fastest.json) 0.933296,
-[ordering](value-expression-performance-checkpoint5-e-ordering-fastest.json) 0.696011,
-and [relational](value-expression-performance-checkpoint5-e-relational-fastest.json)
+native 0.964852,
+grouping 0.933296,
+ordering 0.696011,
+and relational
 0.926531. Implementation workers paused builds/proofs/reference probes during
 measurement; ordinary user applications remained running. This closes the
 recorded decimal timing gap for this source/configuration, not unmeasured CPU,
@@ -989,7 +989,7 @@ Focused numeric 28, execution 51, grouping 9, BIGNUM three and reduction units
 two pass with check/clippy. The final full workspace/upstream/Kani refresh is
 running before publication; the last pushed source remains `ae0cd51`.
 
-The [concurrent final-source upstream refresh](value-expression-upstream-checkpoint5-c.json)
+The concurrent final-source upstream refresh
 records all 5,638 identities on `88e9094`: 420 passed, 2,090 failed,
 3,110 unsupported, 15 timeouts and three incomplete; 19,235 passed records.
 Three prior full passes now hit the unchanged three-second deadline:
@@ -1016,7 +1016,7 @@ vendor parser's unused-variable warning remains. These bounded results do not
 prove the new reducer, full SQL/storage behavior or concurrency. The controlled
 full upstream investigation is the remaining pre-push check for this source.
 
-The [controlled full-suite refresh](value-expression-upstream-checkpoint5-d.json)
+The controlled full-suite refresh
 is now complete, with all implementation builds/proofs/reference jobs paused.
 It uses the same frozen source and binary hashes as the preceding concurrent
 run, all 5,638 file identities, unchanged assertions, three-second deadline and
@@ -1053,7 +1053,7 @@ rules to rendered values rather than only VARCHAR payloads; its initial Base64
 The [qualified-path report](qualified-nested-values.md) records mixed decimal,
 nanosecond, LIST and STRUCT paths across scalar/batch evaluation, parameters,
 joins, grouping, sorting, windows, indexed-table mutations, rollback and native
-reopen. The [native VARIANT follow-up](nested-variant-native-qualified-reference.json)
+reopen. The native VARIANT follow-up
 passes 49/49 against development semantics across three independent producer
 fixtures; all three earlier direct qualified-subscript join failures are fixed.
 Native VARIANT publication/WAL remain unsupported. The qualification campaign

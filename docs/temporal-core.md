@@ -146,29 +146,29 @@ do not establish diagnostic-category parity.
 
 | Campaign | Development SQL | Release SQL | Development native | Release native |
 | --- | --- | --- | --- | --- |
-| [Initial](temporal-core-reference-initial.json) | 15/18 | 16/18 | 0/3 | 3/3 |
-| [Repaired](temporal-core-reference-repaired.json) | 18/18 | 16/18 | 0/3 | 3/3 |
-| [Functions initial](temporal-functions-reference-initial.json) | 40/45 | 37/45 | 0/3 | 3/3 |
-| [Functions/casts repair](temporal-functions-reference-repaired.json) | 162/167 | 152/167 | 2/3 | 3/3 |
-| [Function/type matrix](temporal-functions-reference-matrix.json) | 432/433 | 408/433 | 2/3 | 3/3 |
-| [Integrated functions](temporal-functions-reference-integrated.json) | 437/437 | 412/437 | 3/3 | 3/3 |
-| [Interval text initial](temporal-text-reference-initial.json) | 443/448 | 418/448 | 3/3 | 3/3 |
-| [Interval text repair](temporal-text-reference-repaired.json) | 448/448 | 422/448 | 3/3 | 3/3 |
-| [Interval units/diagnostics](temporal-diagnostics-reference.json) | 455/455 | 429/455 | 3/3 | 3/3 |
-| [Clock text initial](temporal-clock-reference-initial.json) | 548/662 | 532/662 | 3/3 | 3/3 |
-| [Clock text repair](temporal-clock-reference-repaired.json) | 661/662 | 598/662 | 3/3 | 3/3 |
-| [Clock domain investigation](temporal-clock-domain-reference.json) | 666/667 | 601/667 | 0/3 expanded | 0/3 expanded |
-| [Clock domain integrated](temporal-clock-domain-integrated.json) | 667/667 | 602/667 | 2/3 expanded | 1/3 expanded |
-| [Calendar boundary/nested WAL integration](temporal-calendar-boundary-integrated.json) | 688/688 | 623/688 | 3/3 expanded | 2/3 expanded |
-| [Temporal renderability](temporal-renderability-integrated.json) | 696/696 | 631/696 | 3/3 expanded | 2/3 expanded |
-| [Nanosecond lower-bound initial](temporal-nanosecond-lower-bound-initial.json) | 702/709 | 635/709 | 3/3 expanded | 2/3 expanded |
-| [Nanosecond lower-bound repair](temporal-nanosecond-lower-bound-repaired.json) | 709/709 | 642/709 | 3/3 expanded | 2/3 expanded |
-| [Functions/keys/aliases initial](temporal-function-keys-reference-initial.json) | 749/750 | 679/750 | 0/3 expanded | 2/3 expanded |
-| [Functions/keys/aliases repair](temporal-function-keys-reference-repaired.json) | 750/750 | 680/750 | 3/3 expanded | 2/3 expanded |
-| [VARIANT clock context](temporal-variant-clock-reference.json) | 840/840 | 766/840 | 3/3 expanded | 2/3 expanded |
-| [DATE context initial](temporal-date-source-context-initial.json) | 864/884 | 783/884 | 3/3 expanded | 2/3 expanded |
-| [DATE context repair](temporal-date-source-context-repaired.json) | 884/884 | 803/884 | 3/3 + DATE | 2/3 + DATE |
-| [DATE syntax](temporal-date-syntax-reference.json) | 917/918 | 834/918 | 3/3 + DATE calls | 2/3 + DATE calls |
+| Initial | 15/18 | 16/18 | 0/3 | 3/3 |
+| Repaired | 18/18 | 16/18 | 0/3 | 3/3 |
+| Functions initial | 40/45 | 37/45 | 0/3 | 3/3 |
+| Functions/casts repair | 162/167 | 152/167 | 2/3 | 3/3 |
+| Function/type matrix | 432/433 | 408/433 | 2/3 | 3/3 |
+| Integrated functions | 437/437 | 412/437 | 3/3 | 3/3 |
+| Interval text initial | 443/448 | 418/448 | 3/3 | 3/3 |
+| Interval text repair | 448/448 | 422/448 | 3/3 | 3/3 |
+| Interval units/diagnostics | 455/455 | 429/455 | 3/3 | 3/3 |
+| Clock text initial | 548/662 | 532/662 | 3/3 | 3/3 |
+| Clock text repair | 661/662 | 598/662 | 3/3 | 3/3 |
+| Clock domain investigation | 666/667 | 601/667 | 0/3 expanded | 0/3 expanded |
+| Clock domain integrated | 667/667 | 602/667 | 2/3 expanded | 1/3 expanded |
+| Calendar boundary/nested WAL integration | 688/688 | 623/688 | 3/3 expanded | 2/3 expanded |
+| Temporal renderability | 696/696 | 631/696 | 3/3 expanded | 2/3 expanded |
+| Nanosecond lower-bound initial | 702/709 | 635/709 | 3/3 expanded | 2/3 expanded |
+| Nanosecond lower-bound repair | 709/709 | 642/709 | 3/3 expanded | 2/3 expanded |
+| Functions/keys/aliases initial | 749/750 | 679/750 | 0/3 expanded | 2/3 expanded |
+| Functions/keys/aliases repair | 750/750 | 680/750 | 3/3 expanded | 2/3 expanded |
+| VARIANT clock context | 840/840 | 766/840 | 3/3 expanded | 2/3 expanded |
+| DATE context initial | 864/884 | 783/884 | 3/3 expanded | 2/3 expanded |
+| DATE context repair | 884/884 | 803/884 | 3/3 + DATE | 2/3 + DATE |
+| DATE syntax | 917/918 | 834/918 | 3/3 + DATE calls | 2/3 + DATE calls |
 
 The repaired campaign fixes a real standalone-clock parsing mismatch: offsets
 after HH:MM are rejected, whereas HH:MM:SS offsets are valid. Timestamp suffix
@@ -214,14 +214,14 @@ Cancellation is checked during interval whitespace, integer/fraction/clock and
 repeated-unit scans; deterministic cancellation tests cover each shape.
 
 The unchanged retained development interval files were also executed with
-`scripts/run_upstream.py`. The [first upstream result](upstream-temporal-interval-text.json)
+`scripts/run_upstream.py`. The first upstream result
 is explicitly incomplete: two of ten files pass (fractional parsing and interval
 operators), seven fail and one is unsupported. First failures identify exact
 diagnostics, plural unit syntax, INTERVAL type qualifiers/alias(), scalar range(),
 and a boolean expectation normalization issue. Selected differential passes do
 not erase those broader obligations. Their original results/journal are retained.
 
-The [interval diagnostic follow-up](upstream-temporal-interval-diagnostics.json)
+The interval diagnostic follow-up
 advances to three passing and seven failing files, with none unsupported. Plural
 unit syntax uses the same retained cast/truncation/function path as singular
 syntax, including prepared mutations under both evaluators. The colon-overflow
@@ -258,7 +258,7 @@ schema. Native min/max calendar timestamp rows and no-op calendar arithmetic
 are included. This closes the recorded mixed-WAL witness, not every native-file
 or arbitrary raw-value obligation.
 
-The [unchanged TIME/TIMESTAMP upstream run](upstream-temporal-clock-text.json)
+The unchanged TIME/TIMESTAMP upstream run
 passes nine of 26 files, fails eleven and reports six unsupported (five depend on
 ICU, one on a missing TIMESTAMP_US alias). Passing files include time/timestamp
 2411 cases, time limits, TIME/TIMESTAMP TRY_CAST, alternative timestamp casts,
@@ -267,7 +267,7 @@ exact diagnostic differences, infinity abbreviations, missing nanosecond and
 timetz_byte_comparable functions, timestamp avg, and boolean harness normalization.
 This broader run is not full upstream parity despite the selected 667-case pass.
 
-The [cast-provenance interval follow-up](upstream-temporal-diagnostic-cast-interval.json)
+The cast-provenance interval follow-up
 passes four files and retains six failures. All nineteen interval TRY_CAST records
 now pass: the selected temporal adapter marks its own conversion/narrowing/range
 failures as invalid input while preserving public Conversion, Invalid Input and
@@ -276,7 +276,7 @@ stay fatal; nested TRY_CAST tests retain partial NULL children without suppressi
 an inner strict cast. The constants diagnostic still precedes the separately
 delivered shared floating-cast repair in this report.
 
-The [text diagnostic follow-up](upstream-temporal-diagnostic-cast-time.json)
+The text diagnostic follow-up
 passes eleven files, fails nine, and retains six unsupported. TIME range wording,
 TIMESTAMP format/calendar-range distinctions, numeric-offset diagnostics and
 precision-specific INT64 conversion errors now match selected source behavior.
@@ -293,7 +293,7 @@ then the clock and only then a zoned offset. A mathematically representable fina
 sum cannot repair an earlier overflow. Interval arithmetic retains checked day
 components, normalizes the clock carry, and checks the reconstructed day start;
 DATE and raw timestamp inputs also take their source calendar-conversion path.
-The [targeted unchanged boundary follow-up](upstream-temporal-calendar-boundary.json)
+The targeted unchanged boundary follow-up
 advances from four to eighteen of twenty-three records. All reached boundary
 rejections now pass; the next failure is integer-typed SQLLogicTest normalization
 of epoch's DOUBLE output. Both independent C++ CLIs render the same fractional
@@ -352,7 +352,7 @@ Expanded default schemas include TIMESTAMP_US and DATETIME(9) declarations and
 literals, and both readers repeat the functions after rollback/update/reopen.
 The failed initial report remains unchanged.
 
-The [unchanged function/key upstream refresh](upstream-temporal-function-keys.json)
+The unchanged function/key upstream refresh
 passes eleven of 26 TIME/TIMESTAMP files, fails ten and leaves five ICU-dependent
 files unsupported. No previously passing file is lost. The formerly unsupported
 TIMESTAMP_US file now passes nine records before a separate `FROM VALUES` parser
@@ -375,7 +375,7 @@ and ignored named-zone suffixes on naive timestamps. Previous reports and their
 failures remain unchanged. The DATE source-context gaps described above remain
 outside that passing clock subset and are addressed by the following DATE stage.
 
-The [unchanged VARIANT-clock upstream refresh](upstream-temporal-variant-clock.json)
+The unchanged VARIANT-clock upstream refresh
 passes twelve of 26 files, fails nine and retains five ICU-dependent unsupported
 files. `time_parsing.test` advances from twelve to all seventeen records and now
 passes. No earlier passing file or reached record prefix is lost. TIME_NS numeric
@@ -394,7 +394,7 @@ and differing DATE text behavior; these are not removed from the reports.
 The independent producers exercise the original DATE range outside timestamp
 range, not only ordinary contemporary dates or isolated parser return values.
 
-The [unchanged DATE upstream refresh](upstream-temporal-date-source-context.json)
+The unchanged DATE upstream refresh
 retains all six previously passing files, with no shorter reached prefix against
 the lead's controlled checkpoint5-d. `date_parsing.test` advances from fifteen
 to 86 of 100 records. Its next record deliberately contains invalid
@@ -433,7 +433,7 @@ trials remain in the report, not normalized to release behavior. Error-presence
 comparisons remain coarse in the paired driver; focused tests and the unchanged
 upstream suite carry exact diagnostic-category obligations.
 
-The [unchanged DATE-syntax upstream refresh](upstream-temporal-date-syntax.json)
+The unchanged DATE-syntax upstream refresh
 passes all eight selected DATE files. `date_parsing.test` advances from 86 to
 100 records and `test_date.test` from 19 to 20, preserving every other file and
 reached prefix. None are skipped or marked unsupported. The runner still returns

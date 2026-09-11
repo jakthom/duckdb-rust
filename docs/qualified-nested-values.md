@@ -19,7 +19,7 @@ replacement-catalog test checks qualified subscripts with prepared parameters.
 Direct qualified-subscript joins are also added to all three independent native
 VARIANT fixture tests.
 
-The [native follow-up](nested-variant-native-qualified-reference.json) passes
+The native follow-up passes
 **49/49** checks: development unshredded 17/17, development shredded 16/16, and
 release-produced shredded 16/16 under the development semantic oracle. All
 three formerly failing direct joins now pass. Source, binary and fixture
@@ -27,7 +27,7 @@ identities are retained and files remain unchanged. The preceding 46/49 report
 remains intact. This is read-side compatibility: native VARIANT publication and
 WAL writing remain unsupported.
 
-The [initial qualification campaign](qualified-nested-reference.json) matches
+The initial qualification campaign matches
 20/22 cases against each pin. Both remaining mismatches are retained:
 
 - The shell emits a LIST as a JSON string (`"[42]"`) rather than a JSON array
@@ -37,7 +37,7 @@ The [initial qualification campaign](qualified-nested-reference.json) matches
   although both pins accept it. Same-list alias reuse is separate from existing
   QUALIFY alias support and remains unimplemented.
 
-The [projection follow-up](qualified-nested-projection-reference.json) keeps
+The projection follow-up keeps
 all original cases and adds a scalar-only outer projection of the same QUALIFY
 query. It matches 21/23 cases on both pins; the original two mismatches remain,
 without result normalization or suppressed errors. Error checks compare

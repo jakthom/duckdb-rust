@@ -96,13 +96,13 @@ legacy/inherited child types, nested NULLs, decimal/integer widths, raw floating
 values, TIMETZ, other temporal types, BLOB escapes, BIT, BIGNUM negative zero,
 ENUM and UUID, UNION active NULLs and empty records.
 
-The initial [raw-byte campaign](nested-value-metadata-reference.json) passed
+The initial raw-byte campaign passed
 149/157 reader comparisons. Eight VARIANT cases differed only in descriptor
 allocation order or unused payload bytes under NULL leaves. C++ can retain
 those bytes when reserializing, so full physical-byte identity is not a valid
 canonical-content oracle. No production codec was weakened to hide this result.
 
-The subsequent [exact-content campaign](nested-value-metadata-exact-reference.json)
+The subsequent exact-content campaign
 passes 157/157 reader cases. Both C++ readers decode the original and Rust output.
 For VARIANT, C++ `UnifiedVariantVectorData` and `VariantUtils` traverse the
 original tags and child references; the helper records ordered exact-name keys,
@@ -112,8 +112,8 @@ indices and unused VARIANT bytes, not numeric widths, tags, floating bits or
 object ordering. It does not use SQL comparison, grouping keys, casts or value
 display as an oracle.
 
-The [post-instrumentation campaign](nested-value-metadata-final-reference.json)
-and [loaded-library identity campaign](nested-value-metadata-linked-reference.json)
+The post-instrumentation campaign
+and loaded-library identity campaign
 repeat the unchanged 157/157 cases on the delivered Rust source; both pass.
 
 Delivery `41957c6` passes ordinary `cargo check --workspace --all-targets`,

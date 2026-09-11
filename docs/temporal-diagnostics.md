@@ -21,10 +21,10 @@ difference, but display alone was not the full contract.
 
 An initially approved global Unsupported-prefix patch (`6c5a16d`) was evaluated
 and then reverted (`6fbe73c`) after cross-family review established the distinction.
-The [text-only trial](temporal-calendar-prefix.json) gained all 74 development
+The text-only trial gained all 74 development
 exact matches (800/827) and 62 release matches (700/827), with unchanged broader
 value-or-rejection outcomes and 3/3 mixed native paths per pin. Its
-[regression refresh](temporal-calendar-prefix-regressions.json) retained all
+regression refresh retained all
 1,288 development and 1,206 release passes of 1,289. These trials are retained,
 not accepted as a capability-classification repair.
 
@@ -37,7 +37,7 @@ to recover it. Calendar consumers migrate only the four source-confirmed bodies;
 an absent ICU adapter or frontend capability stays Unsupported.
 
 The accepted category consumer `6886f1d` reproduces the text-only gains in a
-separate [classification-aware paired trial](temporal-calendar-rejection.json):
+separate classification-aware paired trial:
 development 800/827 exact, 827/827 value-or-rejection outcomes; release 700/827
 exact, 742/827 outcomes. All three native calendar paths pass per pin. The
 complete-error comparator is unchanged, and the driver correctly exits nonzero
@@ -89,7 +89,7 @@ ICU rejection and selected custom casts through scalar, batch, nested and
 prepared execution. These body-only assertions do not remove the original-source
 suffix obligation from the unchanged paired driver.
 
-The [post-consumer campaign](temporal-calendar-overloads.json), at merged source
+The post-consumer campaign, at merged source
 `edb2fde`, retains every prior calendar pass: development 800/827 exact and
 827/827 outcomes, release 700/827 exact and 742/827 outcomes, with native 3/3
 per pin. All 19 development candidate bodies now agree, while their full messages
@@ -97,14 +97,14 @@ remain failed. Release's advertised signatures differ and correctness continues
 to follow development. Every one of the 74 Rust supported rejections has the
 worker's missing-capability flag false.
 
-The [broader regression refresh](temporal-diagnostics-regressions.json) retains
+The broader regression refresh retains
 all 1,288 development and 1,206 release passes of 1,289, with no lost passes.
 Its development SQL failure remains the optimizer-sensitive raw timestamp
 DEFAULT witness. Rust-produced native paths pass, giving 2/3 native paths per
 pin. The development producer still exposes default expression class 9, kind
 140, whose decoder remains lead-owned; the release producer cannot create this
 fixture because its TIME-to-TIME_NS cast is unavailable.
-The [MIN refresh](temporal-diagnostics-minimum.json) is likewise unchanged:
+The MIN refresh is likewise unchanged:
 development 23/32 exact and 32/32 outcomes, release 20/32 exact and 29/32 outcomes.
 All four independent native MIN paths pass per pin, with 36 development and
 30 release typed C++ Value/API checks passing. Neither report is presented as

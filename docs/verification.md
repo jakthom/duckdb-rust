@@ -1,12 +1,16 @@
 # Verification scope
 
+Raw JSON and JSONL records cited by this historical narrative are intentionally
+excluded from the active documentation tree. Previous copies remain recoverable
+from Git history; new validation output belongs under `target/`.
+
 Current reference selection is documented in the [two-reference runbook](reference-builds.md).
 The v1.5.5 source build is the default compatibility oracle; the pinned development
 checkout has a separate campaign. The
 [latest performance comparisons](settings/README.md) pass all sixteen
 measured cases against both targets, including ORDER BY ALL, grouped SUM, ROLLUP and CUBE.
 Grouping SQL still has independent reference differences and unsupported
-upstream files. The [earlier combined report](references-source-builds/summary.json)
+upstream files. The earlier combined report
 retains unresolved file/ALTER compatibility failures and its original failed
 measurements. Historical v1.3.0 results below retain their original scope and
 cannot establish current release compatibility.
@@ -166,7 +170,7 @@ cargo build --release --bin duckdb-rust
 python3 scripts/verify_reference.py --report reference-report.json
 ```
 
-The [recorded run](reference-report.json) passed on 2026-09-09 UTC against DuckDB v1.3.0. The JSON report records the reference revision, Rust toolchain, host platform, source and executable hashes, selected adapters, 37 top-level check outcomes and elapsed verification time. Recovery publication, transaction logging and online checkpointing also record their test workers' source/executable hashes and each interruption boundary. The subquery group records its corpus hash and all 144 record/configuration outcomes. That elapsed time is not a database benchmark.
+The recorded run passed on 2026-09-09 UTC against DuckDB v1.3.0. The JSON report records the reference revision, Rust toolchain, host platform, source and executable hashes, selected adapters, 37 top-level check outcomes and elapsed verification time. Recovery publication, transaction logging and online checkpointing also record their test workers' source/executable hashes and each interruption boundary. The subquery group records its corpus hash and all 144 record/configuration outcomes. That elapsed time is not a database benchmark.
 
 ## Recovery conformance
 
@@ -340,35 +344,35 @@ The implementation has not met the broader [rewrite workload acceptance requirem
 
 ## Execution measurements
 
-`python3 scripts/run_benchmarks.py --report execution-benchmark.json` builds the release benchmark driver and compares pull and eager result delivery for scans, filtering, aggregation, indexed point queries, and first-batch termination. Configuration, selected adapters, source/executable hashes, toolchain, platform and every sample are recorded. Setup and SQL parsing precede timing; prepared rebinding, execution and correctness checks are timed, with one warmup per case. The [recorded run](execution-benchmark.json) is an in-memory experiment, not a DuckDB performance comparison or promotion budget. It does not measure peak memory, disk I/O, parallel scheduling or spill.
+`python3 scripts/run_benchmarks.py --report execution-benchmark.json` builds the release benchmark driver and compares pull and eager result delivery for scans, filtering, aggregation, indexed point queries, and first-batch termination. Configuration, selected adapters, source/executable hashes, toolchain, platform and every sample are recorded. Setup and SQL parsing precede timing; prepared rebinding, execution and correctness checks are timed, with one warmup per case. The recorded run is an in-memory experiment, not a DuckDB performance comparison or promotion budget. It does not measure peak memory, disk I/O, parallel scheduling or spill.
 
 ## Compression measurements
 
-`python3 scripts/run_benchmarks.py --suite compression --rows 500000 --iterations 9 --report compression-benchmark.json` compares scalar and word bitpacking through checked registry dispatch. Ten cases cover constant, arithmetic delta, delta/frame packing, widths 0–127, and BIGINT/HUGEINT. Every decoded value is checked; dispatch, allocation and physical type validation are timed. Input generation is outside the timed region. Three warmups precede measurement, and adapter order alternates each iteration to reduce drift. Configuration, samples, adapter selections and source/executable provenance appear in the [recorded run](compression-benchmark.json).
+`python3 scripts/run_benchmarks.py --suite compression --rows 500000 --iterations 9 --report compression-benchmark.json` compares scalar and word bitpacking through checked registry dispatch. Ten cases cover constant, arithmetic delta, delta/frame packing, widths 0–127, and BIGINT/HUGEINT. Every decoded value is checked; dispatch, allocation and physical type validation are timed. Input generation is outside the timed region. Three warmups precede measurement, and adapter order alternates each iteration to reduce drift. Configuration, samples, adapter selections and source/executable provenance appear in the recorded run.
 
 The selection budget is set before measurement: the word implementation's median may be at most 1.25 times the scalar median in each covered case. The recorded run passes this budget. This narrow budget concerns decoder selection only. It does not measure the extraction boundary against the previous engine, full file opening, peak memory, I/O, encoding, or DuckDB performance. The complete rewrite's workload and structural overhead budgets remain open.
 
 ## Cast adapter and structural measurements
 
-The casting change uses the saved [execution baseline](cast-seam-baseline.json), recorded before implementation, with a per-workload median elapsed-time limit of 1.25 times baseline. The baseline contains five samples per workload, 50,000 input rows and batch size 256. This gate concerns the current serial in-memory workloads only; it is separate from the broader rewrite acceptance criteria. The [comparison report](cast-seam-comparison.json) passes all ten cases; the largest median ratio is 1.086, below the predeclared 1.25 limit. It records each ratio and the source/executable provenance of both runs. Reproduce the check with `python3 scripts/compare_execution_benchmarks.py docs/cast-seam-baseline.json docs/type-seam-baseline.json --report docs/cast-seam-comparison.json`. Five samples per case do not establish statistical confidence or a general performance claim.
+The casting change uses the saved execution baseline, recorded before implementation, with a per-workload median elapsed-time limit of 1.25 times baseline. The baseline contains five samples per workload, 50,000 input rows and batch size 256. This gate concerns the current serial in-memory workloads only; it is separate from the broader rewrite acceptance criteria. The comparison report passes all ten cases; the largest median ratio is 1.086, below the predeclared 1.25 limit. It records each ratio and the source/executable provenance of both runs. Reproduce the check with `python3 scripts/compare_execution_benchmarks.py docs/cast-seam-baseline.json docs/type-seam-baseline.json --report docs/cast-seam-comparison.json`. Five samples per case do not establish statistical confidence or a general performance claim.
 
-`python3 scripts/run_benchmarks.py --suite casts --rows 500000 --iterations 9 --report docs/cast-benchmark.json` compares both integer parsers through checked bound casts and prepared SQL aggregation. Three warmups precede measurements and adapter order alternates per iteration. Input construction and database setup precede timing; conversion, physical checks, allocation, checksums and SQL rebinding/execution are included as applicable. The [recorded cast comparison](cast-benchmark.json) passes both workloads for both adapters. This algorithm comparison has no promotion threshold and is not a DuckDB performance comparison.
+`python3 scripts/run_benchmarks.py --suite casts --rows 500000 --iterations 9 --report docs/cast-benchmark.json` compares both integer parsers through checked bound casts and prepared SQL aggregation. Three warmups precede measurements and adapter order alternates per iteration. Input construction and database setup precede timing; conversion, physical checks, allocation, checksums and SQL rebinding/execution are included as applicable. The recorded cast comparison passes both workloads for both adapters. This algorithm comparison has no promotion threshold and is not a DuckDB performance comparison.
 
 ## Type registry measurements
 
-The type change uses the preserved [execution baseline](type-seam-baseline.json) from the accepted cast change, with the same predeclared 1.25 per-workload median ratio limit, sample count and configuration. Early measurements exceeded the limit. Shared extension metadata restored the primitive Value footprint from 80 to 32 bytes; binary/IN expressions retain selected semantics, column projections share vectors, and one expression-simplification pass combines constant-cast folding with true-filter removal. Streams retain only necessary logical validators, keys reserve their complete component space, and the owned validated-plan contract removes duplicate runtime/optimizer validation. A trial validation cache supplied no measurable improvement and was removed. The [final comparison](type-seam-comparison.json) passes all ten cases, with a largest median ratio of 1.100. Five samples establish neither confidence bounds nor broader workload acceptance. Reproduce the saved comparison with `python3 scripts/compare_execution_benchmarks.py docs/type-seam-baseline.json docs/date-seam-baseline.json --report docs/type-seam-comparison.json`.
+The type change uses the preserved execution baseline from the accepted cast change, with the same predeclared 1.25 per-workload median ratio limit, sample count and configuration. Early measurements exceeded the limit. Shared extension metadata restored the primitive Value footprint from 80 to 32 bytes; binary/IN expressions retain selected semantics, column projections share vectors, and one expression-simplification pass combines constant-cast folding with true-filter removal. Streams retain only necessary logical validators, keys reserve their complete component space, and the owned validated-plan contract removes duplicate runtime/optimizer validation. A trial validation cache supplied no measurable improvement and was removed. The final comparison passes all ten cases, with a largest median ratio of 1.100. Five samples establish neither confidence bounds nor broader workload acceptance. Reproduce the saved comparison with `python3 scripts/compare_execution_benchmarks.py docs/type-seam-baseline.json docs/date-seam-baseline.json --report docs/type-seam-comparison.json`.
 
 `python3 scripts/run_benchmarks.py --suite types --rows 500000 --iterations 9 --report docs/type-benchmark.json` compares both ASCII implementations on equal text, early/late comparison differences, canonical keys and SQL grouping. Three warmups precede alternating adapter measurements. Validation, allocations and correctness checks are included; input construction and database setup precede timing. This adapter experiment has no promotion threshold and makes no DuckDB performance claim.
 
 ## DATE integration measurements
 
 The DATE increment preserves the previous accepted execution run in
-[date-seam-baseline.json](date-seam-baseline.json). The acceptance limit is a
+date-seam-baseline.json. The acceptance limit is a
 predeclared per-case median ratio of 1.25, with the same 50,000 rows, five samples and batch
 size 256. This gate covers existing workloads; it does not establish temporal
 workload performance or complete DuckDB compatibility.
 
-The [DATE comparison](date-seam-comparison.json) passes all ten cases; the
+The DATE comparison passes all ten cases; the
 largest median ratio is 1.183. Reproduce the gate with
 `python3 scripts/compare_execution_benchmarks.py docs/date-seam-baseline.json docs/operator-seam-baseline.json --report docs/date-seam-comparison.json`.
 Historical cast/type comparisons retain their original accepted runs. The
@@ -379,7 +383,7 @@ confidence or broader workload acceptance.
 ## Operator integration measurements
 
 The operator change preserves the accepted DATE execution run in
-[operator-seam-baseline.json](operator-seam-baseline.json). Each existing
+operator-seam-baseline.json. Each existing
 workload's median must remain at or below 1.25 times this baseline, using
 50,000 rows, five samples, one warmup and batch size 256. This structural
 gate does not establish complete workload or DuckDB performance acceptance.
@@ -392,14 +396,14 @@ repeated suffix trials, and prepared SQL filtering. The planned run uses
 This tests the selected LIKE implementation, separately from structural
 overhead and the broader rewrite workload requirements.
 
-The [operator structural comparison](operator-seam-comparison.json) passes all
+The operator structural comparison passes all
 ten cases with a largest median ratio of 1.150. Reproduce it with
 `python3 scripts/compare_execution_benchmarks.py docs/operator-seam-baseline.json docs/wal-seam-baseline.json --report docs/operator-seam-comparison.json`.
 The historical DATE comparison uses the accepted run now preserved as the
 operator baseline. The accepted operator run is now preserved in the WAL baseline.
 
 `python3 scripts/run_benchmarks.py --suite operators --rows 50000 --iterations 9 --report docs/operator-benchmark.json` reproduces the
-[LIKE comparison](operator-benchmark.json). The initial implementation failed
+LIKE comparison. The initial implementation failed
 the repeated-suffix case at 1.468. Literal UTF-8 prefixes now compare bytes
 directly; wildcards and retries still advance by Unicode scalar boundaries.
 The unchanged workloads pass with a largest greedy/dynamic ratio of 0.595.
@@ -411,14 +415,14 @@ LIKE complexity, statistical confidence or DuckDB performance parity.
 ## WAL recovery acceptance budget
 
 Before changing recovery, the accepted operator execution report is frozen in
-[wal-seam-baseline.json](wal-seam-baseline.json). Each of the ten existing
+wal-seam-baseline.json. Each of the ten existing
 execution cases must remain within 1.25 times its baseline median, using
 50,000 rows, five samples, one warmup and batch size 256. This protects the
 existing execution path; it does not measure recovery throughput, I/O, peak
 memory, crash-safe publication or full workload acceptance.
 
 
-The [WAL structural comparison](wal-seam-comparison.json) passes all ten cases
+The WAL structural comparison passes all ten cases
 with a largest median ratio of 1.063. Reproduce it with
 `python3 scripts/compare_execution_benchmarks.py docs/wal-seam-baseline.json docs/writable-recovery-baseline.json --report docs/wal-seam-comparison.json`.
 That accepted read-only recovery run is now preserved as the writable recovery
@@ -428,13 +432,13 @@ baseline; historical structural comparisons retain their frozen accepted inputs.
 ## Writable recovery acceptance budget
 
 Before changing publication, the accepted read-only recovery execution run is
-frozen in [writable-recovery-baseline.json](writable-recovery-baseline.json).
+frozen in writable-recovery-baseline.json.
 Each of the ten existing execution cases must remain within 1.25 times its
 baseline median, using 50,000 rows, five samples, one warmup and batch size 256.
 This protects the existing execution path; recovery I/O, peak memory and
 full-workload performance need separate measurements.
 
-The [writable recovery comparison](writable-recovery-comparison.json) passes all
+The writable recovery comparison passes all
 ten cases with a largest median ratio of 1.122, below the predeclared 1.25 limit.
 That accepted run is now frozen as the logging baseline. Reproduce the saved
 comparison with
@@ -446,13 +450,13 @@ Historical comparisons retain their original accepted inputs.
 ## Transaction logging acceptance budget
 
 Before changing the commit path, the accepted writable recovery execution run
-is frozen in [logging-seam-baseline.json](logging-seam-baseline.json). Each of
+is frozen in logging-seam-baseline.json. Each of
 the ten existing execution cases must remain within 1.25 times its baseline
 median, using 50,000 rows, five samples, one warmup and batch size 256. Logging
 I/O, commit latency, peak memory and full-workload performance require separate
 measurements; this gate protects the existing in-memory execution path.
 
-The [logging structural comparison](logging-seam-comparison.json) passes all
+The logging structural comparison passes all
 ten cases with a largest median ratio of 1.235, below the predeclared 1.25 limit.
 That accepted run is now frozen as the checkpoint baseline. Reproduce the saved
 comparison with
@@ -462,13 +466,13 @@ Five samples do not establish statistical confidence or general WAL performance.
 ## Online checkpoint acceptance budget
 
 Before changing checkpoint scheduling and row-ID rebasing, the accepted logging
-execution run is frozen in [checkpoint-seam-baseline.json](checkpoint-seam-baseline.json).
+execution run is frozen in checkpoint-seam-baseline.json.
 Each of the ten execution cases must remain within 1.25 times its baseline
 median, using 50,000 rows, five samples, one warmup and batch size 256. This
 protects the existing in-memory path; checkpoint I/O, pause time, peak memory
 and full workload performance require separate measurement.
 
-The [checkpoint structural comparison](checkpoint-seam-comparison.json) passes
+The checkpoint structural comparison passes
 all ten cases with a largest median ratio of 1.039, below the predeclared 1.25
 limit. Its accepted run is frozen as the subquery baseline. Reproduce the saved
 comparison with
@@ -479,7 +483,7 @@ Five samples do not establish statistical confidence or checkpoint performance.
 
 Before changing expression execution and nested query binding, the accepted
 checkpoint execution run is frozen in
-[subquery-seam-baseline.json](subquery-seam-baseline.json). Each of the ten
+subquery-seam-baseline.json. Each of the ten
 existing execution cases must remain within 1.25 times its baseline median,
 using 50,000 rows, five samples, one warmup and batch size 256. This gate protects
 the existing in-memory path; subquery workloads, planning costs and memory use
@@ -492,18 +496,18 @@ Initial syntax preparation and setup precede timing; binding, physical planning,
 execution and result checks are included. This is a small serial adapter-selection gate, not a decorrelation,
 concurrency or DuckDB performance comparison.
 
-The initial [unfused subquery run](subquery-benchmark-unfused.json) failed this
+The initial unfused subquery run failed this
 selection gate: correlated EXISTS had a streaming/materializing median ratio of
 1.555. Single-row demand constructed and validated a chunk for every rejected
 scan row. A selectable fused scan/filter operator now validates storage rows
 directly and constructs only selected output chunks, retaining the same demand
-and error contracts. The unchanged [subquery workloads](subquery-benchmark.json)
+and error contracts. The unchanged subquery workloads
 pass all six gates, with a largest ratio of 1.000; correlated EXISTS is 0.774.
 The benchmark runner records the report and returns a failing exit status for
 any failed correctness or selection budget. Reproduce this run with
 `python3 scripts/run_benchmarks.py --suite subqueries --rows 2000 --iterations 9 --batch-size 256 --report docs/subquery-benchmark.json`.
 
-The [subquery structural comparison](subquery-seam-comparison.json) passes all
+The subquery structural comparison passes all
 ten existing execution cases, with a largest median ratio of 1.104 against the
 frozen checkpoint run, below the predeclared 1.25 limit. Reproduce it with
 `python3 scripts/run_benchmarks.py --suite execution --rows 50000 --iterations 5 --batch-size 256 --report docs/execution-benchmark.json`

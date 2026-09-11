@@ -59,10 +59,10 @@ coarse; it is not proof of exact error-category or capability parity.
 
 | Trial | Development SQL | Release SQL | Development native producers |
 | --- | --- | --- | --- |
-| [Initial family](temporal-differences-reference-initial.json) | 1,261 / 1,262 | 1,178 / 1,262 | 2 / 3 |
-| [Context investigation](temporal-differences-context-initial.json) | 1,263 / 1,267 | 1,180 / 1,267 | 0 / 3 |
-| [Repaired source](temporal-differences-reference-repaired.json) | 1,284 / 1,289 | 1,201 / 1,289 | 2 / 3 |
-| [Final state-aware refresh](temporal-differences-reference-final.json) | 1,284 / 1,289 | 1,202 / 1,289 | 2 / 3 |
+| Initial family | 1,261 / 1,262 | 1,178 / 1,262 | 2 / 3 |
+| Context investigation | 1,263 / 1,267 | 1,180 / 1,267 | 0 / 3 |
+| Repaired source | 1,284 / 1,289 | 1,201 / 1,289 | 2 / 3 |
+| Final state-aware refresh | 1,284 / 1,289 | 1,202 / 1,289 | 2 / 3 |
 
 The context trial exposed premature evaluation of bad casts in dead CASE
 branches. The metadata hook repairs both witnesses; valid-overload-first binding
@@ -120,11 +120,11 @@ and 11 DATE tests pass. No test was newly ignored. The metadata prerequisite's
 coverage check found no missing instrumentation, and its all-target traced check
 passed in 60.20 seconds with temporary telemetry deleted.
 
-The unchanged [extreme-DATE file](upstream-temporal-differences-extreme.json)
-passes all seven records. The [slow-file refresh](upstream-temporal-differences-repaired.json)
+The unchanged extreme-DATE file
+passes all seven records. The slow-file refresh
 preserves 89 date_diff and 135 date_sub records before the explicit TIME/year
-capability boundary, matching the [initial trial](upstream-temporal-differences-initial.json).
-The [epoch-file run](upstream-temporal-differences-epoch.json) records the separate
+capability boundary, matching the initial trial.
+The epoch-file run records the separate
 bare-VALUES blocker at its first query. Filtered upstream runs keep
 `full_suite_passed: false` and return nonzero even when their selected file passes.
 

@@ -41,7 +41,7 @@ numeric SQL, cast, arithmetic or persistence coverage.
 
 ## Independent C++ evidence
 
-The [foundation reference report](numeric-reference.json) retains SQL, typed rows,
+The foundation reference report retains SQL, typed rows,
 complete errors, source/binary identities and outcomes for both references:
 
 | Scope | Development | Release v1.5.5 |
@@ -63,15 +63,15 @@ and replaying its WAL. These are unresolved compatibility failures, not waived
 by development's precedence. Broader codec, file, recovery and storage-version
 coverage remains open.
 
-The [initial failed run](numeric-reference-initial.json) and
-[coercion follow-up](numeric-reference-coercion.json) are retained. They exposed
+The initial failed run and
+coercion follow-up are retained. They exposed
 the unsigned `round()` type mismatch and index-options decoding failure fixed
 in the current source. No C++ library is linked into the Rust engine.
 
 ## Refreshed upstream report
 
-The [full SQL report](upstream-parity-numeric.json) and its
-[journal](upstream-parity-numeric.jsonl) retain all 5,638 source-file outcomes:
+The full SQL report and its
+journal retain all 5,638 source-file outcomes:
 305 passed, 1,887 failed, 3,435 unsupported, eight timed out and three incomplete.
 There are 16,968 passed SQL records, including prefixes of failed files. The
 preceding report had 197 passing files; the new net increase is 108, with 110
@@ -97,10 +97,10 @@ can validate them; the conversion is part of both measured queries. Setup and
 initial preparation are untimed. High-domain 128-bit output, other scalar/API
 paths, memory, I/O, durability and concurrency remain unmeasured here.
 
-Both the [release](numeric-performance-release.json) and
-[development](numeric-performance-development.json) campaigns validate every
+Both the release and
+development campaigns validate every
 result, but seven of eight new workloads fail the
-[faster-reference gate](numeric-performance-fastest.json). Only unsigned scan
+faster-reference gate. Only unsigned scan
 passes. Unsigned filtering and SUM, decimal filtering and SUM, grouped currency
 totals, decimal equality joins and partitioned decimal windows need regression
 work. Both Rust sample sets are retained and checked against the smaller C++

@@ -47,7 +47,7 @@ integrable internal step, not a declaration that the substantial stage is done.
 No performance acceptance measurements are claimed. Precision-aware
 `round`/`trunc` and `round_even`/`roundbankers` remain the next numeric work.
 
-The first [paired campaign](numeric-direction-reference-initial.json) built
+The first paired campaign built
 production binaries in 1m43s on unchanged integrated source. Development matches
 218/226 SQL cases and release 190/226. The eight development mismatches are
 existing DECIMAL(w,w)-to-VARCHAR formatting: Rust includes a major zero (`0.9`),
@@ -63,7 +63,7 @@ rerun follow; the initial failures are retained.
 All three native producer paths (C++, Rust checkpoint and Rust WAL) pass both
 pins, including typed defaults, selected direction expressions, primary-key
 updates, rollback and cross-engine checkpoint/reopen. The initial
-[unchanged upstream floor/ceil file](upstream-numeric-direction.json) passes all
+unchanged upstream floor/ceil file passes all
 16 records. Its wrapper exits 1 because a selected file is not whole-suite
 parity. After merging the integration lead's source, numeric 31, casts 12 and
 binary scalar 8 tests pass. The paired report remains unsuccessful until the
@@ -79,7 +79,7 @@ aliases also use ordinary identifier grammar instead of the parser's special
 datetime function production. Two additional paired SQL queries retain these
 identifier cases.
 
-The [repaired paired campaign](numeric-direction-reference-repaired.json) builds
+The repaired paired campaign builds
 production binaries in 1m31s on unchanged source: development **228/228 SQL**,
 release **200/228 SQL**, and **3/3 native producers on each pin**. All 166 added
 numeric-direction checks now match both references. The 28 retained

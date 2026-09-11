@@ -79,4 +79,11 @@ attributes can be added with `cargo dev coverage --write` and then reviewed.
 Check instrumentation compatibility with `cargo dev trace check --workspace --all-targets`.
 Production builds use `cargo build --release --no-default-features` and exclude tracing.
 
+## Validation artifacts
+
+Keep raw JSON and JSONL validation output under the Git-ignored `target/`
+directory, not under `docs/`. Documentation can retain compact prose summaries
+and the source revision needed to reproduce them. Historical raw reports remain
+recoverable from Git history.
+
 The root README must remain exactly as on main. Do not edit README files.

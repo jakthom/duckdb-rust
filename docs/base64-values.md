@@ -54,7 +54,7 @@ This was a test-lifetime error, not a relaxed database ownership contract.
 The expanded `scripts/binary_scalar_reference.py` retains all preceding
 BLOB/UUID queries and adds Base64 cases, padding observations, native defaults,
 cross-engine mutation/reopen and indexed decoded-key lookup. The initial
-[paired campaign](binary-scalar-reference-base64.json) built uninstrumented
+paired campaign built uninstrumented
 release binaries in 1m39s and retained unchanged source and both pinned binary
 identities. All 111 added Base64 cases match both pins, including 192 padding
 inputs within six batched queries. Development matches 136/136 SQL cases;
@@ -77,7 +77,7 @@ a 2m47s instrumented build: 56,419 completed operations, zero error returns,
 panics or open spans, and exact output `AP8=`, `00`, `[A, NULL]`. Temporary
 telemetry was deleted after both runs; trace timings are not performance data.
 
-The initial [unchanged upstream file run](upstream-base64.json) reaches 8/17
+The initial unchanged upstream file run reaches 8/17
 records, then fails at line 47: an empty BLOB renders as an empty transport
 string instead of SQLLogicTest's `(empty)` sentinel. The engine value agrees
 with both references. The reference's `test/sqlite/result_helper.cpp:403–431`
@@ -87,7 +87,7 @@ value renderer, with focused empty BLOB/VARCHAR, NULL, byte-zero, nested NULL an
 public-query regression coverage. This does not alter upstream assertions,
 database values or the general SQL/client renderer; complete retained selected
 text casting in the test transport remains separate work. The failed report is
-retained. The [unchanged-file rerun](upstream-base64-rendering.json) passes all
+retained. The unchanged-file rerun passes all
 17/17 records after a 27-second uninstrumented worker build; the focused worker
 regression and tracing-enabled clippy also pass. The wrapper still exits 1
 because this one selected file is not complete upstream-suite parity. The

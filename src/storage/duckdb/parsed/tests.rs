@@ -144,7 +144,7 @@ fn native_expression_read_is_bounded_and_writes_are_atomic() -> Result<()> {
 #[test]
 fn independent_cpp_parsed_expression_fixtures_remain_unevaluated() -> Result<()> {
     let report: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../docs/nested-parsed-expression-reference.json"
+        "../../../../test/fixtures/native/nested_parsed_expression_reference.fixture"
     ))
     .unwrap();
     let query = QueryContext::background();

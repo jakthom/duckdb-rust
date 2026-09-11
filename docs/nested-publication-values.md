@@ -1,7 +1,7 @@
 # Versioned native nested publication
 
-The [initial diagnostic](nested-publication-initial.json) preserves all four
-native writer failures. The [follow-up](nested-publication-checkpoint8.json)
+The initial diagnostic preserves all four
+native writer failures. The follow-up
 now passes all four independent producer files through original reads,
 rollback, committed updates, mixed-child updates, deletion and reopen. Three
 files contain unshredded or shredded VARIANT from the pinned development and

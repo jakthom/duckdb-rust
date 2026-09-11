@@ -103,7 +103,7 @@ the v1.5.5 times; development ratios are 0.243× and 0.152×. The code review,
 implementation changes, tests, profiles, plans and failed intermediate
 measurements are retained with those reports.
 
-The earlier [combined source-build campaign](references-source-builds/summary.json)
+The earlier combined source-build campaign
 remains **failing**, with unresolved file/ALTER compatibility gaps:
 
 | Check | v1.5.5 | Development |
@@ -118,7 +118,7 @@ performance parity. Its failed performance measurements are preserved; the
 latest comparisons above resolve those two measured regressions for the
 covered workloads.
 
-The [initial setup attempt](references-initial/summary.json) is retained: the
+The initial setup attempt is retained: the
 v1.5.5 CLI and native runner had built, but the shared library had not yet been
 linked. Its development campaigns ran; its release campaigns did not. The
 subsequent campaign above starts after explicit library linking and contains all

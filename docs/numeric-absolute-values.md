@@ -44,7 +44,7 @@ workspace/all-target check and clippy pass. Instrumentation coverage reports
 The lead owns the maintained integrated Kani checkpoint before substantial
 stage completion. No performance acceptance claim is made for this increment.
 
-The [expanded paired report](numeric-absolute-reference.json) retains all prior
+The expanded paired report retains all prior
 607 numeric SQL cases and adds 65 ABS cases. Its unchanged production source
 build takes 1m41s. Development matches 669/672 and release 333/672; all three
 native producer paths pass both pins, now also reading exact ABS expressions
@@ -60,7 +60,7 @@ nor the raw failure has been removed. The third development failure is the
 previously retained bare full-width UHUGEINT literal. Older release semantic
 disagreements remain unchanged, so the strict all-pin wrapper exits 1.
 
-The [unchanged upstream ABS file](upstream-numeric-absolute.json) passes its
+The unchanged upstream ABS file passes its
 single record, including FLOAT/DOUBLE negative zero. The wrapper's exit 1 still
 denotes incomplete whole-suite coverage, not this file failing. Instrumentation
 compatibility passes with zero error returns, panics or open spans in 46.79s;

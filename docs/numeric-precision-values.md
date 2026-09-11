@@ -29,7 +29,7 @@ in the independent expected-value oracle was also corrected before the tests
 passed. Full-width unsigned values are tested through quoted typed input; the
 bare-literal parser mismatch is retained independently below.
 
-The [initial paired campaign](numeric-precision-reference-initial.json) built
+The initial paired campaign built
 unchanged production source in 1m35s. Development matches 590/591 SQL cases;
 release matches 262/591. All three native producer paths pass both pins. The
 single development mismatch is the existing bare full-width integer literal:
@@ -74,8 +74,8 @@ and replacement failure provenance. Focused precision tests, contracts 29,
 operators 10 and all-target clippy pass. The repaired paired report follows on
 the refreshed integration base; the initial observations above remain intact.
 
-After merging combined base `b3175c1`, the [repaired paired
-campaign](numeric-precision-reference-repaired.json) builds production source
+After merging combined base `b3175c1`, the repaired paired
+campaign builds production source
 in 1m30s and matches development **606/607 SQL** and release **270/607**. All
 three native producer paths pass both pins, now including precision expressions
 in native reads and cross-engine primary-key mutations. The only development
@@ -86,9 +86,9 @@ all-pin wrapper correctly exits 1. Combined numeric 35, contracts 29, operators
 10, casts 12, temporal 25 and nested 31 pass; workspace/all-target check and
 clippy pass. Coverage is 309 files, 2,846 functions and 214 interfaces, missing 0.
 
-The initial unchanged upstream runs are retained in [rounding
-results](upstream-numeric-precision-round.json) and [truncation
-results](upstream-numeric-precision-trunc.json). ROUND reaches 2/17 records,
+The initial unchanged upstream runs are retained in rounding
+results and truncation
+results. ROUND reaches 2/17 records,
 TRUNC 2/14 and TRUNC precision 4/14, then the Python oracle rejects exact numeric
 equality such as expected `42.000000` versus actual `42`. Development's
 `test/sqlite/result_helper.cpp:479-545` instead compares mismatched numeric cells

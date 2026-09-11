@@ -256,7 +256,7 @@ high-water metadata, but how that should preserve backfill demand through live
 snapshots, compaction and independent recovery remains implementation work.
 Do not treat a passing zero-visible-row shortcut as parity for this path.
 
-The next [raw in-memory CLI probes](default-demand-maintenance-probes.json), on
+The next raw in-memory CLI probes, on
 the same two pins, further distinguish physical lifecycle from append identity:
 
 | Sequence before ADD of the failing default | Development | Release |

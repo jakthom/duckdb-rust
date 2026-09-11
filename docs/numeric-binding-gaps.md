@@ -1,7 +1,7 @@
 # Numeric binding follow-up
 
 This bounded follow-up addresses the three development failures retained in
-[the ABS numeric campaign](numeric-absolute-reference.json): two CASE literal
+the ABS numeric campaign: two CASE literal
 result types and the bare maximum UHUGEINT literal. Development `99063af2bd`
 is the correctness authority; original failed evidence is retained.
 
@@ -70,7 +70,7 @@ Kani and controlled regression/performance evidence remain lead-owned.
 
 ## Refreshed evidence
 
-The [expanded paired report](numeric-binding-reference.json) builds unchanged
+The expanded paired report builds unchanged
 production source in 1m43s. All 672 prior numeric cases now match development,
 including the three requested repairs. Thirty additional direct literal and
 ordered CASE cases also match, giving development 702/705. The three explicitly
@@ -82,11 +82,11 @@ checkpoint and Rust WAL paths pass 3/3 against each pin. Comparing prior passing
 SQL identities on both pins finds no lost passing cases. The strict all-pin
 wrapper exits 1; no failures or reference divergences were hidden.
 
-The focused [upstream CASE run](upstream-numeric-binding-case.json) passes
+The focused upstream CASE run passes
 `case_varchar.test` 3/3 records. `case_condition.test` remains at 1/2 because
 numeric predicates are not implicitly BOOLEAN; `case_short_circuit.test`
-remains at 2/3 on unsupported SUBSTR syntax. The [integer-literal upstream
-file](upstream-numeric-binding-integers.json) remains at its first assertion:
+remains at 2/3 on unsupported SUBSTR syntax. The integer-literal upstream
+file remains at its first assertion:
 the Python oracle compares expected `true` with returned `1`. These exact
 statuses, prefixes and reasons also appear in the earlier controlled
 `value-expression-upstream-checkpoint5-d.json`; they are not new regressions.

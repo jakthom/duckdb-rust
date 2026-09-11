@@ -55,7 +55,7 @@ separate at this first delivery.
 
 ## Independent C++ reader follow-up
 
-The [manual codec report](nested-variant-wal-codec-reference.json) passes 5/5
+The manual codec report passes 5/5
 independent reader cases (1,492 selected result rows). Test-only framing wraps
 production vector encoding in table-selection, insertion and flush records. It
 re-encodes recovered typed rows from all three independent fixtures into fresh

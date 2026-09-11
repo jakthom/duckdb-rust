@@ -1,7 +1,7 @@
 # Full-width literal inference
 
 This continuing scalar slice addresses the three wide-UHUGEINT CASE/list
-metadata failures retained in [the numeric binding report](numeric-binding-reference.json).
+metadata failures retained in the numeric binding report.
 Development `99063af2bd` governs correctness; release `d8cdaa33fd` remains a
 separate observation. Checkpoint 9 is the integrated starting point.
 
@@ -79,7 +79,7 @@ not be lost. A selected combination specialization is the next repair; global
 implicit casts will not be widened. NULLIF also has an independently observed
 existing result-type gap: development retains its first UHUGEINT input type.
 
-The immutable [wide inference campaign](numeric-wide-inference-reference.json)
+The immutable wide inference campaign
 records 803/803 development SQL cases and all three native persistence paths
 passing on unchanged source. All 705 prior case identities remain present and
 pass, including the original three wide failures; 98 added cases exercise the
@@ -144,7 +144,7 @@ type and can evaluate that expression again. An eager scalar that coerces both
 inputs and later casts back is not equivalent. The next selected lowering seam
 must preserve the comparison, CASE and duplicate/effectful argument behavior.
 
-The immutable [COALESCE refresh](numeric-coalesce-reference.json) passes 830/830
+The immutable COALESCE refresh passes 830/830
 development SQL cases and all three native persistence paths on unchanged source.
 All 803 preceding case identities remain passing; 27 added cases include the
 original COALESCE regression. Release passes 488/830 SQL cases and all three

@@ -101,7 +101,7 @@ checks pass. `cargo dev coverage` reports no missing instrumentation; traced
 workspace compilation is checked separately. Managed trace checks delete their
 temporary telemetry. The README remains identical to main.
 
-The [compact validation record](relational-validation.json) retains reference and
+The compact validation record retains reference and
 source identities, assertion counts, every timing sample and the earlier failed
 performance campaigns. It contains test/benchmark evidence, not operation traces.
 The final shared SQL campaign passes **138 records against each reference**,

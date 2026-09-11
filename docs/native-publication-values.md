@@ -4,14 +4,14 @@ The shared publication increment is `12586bf`. The value-and-expression
 milestone continues; native TUPLE/VARIANT writing and expression defaults are
 not enabled by this metadata repair.
 
-The [initial independent diagnostic](native-version-publication-initial.json)
+The initial independent diagnostic
 confirmed that ordinary Rust checkpoint commits reset file metadata. All six
 producer cases retained their SQL rows, but every generation reset, four
 effective storage versions downgraded to 64, and three database identifiers
 changed. Development produced storage 64, 65, 68 and 69; release produced 64
 and 68. Those original failures remain recorded.
 
-The [repaired campaign](native-version-publication-retained.json) passes **6/6**
+The repaired campaign passes **6/6**
 on unchanged production source. Every case preserves its effective storage
 version and identifier, advances its generation, and returns the exact expected
 rows to Rust and its pinned C++ producer's read-only connection. File creation,

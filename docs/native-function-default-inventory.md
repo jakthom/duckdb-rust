@@ -1,6 +1,6 @@
 # Native function-default dependency
 
-The [Base64 campaign](binary-scalar-reference-base64.json) retains an independent
+The Base64 campaign retains an independent
 C++-producer failure on both pins: a BLOB column declared
 `DEFAULT from_base64('AP8=')` is rejected as parsed expression class 9, kind 140.
 Rust-produced checkpoint and WAL paths pass because the current catalog stores

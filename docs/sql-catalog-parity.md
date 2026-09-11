@@ -61,7 +61,7 @@ executors and three batch sizes. Additional checks cover independent graph
 transitive closure, prepared parameters and snapshots, late errors/rollback,
 NULL/NaN equality, retained chunks, cancellation and invalid lexical bindings.
 
-The first [unchanged upstream CTE campaign](upstream-cte-recursive.json) selected
+The first unchanged upstream CTE campaign selected
 all 88 files under `test/sql/cte/`: three passed, 34 failed and 51 were
 unsupported. Some recursive files now execute successful prefixes before a
 later unsupported directive or assertion failure. Those files remain gaps.
@@ -95,24 +95,24 @@ complete FLUSH transactions. Tests cut a WAL at every byte after its header,
 retain old snapshots/results, check rollback and prepared-statement rebinding,
 and replay an independently generated native WAL with both index adapters.
 
-The [117-file unchanged upstream ALTER campaign](upstream-alter-initial.json)
+The 117-file unchanged upstream ALTER campaign
 passed 17 files, failed 23 and reported 77 unsupported. All 17 passes were gaps
 in the historical full-suite report. Configuration directives, concurrent DDL,
 type changes, other catalog objects and exact diagnostics still prevent full
 ALTER parity; these outcomes are not added to a guessed full-suite total.
 
-The [pinned C++ SQL corpus comparison](alter-sql-reference.json) remains failing.
+The pinned C++ SQL corpus comparison remains failing.
 Its default PEG transformer accepts `ADD COLUMN ... NOT NULL` while discarding
 that constraint; Rust rejects this currently unsupported ADD form. The local
 negative assertion is retained, and the discrepancy is not counted as a pass.
 The older v1.3 file oracle also differs on dropping a primary-key NOT NULL
 constraint. SQL baseline behavior and native-format checks therefore have
-separate reports. [Initial native trials](alter-native-initial.json) preserve
+separate reports. Initial native trials preserve
 earlier encoder failures, an older DuckDB update/rename WAL that fails its own
 reader, and development-version file incompatibilities. Current native-file
 checks pass for their documented v1.3-supported scope.
 
-The [12-case performance report](native-regressions-alter.json) adds ADD COLUMN,
+The 12-case performance report adds ADD COLUMN,
 DROP COLUMN and table rename against pinned C++. Each DDL sample resets the
 catalog before timing and independently queries its effect afterward. Reset
 and effect checks are untimed; actual DDL execution, result consumption and
@@ -121,7 +121,7 @@ not evidence for durable DDL, NOT NULL validation or all catalog workloads.
 
 ## NATURAL and USING join work
 
-The [two-reference design probes](using-reference-design-probes.json) capture
+The two-reference design probes capture
 14 queries per pinned C++ build. These are reference behavior checks; Rust
 NATURAL/USING execution is still unimplemented and none counts as a Rust pass.
 

@@ -56,7 +56,7 @@ the acceptance criteria, so neither workload qualifies for the table above.
 | `GROUP BY i % 64` with SUM, COUNT and grouping mask | **0.92% slower; fails** | 1.49× faster |
 | `CUBE(i % 64, i % 8)` with SUM, COUNT and grouping mask | 1.24× faster | **3.36% slower; fails** |
 
-The preceding [same-source release measurement](../grouping/sequential-release.json)
+The preceding same-source release measurement
 also failed grouped SUM by 1.12%. It is retained along with all earlier failed
 measurements. No acceptance allowance was added and no failed result was removed.
 
@@ -65,7 +65,7 @@ measurements. No acceptance allowance was added and no failed result was removed
 The current source passes `cargo fmt --all -- --check`,
 `cargo clippy --offline --all-targets -- -D warnings`, and
 `cargo test --offline --all-targets`: **187 passed, 0 failed, 0 ignored**.
-The [validation manifest](validation.json) identifies the source and logs:
+The validation manifest identifies the source and logs:
 [formatting](check-1.log), [Clippy](check-2.log), and [Rust tests](check-3.log).
 These are local tests, including contract matrices; the count is not an upstream
 DuckDB suite pass count.
@@ -86,11 +86,11 @@ Cold I/O, durable commit latency, concurrency, memory/CPU/I/O cost parity, isola
 operator kernels, client/UI behavior and extension compatibility are outside these
 measurements. Small synthetic workloads on this host do not establish performance
 parity for whole subsystems or other workloads. Broader grouping compatibility has
-[known reference differences](../grouping/reference.json) and
-[unported upstream obligations](../grouping/upstream.json); those previous campaigns
+known reference differences and
+unported upstream obligations; those previous campaigns
 are separate evidence and were not rerun for this inspection.
 
 The complete raw samples, workload SQL, expected results, build identities and
-adapter selections are preserved in [core release](core-release.json),
-[core development](core-development.json), [grouping release](grouping-release.json)
-and [grouping development](grouping-development.json).
+adapter selections are preserved in core release,
+core development, grouping release
+and grouping development.

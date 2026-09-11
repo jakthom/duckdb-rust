@@ -43,10 +43,10 @@ retained positive fixtures. The original upstream reports remain unchanged.
 After merging combined base `4b2a027`, all 38 Python test-oracle/runner tests pass
 with warnings treated as errors. The repaired unchanged upstream runs pass
 ROUND_EVEN **20/20 expanded records**, TRUNC **47/47** and TRUNC precision
-**51/51**. [Final rounding results](upstream-numeric-precision-round-oracle-repaired.json)
-and [final truncation results](upstream-numeric-precision-trunc-oracle-repaired.json)
-retain exact source identities and failures. The [first exact-fallback
-rounding run](upstream-numeric-precision-round-exact.json), before the unsigned
+**51/51**. Final rounding results
+and final truncation results
+retain exact source identities and failures. The first exact-fallback
+rounding run, before the unsigned
 guard, is also retained; that file did not contain the newly audited minus case.
 
 ROUND now reaches 5/17 before an approximate floating assertion: it expects

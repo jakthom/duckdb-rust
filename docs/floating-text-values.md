@@ -68,16 +68,16 @@ behavior rather than claiming a universal parse/format identity.
 
 ## Retained checks and limits
 
-The [first retained diagnostic](floating-text-reference-diagnostic.json) records
+The first retained diagnostic records
 the initial Grisu-plus-library-fallback failures: FLOAT 6,536/6,536 and DOUBLE
 17,282/17,288 on each pin. Its raw failing rows are preserved. Its separate SQL
 probe also used `union_value(a=...)`, exposing an existing Rust/frontend syntax
 disagreement: the pinned engines require named argument `a:=...` there. The
 follow-up uses the reference syntax; no parser behavior was changed by this
-slice. The [exact-FPP diagnostic](floating-text-reference-fpp-diagnostic.json)
+slice. The exact-FPP diagnostic
 records the source-backed repair and independent CLI confirmation.
 
-The final [production campaign](floating-text-reference-production.json), run
+The final production campaign, run
 with `CARGO_BUILD_JOBS=2 python3 scripts/floating_text_reference.py --report
 docs/floating-text-reference-production.json --fixtures
 test/data/floating-text-production`, builds uninstrumented release binaries and

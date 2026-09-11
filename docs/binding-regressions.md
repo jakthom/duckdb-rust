@@ -33,11 +33,11 @@ inside VALUES and complete diagnostic wording remain outside this increment.
 
 ## Independent assertions
 
-The [final session campaign](binding-regressions-reference-final.json) passes
+The final session campaign passes
 **92 SQL records against each reference**, with unchanged expected results and
 errors. It records production Rust source/binary identities, both pinned C++
-identities, selected adapters and every assertion outcome. The [initial
-90-record campaign](binding-regressions-reference.json) is retained; the final
+identities, selected adapters and every assertion outcome. The initial
+90-record campaign is retained; the final
 campaign adds the source-level WITH coercion boundary.
 
 | Corpus | Records | Origin |
@@ -61,15 +61,15 @@ This remaining difference between harness contracts is not full harness parity.
 The numeric component regression runs 12 evaluator/optimizer/batch compositions;
 the 32-record namespace contract runs 24 subquery/executor/optimizer/batch
 compositions. Existing USING, set and window conformance tests remain in the
-workspace suite. The [serial full upstream refresh](upstream-parity-binding-regressions-final.json)
-and [journal](upstream-parity-binding-regressions-final.jsonl) retain all 5,638
+workspace suite. The serial full upstream refresh
+and journal retain all 5,638
 source-file outcomes: **313 passed**, 1,877 failed, 3,437 unsupported, eight
 timeouts and three incomplete files. The 17,018 passed records include prefixes
 of failed files. Eight files newly pass relative to the numeric checkpoint and
 no previously passing file is lost, including the two regressions above.
 
-The [initial refresh](upstream-parity-binding-regressions.json) and its
-[journal](upstream-parity-binding-regressions.jsonl) are retained as diagnostic
+The initial refresh and its
+journal are retained as diagnostic
 evidence only. A concurrently running numeric-reference command replaced the
 shared worker executable; that report is explicitly marked as having invalid
 single-binary provenance. The serial rerun used an otherwise idle build/worker
@@ -88,7 +88,7 @@ proof failures. These proofs cover packed sizes and window bounds, **not the
 new binding/coercion behavior**; no new formal-coverage claim is made.
 
 No performance campaign was run for the binding-only checkpoint. The retained
-[numeric measurements](numeric-performance-fastest.json) still identify seven
+numeric measurements still identify seven
 failing workloads out of eight; they are earlier source evidence, not a current
 performance acceptance result. That checkpoint identified batched unsigned/decimal
 aggregation, grouped states, filtering, join keys and windows as the next work,

@@ -1,6 +1,6 @@
 # Native deletion identity compatibility
 
-The [initial independent campaign](native-deletion-identity-initial.json) retains
+The initial independent campaign retains
 four C++-produced typed files: release storage 64/68 and development storage
 64/69. `max_vacuum_tasks=0` preserves complete and partial deletion vectors in
 a nonzero row group. Storage 69 additionally drops its empty leading group.
@@ -46,9 +46,9 @@ checkpoint/rebase, another mutation and read-only reopen. The repaired focused
 run passes ordinary check, library 61, all 19 compatibility tests and all-target
 clippy with warnings denied. Coverage reports 328 files, 3,053 functions and
 216 interface methods, no missing attributes. Python script compilation passes.
-The [production fixture reread](native-deletion-identity-checkpoint9.json) passes
+The production fixture reread passes
 all four cases on integrated `27d190b`; the preceding
-[debug reread](native-deletion-identity-repaired-debug.json) also passes. Both
+debug reread also passes. Both
 preserve the exact initial independent fixtures. Full workspace/tracing checks
 and all six maintained Kani harnesses pass at the
 [combined checkpoint](value-expression-progress.md), without claiming proofs of
