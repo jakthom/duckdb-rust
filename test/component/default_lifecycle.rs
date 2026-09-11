@@ -407,6 +407,61 @@ fn insert_source_and_defaults_share_duckdb_vector_pipeline() -> Result<()> {
                 ],
             ]
         );
+
+        state.calls.store(0, Ordering::SeqCst);
+        connection.execute(
+            "CREATE TABLE vector_union(
+                id INTEGER,
+                first VARCHAR DEFAULT ordered_default('first'),
+                second VARCHAR DEFAULT ordered_default('second')
+            );
+            INSERT INTO vector_union(id)
+            SELECT range::INTEGER FROM range(1000)
+            UNION ALL
+            SELECT (range+1000)::INTEGER FROM range(1050)",
+        )?;
+        assert_eq!(state.calls.load(Ordering::SeqCst), 4100);
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT * FROM vector_union
+                     WHERE id IN (0,999,1000,2047,2048,2049)
+                     ORDER BY id ASC"
+                )?
+                .rows,
+            vec![
+                vec![
+                    integer(0),
+                    string("DESC:first:1"),
+                    string("DESC:second:1001")
+                ],
+                vec![
+                    integer(999),
+                    string("DESC:first:1000"),
+                    string("DESC:second:2000")
+                ],
+                vec![
+                    integer(1000),
+                    string("DESC:first:2001"),
+                    string("DESC:second:3051")
+                ],
+                vec![
+                    integer(2047),
+                    string("DESC:first:3048"),
+                    string("DESC:second:4098")
+                ],
+                vec![
+                    integer(2048),
+                    string("DESC:first:3049"),
+                    string("DESC:second:4099")
+                ],
+                vec![
+                    integer(2049),
+                    string("DESC:first:3050"),
+                    string("DESC:second:4100")
+                ],
+            ]
+        );
     }
     Ok(())
 }

@@ -65,26 +65,26 @@ impl crate::execution::physical_plan::PhysicalOperator for InsertDefaults {
                 ready.clear();
                 ready_offset = 0;
                 // Defaults are a projection above the INSERT source in
-                // DuckDB: finish one standard source vector, then evaluate
-                // each omitted column over that vector.
+                // DuckDB: evaluate each omitted column over exactly the batch
+                // returned by one standard-vector demand. A short natural
+                // child batch remains a boundary.
                 let mut source_vector = Vec::new();
-                while source_vector.len() < DUCKDB_STANDARD_VECTOR_SIZE && !source_done {
-                    let remaining = DUCKDB_STANDARD_VECTOR_SIZE - source_vector.len();
+                if !source_done {
                     let remaining_limit = context
                         .query
                         .max_intermediate_rows()
                         .saturating_sub(source_rows)
                         .saturating_add(1);
-                    let demand = remaining.min(remaining_limit);
-                    let Some(batch) = input.next(demand)? else {
+                    let demand = DUCKDB_STANDARD_VECTOR_SIZE.min(remaining_limit);
+                    if let Some(batch) = input.next(demand)? {
+                        source_rows = source_rows
+                            .checked_add(batch.len())
+                            .ok_or_else(|| Error::Resource("result row count overflow".into()))?;
+                        context.query.check_rows(source_rows)?;
+                        source_vector.extend(batch.rows());
+                    } else {
                         source_done = true;
-                        break;
-                    };
-                    source_rows = source_rows
-                        .checked_add(batch.len())
-                        .ok_or_else(|| Error::Resource("result row count overflow".into()))?;
-                    context.query.check_rows(source_rows)?;
-                    source_vector.extend(batch.rows());
+                    }
                 }
                 if source_vector.is_empty() {
                     return Ok(None);
