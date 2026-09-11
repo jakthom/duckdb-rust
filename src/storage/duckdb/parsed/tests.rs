@@ -27,6 +27,132 @@ fn header(bytes: Vec<u8>) -> Result<(u64, u64)> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn column_reference(names: &[&[u8]]) -> Vec<u8> {
+    let mut wire = Encoder::default();
+    wire.property(100, 4);
+    wire.property(101, 203);
+    wire.property(200, names.len() as u64);
+    for name in names {
+        wire.blob(name);
+    }
+    wire.end();
+    wire.0
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn wire_bytes(hex: &str) -> Vec<u8> {
+    hex.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect()
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn native_current_timestamp_node_matches_both_pins_and_rejects_other_column_refs() -> Result<()> {
+    let manifests = [
+        include_str!("../../../../test/data/duckdb/current-timestamp-development/manifest.json"),
+        include_str!("../../../../test/data/duckdb/current-timestamp-release/manifest.json"),
+    ];
+    let query = QueryContext::background();
+    for manifest in manifests {
+        let manifest: serde_json::Value = serde_json::from_str(manifest).unwrap();
+        for (fixture, expected_name) in [
+            ("get_call", "get_current_timestamp"),
+            ("now_call", "now"),
+            ("transaction_call", "transaction_timestamp"),
+        ] {
+            let wire = wire_bytes(
+                manifest["parsed_expressions"][fixture]["wire_hex"]
+                    .as_str()
+                    .unwrap(),
+            );
+            let expression = decode(wire.clone(), 68, &query)?;
+            assert!(
+                matches!(&expression.kind, StoredExpressionKind::Function { name, arguments, .. }
+                    if name == &[expected_name] && arguments.is_empty())
+            );
+            assert_eq!(encode(&expression, 68, &query)?, wire);
+        }
+
+        let wire = wire_bytes(
+            manifest["parsed_expressions"]["keyword"]["wire_hex"]
+                .as_str()
+                .unwrap(),
+        );
+        let decoded = decode(wire.clone(), 68, &query)?;
+        assert!(matches!(
+            &decoded.kind,
+            StoredExpressionKind::CurrentTimestamp
+        ));
+        assert_eq!(decoded.alias, None);
+        assert_eq!(decoded.source_span.unwrap().offset, 7);
+        assert_eq!(encode(&decoded, 68, &query)?, wire);
+        for end in 0..wire.len() {
+            assert!(decode(wire[..end].to_vec(), 68, &query).is_err());
+        }
+    }
+
+    let expression = StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::CurrentTimestamp,
+    };
+    let canonical = encode(&expression, 68, &query)?;
+    assert_eq!(canonical, column_reference(&[b"CURRENT_TIMESTAMP"]));
+    assert_eq!(decode(canonical, 68, &query)?, expression);
+
+    let mut missing = Encoder::default();
+    missing.property(100, 4);
+    missing.property(101, 203);
+    missing.end();
+    assert!(matches!(
+        decode(missing.0, 68, &query),
+        Err(Error::Corrupt(_))
+    ));
+    assert!(matches!(
+        decode(column_reference(&[]), 68, &query),
+        Err(Error::Corrupt(_))
+    ));
+    assert!(matches!(
+        decode(
+            column_reference(&[b"main", b"current_timestamp"]),
+            68,
+            &query
+        ),
+        Err(Error::Unsupported(_))
+    ));
+    assert!(matches!(
+        decode(column_reference(&[b"current_date"]), 68, &query),
+        Err(Error::Unsupported(_))
+    ));
+    assert!(matches!(
+        decode(column_reference(&[b""]), 68, &query),
+        Err(Error::Corrupt(_))
+    ));
+
+    let mut oversized = Encoder::default();
+    oversized.property(100, 4);
+    oversized.property(101, 203);
+    oversized.property(200, 65);
+    assert!(matches!(
+        decode(oversized.0, 68, &query),
+        Err(Error::Resource(_))
+    ));
+    let mut state = State::new(68, &query)?;
+    state.identifiers = 2;
+    assert!(matches!(
+        read::expression(
+            &mut Reader::new(column_reference(&[b"CURRENT_TIMESTAMP"])),
+            0,
+            &mut state
+        ),
+        Err(Error::Resource(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn native_conditional_and_predicate_nodes_use_duckdb_parsed_classes() -> Result<()> {
     let query = QueryContext::background();
@@ -316,11 +442,9 @@ fn independent_cpp_parsed_expression_fixtures_remain_unevaluated() -> Result<()>
     eprintln!("parsed fixtures: {passed} supported, unsupported: {unsupported:?}");
     assert_eq!(passed, 186);
     assert_eq!(unsupported.len(), 14);
-    assert!(
-        unsupported
-            .iter()
-            .all(|message| message.contains("native retained expression class 4, kind 203"))
-    );
+    assert!(unsupported.iter().all(|message| {
+        message.contains("native retained column reference other than CURRENT_TIMESTAMP")
+    }));
     if let Some(path) = std::env::var_os("DUCKDB_NATIVE_PARSED_CODEC_EXPORT") {
         let mut file = std::fs::OpenOptions::new()
             .write(true)

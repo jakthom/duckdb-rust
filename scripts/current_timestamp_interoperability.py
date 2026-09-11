@@ -48,18 +48,24 @@ def defaults(engine, path):
 
 
 def invariants(engine, path, first, last):
-    return command(
+    rows = command(
         engine,
         path,
-        "SELECT count(*) AS rows,"
-        "bool_and(keyword=get_call AND keyword=now_call "
-        "AND keyword=transaction_call) AS aliases_equal,"
-        "count(DISTINCT keyword) AS transaction_values "
+        "SELECT id,keyword=get_call AS get_equal,keyword=now_call AS now_equal,"
+        "keyword=transaction_call AS transaction_equal,keyword::VARCHAR AS keyword "
         "FROM reference_current_defaults "
-        f"WHERE id BETWEEN {first} AND {last}",
+        f"WHERE id BETWEEN {first} AND {last} ORDER BY id",
         json_output=True,
         readonly=True,
-    )[0]
+    )
+    return {
+        "rows": len(rows),
+        "aliases_equal": all(
+            row["get_equal"] and row["now_equal"] and row["transaction_equal"]
+            for row in rows
+        ),
+        "transaction_values": len({row["keyword"] for row in rows}),
+    }
 
 
 def assert_batch(engine, path, first, last):
@@ -97,11 +103,11 @@ def cpp_origin(rust, cpp, target, directory):
     path = directory / f"cpp-{target}.duckdb"
     create_cpp_origin(cpp, target, path)
     produced = file_evidence(path)
-    if defaults(rust, path) != EXPECTED_DEFAULTS:
-        raise AssertionError("Rust changed C++-origin default metadata")
     first = assert_batch(rust, path, 1, 2)
     insert_batch(rust, path, 3, 4)
     rust_written = file_evidence(path)
+    if defaults(cpp, path) != EXPECTED_DEFAULTS:
+        raise AssertionError("Rust changed C++-origin default metadata")
     second = assert_batch(cpp, path, 3, 4)
     insert_batch(cpp, path, 5, 6)
     third = assert_batch(rust, path, 5, 6)
