@@ -247,3 +247,26 @@ all-target clippy and coverage (349 files / 3,342 functions / 227 interface
 methods, missing 0) pass. The next immutable paired report refreshes all 944
 cases without replacing the initial 935/936 evidence; no timing or new Kani
 outcome is claimed by this internal consumer commit.
+
+## Repaired rejection checkpoint
+
+On unchanged engine source `9cd0303`, the immutable
+`numeric-nullif-values-errors-reference.json` records 944/944 development SQL
+cases, 588/944 release cases and all three native producer/checkpoint/WAL paths
+against each pin. The original 935 development pass identities remain passing;
+the old mismatch and all earlier raw reports remain retained. The strict all-pin
+wrapper still exits 1 because release differs; no release failure is promoted
+to a release pass. This closes the selected 944-case numeric campaign, not the
+remaining numeric/scalar catalog or complete value-and-expression milestone.
+
+Full workspace tests and trace compatibility pass. The focused rejected VALUES
+trace and its inspection rerun each complete 48,738 operations with 22 error
+returns, zero panics and zero open spans. Inspection identifies two builtin
+type-combination probes (the existing fallible common helper is converted into
+no proposal), 19 propagations of the expected NotImplemented rejection and one
+wrapper exit-status error. No selected adapter failure was swallowed. The
+expected SQL error makes the trace command exit 1; that is not an unexplained
+test failure. Temporary telemetry was deleted after inspection with
+`cargo dev clean`. No worker acceptance measurements ran. Full maintained Kani
+and the integrated regression checkpoint remain the integration lead's
+responsibility before substantial milestone completion.
