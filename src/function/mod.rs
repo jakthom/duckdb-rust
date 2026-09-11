@@ -108,6 +108,17 @@ pub trait ScalarBindArguments {
         self.len() == 0
     }
     fn data_type(&self, index: usize) -> Result<DataType>;
+    /// Explicit argument name, distinct from a child's display/legacy alias.
+    /// Default frontends provide positional arguments only; bounds still apply.
+    fn argument_name(&self, index: usize) -> Result<Option<&str>> {
+        self.data_type(index).map(|_| None)
+    }
+    /// Retained child alias, including native legacy positional argument
+    /// aliases. An alias is not an explicit name and grants no named-call
+    /// capability. Only adapters requesting this metadata interpret it.
+    fn argument_alias(&self, index: usize) -> Result<Option<&str>> {
+        self.data_type(index).map(|_| None)
+    }
     /// SQL string-literal identity is contextual binding information, not an
     /// implicit cast granted to every VARCHAR column or external frontend.
     fn is_string_literal(&self, index: usize) -> Result<bool> {
@@ -127,6 +138,16 @@ pub trait ScalarBindArguments {
         validate_combination_indices(self, indices)?;
         Err(Error::Unsupported(
             "frontend does not support argument combination metadata".into(),
+        ))
+    }
+    /// Collection-template inference in increasing source order. Unlike the
+    /// ordinary pair-normalizing combination request, later SQL NULLs and
+    /// identical literal pseudo-types do not consume the current template.
+    /// This metadata request never evaluates children or invokes their casts.
+    fn collection_combination(&self, indices: &[usize]) -> Result<ArgumentCombination> {
+        validate_combination_indices(self, indices)?;
+        Err(Error::Unsupported(
+            "frontend does not support collection combination metadata".into(),
         ))
     }
     fn constant(&self, index: usize) -> Result<Value>;
@@ -178,6 +199,12 @@ pub trait ScalarBindArguments {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait ScalarFunction: Debug + Send + Sync {
     fn name(&self) -> &str;
+    /// Explicit opt-in to named argument metadata, checked by the frontend
+    /// before expansion or specialization. Existing adapters remain positional.
+    /// This grants no reordering or conversion privileges.
+    fn accepts_named_arguments(&self) -> bool {
+        false
+    }
     fn effects(&self) -> FunctionEffects {
         FunctionEffects::default()
     }

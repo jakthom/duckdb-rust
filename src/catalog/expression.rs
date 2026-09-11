@@ -31,6 +31,22 @@ pub enum StoredExpressionKind {
         is_operator: bool,
         argument_style: StoredArgumentStyle,
     },
+    /// Syntactic operators remain distinct from a function call marked as an
+    /// operator. Wire tags and selected function lowering belong to their
+    /// respective format/language services, not this owned representation.
+    Operator {
+        kind: StoredOperator,
+        children: Vec<StoredExpression>,
+    },
+}
+
+/// The initial retained nested syntax subset. This is intentionally expandable,
+/// not a claim that every SQL operator or accessor is supported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StoredOperator {
+    ListConstructor,
+    Index,
+    Field,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -123,6 +139,19 @@ impl StoredExpression {
                         }
                         pending.push((&argument.expression, depth + 1));
                     }
+                }
+                StoredExpressionKind::Operator { kind, children } => {
+                    if matches!(kind, StoredOperator::Index | StoredOperator::Field)
+                        && children.len() != 2
+                    {
+                        return Err(Error::Bind("invalid stored accessor arity".into()));
+                    }
+                    if children.len() > 16_384 - nodes
+                        || pending.len() > 16_384 - nodes - children.len()
+                    {
+                        return Err(Error::Resource("stored expression node limit".into()));
+                    }
+                    pending.extend(children.iter().rev().map(|child| (child, depth + 1)));
                 }
             }
         }

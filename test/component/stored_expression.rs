@@ -4,7 +4,7 @@ mod context;
 use super::*;
 use duckdb_rust::{
     catalog::expression::{
-        StoredArgument, StoredArgumentStyle, StoredExpression, StoredExpressionKind,
+        StoredArgument, StoredArgumentStyle, StoredExpression, StoredExpressionKind, StoredOperator,
     },
     common::{
         cast::{CastFunction, CastMode, CastRegistry, CastSpec},
@@ -48,6 +48,71 @@ fn cast(expression: StoredExpression, target: DataType, try_cast: bool) -> Store
             try_cast,
         },
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn stored_nested_operator_preflight_preserves_identity_and_bounds_all_children() -> Result<()> {
+    let query = QueryContext::background();
+    let literal = StoredExpression::literal(DataType::SmallInt, Value::Null);
+    for kind in [
+        StoredOperator::ListConstructor,
+        StoredOperator::Index,
+        StoredOperator::Field,
+    ] {
+        let expression = StoredExpression {
+            alias: Some("retained".into()),
+            kind: StoredExpressionKind::Operator {
+                kind,
+                children: vec![literal.clone(), literal.clone()],
+            },
+        };
+        expression.validate(&query)?;
+        let encoded = serde_json::to_vec(&expression).unwrap();
+        assert_eq!(
+            expression,
+            serde_json::from_slice::<StoredExpression>(&encoded).unwrap()
+        );
+    }
+    let operator = |kind, children| StoredExpression {
+        alias: None,
+        kind: StoredExpressionKind::Operator { kind, children },
+    };
+    operator(StoredOperator::ListConstructor, vec![]).validate(&query)?;
+    for kind in [StoredOperator::Index, StoredOperator::Field] {
+        for children in [vec![], vec![literal.clone()], vec![literal.clone(); 3]] {
+            assert!(matches!(
+                operator(kind, children).validate(&query),
+                Err(Error::Bind(_))
+            ));
+        }
+    }
+    assert!(matches!(
+        operator(
+            StoredOperator::ListConstructor,
+            vec![literal.clone(); 16_384]
+        )
+        .validate(&query),
+        Err(Error::Resource(_))
+    ));
+    let mut deep = literal;
+    for _ in 0..65 {
+        deep = operator(StoredOperator::ListConstructor, vec![deep]);
+    }
+    assert!(matches!(deep.validate(&query), Err(Error::Resource(_))));
+    let malformed = operator(
+        StoredOperator::ListConstructor,
+        vec![StoredExpression::literal(
+            DataType::TinyInt,
+            Value::Integer(256),
+        )],
+    );
+    assert!(matches!(
+        malformed.validate(&query),
+        Err(Error::Conversion(_))
+    ));
+    assert!(!SelectedFunction(1, false, Arc::new(AtomicUsize::new(0))).accepts_named_arguments());
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

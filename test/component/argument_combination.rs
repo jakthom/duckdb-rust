@@ -170,11 +170,29 @@ impl ScalarBindArguments for ExternalArguments {
 #[test]
 fn combination_metadata_rejects_missing_capabilities_indices_invalid_proposals_and_cancellation()
 -> Result<()> {
+    assert_eq!(ExternalArguments.argument_name(0)?, None);
+    assert_eq!(ExternalArguments.argument_alias(0)?, None);
+    assert!(matches!(
+        ExternalArguments.argument_alias(2),
+        Err(Error::Bind(_))
+    ));
+    assert!(matches!(
+        ExternalArguments.argument_name(2),
+        Err(Error::Bind(_))
+    ));
+    assert!(matches!(
+        ExternalArguments.collection_combination(&[0, 1]),
+        Err(Error::Unsupported(_))
+    ));
     assert!(matches!(
         ExternalArguments.combination(&[0, 1]),
         Err(Error::Unsupported(_))
     ));
     for indices in [vec![], vec![2], vec![1, 0], vec![0, 0]] {
+        assert!(matches!(
+            ExternalArguments.collection_combination(&indices),
+            Err(Error::Bind(_))
+        ));
         assert!(matches!(
             ExternalArguments.combination(&indices),
             Err(Error::Bind(_))

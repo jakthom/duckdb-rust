@@ -7,6 +7,9 @@ impl State<'_, '_> {
     pub(super) fn stored_expression(&self, expression: &StoredExpression) -> Result<BoundExpr> {
         self.context.query.check()?;
         match &expression.kind {
+            StoredExpressionKind::Operator { .. } => {
+                Err(unsupported("stored nested operator binding"))
+            }
             StoredExpressionKind::Literal { data_type, value } => Ok(BoundExpr {
                 data_type: data_type.clone(),
                 kind: ExprKind::Literal(value.clone()),

@@ -133,6 +133,12 @@ lazy when a selected function needs provenance rather than a computed constant.
 
 ## Rewrite selected combination requests
 
+`collection_combination(indices)` is a separate metadata-only request with the
+same ordered-index and selected-result validation. It applies the collection
+template policy: later untyped NULLs and identical literal pseudo-types preserve
+the current template. It must not silently use the pair-normalizing `combination`
+policy. Unsupported frontends reject the request after validating indices.
+
 `ScalarBindArguments::combination(indices)` is a provisional metadata-only
 request for a nonempty, strictly increasing list of argument positions. SQL
 infers a common type from those retained expressions in source order, with
@@ -155,6 +161,23 @@ additional rewrite so a selected Implicit cast is not replaced by an Explicit
 cast merely because the source is a fitting literal. Existing Explicit and
 Assignment policies remain unchanged. A future single typed cast-policy object
 can replace these provisional hooks if shared use warrants it.
+
+## Rewrite named argument metadata prerequisite
+
+`ScalarBindArguments::argument_name(index)` exposes an explicit argument name;
+`argument_alias(index)` exposes retained child aliases separately. Both defaults
+validate bounds and return None. `ScalarFunction::accepts_named_arguments()`
+defaults to false. Frontends reject explicit names for a selected adapter without
+this capability before expansion or specialization. An opt-in grants neither
+argument reordering nor implicit conversion privileges.
+
+Native legacy function calls retain their argument names as positional child
+aliases. Modern explicit names remain explicit. An alias-capturing constructor
+can request aliases; an ordinary replacement function can ignore them. The
+catalog representation and native codec must not interpret names according to
+a hardcoded function spelling, erase provenance, or evaluate child expressions
+to recover metadata. These defaulted hooks are an internal prerequisite; their
+presence alone does not establish named SQL or persisted-default support.
 
 ## Rewrite physical provenance propagation
 
