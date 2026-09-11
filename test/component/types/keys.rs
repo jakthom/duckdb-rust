@@ -1,6 +1,8 @@
 use super::*;
 use duckdb_rust::{
-    common::type_registry::{KeyRepresentation, KeyWriter, PrimitiveTypes, ValueValidation},
+    common::type_registry::{
+        KeyContext, KeyRepresentation, KeyWriter, PrimitiveTypes, ValueValidation,
+    },
     parallel::InterruptHandle,
 };
 
@@ -238,35 +240,143 @@ impl TypeAdapter for PartialKey {
 #[test]
 fn key_writer_preserves_prefixes_on_partial_failure_cancellation_and_size_errors() -> Result<()> {
     for mode in 0..3 {
-        let interrupt = InterruptHandle::default();
-        let query = QueryContext::new(interrupt.clone(), None, 16, 100)?;
-        let mut registry = TypeRegistry::builtins();
-        registry.replace(
-            DataType::BigInt.family(),
-            Arc::new(PartialKey {
-                mode,
-                interrupt: interrupt.clone(),
-            }),
+        for key_context in [KeyContext::Equality, KeyContext::SortEquivalence] {
+            let interrupt = InterruptHandle::default();
+            let query = QueryContext::new(interrupt.clone(), None, 16, 100)?;
+            let mut registry = TypeRegistry::builtins();
+            registry.replace(
+                DataType::BigInt.family(),
+                Arc::new(PartialKey {
+                    mode,
+                    interrupt: interrupt.clone(),
+                }),
+            )?;
+            let mut output = vec![9, 8, 7];
+            let result = registry.bind(&DataType::BigInt)?.append_key_with_context(
+                &Value::Integer(1),
+                key_context,
+                &mut output,
+                &query,
+            );
+            assert!(matches!(
+                (mode, result),
+                (0, Err(Error::Execution(_)))
+                    | (1, Err(Error::Interrupted))
+                    | (2, Err(Error::Resource(_)))
+            ));
+            assert_eq!(output, [9, 8, 7]);
+            interrupt.reset();
+            let bound = TypeRegistry::builtins().bind(&DataType::BigInt)?;
+            bound.append_key(&Value::Integer(1), &mut output, &query)?;
+            let retained = output.clone();
+            bound.append_key(&Value::Null, &mut output, &query)?;
+            assert_eq!(&output[..retained.len()], retained.as_slice());
+            assert_eq!(output.last(), Some(&0));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct ContextKeys;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TypeAdapter for ContextKeys {
+    fn name(&self) -> &'static str {
+        "contextual-keys"
+    }
+    fn validate_type(&self, ty: &DataType) -> Result<()> {
+        PrimitiveTypes.validate_type(ty)
+    }
+    fn validate_value(&self, ty: &DataType, value: &Value, query: &QueryContext) -> Result<()> {
+        if value.as_i128()? == 7 {
+            return Err(Error::Internal("selected key validation failed".into()));
+        }
+        PrimitiveTypes.validate_value(ty, value, query)
+    }
+    fn common_type(&self, a: &DataType, b: &DataType) -> Result<Option<DataType>> {
+        PrimitiveTypes.common_type(a, b)
+    }
+    fn compare(
+        &self,
+        ty: &DataType,
+        a: &Value,
+        b: &Value,
+        query: &QueryContext,
+    ) -> Result<Ordering> {
+        PrimitiveTypes.compare(ty, a, b, query)
+    }
+    fn write_key(
+        &self,
+        ty: &DataType,
+        value: &Value,
+        out: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.write_key(ty, value, out, query)
+    }
+    fn write_key_with_context(
+        &self,
+        ty: &DataType,
+        value: &Value,
+        key_context: KeyContext,
+        out: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        if key_context == KeyContext::SortEquivalence {
+            out.push(42)?;
+        }
+        self.write_key(ty, value, out, query)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn contextual_keys_retain_selected_semantics_and_validate_before_writing() -> Result<()> {
+    let mut types = TypeRegistry::builtins();
+    let old = types.bind(&DataType::BigInt)?;
+    types.replace(DataType::BigInt.family(), Arc::new(ContextKeys))?;
+    let retained = types.bind(&DataType::BigInt)?;
+    types.replace(DataType::BigInt.family(), Arc::new(PrimitiveTypes))?;
+    let unrelated = QueryContext::background().with_types(Arc::new(TypeRegistry::default()));
+    let mut original = vec![9];
+    old.append_key(&Value::Integer(1), &mut original, &unrelated)?;
+    for key_context in [KeyContext::Equality, KeyContext::SortEquivalence] {
+        let mut old_bytes = vec![9];
+        old.append_key_with_context(&Value::Integer(1), key_context, &mut old_bytes, &unrelated)?;
+        assert_eq!(old_bytes, original, "defaulted context preserves old bytes");
+        let mut selected = vec![9];
+        retained.append_key_with_context(
+            &Value::Integer(1),
+            key_context,
+            &mut selected,
+            &unrelated,
         )?;
-        let mut output = vec![9, 8, 7];
-        let result =
-            registry
-                .bind(&DataType::BigInt)?
-                .append_key(&Value::Integer(1), &mut output, &query);
+        assert_eq!(selected == original, key_context == KeyContext::Equality);
+        let before = selected.clone();
         assert!(matches!(
-            (mode, result),
-            (0, Err(Error::Execution(_)))
-                | (1, Err(Error::Interrupted))
-                | (2, Err(Error::Resource(_)))
+            retained.append_key_with_context(
+                &Value::Integer(7),
+                key_context,
+                &mut selected,
+                &unrelated
+            ),
+            Err(Error::Internal(_))
         ));
-        assert_eq!(output, [9, 8, 7]);
-        interrupt.reset();
-        let bound = TypeRegistry::builtins().bind(&DataType::BigInt)?;
-        bound.append_key(&Value::Integer(1), &mut output, &query)?;
-        let retained = output.clone();
-        bound.append_key(&Value::Null, &mut output, &query)?;
-        assert_eq!(&output[..retained.len()], retained.as_slice());
-        assert_eq!(output.last(), Some(&0));
+        assert_eq!(selected, before);
+        assert!(matches!(
+            retained.append_key_with_context(
+                &Value::Boolean(true),
+                key_context,
+                &mut selected,
+                &unrelated
+            ),
+            Err(Error::Conversion(_))
+        ));
+        assert_eq!(selected, before);
+        retained.append_key_with_context(&Value::Null, key_context, &mut selected, &unrelated)?;
+        assert_eq!(&selected[..before.len()], before.as_slice());
+        assert_eq!(selected.last(), Some(&0));
     }
     Ok(())
 }

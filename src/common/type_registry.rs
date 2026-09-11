@@ -12,7 +12,7 @@ pub mod numeric;
 pub mod scalar;
 pub mod temporal;
 pub mod variant;
-pub use key::KeyWriter;
+pub use key::{KeyContext, KeyWriter};
 
 use std::{
     cmp::Ordering,
@@ -312,6 +312,24 @@ pub trait TypeAdapter: Debug + Send + Sync {
         output: &mut KeyWriter<'_>,
         context: &QueryContext,
     ) -> Result<()>;
+    /// Append a key for the requested equivalence relation. Equality is the
+    /// ordinary SQL comparison/key contract above. SortEquivalence is the
+    /// representation-sensitive relation used by nested membership/search;
+    /// neither context promises that byte order is value sort order. Existing
+    /// selected adapters preserve their ordinary key semantics by default.
+    /// Composite adapters must forward the context through retained children.
+    /// Validation, NULL framing, size limits and rollback remain BoundType's
+    /// responsibility, exactly as for write_key.
+    fn write_key_with_context(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        _key_context: KeyContext,
+        output: &mut KeyWriter<'_>,
+        context: &QueryContext,
+    ) -> Result<()> {
+        self.write_key(data_type, value, output, context)
+    }
 }
 
 /// Retains the adapter selected for a complete type, including parameters.

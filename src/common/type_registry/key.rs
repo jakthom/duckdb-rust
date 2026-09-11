@@ -1,5 +1,14 @@
 use super::*;
 
+/// Selects an equivalence relation, not a byte-ordering guarantee. Ordinary
+/// joins/grouping retain Equality; SortEquivalence is explicitly requested by
+/// consumers whose source contract uses representation-sensitive sort keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyContext {
+    Equality,
+    SortEquivalence,
+}
+
 /// Append-only access to one canonical key component. The caller owns the
 /// reusable allocation; an adapter cannot inspect or change earlier components.
 /// Each append is fallible and the component is limited to 16 MiB.
@@ -43,8 +52,20 @@ impl BoundType {
         output: &mut Vec<u8>,
         context: &QueryContext,
     ) -> Result<()> {
+        self.append_key_with_context(value, KeyContext::Equality, output, context)
+    }
+
+    /// Contextual counterpart of append_key with identical retained selection,
+    /// physical/logical validation, NULL framing and transactional append limits.
+    pub fn append_key_with_context(
+        &self,
+        value: &Value,
+        key_context: KeyContext,
+        output: &mut Vec<u8>,
+        context: &QueryContext,
+    ) -> Result<()> {
         self.validate(value, context)?;
-        self.append_validated_key(value, output, context)
+        self.append_validated_key_with_context(value, key_context, output, context)
     }
 
     /// Visit canonical non-NULL keys in column order; NULL values produce None.
@@ -78,6 +99,16 @@ impl BoundType {
         output: &mut Vec<u8>,
         context: &QueryContext,
     ) -> Result<()> {
+        self.append_validated_key_with_context(value, KeyContext::Equality, output, context)
+    }
+
+    fn append_validated_key_with_context(
+        &self,
+        value: &Value,
+        key_context: KeyContext,
+        output: &mut Vec<u8>,
+        context: &QueryContext,
+    ) -> Result<()> {
         let prefix = output.len();
         output
             .try_reserve(if value.is_null() { 1 } else { 9 })
@@ -94,9 +125,13 @@ impl BoundType {
             start,
             failure: None,
         };
-        let result = self
-            .adapter
-            .write_key(&self.data_type, value, &mut writer, context);
+        let result = self.adapter.write_key_with_context(
+            &self.data_type,
+            value,
+            key_context,
+            &mut writer,
+            context,
+        );
         let result = writer
             .failure
             .map_or(result, |message| Err(Error::Resource(message.into())));
