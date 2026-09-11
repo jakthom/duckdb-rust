@@ -29,6 +29,8 @@ mod cast_nulls;
 mod keys;
 #[path = "types/literals.rs"]
 mod literals;
+#[path = "types/wide_literals.rs"]
+mod wide_literals;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn composition(adapter: Arc<dyn TypeAdapter>) -> Result<(Arc<TypeRegistry>, CastRegistry)> {

@@ -27,12 +27,19 @@ Binding selects common types and inserts casts before most physical execution. `
 The provisional selected common-type contract accepts optional integer-literal
 provenance separately from declared types. It does not evaluate an expression
 to manufacture a literal, grant a global implicit narrowing cast, or attach
-literal identity to stored values. Hints must fit their signed underlying type.
+literal identity to stored values. Full hints use an owned
+`IntegerLiteral::Signed(i128)` or `Unsigned(u128)` and must match both the
+representation and range of their underlying type before adapter dispatch.
 Builtin signed and exact-numeric adapters can propose a fitting integral target
 for one literal and one concrete type; two literals combine their underlying
 types. Ordinary no-hint inference is unchanged. Existing replacement adapters
 default to their registry-aware proposal, and each hint moves with its operand
-when a distinct-family proposal reverses roles. Conflicts and invalid returned
+when a distinct-family proposal reverses roles. The signed Option<i128> API is
+retained as a compatibility wrapper. A new selected full-literal hook forwards
+signed-only requests to that adapter's old signed hook; if either operand hint
+is unsigned, its default invokes the selected ordinary proposal instead of
+dropping one hint, wrapping, or narrowing it. Full-aware adapters override the
+new hook. No-hint calls retain ordinary dispatch. Conflicts and invalid returned
 metadata still reject binding. A template binder separately owns the source's
 ordered identical-literal/NULL rules described in the expression specification.
 

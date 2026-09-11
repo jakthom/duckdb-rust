@@ -24,6 +24,34 @@ use std::{
 use super::{DataType, Error, Result, TypeParameter, Value};
 use crate::parallel::QueryContext;
 
+/// Owned SQL literal provenance, not an inferred range or an evaluated value.
+/// Signed and unsigned payloads retain their full domains and source identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegerLiteral {
+    Signed(i128),
+    Unsigned(u128),
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl IntegerLiteral {
+    fn signed(self) -> Option<i128> {
+        match self {
+            Self::Signed(value) => Some(value),
+            Self::Unsigned(_) => None,
+        }
+    }
+    fn fits_source(self, source: &DataType) -> bool {
+        match self {
+            Self::Signed(value) => {
+                source.is_signed_integer() && Value::Integer(value).fits_type(source)
+            }
+            Self::Unsigned(value) => {
+                source.is_unsigned_integer() && Value::Unsigned(value).fits_type(source)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValueValidation {
     /// Physical representation alone establishes logical validity.
@@ -193,6 +221,35 @@ pub trait TypeAdapter: Debug + Send + Sync {
         types: &TypeRegistry,
     ) -> Result<Option<DataType>> {
         self.common_type_with_registry(left, right, types)
+    }
+    /// Full-width counterpart of the signed compatibility hook. Old selected
+    /// adapters receive their exact signed hints for signed-only requests.
+    /// If either hint is unsigned, the default uses the selected ordinary
+    /// proposal: it must not drop only one hint, wrap, or narrow its payload.
+    /// Full-aware adapters can override this method. Operand reversal always
+    /// moves the entire hint with its source metadata.
+    fn common_type_with_literals(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        left_literal: Option<IntegerLiteral>,
+        right_literal: Option<IntegerLiteral>,
+        types: &TypeRegistry,
+    ) -> Result<Option<DataType>> {
+        match (left_literal, right_literal) {
+            (None, None)
+            | (Some(IntegerLiteral::Unsigned(_)), _)
+            | (_, Some(IntegerLiteral::Unsigned(_))) => {
+                self.common_type_with_registry(left, right, types)
+            }
+            _ => self.common_type_with_integer_literals(
+                left,
+                right,
+                left_literal.and_then(IntegerLiteral::signed),
+                right_literal.and_then(IntegerLiteral::signed),
+                types,
+            ),
+        }
     }
     fn compare(
         &self,
@@ -571,9 +628,26 @@ impl TypeRegistry {
         left_literal: Option<i128>,
         right_literal: Option<i128>,
     ) -> Result<Option<DataType>> {
+        self.try_common_type_with_literals(
+            left,
+            right,
+            left_literal.map(IntegerLiteral::Signed),
+            right_literal.map(IntegerLiteral::Signed),
+        )
+    }
+    /// Binding-only full-domain provenance. Validate both hint representation
+    /// and value against its source type before invoking any selected adapter.
+    /// No-hint requests retain ordinary proposals. This does not grant casts.
+    pub fn try_common_type_with_literals(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        left_literal: Option<IntegerLiteral>,
+        right_literal: Option<IntegerLiteral>,
+    ) -> Result<Option<DataType>> {
         for (ty, literal) in [(left, left_literal), (right, right_literal)] {
             if let Some(value) = literal
-                && (!ty.is_signed_integer() || !Value::Integer(value).fits_type(ty))
+                && !value.fits_source(ty)
             {
                 return Err(Error::Bind(
                     "integer literal hint differs from its underlying type".into(),
@@ -592,7 +666,7 @@ impl TypeRegistry {
             Some(right.clone())
         } else {
             let a = if hinted {
-                a.adapter.common_type_with_integer_literals(
+                a.adapter.common_type_with_literals(
                     left,
                     right,
                     left_literal,
@@ -605,7 +679,7 @@ impl TypeRegistry {
             let b = if left.family() == right.family() {
                 None
             } else if hinted {
-                b.adapter.common_type_with_integer_literals(
+                b.adapter.common_type_with_literals(
                     right,
                     left,
                     right_literal,
