@@ -19,6 +19,8 @@ mod contracts;
 mod direction;
 #[path = "numeric_literals.rs"]
 mod literals;
+#[path = "numeric_nullif.rs"]
+mod nullif;
 #[path = "numeric_precision.rs"]
 mod precision;
 #[path = "numeric_rounding.rs"]

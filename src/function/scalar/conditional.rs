@@ -6,7 +6,7 @@ use crate::{
     common::{DataType, Error, Result, Value, cast::CastMode, type_registry::TypeRegistry},
     function::{
         ArgumentCombination, ArgumentEvaluation, FunctionRegistry, ScalarBindArguments,
-        ScalarFunction,
+        ScalarExpansion, ScalarExpansionNode, ScalarFunction,
     },
     parallel::QueryContext,
 };
@@ -14,11 +14,67 @@ use crate::{
 #[derive(Debug)]
 struct Coalesce(Option<ArgumentCombination>);
 
+#[derive(Debug)]
+struct NullIf;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     registry
         .register_scalar(Arc::new(Coalesce(None)))
         .expect("unique coalesce function");
+    registry
+        .register_scalar(Arc::new(NullIf))
+        .expect("unique nullif function");
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for NullIf {
+    fn name(&self) -> &str {
+        "nullif"
+    }
+    fn expansion(
+        &self,
+        arguments: &dyn ScalarBindArguments,
+        query: &QueryContext,
+    ) -> Result<Option<ScalarExpansion>> {
+        query.check()?;
+        if arguments.len() != 2 {
+            return Err(Error::Bind("NULLIF requires two arguments".into()));
+        }
+        use ScalarExpansionNode as N;
+        Ok(Some(ScalarExpansion {
+            nodes: vec![
+                N::Argument(0),
+                N::Argument(1),
+                N::Equal { left: 0, right: 1 },
+                N::Null,
+                N::Case {
+                    condition: 2,
+                    then_value: 3,
+                    otherwise: 0,
+                },
+            ],
+        }))
+    }
+    fn bind(
+        &self,
+        _: &dyn ScalarBindArguments,
+        _: &QueryContext,
+    ) -> Result<Option<Arc<dyn ScalarFunction>>> {
+        Err(Error::Unsupported(
+            "NULLIF requires selected expression expansion".into(),
+        ))
+    }
+    fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        Err(Error::Unsupported(
+            "NULLIF requires selected expression expansion".into(),
+        ))
+    }
+    fn evaluate(&self, _: &[Value], _: &QueryContext) -> Result<Value> {
+        Err(Error::Unsupported(
+            "NULLIF requires selected expression expansion".into(),
+        ))
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -25,7 +25,6 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         "char_length",
         "character_length",
         "len",
-        "nullif",
         "concat",
         "sqrt",
     ] {
@@ -54,16 +53,13 @@ impl ScalarFunction for Builtin {
     fn argument_types(
         &self,
         arguments: &[DataType],
-        types: &crate::common::type_registry::TypeRegistry,
+        _types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Vec<DataType>> {
         if self.0 == "concat" {
             if arguments.is_empty() {
                 return Err(Error::Bind("concat requires at least one argument".into()));
             }
             return Ok(vec![DataType::Varchar; arguments.len()]);
-        }
-        if self.0 == "nullif" {
-            return Ok(vec![self.return_type(arguments, types)?; arguments.len()]);
         }
         if self.0 == "sqrt" && arguments == [DataType::Bignum] {
             return Ok(vec![DataType::Double]);
@@ -88,11 +84,10 @@ impl ScalarFunction for Builtin {
     fn return_type(
         &self,
         arguments: &[DataType],
-        types: &crate::common::type_registry::TypeRegistry,
+        _types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<DataType> {
         let count = arguments.len();
         match self.0 {
-            "nullif" if count == 2 => types.common_type(&arguments[0], &arguments[1]),
             "concat" => Ok(DataType::Varchar),
             "lower" | "upper"
                 if count == 1 && matches!(arguments[0], DataType::Varchar | DataType::Null) =>
@@ -121,42 +116,21 @@ impl ScalarFunction for Builtin {
     }
     fn evaluate(&self, args: &[Value], context: &QueryContext) -> Result<Value> {
         context.check()?;
-        match self.0 {
-            "concat" => {
-                let mut output = String::new();
-                for argument in args {
-                    context.check()?;
-                    let text = match argument {
-                        Value::Null => continue,
-                        Value::Varchar(text) => text,
-                        _ => return Err(Error::Internal("concat argument is not VARCHAR".into())),
-                    };
-                    output
-                        .try_reserve(text.len())
-                        .map_err(|_| Error::Resource("concat result allocation failed".into()))?;
-                    output.push_str(text);
-                }
-                return Ok(Value::Varchar(output));
-            }
-            "nullif" => {
-                return if args[0].is_null()
-                    || (!args[1].is_null()
-                        && context
-                            .types()
-                            .bind(
-                                &context
-                                    .types()
-                                    .common_type(&args[0].data_type(), &args[1].data_type())?,
-                            )?
-                            .compare(&args[0], &args[1], context)?
-                            .is_eq())
-                {
-                    Ok(Value::Null)
-                } else {
-                    Ok(args[0].clone())
+        if self.0 == "concat" {
+            let mut output = String::new();
+            for argument in args {
+                context.check()?;
+                let text = match argument {
+                    Value::Null => continue,
+                    Value::Varchar(text) => text,
+                    _ => return Err(Error::Internal("concat argument is not VARCHAR".into())),
                 };
+                output
+                    .try_reserve(text.len())
+                    .map_err(|_| Error::Resource("concat result allocation failed".into()))?;
+                output.push_str(text);
             }
-            _ => {}
+            return Ok(Value::Varchar(output));
         }
         if args[0].is_null() {
             return Ok(Value::Null);

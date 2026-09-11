@@ -42,3 +42,25 @@ needed Constant versus Unknown distinction. The comparison repair is owned by
 this scalar slice but stays separate from the expansion prerequisite. Maintained
 Kani will run at a substantial integrated checkpoint; no unexecuted proof or
 completed NULLIF/whole-function parity is claimed here.
+
+## NULLIF selected registration
+
+The scalar catalog now registers NULLIF as a required selected expansion using
+the five-node CASE/equality template above. Its ordinary bind, return-type and
+evaluation methods explicitly report Unsupported. The old eager common-type
+coercion and ambient comparison lookup have been removed; ordinary frontend
+comparison and CASE services retain both casts and the original ELSE expression.
+
+Connected tests cover unsigned/decimal/VARCHAR and nested first-result metadata,
+equal/non-equal/NULL values, full-width comparison conversion failure, typed
+prepared parameters, volatile occurrence counts, grouping, joins, windows, indexed
+lookup, atomic failed UPDATE, rollback and native WAL/checkpoint reopen. Both
+evaluator and optimizer compositions exercise the scalar cases. Removing the old
+NULLIF branch exposed an unused type parameter and a single-arm concat match;
+routine compiler/clippy cleanup left concat behavior unchanged.
+
+The physical constant-NULL comparison rule remains explicitly pending at this
+internal registration step. The existing successful NULLIF tests do not claim
+that skipped-error/effect boundary is already implemented. Its shared follow-up
+will use actual execution provenance and cover scalar, batch and predicate paths,
+including Unknown/flat NULL inputs and required fatal validation.
