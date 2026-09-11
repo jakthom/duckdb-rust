@@ -33,7 +33,7 @@ fn no_overload(name: &str) -> Error {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn unsupported(statistics: bool) -> Error {
-    Error::Unsupported(format!(
+    Error::NotImplemented(format!(
         "Specifier type not implemented for DATETRUNC{}",
         if statistics { " statistics" } else { "" }
     ))

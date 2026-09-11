@@ -96,7 +96,7 @@ fn truncation_retains_aliases_calendar_units_duration_signs_and_timestamp_precis
                 );
                 assert_eq!(c.query(&format!("SELECT CASE WHEN false THEN {function}('bad',INTERVAL '1 day') ELSE NULL END"))?.rows,vec![vec![Value::Null]]);
                 assert!(
-                    matches!(c.query(&format!("SELECT {function}('era',DATE 'infinity')")),Err(Error::Unsupported(message)) if message=="Specifier type not implemented for DATETRUNC statistics")
+                    matches!(c.query(&format!("SELECT {function}('era',DATE 'infinity')")),Err(Error::NotImplemented(message)) if message=="Specifier type not implemented for DATETRUNC statistics")
                 );
                 assert_eq!(
                     text_rows(c.query(&format!(
@@ -111,7 +111,7 @@ fn truncation_retains_aliases_calendar_units_duration_signs_and_timestamp_precis
                     Err(Error::Conversion(_))
                 ));
                 assert!(
-                    matches!(c.query(&format!("SELECT {function}((SELECT 'era'),DATE 'infinity')")),Err(Error::Unsupported(message)) if message=="Specifier type not implemented for DATETRUNC")
+                    matches!(c.query(&format!("SELECT {function}((SELECT 'era'),DATE 'infinity')")),Err(Error::NotImplemented(message)) if message=="Specifier type not implemented for DATETRUNC")
                 );
                 assert_eq!(
                     c.query(&format!(
@@ -232,7 +232,7 @@ fn buckets_keep_origins_offsets_core_time_wrapping_and_width_demand_order() -> R
                 c.query(&format!(
                     "SELECT time_bucket(INTERVAL '{width}',DATE 'infinity')"
                 )),
-                Err(Error::Unsupported(_))
+                Err(Error::NotImplemented(_))
             ));
             assert_eq!(
                 c.query(&format!(
@@ -285,7 +285,7 @@ fn buckets_keep_origins_offsets_core_time_wrapping_and_width_demand_order() -> R
         });
         assert!(matches!(
             c.execute_prepared(&prepared, &invalid),
-            Err(Error::Unsupported(_))
+            Err(Error::NotImplemented(_))
         ));
         assert_eq!(
             text_rows(c.execute_prepared(&prepared, &parameters)?),
@@ -496,7 +496,7 @@ fn calendar_results_cross_nested_values_indexes_joins_windows_mutations_and_nati
             );
             assert!(matches!(
                 c.execute("UPDATE calendar_results SET b=time_bucket(INTERVAL '0 days',b)"),
-                Err(Error::Unsupported(_))
+                Err(Error::NotImplemented(_))
             ));
             assert_eq!(c.query(projection)?.rows, before.rows);
             c.execute("BEGIN; UPDATE calendar_results SET k=date_trunc('hour',TIMESTAMP '2024-03-01 12:34:56'),p={'d':time_bucket(INTERVAL '1 month',DATE '2024-03-04'),'v':[date_trunc('month',TIMESTAMP '2024-03-04 12:34:56')],'span':date_trunc('year',INTERVAL '14 months')} WHERE id=1; DELETE FROM calendar_results WHERE id=2; ROLLBACK")?;

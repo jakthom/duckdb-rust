@@ -309,12 +309,12 @@ impl Interval {
                 return Ok(Some(Width::Months(self.months)));
             }
         } else if throw {
-            return Err(Error::Unsupported(
+            return Err(Error::NotImplemented(
                 "Month intervals cannot have day or time component".into(),
             ));
         }
         if throw {
-            Err(Error::Unsupported("Period must be greater than 0".into()))
+            Err(Error::NotImplemented("Period must be greater than 0".into()))
         } else {
             Ok(None)
         }
