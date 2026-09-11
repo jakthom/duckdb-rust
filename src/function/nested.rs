@@ -12,6 +12,7 @@ use std::{collections::BTreeSet, sync::Arc};
 mod concat;
 mod constructor;
 mod map;
+mod sequence;
 mod slice;
 mod variant;
 pub(super) use concat::bind_concat;
@@ -353,6 +354,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     concat::register(registry);
     constructor::register(registry);
     map::register(registry);
+    sequence::register(registry);
     slice::register(registry);
     variant::register(registry);
     for name in [

@@ -20,6 +20,8 @@ mod native;
 mod object;
 #[path = "nested/publication.rs"]
 mod publication;
+#[path = "nested/sequence.rs"]
+mod sequence;
 #[path = "nested/slice.rs"]
 mod slice;
 #[path = "nested/tuple.rs"]
