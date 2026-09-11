@@ -71,25 +71,40 @@ impl Snapshot {
         }
         let add_values = if let TableAlteration::AddColumn { column, .. } = alteration {
             let mut values = Vec::with_capacity(before.physical_slots.len());
+            let visible_only = column
+                .default
+                .as_ref()
+                .is_some_and(|expression| !expression.is_simple_default());
             for &slot in &before.physical_slots {
                 context.check()?;
-                let value = match &column.default {
-                    Some(expression) => match expression.as_literal() {
-                        Some((data_type, value)) if data_type == &column.data_type => value.clone(),
-                        _ => context.stored_expressions()?.evaluate(
-                            expression,
-                            &column.data_type,
-                            self,
-                            context,
-                        )?,
-                    },
-                    None => Value::Null,
+                let value = if visible_only && slot.live().is_none() {
+                    // DuckDB rewrites non-simple ADD defaults to ADD NULL,
+                    // UPDATE visible rows, SET DEFAULT. Deleted physical slots
+                    // therefore neither observe effects nor raise failures.
+                    Value::Null
+                } else {
+                    match &column.default {
+                        Some(expression) => match expression.as_literal() {
+                            Some((data_type, value)) if data_type == &column.data_type => {
+                                value.clone()
+                            }
+                            _ => context.stored_expressions()?.evaluate(
+                                expression,
+                                &column.data_type,
+                                self,
+                                context,
+                            )?,
+                        },
+                        None => Value::Null,
+                    }
                 };
-                self.types
-                    .bind(&column.data_type)?
-                    .validate(&value, context)?;
-                if value.is_null() && !column.nullable {
-                    return Err(not_null(name, &column.name));
+                if !(visible_only && slot.live().is_none()) {
+                    self.types
+                        .bind(&column.data_type)?
+                        .validate(&value, context)?;
+                    if value.is_null() && !column.nullable {
+                        return Err(not_null(name, &column.name));
+                    }
                 }
                 values.push((slot, value));
             }

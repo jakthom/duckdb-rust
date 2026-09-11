@@ -323,15 +323,15 @@ fn transaction_add_resolves_physical_defaults_once_for_snapshot_and_catalog_basi
         },
         &query,
     )?;
-    assert_eq!(calls.0.load(Ordering::SeqCst), 3);
+    assert_eq!(calls.0.load(Ordering::SeqCst), 2);
     transaction.commit()?;
 
     let transaction = manager.begin()?;
     assert_eq!(
         transaction.storage().scan(&table, &query)?,
         vec![
-            (1, vec![Value::Integer(20), Value::Integer(2)]),
-            (2, vec![Value::Integer(30), Value::Integer(3)]),
+            (1, vec![Value::Integer(20), Value::Integer(1)]),
+            (2, vec![Value::Integer(30), Value::Integer(2)]),
         ]
     );
     Ok(())

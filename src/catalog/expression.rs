@@ -110,6 +110,21 @@ impl StoredExpression {
         }
     }
 
+    /// Whether DuckDB can install this ADD COLUMN default directly for every
+    /// physical slot. Other expressions are materialized through an UPDATE of
+    /// visible rows, so deleted slots must not evaluate them.
+    pub fn is_simple_default(&self) -> bool {
+        match &self.kind {
+            StoredExpressionKind::Literal { .. } => true,
+            StoredExpressionKind::Cast {
+                expression,
+                try_cast: false,
+                ..
+            } => matches!(expression.kind, StoredExpressionKind::Literal { .. }),
+            _ => false,
+        }
+    }
+
     /// Preflight the entire owned tree before any binding callback. The shared
     /// subset bounds depth at 64, nodes at 16,384, and identifier bytes at 16 MiB.
     /// Selected type adapters separately validate literal metadata/payloads and

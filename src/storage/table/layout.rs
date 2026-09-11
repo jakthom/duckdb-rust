@@ -1,6 +1,8 @@
 use super::*;
-use crate::catalog::expression::{StoredArgument, StoredExpression, StoredExpressionKind};
-use crate::storage::format::SnapshotFormat;
+use crate::catalog::expression::{
+    StoredArgument, StoredArgumentStyle, StoredExpression, StoredExpressionKind,
+};
+use crate::storage::format::{DUCKDB_FORMAT, SnapshotFormat};
 use crate::storage::layout::CheckpointLayout;
 mod selected;
 mod values;
@@ -180,7 +182,14 @@ fn equal_default(
             },
         ) if left_name == right_name
             && left_operator == right_operator
-            && left_style == right_style =>
+            && (left_style == right_style
+                || native_legacy_argument_style_equivalent(
+                    *left_style,
+                    *right_style,
+                    left_arguments,
+                    right_arguments,
+                    format,
+                )) =>
         {
             equal_arguments(left_arguments, right_arguments, types, format, context)
         }
@@ -203,6 +212,30 @@ fn equal_default(
         }
         _ => Ok(false),
     }
+}
+
+fn native_legacy_argument_style_equivalent(
+    left: StoredArgumentStyle,
+    right: StoredArgumentStyle,
+    left_arguments: &[StoredArgument],
+    right_arguments: &[StoredArgument],
+    format: Option<&dyn SnapshotFormat>,
+) -> bool {
+    format.is_some_and(|format| format.format_id() == DUCKDB_FORMAT)
+        && matches!(
+            (left, right),
+            (
+                StoredArgumentStyle::Named,
+                StoredArgumentStyle::LegacyAliases
+            ) | (
+                StoredArgumentStyle::LegacyAliases,
+                StoredArgumentStyle::Named
+            )
+        )
+        && left_arguments
+            .iter()
+            .chain(right_arguments)
+            .all(|argument| argument.name == argument.expression.alias)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

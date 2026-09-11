@@ -1090,7 +1090,7 @@ fn sql_defaults_are_retained_and_evaluated_only_at_omitted_row_demand() -> Resul
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
-fn add_default_demand_tracks_deleted_physical_slots_until_checkpoint() -> Result<()> {
+fn add_default_demand_distinguishes_materialized_and_simple_physical_paths() -> Result<()> {
     let mut c = Database::memory()?.connect();
     c.execute(
         "CREATE TABLE live(i INTEGER); INSERT INTO live VALUES (1),(2); \
@@ -1107,14 +1107,18 @@ fn add_default_demand_tracks_deleted_physical_slots_until_checkpoint() -> Result
         vec![integers(&[0])]
     );
 
+    c.execute("ALTER TABLE t ADD COLUMN deferred INTEGER DEFAULT 1/0")?;
     assert!(
-        c.execute("ALTER TABLE t ADD COLUMN failed INTEGER DEFAULT 1/0")
+        c.execute("ALTER TABLE t ADD COLUMN failed INTEGER DEFAULT CAST('bad' AS INTEGER)")
             .is_err()
     );
     c.execute("CHECKPOINT")?;
-    c.execute("ALTER TABLE t ADD COLUMN added INTEGER DEFAULT 1/0")?;
-    c.execute("INSERT INTO t VALUES (3, 30)")?;
+    c.execute("ALTER TABLE t ADD COLUMN simple INTEGER DEFAULT CAST('bad' AS INTEGER)")?;
+    c.execute("INSERT INTO t VALUES (3, 30, 40)")?;
     assert!(c.execute("INSERT INTO t(i) VALUES (4),(5)").is_err());
-    assert_eq!(c.query("SELECT * FROM t")?.rows, vec![integers(&[3, 30])]);
+    assert_eq!(
+        c.query("SELECT * FROM t")?.rows,
+        vec![integers(&[3, 30, 40])]
+    );
     Ok(())
 }

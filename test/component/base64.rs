@@ -381,6 +381,7 @@ fn retained_function_defaults_survive_native_wal_add_set_and_reopen() -> Result<
             ]
         );
         connection.execute("INSERT INTO t(id) VALUES (3)")?;
+        connection.execute("CHECKPOINT")?;
     }
     assert_eq!(
         Database::open_read_only(&path)?

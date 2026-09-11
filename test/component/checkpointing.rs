@@ -2,9 +2,7 @@ use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
     catalog::{
         Catalog, ColumnDefinition, TableAlteration, TableName,
-        expression::{
-            StoredArgumentStyle, StoredExpression, StoredExpressionEvaluator, StoredExpressionKind,
-        },
+        expression::{StoredExpression, StoredExpressionEvaluator, StoredExpressionKind},
     },
     execution::index::{BTreeIndexFactory, HashIndexFactory, IndexFactory},
     parallel::{InterruptHandle, QueryContext},
@@ -99,11 +97,13 @@ fn counted_default() -> StoredExpression {
     StoredExpression {
         alias: None,
         source_span: None,
-        kind: StoredExpressionKind::Function {
-            name: vec!["count_physical_defaults".into()],
-            arguments: vec![],
-            is_operator: false,
-            argument_style: StoredArgumentStyle::Named,
+        kind: StoredExpressionKind::Cast {
+            expression: Box::new(StoredExpression::literal(
+                DataType::Integer,
+                Value::Integer(1),
+            )),
+            target: DataType::Integer,
+            try_cast: false,
         },
     }
 }
