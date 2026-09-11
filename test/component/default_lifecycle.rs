@@ -216,6 +216,91 @@ fn insert_defaults_run_column_major_and_stage_failures_before_rows() -> Result<(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn insert_defaults_advance_by_duckdb_standard_vectors() -> Result<()> {
+    let state = Arc::new(EffectState::default());
+    let mut registry = FunctionRegistry::builtins();
+    registry.register_scalar(Arc::new(OrderedDefault(state.clone())))?;
+    let mut connection = DatabaseBuilder::new()
+        .functions(registry)
+        // Execution batching is configurable, but DuckDB default effects use
+        // its fixed standard-vector boundary.
+        .batch_size(7)
+        .build()?
+        .connect();
+    connection.execute("SET SESSION default_order='DESC'")?;
+    connection.execute(
+        "CREATE TABLE vector_order(
+            id INTEGER,
+            first VARCHAR DEFAULT ordered_default('first'),
+            second VARCHAR DEFAULT ordered_default('second')
+        );
+        INSERT INTO vector_order(id)
+        SELECT range::INTEGER FROM range(2050)",
+    )?;
+    assert_eq!(state.calls.load(Ordering::SeqCst), 4100);
+    assert_eq!(
+        connection
+            .query(
+                "SELECT * FROM vector_order
+                 WHERE id IN (0,2047,2048,2049)
+                 ORDER BY id ASC"
+            )?
+            .rows,
+        vec![
+            vec![
+                integer(0),
+                string("DESC:first:1"),
+                string("DESC:second:2049")
+            ],
+            vec![
+                integer(2047),
+                string("DESC:first:2048"),
+                string("DESC:second:4096")
+            ],
+            vec![
+                integer(2048),
+                string("DESC:first:4097"),
+                string("DESC:second:4099")
+            ],
+            vec![
+                integer(2049),
+                string("DESC:first:4098"),
+                string("DESC:second:4100")
+            ],
+        ]
+    );
+
+    state.calls.store(0, Ordering::SeqCst);
+    state.fail_on.store(2050, Ordering::SeqCst);
+    connection.execute(
+        "CREATE TABLE failing_vector(
+            id INTEGER,
+            first VARCHAR DEFAULT ordered_default('first'),
+            second VARCHAR DEFAULT ordered_default('second')
+        )",
+    )?;
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO failing_vector(id)
+                 SELECT range::INTEGER FROM range(2050)"
+            )
+            .is_err()
+    );
+    // The second column begins after the first 2048-row vector. Its second
+    // evaluation fails before the next vector or any row reaches storage.
+    assert_eq!(state.calls.load(Ordering::SeqCst), 2050);
+    assert_eq!(
+        connection
+            .query("SELECT count(*) FROM failing_vector")?
+            .rows,
+        vec![vec![integer(0)]]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn prepared_omissions_use_execution_settings_and_failed_rows_remain_atomic() -> Result<()> {
     let state = Arc::new(EffectState::default());
     let mut connection = DatabaseBuilder::new()

@@ -1,5 +1,7 @@
 use super::*;
 
+const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Services {
     fn execution_context<'a>(
@@ -168,27 +170,29 @@ impl Services {
                 for &column in &columns {
                     supplied[column] = true;
                 }
-                // DuckDB evaluates omitted defaults a vector at a time: finish
-                // one target column for every input row before the next column.
-                // Rows remain staged until all effects and validation succeed.
-                for (ordinal, column) in definition.columns.iter().enumerate() {
-                    if supplied[ordinal] {
-                        continue;
-                    }
-                    for row in &mut rows {
-                        query.check()?;
-                        row[ordinal] =
-                            column
-                                .default
-                                .as_ref()
-                                .map_or(Ok(Value::Null), |expression| {
-                                    query.stored_expressions()?.evaluate(
-                                        expression,
-                                        &column.data_type,
-                                        transaction.catalog(),
-                                        query,
-                                    )
-                                })?;
+                // DuckDB finishes each omitted column within one standard
+                // vector, then advances to the next vector. Keep every vector
+                // staged until the whole statement succeeds.
+                for vector in rows.chunks_mut(DUCKDB_STANDARD_VECTOR_SIZE) {
+                    for (ordinal, column) in definition.columns.iter().enumerate() {
+                        if supplied[ordinal] {
+                            continue;
+                        }
+                        for row in vector.iter_mut() {
+                            query.check()?;
+                            row[ordinal] =
+                                column
+                                    .default
+                                    .as_ref()
+                                    .map_or(Ok(Value::Null), |expression| {
+                                        query.stored_expressions()?.evaluate(
+                                            expression,
+                                            &column.data_type,
+                                            transaction.catalog(),
+                                            query,
+                                        )
+                                    })?;
+                        }
                     }
                 }
                 Ok(QueryResult::command(
