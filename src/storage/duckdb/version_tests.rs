@@ -141,12 +141,20 @@ fn development_qualified_catalog_metadata_round_trips_and_rejects_ambiguous_name
         writer::column_definition(
             &mut output,
             &crate::catalog::ColumnDefinition::new("n", crate::DataType::Integer),
+            69,
+            &crate::parallel::QueryContext::background(),
         )?;
         output.end();
         output.end();
         let mut reader = Reader::new(output.0);
-        let result = catalog::create_base(&mut reader, 1)
-            .and_then(|name| catalog::table_definition(&mut reader, name));
+        let result = catalog::create_base(&mut reader, 1).and_then(|name| {
+            catalog::table_definition_at(
+                &mut reader,
+                name,
+                69,
+                &crate::parallel::QueryContext::background(),
+            )
+        });
         assert_eq!(result.is_ok(), accepted);
         if let Ok(definition) = result {
             assert_eq!(definition.name.schema, "analytics");
@@ -174,8 +182,16 @@ fn development_default_source_spans_do_not_change_the_value() -> Result<()> {
     output.end();
     output.end();
     assert_eq!(
-        catalog::constant_expression(&mut Reader::new(output.0))?,
-        crate::Value::Integer(42)
+        super::parsed::read(
+            &mut Reader::new(output.0),
+            69,
+            &crate::parallel::QueryContext::background()
+        )?
+        .as_literal()
+        .unwrap()
+        .1
+        .clone(),
+        crate::Value::Integer(42),
     );
     Ok(())
 }

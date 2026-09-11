@@ -38,7 +38,8 @@ pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
                 reader.end()?;
             }
             1 => {
-                let definition = table_definition_at(&mut reader, name, blocks.storage_version, context.query)?;
+                let definition =
+                    table_definition_at(&mut reader, name, blocks.storage_version, context.query)?;
                 reader.field(101)?;
                 let pointer = reader.pointer()?;
                 reader.field(102)?;
@@ -70,8 +71,13 @@ pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
     Ok(snapshot)
 }
 
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
+/// Version/context are explicit at native catalog boundaries so retained
+/// expressions can select a compatible wire conversion without ambient state.
+pub(super) fn column_at(
+    reader: &mut Reader,
+    version: u64,
+    query: &crate::parallel::QueryContext,
+) -> Result<ColumnDefinition> {
     let name = if reader.optional(100)? {
         reader.string()?
     } else {
@@ -80,10 +86,7 @@ pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
     reader.field(101)?;
     let data_type = logical_type(reader)?;
     let default = if reader.optional(102)? && reader.boolean()? {
-        Some(crate::catalog::expression::StoredExpression::literal(
-            data_type.clone(),
-            constant::read(reader, 0)?.cast(&data_type)?,
-        ))
+        Some(super::parsed::read(reader, version, query)?)
     } else {
         None
     };
@@ -98,23 +101,6 @@ pub(super) fn column(reader: &mut Reader) -> Result<ColumnDefinition> {
         default,
         ..ColumnDefinition::new(name, data_type)
     })
-}
-
-/// Version/context are explicit at native catalog boundaries so retained
-/// expressions can select a compatible wire conversion without ambient state.
-pub(super) fn column_at(
-    reader: &mut Reader,
-    version: u64,
-    query: &crate::parallel::QueryContext,
-) -> Result<ColumnDefinition> {
-    let name = if reader.optional(100)? { reader.string()? } else { return Err(corrupt("column without a name")); };
-    reader.field(101)?;
-    let data_type = logical_type(reader)?;
-    let default = if reader.optional(102)? && reader.boolean()? { Some(super::parsed::read(reader, version, query)?) } else { None };
-    reader.field(103)?;
-    if reader.unsigned()? != 0 { return Err(Error::Unsupported("generated DuckDB column".into())); }
-    reader.field(104)?; reader.unsigned()?; reader.end()?;
-    Ok(ColumnDefinition { default, ..ColumnDefinition::new(name, data_type) })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -401,10 +387,11 @@ pub(super) struct CreateName {
     name: Option<String>,
 }
 
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn table_definition(
+pub(super) fn table_definition_at(
     reader: &mut Reader,
     qualified: CreateName,
+    version: u64,
+    query: &crate::parallel::QueryContext,
 ) -> Result<TableDefinition> {
     let name = if reader.optional(200)? {
         reader.string()?
@@ -420,40 +407,19 @@ pub(super) fn table_definition(
     }
     reader.field(201)?;
     reader.field(100)?;
-    let mut definitions = Vec::new();
+    let mut columns = Vec::new();
     for _ in 0..reader.length()? {
-        definitions.push(column(reader)?);
+        columns.push(column_at(reader, version, query)?);
     }
     reader.end()?;
     let mut definition = TableDefinition {
         name: TableName::new(qualified.schema, name),
-        columns: definitions,
+        columns,
         unique_keys: Vec::new(),
     };
     if reader.optional(202)? {
         constraints(reader, &mut definition)?;
     }
-    reader.end()?;
-    Ok(definition)
-}
-
-pub(super) fn table_definition_at(
-    reader: &mut Reader,
-    qualified: CreateName,
-    version: u64,
-    query: &crate::parallel::QueryContext,
-) -> Result<TableDefinition> {
-    let name = if reader.optional(200)? { reader.string()? } else { return Err(corrupt("table without a name")); };
-    if qualified.name.as_ref().is_some_and(|qualified| qualified != &name) {
-        return Err(corrupt("qualified and legacy table names disagree"));
-    }
-    reader.field(201)?;
-    reader.field(100)?;
-    let mut columns = Vec::new();
-    for _ in 0..reader.length()? { columns.push(column_at(reader, version, query)?); }
-    reader.end()?;
-    let mut definition = TableDefinition { name: TableName::new(qualified.schema, name), columns, unique_keys: Vec::new() };
-    if reader.optional(202)? { constraints(reader, &mut definition)?; }
     reader.end()?;
     Ok(definition)
 }
