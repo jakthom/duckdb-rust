@@ -18,6 +18,103 @@ fn decode(bytes: Vec<u8>, version: u64, query: &QueryContext) -> Result<StoredEx
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn header(bytes: Vec<u8>) -> Result<(u64, u64)> {
+    let mut reader = Reader::new(bytes);
+    reader.field(100)?;
+    let class = reader.unsigned()?;
+    reader.field(101)?;
+    Ok((class, reader.unsigned()?))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn native_conditional_and_predicate_nodes_use_duckdb_parsed_classes() -> Result<()> {
+    let query = QueryContext::background();
+    let integer = |value| StoredExpression::literal(DataType::Integer, Value::Integer(value));
+    let boolean = |value| StoredExpression::literal(DataType::Boolean, Value::Boolean(value));
+    let comparison = StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Comparison {
+            kind: StoredComparison::Equal,
+            left: Box::new(integer(1)),
+            right: Box::new(integer(1)),
+        },
+    };
+    let cases = vec![
+        (
+            StoredExpression {
+                alias: None,
+                source_span: None,
+                kind: StoredExpressionKind::Case {
+                    checks: vec![StoredCaseCheck {
+                        when_expression: comparison.clone(),
+                        then_expression: integer(7),
+                    }],
+                    otherwise: Box::new(integer(0)),
+                },
+            },
+            (2, 150),
+        ),
+        (comparison, (5, 25)),
+        (
+            StoredExpression {
+                alias: None,
+                source_span: None,
+                kind: StoredExpressionKind::Conjunction {
+                    kind: StoredConjunction::And,
+                    children: vec![boolean(true), boolean(false)],
+                },
+            },
+            (6, 50),
+        ),
+        (
+            StoredExpression {
+                alias: None,
+                source_span: None,
+                kind: StoredExpressionKind::Between {
+                    input: Box::new(integer(2)),
+                    lower: Box::new(integer(1)),
+                    upper: Box::new(integer(3)),
+                },
+            },
+            (19, 38),
+        ),
+    ];
+    for (expression, expected_header) in cases {
+        for version in 64..=69 {
+            let bytes = encode(&expression, version, &query)?;
+            assert_eq!(header(bytes.clone())?, expected_header);
+            assert_eq!(decode(bytes, version, &query)?, expression);
+        }
+    }
+    for (kind, expression_kind) in [
+        (StoredOperator::Not, 13),
+        (StoredOperator::IsNull, 14),
+        (StoredOperator::IsNotNull, 15),
+        (StoredOperator::In, 35),
+        (StoredOperator::NotIn, 36),
+    ] {
+        let children = if matches!(kind, StoredOperator::In | StoredOperator::NotIn) {
+            vec![integer(1), integer(2)]
+        } else {
+            vec![boolean(true)]
+        };
+        let expression = StoredExpression {
+            alias: None,
+            source_span: None,
+            kind: StoredExpressionKind::Operator { kind, children },
+        };
+        for version in 64..=69 {
+            let bytes = encode(&expression, version, &query)?;
+            assert_eq!(header(bytes.clone())?, (10, expression_kind));
+            assert_eq!(decode(bytes, version, &query)?, expression);
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn retained_native_tree_preserves_typed_nulls_failing_casts_aliases_and_argument_provenance()
 -> Result<()> {
@@ -316,6 +413,32 @@ fn native_expression_rejects_unrepresented_function_state_and_bad_pointers() -> 
         read(&mut Reader::new(wire.0), 69, &query),
         Err(Error::Corrupt(_))
     ));
+    for kind in [13, 14, 15, 35, 36, 153, 155] {
+        let mut wire = Encoder::default();
+        wire.property(100, 10);
+        wire.property(101, kind);
+        wire.end();
+        assert!(matches!(
+            read(&mut Reader::new(wire.0), 69, &query),
+            Err(Error::Corrupt(_))
+        ));
+    }
+    let child = StoredExpression::literal(DataType::Boolean, Value::Boolean(true));
+    for (kind, count) in [(13, 2), (14, 2), (15, 2), (35, 1), (36, 1)] {
+        let mut wire = Encoder::default();
+        wire.property(100, 10);
+        wire.property(101, kind);
+        wire.property(200, count);
+        for _ in 0..count {
+            wire.boolean(true);
+            wire.0.extend(encode(&child, 69, &query)?);
+        }
+        wire.end();
+        assert!(matches!(
+            read(&mut Reader::new(wire.0), 69, &query),
+            Err(Error::Corrupt(_))
+        ));
+    }
     let mut wire = Encoder::default();
     wire.property(100, 9);
     wire.property(101, 140);

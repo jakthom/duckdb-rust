@@ -456,6 +456,9 @@ pub(super) fn constant_expression(expression: &BoundExpr) -> bool {
                 constant_expression(predicate) && constant_expression(value)
             }) && constant_expression(otherwise)
         }
+        ExprKind::Between(input, lower, upper, _) => {
+            constant_expression(input) && constant_expression(lower) && constant_expression(upper)
+        }
         ExprKind::InList(needle, values, ..) => {
             constant_expression(needle) && values.iter().all(constant_expression)
         }
@@ -489,6 +492,9 @@ pub(super) fn closed_expression(expression: &BoundExpr) -> bool {
                 .iter()
                 .all(|(predicate, value)| closed_expression(predicate) && closed_expression(value))
                 && closed_expression(otherwise)
+        }
+        ExprKind::Between(input, lower, upper, _) => {
+            closed_expression(input) && closed_expression(lower) && closed_expression(upper)
         }
         ExprKind::InList(needle, values, ..) => {
             closed_expression(needle) && values.iter().all(closed_expression)

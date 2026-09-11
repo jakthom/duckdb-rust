@@ -158,6 +158,40 @@ impl State<'_, '_> {
             data_type,
         }))
     }
+
+    pub(super) fn bound_between(
+        &self,
+        input: BoundExpr,
+        lower: BoundExpr,
+        upper: BoundExpr,
+    ) -> Result<BoundExpr> {
+        let input_literal = super::coercion::string_literal(&input);
+        let lower_literal = super::coercion::string_literal(&lower);
+        let upper_literal = super::coercion::string_literal(&upper);
+        let mut data_type = self.comparison_type(
+            &input.data_type,
+            input_literal,
+            &lower.data_type,
+            lower_literal,
+            false,
+        )?;
+        data_type = self.comparison_type(
+            &data_type,
+            input_literal && lower_literal,
+            &upper.data_type,
+            upper_literal,
+            false,
+        )?;
+        Ok(BoundExpr {
+            data_type: DataType::Boolean,
+            kind: ExprKind::Between(
+                Box::new(self.combination_cast(input, &data_type)?),
+                Box::new(self.combination_cast(lower, &data_type)?),
+                Box::new(self.combination_cast(upper, &data_type)?),
+                self.context.query.types().bind(&data_type)?.into(),
+            ),
+        })
+    }
     /// Bind/type-check every branch first, then remove statically unreachable
     /// CASE dependencies before nested relational plans are prepared.
     fn prune_case(&self, mut expression: BoundExpr) -> BoundExpr {
@@ -642,11 +676,7 @@ impl State<'_, '_> {
                 low,
                 high,
             } => {
-                let bound = self.binary(
-                    BinaryOp::And,
-                    self.binary(BinaryOp::GreaterEqual, recurse(expr)?, recurse(low)?)?,
-                    self.binary(BinaryOp::LessEqual, recurse(expr)?, recurse(high)?)?,
-                )?;
+                let bound = self.bound_between(recurse(expr)?, recurse(low)?, recurse(high)?)?;
                 Ok(if *negated {
                     BoundExpr {
                         data_type: DataType::Boolean,

@@ -43,6 +43,27 @@ pub enum StoredExpressionKind {
         is_operator: bool,
         argument_style: StoredArgumentStyle,
     },
+    /// DuckDB's parsed CASE node stores searched predicates. A simple
+    /// `CASE input WHEN value` is retained as equality predicates, including a
+    /// separate copy of the input for each branch, exactly as the parser does.
+    Case {
+        checks: Vec<StoredCaseCheck>,
+        otherwise: Box<StoredExpression>,
+    },
+    Comparison {
+        kind: StoredComparison,
+        left: Box<StoredExpression>,
+        right: Box<StoredExpression>,
+    },
+    Conjunction {
+        kind: StoredConjunction,
+        children: Vec<StoredExpression>,
+    },
+    Between {
+        input: Box<StoredExpression>,
+        lower: Box<StoredExpression>,
+        upper: Box<StoredExpression>,
+    },
     /// Syntactic operators remain distinct from a function call marked as an
     /// operator. Wire tags and selected function lowering belong to their
     /// respective format/language services, not this owned representation.
@@ -59,6 +80,33 @@ pub enum StoredOperator {
     ListConstructor,
     Index,
     Field,
+    Not,
+    IsNull,
+    IsNotNull,
+    In,
+    NotIn,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StoredCaseCheck {
+    pub when_expression: StoredExpression,
+    pub then_expression: StoredExpression,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StoredComparison {
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StoredConjunction {
+    And,
+    Or,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -183,11 +231,69 @@ impl StoredExpression {
                         pending.push((&argument.expression, depth + 1));
                     }
                 }
-                StoredExpressionKind::Operator { kind, children } => {
-                    if matches!(kind, StoredOperator::Index | StoredOperator::Field)
-                        && children.len() != 2
+                StoredExpressionKind::Case { checks, otherwise } => {
+                    if checks.is_empty() {
+                        return Err(Error::Bind("stored CASE has no checks".into()));
+                    }
+                    let children = checks
+                        .len()
+                        .checked_mul(2)
+                        .and_then(|children| children.checked_add(1))
+                        .ok_or_else(|| {
+                            Error::Resource("stored CASE child count overflow".into())
+                        })?;
+                    if children > 16_384 - nodes || pending.len() > 16_384 - nodes - children {
+                        return Err(Error::Resource("stored expression node limit".into()));
+                    }
+                    pending.push((otherwise, depth + 1));
+                    for check in checks.iter().rev() {
+                        pending.push((&check.then_expression, depth + 1));
+                        pending.push((&check.when_expression, depth + 1));
+                    }
+                }
+                StoredExpressionKind::Comparison { left, right, .. } => {
+                    if 2 > 16_384 - nodes || pending.len() > 16_384 - nodes - 2 {
+                        return Err(Error::Resource("stored expression node limit".into()));
+                    }
+                    pending.push((right, depth + 1));
+                    pending.push((left, depth + 1));
+                }
+                StoredExpressionKind::Conjunction { children, .. } => {
+                    if children.len() < 2 {
+                        return Err(Error::Bind(
+                            "stored conjunction requires at least two children".into(),
+                        ));
+                    }
+                    if children.len() > 16_384 - nodes
+                        || pending.len() > 16_384 - nodes - children.len()
                     {
-                        return Err(Error::Bind("invalid stored accessor arity".into()));
+                        return Err(Error::Resource("stored expression node limit".into()));
+                    }
+                    pending.extend(children.iter().rev().map(|child| (child, depth + 1)));
+                }
+                StoredExpressionKind::Between {
+                    input,
+                    lower,
+                    upper,
+                } => {
+                    if 3 > 16_384 - nodes || pending.len() > 16_384 - nodes - 3 {
+                        return Err(Error::Resource("stored expression node limit".into()));
+                    }
+                    pending.push((upper, depth + 1));
+                    pending.push((lower, depth + 1));
+                    pending.push((input, depth + 1));
+                }
+                StoredExpressionKind::Operator { kind, children } => {
+                    let valid = match kind {
+                        StoredOperator::ListConstructor => true,
+                        StoredOperator::Index | StoredOperator::Field => children.len() == 2,
+                        StoredOperator::Not
+                        | StoredOperator::IsNull
+                        | StoredOperator::IsNotNull => children.len() == 1,
+                        StoredOperator::In | StoredOperator::NotIn => children.len() >= 2,
+                    };
+                    if !valid {
+                        return Err(Error::Bind("invalid stored operator arity".into()));
                     }
                     if children.len() > 16_384 - nodes
                         || pending.len() > 16_384 - nodes - children.len()

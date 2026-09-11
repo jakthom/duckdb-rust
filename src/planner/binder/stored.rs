@@ -1,7 +1,8 @@
 //! Bind retained catalog nodes without parsing SQL or evaluating a default.
 use super::*;
 use crate::catalog::expression::{
-    StoredArgumentStyle, StoredExpression, StoredExpressionKind, StoredOperator,
+    StoredArgumentStyle, StoredComparison, StoredConjunction, StoredExpression,
+    StoredExpressionKind, StoredOperator,
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -16,6 +17,35 @@ impl State<'_, '_> {
                     .collect::<Result<Vec<_>>>()?;
                 match kind {
                     StoredOperator::ListConstructor => self.scalar_call("list_value", children),
+                    StoredOperator::Not => {
+                        let [inner]: [BoundExpr; 1] = children
+                            .try_into()
+                            .map_err(|_| Error::Bind("invalid stored NOT arity".into()))?;
+                        let inner = self.boolean(inner)?;
+                        Ok(BoundExpr {
+                            data_type: DataType::Boolean,
+                            kind: ExprKind::Unary(UnaryOp::Not, Box::new(inner)),
+                        })
+                    }
+                    StoredOperator::IsNull | StoredOperator::IsNotNull => {
+                        let [inner]: [BoundExpr; 1] = children
+                            .try_into()
+                            .map_err(|_| Error::Bind("invalid stored NULL test arity".into()))?;
+                        Ok(BoundExpr {
+                            data_type: DataType::Boolean,
+                            kind: ExprKind::Unary(
+                                if *kind == StoredOperator::IsNull {
+                                    UnaryOp::IsNull
+                                } else {
+                                    UnaryOp::IsNotNull
+                                },
+                                Box::new(inner),
+                            ),
+                        })
+                    }
+                    StoredOperator::In | StoredOperator::NotIn => {
+                        self.stored_in(children, *kind == StoredOperator::NotIn)
+                    }
                     StoredOperator::Index | StoredOperator::Field => {
                         let [value, key]: [BoundExpr; 2] = children
                             .try_into()
@@ -36,6 +66,57 @@ impl State<'_, '_> {
                     }
                 }
             }
+            StoredExpressionKind::Case { checks, otherwise } => {
+                let branches = checks
+                    .iter()
+                    .map(|check| {
+                        Ok((
+                            self.boolean(self.stored_expression(&check.when_expression)?)?,
+                            self.stored_expression(&check.then_expression)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let otherwise = self.stored_expression(otherwise)?;
+                self.bound_case(branches, otherwise)
+            }
+            StoredExpressionKind::Comparison { kind, left, right } => self.binary(
+                match kind {
+                    StoredComparison::Equal => BinaryOp::Equal,
+                    StoredComparison::NotEqual => BinaryOp::NotEqual,
+                    StoredComparison::LessThan => BinaryOp::Less,
+                    StoredComparison::GreaterThan => BinaryOp::Greater,
+                    StoredComparison::LessThanOrEqual => BinaryOp::LessEqual,
+                    StoredComparison::GreaterThanOrEqual => BinaryOp::GreaterEqual,
+                },
+                self.stored_expression(left)?,
+                self.stored_expression(right)?,
+            ),
+            StoredExpressionKind::Conjunction { kind, children } => {
+                let mut children = children.iter();
+                let first =
+                    self.stored_expression(children.next().ok_or_else(|| {
+                        Error::Bind("stored conjunction has no children".into())
+                    })?)?;
+                children.try_fold(first, |left, right| {
+                    self.binary(
+                        match kind {
+                            StoredConjunction::And => BinaryOp::And,
+                            StoredConjunction::Or => BinaryOp::Or,
+                        },
+                        left,
+                        self.stored_expression(right)?,
+                    )
+                })
+            }
+            StoredExpressionKind::Between {
+                input,
+                lower,
+                upper,
+            } => self.bound_between(
+                self.stored_expression(input)?,
+                self.stored_expression(lower)?,
+                self.stored_expression(upper)?,
+            ),
             StoredExpressionKind::Literal { data_type, value } => Ok(BoundExpr {
                 data_type: data_type.clone(),
                 kind: ExprKind::Literal(value.clone()),
@@ -144,11 +225,7 @@ impl State<'_, '_> {
                 let [value, low, high]: [BoundExpr; 3] = arguments
                     .try_into()
                     .map_err(|_| Error::Bind("invalid stored BETWEEN arity".into()))?;
-                let bound = self.binary(
-                    BinaryOp::And,
-                    self.binary(BinaryOp::GreaterEqual, value.clone(), low)?,
-                    self.binary(BinaryOp::LessEqual, value, high)?,
-                )?;
+                let bound = self.bound_between(value, low, high)?;
                 return Ok(if name == "not_between" {
                     BoundExpr {
                         data_type: DataType::Boolean,

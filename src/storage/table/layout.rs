@@ -194,6 +194,84 @@ fn equal_default(
             equal_arguments(left_arguments, right_arguments, types, format, context)
         }
         (
+            StoredExpressionKind::Case {
+                checks: left_checks,
+                otherwise: left_otherwise,
+            },
+            StoredExpressionKind::Case {
+                checks: right_checks,
+                otherwise: right_otherwise,
+            },
+        ) if left_checks.len() == right_checks.len() => {
+            for (left, right) in left_checks.iter().zip(right_checks) {
+                if !equal_default(
+                    Some(&left.when_expression),
+                    Some(&right.when_expression),
+                    types,
+                    format,
+                    context,
+                )? || !equal_default(
+                    Some(&left.then_expression),
+                    Some(&right.then_expression),
+                    types,
+                    format,
+                    context,
+                )? {
+                    return Ok(false);
+                }
+            }
+            equal_default(
+                Some(left_otherwise),
+                Some(right_otherwise),
+                types,
+                format,
+                context,
+            )
+        }
+        (
+            StoredExpressionKind::Comparison {
+                kind: left_kind,
+                left: left_left,
+                right: left_right,
+            },
+            StoredExpressionKind::Comparison {
+                kind: right_kind,
+                left: right_left,
+                right: right_right,
+            },
+        ) if left_kind == right_kind => {
+            Ok(
+                equal_default(Some(left_left), Some(right_left), types, format, context)?
+                    && equal_default(Some(left_right), Some(right_right), types, format, context)?,
+            )
+        }
+        (
+            StoredExpressionKind::Conjunction {
+                kind: left_kind,
+                children: left,
+            },
+            StoredExpressionKind::Conjunction {
+                kind: right_kind,
+                children: right,
+            },
+        ) if left_kind == right_kind => equal_children(left, right, types, format, context),
+        (
+            StoredExpressionKind::Between {
+                input: left_input,
+                lower: left_lower,
+                upper: left_upper,
+            },
+            StoredExpressionKind::Between {
+                input: right_input,
+                lower: right_lower,
+                upper: right_upper,
+            },
+        ) => Ok(
+            equal_default(Some(left_input), Some(right_input), types, format, context)?
+                && equal_default(Some(left_lower), Some(right_lower), types, format, context)?
+                && equal_default(Some(left_upper), Some(right_upper), types, format, context)?,
+        ),
+        (
             StoredExpressionKind::Operator {
                 kind: left_kind,
                 children: left,
@@ -202,16 +280,27 @@ fn equal_default(
                 kind: right_kind,
                 children: right,
             },
-        ) if left_kind == right_kind && left.len() == right.len() => {
-            for (left, right) in left.iter().zip(right) {
-                if !equal_default(Some(left), Some(right), types, format, context)? {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        }
+        ) if left_kind == right_kind => equal_children(left, right, types, format, context),
         _ => Ok(false),
     }
+}
+
+fn equal_children(
+    left: &[StoredExpression],
+    right: &[StoredExpression],
+    types: &crate::common::type_registry::TypeRegistry,
+    format: Option<&dyn SnapshotFormat>,
+    context: &QueryContext,
+) -> Result<bool> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.iter().zip(right) {
+        if !equal_default(Some(left), Some(right), types, format, context)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn native_legacy_argument_style_equivalent(

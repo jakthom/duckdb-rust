@@ -48,19 +48,64 @@ pub(super) fn expression(
                 try_cast,
             }
         }
+        (2, 150) => case_expression(reader, depth, state)?,
+        (5, 25..=30) => {
+            state.count(2)?;
+            let left = Box::new(required_child(reader, 200, depth, state)?);
+            let right = Box::new(required_child(reader, 201, depth, state)?);
+            let kind = match kind {
+                25 => StoredComparison::Equal,
+                26 => StoredComparison::NotEqual,
+                27 => StoredComparison::LessThan,
+                28 => StoredComparison::GreaterThan,
+                29 => StoredComparison::LessThanOrEqual,
+                30 => StoredComparison::GreaterThanOrEqual,
+                _ => unreachable!(),
+            };
+            StoredExpressionKind::Comparison { kind, left, right }
+        }
+        (6, 50 | 51) => StoredExpressionKind::Conjunction {
+            kind: if kind == 50 {
+                StoredConjunction::And
+            } else {
+                StoredConjunction::Or
+            },
+            children: children(reader, 200, depth, state)?,
+        },
         (9, 140) => function(reader, depth, state)?,
-        (10, 153 | 155 | 156) => {
+        (10, 13..=15 | 35 | 36 | 153 | 155 | 156) => {
             let children = children(reader, 200, depth, state)?;
             let kind = match kind {
+                13 => StoredOperator::Not,
+                14 => StoredOperator::IsNull,
+                15 => StoredOperator::IsNotNull,
+                35 => StoredOperator::In,
+                36 => StoredOperator::NotIn,
                 153 => StoredOperator::Index,
                 155 => StoredOperator::Field,
                 156 => StoredOperator::ListConstructor,
                 _ => unreachable!(),
             };
-            if kind != StoredOperator::ListConstructor && children.len() != 2 {
-                return Err(corrupt("native accessor requires two children"));
+            let valid = match kind {
+                StoredOperator::ListConstructor => true,
+                StoredOperator::Index | StoredOperator::Field => children.len() == 2,
+                StoredOperator::Not | StoredOperator::IsNull | StoredOperator::IsNotNull => {
+                    children.len() == 1
+                }
+                StoredOperator::In | StoredOperator::NotIn => children.len() >= 2,
+            };
+            if !valid {
+                return Err(corrupt("invalid native operator arity"));
             }
             StoredExpressionKind::Operator { kind, children }
+        }
+        (19, 38) => {
+            state.count(3)?;
+            StoredExpressionKind::Between {
+                input: Box::new(required_child(reader, 200, depth, state)?),
+                lower: Box::new(required_child(reader, 201, depth, state)?),
+                upper: Box::new(required_child(reader, 202, depth, state)?),
+            }
         }
         _ => {
             return Err(Error::Unsupported(format!(
@@ -82,6 +127,49 @@ fn child(reader: &mut Reader, depth: usize, state: &mut State<'_>) -> Result<Sto
         return Err(corrupt("NULL native expression pointer"));
     }
     expression(reader, depth, state)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn required_child(
+    reader: &mut Reader,
+    field: u16,
+    depth: usize,
+    state: &mut State<'_>,
+) -> Result<StoredExpression> {
+    if !reader.optional(field)? {
+        return Err(corrupt(format!("native expression has no field {field}")));
+    }
+    child(reader, depth + 1, state)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn case_expression(
+    reader: &mut Reader,
+    depth: usize,
+    state: &mut State<'_>,
+) -> Result<StoredExpressionKind> {
+    let count = if reader.optional(200)? {
+        reader.length()?
+    } else {
+        0
+    };
+    let children = count
+        .checked_mul(2)
+        .and_then(|count| count.checked_add(1))
+        .ok_or_else(|| Error::Resource("native CASE child count overflow".into()))?;
+    state.count(children)?;
+    let mut checks = reserve(count)?;
+    for _ in 0..count {
+        let when_expression = required_child(reader, 100, depth, state)?;
+        let then_expression = required_child(reader, 101, depth, state)?;
+        reader.end()?;
+        checks.push(StoredCaseCheck {
+            when_expression,
+            then_expression,
+        });
+    }
+    let otherwise = Box::new(required_child(reader, 201, depth, state)?);
+    Ok(StoredExpressionKind::Case { checks, otherwise })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

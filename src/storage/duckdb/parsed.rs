@@ -8,7 +8,8 @@ use super::{
 };
 use crate::{
     catalog::expression::{
-        StoredArgument, StoredArgumentStyle, StoredExpression, StoredExpressionKind, StoredOperator,
+        StoredArgument, StoredArgumentStyle, StoredCaseCheck, StoredComparison, StoredConjunction,
+        StoredExpression, StoredExpressionKind, StoredOperator,
     },
     common::{Error, Result},
     parallel::QueryContext,

@@ -553,6 +553,20 @@ impl BoundExpr {
                 }
                 otherwise.data_type.clone()
             }
+            ExprKind::Between(input, lower, upper, operand_type) => {
+                require(
+                    operand_type.data_type() == &input.data_type,
+                    "BETWEEN operand type adapter",
+                )?;
+                visit(input)?;
+                visit(lower)?;
+                visit(upper)?;
+                require(
+                    input.data_type == lower.data_type && input.data_type == upper.data_type,
+                    "BETWEEN operands need explicit coercions",
+                )?;
+                DataType::Boolean
+            }
             ExprKind::InList(needle, values, _, operand_type) => {
                 require(
                     operand_type.data_type() == &needle.data_type,

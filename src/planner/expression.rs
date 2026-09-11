@@ -60,6 +60,12 @@ pub enum ExprKind {
     ),
     Scalar(Arc<dyn ScalarFunction>, Vec<BoundExpr>),
     Case(Vec<(BoundExpr, BoundExpr)>, Box<BoundExpr>),
+    Between(
+        Box<BoundExpr>,
+        Box<BoundExpr>,
+        Box<BoundExpr>,
+        Arc<crate::common::type_registry::BoundType>,
+    ),
     InList(
         Box<BoundExpr>,
         Vec<BoundExpr>,
@@ -154,6 +160,11 @@ impl BoundExpr {
                 }
                 visit(otherwise);
             }
+            ExprKind::Between(input, lower, upper, _) => {
+                visit(input);
+                visit(lower);
+                visit(upper);
+            }
             ExprKind::InList(needle, list, ..) => {
                 visit(needle);
                 for value in list {
@@ -213,6 +224,12 @@ impl BoundExpr {
                     .map(|(condition, value)| Ok((map(condition)?, map(value)?)))
                     .collect::<Result<_>>()?,
                 Box::new(map(*otherwise)?),
+            ),
+            ExprKind::Between(input, lower, upper, operand_type) => ExprKind::Between(
+                Box::new(map(*input)?),
+                Box::new(map(*lower)?),
+                Box::new(map(*upper)?),
+                operand_type,
             ),
             ExprKind::InList(needle, list, negated, operand_type) => ExprKind::InList(
                 Box::new(map(*needle)?),

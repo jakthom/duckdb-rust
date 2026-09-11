@@ -52,6 +52,49 @@ RUST_WAL_CHANGE = """
 ALTER TABLE rust_wal ALTER COLUMN payload SET DEFAULT from_base64('AP8=');
 INSERT INTO rust_wal(id) VALUES (2);
 """
+SYNTAX_COLUMNS = """
+    id INTEGER,
+    searched INTEGER,
+    simple VARCHAR,
+    null_test BOOLEAN,
+    not_null_test BOOLEAN,
+    range_test BOOLEAN,
+    not_range_test BOOLEAN,
+    in_test BOOLEAN,
+    not_in_test BOOLEAN,
+    like_test BOOLEAN,
+    not_like_test BOOLEAN
+"""
+SYNTAX_DEFAULTS = (
+    "ALTER TABLE {table} ALTER COLUMN searched SET DEFAULT CASE WHEN 1=1 THEN 7 ELSE 0 END;"
+    "ALTER TABLE {table} ALTER COLUMN simple SET DEFAULT CASE 2 WHEN 1 THEN 'one' WHEN 2 THEN 'two' ELSE 'other' END;"
+    "ALTER TABLE {table} ALTER COLUMN null_test SET DEFAULT NULL IS NULL;"
+    "ALTER TABLE {table} ALTER COLUMN not_null_test SET DEFAULT NULL IS NOT NULL;"
+    "ALTER TABLE {table} ALTER COLUMN range_test SET DEFAULT 2 BETWEEN 1 AND 3;"
+    "ALTER TABLE {table} ALTER COLUMN not_range_test SET DEFAULT 2 NOT BETWEEN 1 AND 3;"
+    "ALTER TABLE {table} ALTER COLUMN in_test SET DEFAULT 2 IN (1,2,NULL);"
+    "ALTER TABLE {table} ALTER COLUMN not_in_test SET DEFAULT 2 NOT IN (1,3);"
+    "ALTER TABLE {table} ALTER COLUMN like_test SET DEFAULT 'duck' LIKE 'd%';"
+    "ALTER TABLE {table} ALTER COLUMN not_like_test SET DEFAULT 'duck' NOT LIKE 'd%';"
+)
+RUST_SYNTAX_CHECKPOINT_SETUP = f"""
+CREATE TABLE rust_syntax_checkpoint({SYNTAX_COLUMNS});
+{SYNTAX_DEFAULTS.format(table='rust_syntax_checkpoint')}
+INSERT INTO rust_syntax_checkpoint(id) VALUES (1);
+CHECKPOINT;
+"""
+CPP_SYNTAX_CHECKPOINT_SETUP = f"""
+SET storage_compatibility_version='v1.5.0';
+CREATE TABLE cpp_syntax_checkpoint({SYNTAX_COLUMNS});
+{SYNTAX_DEFAULTS.format(table='cpp_syntax_checkpoint')}
+INSERT INTO cpp_syntax_checkpoint(id) VALUES (1);
+CHECKPOINT;
+"""
+RUST_SYNTAX_WAL_SETUP = f"CREATE TABLE rust_syntax_wal({SYNTAX_COLUMNS});"
+RUST_SYNTAX_WAL_CHANGE = f"""
+{SYNTAX_DEFAULTS.format(table='rust_syntax_wal')}
+INSERT INTO rust_syntax_wal(id) VALUES (1);
+"""
 
 
 def rows(engine, path, table):
@@ -74,6 +117,35 @@ def null_default_metadata(engine, path, table):
         json_output=True,
         readonly=True,
     )
+
+
+def syntax_rows(engine, path, table):
+    return command(
+        engine,
+        path,
+        f"SELECT * FROM {table} ORDER BY id",
+        json_output=True,
+        readonly=True,
+    )
+
+
+def expected_syntax_rows(count):
+    return [
+        {
+            "id": row,
+            "searched": 7,
+            "simple": "two",
+            "null_test": True,
+            "not_null_test": False,
+            "range_test": True,
+            "not_range_test": False,
+            "in_test": True,
+            "not_in_test": True,
+            "like_test": True,
+            "not_like_test": False,
+        }
+        for row in range(1, count + 1)
+    ]
 
 
 EXPECTED_NULL_DEFAULT_METADATA = [
@@ -195,6 +267,84 @@ def rust_wal(rust, cpp, directory):
     }
 
 
+def rust_syntax_checkpoint(rust, cpp, directory):
+    path = directory / "rust-syntax-checkpoint.duckdb"
+    command(rust, path, RUST_SYNTAX_CHECKPOINT_SETUP)
+    produced = file_evidence(path)
+    assert syntax_rows(cpp, path, "rust_syntax_checkpoint") == expected_syntax_rows(1)
+    command(cpp, path, "INSERT INTO rust_syntax_checkpoint(id) VALUES (2); CHECKPOINT")
+    assert syntax_rows(cpp, path, "rust_syntax_checkpoint") == expected_syntax_rows(2)
+    command(rust, path, "INSERT INTO rust_syntax_checkpoint(id) VALUES (3)")
+    expected = expected_syntax_rows(3)
+    assert syntax_rows(rust, path, "rust_syntax_checkpoint") == expected
+    assert syntax_rows(cpp, path, "rust_syntax_checkpoint") == expected
+    return {
+        "producer": "rust-native-checkpoint",
+        "setup_sha256": hashlib.sha256(RUST_SYNTAX_CHECKPOINT_SETUP.encode()).hexdigest(),
+        "produced": produced,
+        "after_cpp_and_rust": file_evidence(path),
+        "rows": expected,
+        "passed": True,
+    }
+
+
+def cpp_syntax_checkpoint(rust, cpp, directory):
+    path = directory / "cpp-syntax-checkpoint.duckdb"
+    command(cpp, path, CPP_SYNTAX_CHECKPOINT_SETUP)
+    produced = file_evidence(path)
+
+    # The first Rust read proves the native reader accepts parsed nodes written
+    # by DuckDB, before Rust has had an opportunity to republish the catalog.
+    assert syntax_rows(rust, path, "cpp_syntax_checkpoint") == expected_syntax_rows(1)
+    command(rust, path, "INSERT INTO cpp_syntax_checkpoint(id) VALUES (2)")
+    assert syntax_rows(rust, path, "cpp_syntax_checkpoint") == expected_syntax_rows(2)
+
+    # DuckDB must accept the defaults after Rust's catalog rewrite, then retain
+    # them through its own continued write and checkpoint for a final Rust read.
+    assert syntax_rows(cpp, path, "cpp_syntax_checkpoint") == expected_syntax_rows(2)
+    after_rust = file_evidence(path)
+    command(cpp, path, "INSERT INTO cpp_syntax_checkpoint(id) VALUES (3); CHECKPOINT")
+    expected = expected_syntax_rows(3)
+    assert syntax_rows(cpp, path, "cpp_syntax_checkpoint") == expected
+    assert syntax_rows(rust, path, "cpp_syntax_checkpoint") == expected
+    return {
+        "producer": "pinned-cpp",
+        "setup_sha256": hashlib.sha256(
+            CPP_SYNTAX_CHECKPOINT_SETUP.encode()
+        ).hexdigest(),
+        "produced": produced,
+        "after_rust": after_rust,
+        "after_cpp": file_evidence(path),
+        "rows": expected,
+        "passed": True,
+    }
+
+
+def rust_syntax_wal(rust, cpp, directory):
+    path = directory / "rust-syntax-wal.duckdb"
+    command(rust, path, RUST_SYNTAX_WAL_SETUP)
+    logged = replace(rust, arguments=("--durability", "wal"))
+    command(logged, path, RUST_SYNTAX_WAL_CHANGE)
+    produced = file_evidence(path)
+    assert syntax_rows(cpp, path, "rust_syntax_wal") == expected_syntax_rows(1)
+    command(cpp, path, "INSERT INTO rust_syntax_wal(id) VALUES (2); CHECKPOINT")
+    assert syntax_rows(cpp, path, "rust_syntax_wal") == expected_syntax_rows(2)
+    command(rust, path, "INSERT INTO rust_syntax_wal(id) VALUES (3)")
+    expected = expected_syntax_rows(3)
+    assert syntax_rows(rust, path, "rust_syntax_wal") == expected
+    assert syntax_rows(cpp, path, "rust_syntax_wal") == expected
+    return {
+        "producer": "rust-native-wal",
+        "setup_sha256": hashlib.sha256(
+            (RUST_SYNTAX_WAL_SETUP + RUST_SYNTAX_WAL_CHANGE).encode()
+        ).hexdigest(),
+        "produced": produced,
+        "after_cpp_and_rust": file_evidence(path),
+        "rows": expected,
+        "passed": True,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", choices=TARGETS, default="development")
@@ -220,7 +370,8 @@ def main():
         "full_parity": False,
         "scope": (
             "Bidirectional native checkpoint/WAL acceptance for representable "
-            "built-in FUNCTION defaults, including deferred failure timing."
+            "built-in FUNCTION, CASE and predicate defaults, including deferred "
+            "failure timing and continued writes by both engines."
         ),
     }
     try:
@@ -229,6 +380,15 @@ def main():
             report["cases"]["cpp_origin"] = cpp_origin(rust, cpp, directory)
             report["cases"]["rust_checkpoint"] = rust_checkpoint(rust, cpp, directory)
             report["cases"]["rust_wal"] = rust_wal(rust, cpp, directory)
+            report["cases"]["cpp_syntax_checkpoint"] = cpp_syntax_checkpoint(
+                rust, cpp, directory
+            )
+            report["cases"]["rust_syntax_checkpoint"] = rust_syntax_checkpoint(
+                rust, cpp, directory
+            )
+            report["cases"]["rust_syntax_wal"] = rust_syntax_wal(
+                rust, cpp, directory
+            )
         report["passed"] = True
     except Exception as error:
         report["passed"] = False

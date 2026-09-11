@@ -1,7 +1,8 @@
 //! Capture closed SQL syntax as an owned catalog expression without evaluation.
 use super::*;
 use crate::catalog::expression::{
-    StoredArgument, StoredArgumentStyle, StoredExpression, StoredExpressionKind,
+    StoredArgument, StoredArgumentStyle, StoredCaseCheck, StoredComparison, StoredConjunction,
+    StoredExpression, StoredExpressionKind, StoredOperator,
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -111,54 +112,87 @@ impl State<'_, '_> {
                 else_result,
                 ..
             } => {
-                let mut children =
-                    Vec::with_capacity(usize::from(operand.is_some()) + conditions.len() * 2 + 1);
-                if let Some(operand) = operand {
-                    children.push(self.capture_stored_expression(operand)?);
-                }
+                let operand = operand
+                    .as_ref()
+                    .map(|operand| self.capture_stored_expression(operand))
+                    .transpose()?;
+                let mut checks = Vec::with_capacity(conditions.len());
                 for condition in conditions {
-                    children.push(self.capture_stored_expression(&condition.condition)?);
-                    children.push(self.capture_stored_expression(&condition.result)?);
+                    let predicate = self.capture_stored_expression(&condition.condition)?;
+                    checks.push(StoredCaseCheck {
+                        when_expression: if let Some(operand) = &operand {
+                            stored_comparison(StoredComparison::Equal, operand.clone(), predicate)
+                        } else {
+                            predicate
+                        },
+                        then_expression: self.capture_stored_expression(&condition.result)?,
+                    });
                 }
-                children.push(
-                    else_result
-                        .as_ref()
-                        .map(|expression| self.capture_stored_expression(expression))
-                        .transpose()?
-                        .unwrap_or_else(|| StoredExpression::literal(DataType::Null, Value::Null)),
-                );
-                Ok(stored_syntax_operator(
-                    if operand.is_some() {
-                        "case_operand"
-                    } else {
-                        "case_when"
+                Ok(StoredExpression {
+                    alias: None,
+                    source_span: None,
+                    kind: StoredExpressionKind::Case {
+                        checks,
+                        otherwise: Box::new(
+                            else_result
+                                .as_ref()
+                                .map(|expression| self.capture_stored_expression(expression))
+                                .transpose()?
+                                .unwrap_or_else(|| {
+                                    StoredExpression::literal(DataType::Null, Value::Null)
+                                }),
+                        ),
                     },
-                    children,
-                ))
+                })
             }
-            ast::Expr::IsNull(expression) => {
-                self.capture_stored_operator("is_null", [expression.as_ref()])
-            }
-            ast::Expr::IsNotNull(expression) => {
-                self.capture_stored_operator("is_not_null", [expression.as_ref()])
-            }
+            ast::Expr::IsNull(expression) => Ok(stored_native_operator(
+                StoredOperator::IsNull,
+                vec![self.capture_stored_expression(expression)?],
+            )),
+            ast::Expr::IsNotNull(expression) => Ok(stored_native_operator(
+                StoredOperator::IsNotNull,
+                vec![self.capture_stored_expression(expression)?],
+            )),
             ast::Expr::Between {
                 expr,
                 negated,
                 low,
                 high,
-            } => self.capture_stored_operator(
-                if *negated { "not_between" } else { "between" },
-                [expr.as_ref(), low.as_ref(), high.as_ref()],
-            ),
+            } => {
+                let between = StoredExpression {
+                    alias: None,
+                    source_span: None,
+                    kind: StoredExpressionKind::Between {
+                        input: Box::new(self.capture_stored_expression(expr)?),
+                        lower: Box::new(self.capture_stored_expression(low)?),
+                        upper: Box::new(self.capture_stored_expression(high)?),
+                    },
+                };
+                Ok(if *negated {
+                    stored_native_operator(StoredOperator::Not, vec![between])
+                } else {
+                    between
+                })
+            }
             ast::Expr::InList {
                 expr,
                 list,
                 negated,
-            } => self.capture_stored_operator(
-                if *negated { "not_in" } else { "in" },
-                std::iter::once(expr.as_ref()).chain(list.iter()),
-            ),
+            } => {
+                let mut children = Vec::with_capacity(list.len() + 1);
+                children.push(self.capture_stored_expression(expr)?);
+                children.extend(
+                    list.iter()
+                        .map(|expression| self.capture_stored_expression(expression))
+                        .collect::<Result<Vec<_>>>()?,
+                );
+                let expression = stored_native_operator(StoredOperator::In, children);
+                Ok(if *negated {
+                    stored_native_operator(StoredOperator::Not, vec![expression])
+                } else {
+                    expression
+                })
+            }
             ast::Expr::Like {
                 negated,
                 expr,
@@ -169,12 +203,39 @@ impl State<'_, '_> {
                 if *negated { "!~~" } else { "~~" },
                 [expr.as_ref(), pattern.as_ref()],
             ),
+            ast::Expr::BinaryOp { left, op, right } if retained_comparison(op).is_some() => {
+                Ok(stored_comparison(
+                    retained_comparison(op).expect("guarded comparison"),
+                    self.capture_stored_expression(left)?,
+                    self.capture_stored_expression(right)?,
+                ))
+            }
+            ast::Expr::BinaryOp { left, op, right } if retained_conjunction(op).is_some() => {
+                Ok(StoredExpression {
+                    alias: None,
+                    source_span: None,
+                    kind: StoredExpressionKind::Conjunction {
+                        kind: retained_conjunction(op).expect("guarded conjunction"),
+                        children: vec![
+                            self.capture_stored_expression(left)?,
+                            self.capture_stored_expression(right)?,
+                        ],
+                    },
+                })
+            }
             ast::Expr::BinaryOp { left, op, right } if retained_binary_operator(op).is_some() => {
                 self.capture_stored_operator(
                     retained_binary_operator(op).expect("guarded operator"),
                     [left.as_ref(), right.as_ref()],
                 )
             }
+            ast::Expr::UnaryOp {
+                op: ast::UnaryOperator::Not,
+                expr,
+            } => Ok(stored_native_operator(
+                StoredOperator::Not,
+                vec![self.capture_stored_expression(expr)?],
+            )),
             ast::Expr::UnaryOp { op, expr } if retained_unary_operator(op).is_some() => self
                 .capture_stored_operator(
                     retained_unary_operator(op).expect("guarded operator"),
@@ -289,6 +350,55 @@ fn stored_syntax_operator(name: &'static str, children: Vec<StoredExpression>) -
     }
 }
 
+fn stored_native_operator(
+    kind: StoredOperator,
+    children: Vec<StoredExpression>,
+) -> StoredExpression {
+    StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Operator { kind, children },
+    }
+}
+
+fn stored_comparison(
+    kind: StoredComparison,
+    left: StoredExpression,
+    right: StoredExpression,
+) -> StoredExpression {
+    StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Comparison {
+            kind,
+            left: Box::new(left),
+            right: Box::new(right),
+        },
+    }
+}
+
+fn retained_comparison(operator: &ast::BinaryOperator) -> Option<StoredComparison> {
+    use ast::BinaryOperator as O;
+    Some(match operator {
+        O::Eq => StoredComparison::Equal,
+        O::NotEq => StoredComparison::NotEqual,
+        O::Lt => StoredComparison::LessThan,
+        O::Gt => StoredComparison::GreaterThan,
+        O::LtEq => StoredComparison::LessThanOrEqual,
+        O::GtEq => StoredComparison::GreaterThanOrEqual,
+        _ => return None,
+    })
+}
+
+fn retained_conjunction(operator: &ast::BinaryOperator) -> Option<StoredConjunction> {
+    use ast::BinaryOperator as O;
+    Some(match operator {
+        O::And => StoredConjunction::And,
+        O::Or => StoredConjunction::Or,
+        _ => return None,
+    })
+}
+
 fn retained_binary_operator(operator: &ast::BinaryOperator) -> Option<&'static str> {
     use ast::BinaryOperator as O;
     Some(match operator {
@@ -303,14 +413,6 @@ fn retained_binary_operator(operator: &ast::BinaryOperator) -> Option<&'static s
         O::BitwiseOr => "|",
         O::PGBitwiseShiftLeft => "<<",
         O::PGBitwiseShiftRight => ">>",
-        O::Eq => "=",
-        O::NotEq => "!=",
-        O::Lt => "<",
-        O::LtEq => "<=",
-        O::Gt => ">",
-        O::GtEq => ">=",
-        O::And => "and",
-        O::Or => "or",
         _ => return None,
     })
 }
@@ -320,7 +422,6 @@ fn retained_unary_operator(operator: &ast::UnaryOperator) -> Option<&'static str
     Some(match operator {
         O::Plus => "+",
         O::Minus => "-",
-        O::Not => "not",
         O::BitwiseNot => "~",
         _ => return None,
     })
@@ -478,6 +579,57 @@ mod tests {
                 "{sql}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn captured_predicates_use_native_parsed_node_shapes() -> Result<()> {
+        let simple_case = capture("CASE 2 WHEN 1 THEN 'one' ELSE 'other' END")?;
+        assert!(matches!(
+            simple_case.kind,
+            StoredExpressionKind::Case { ref checks, .. }
+                if matches!(checks[0].when_expression.kind, StoredExpressionKind::Comparison { kind: StoredComparison::Equal, .. })
+        ));
+        assert!(matches!(
+            capture("NULL IS NULL")?.kind,
+            StoredExpressionKind::Operator {
+                kind: StoredOperator::IsNull,
+                ..
+            }
+        ));
+        assert!(matches!(
+            capture("2 BETWEEN 1 AND 3")?.kind,
+            StoredExpressionKind::Between { .. }
+        ));
+        assert!(matches!(
+            capture("2 NOT BETWEEN 1 AND 3")?.kind,
+            StoredExpressionKind::Operator {
+                kind: StoredOperator::Not,
+                ref children,
+            } if matches!(children[0].kind, StoredExpressionKind::Between { .. })
+        ));
+        assert!(matches!(
+            capture("2 IN (1, 2)")?.kind,
+            StoredExpressionKind::Operator {
+                kind: StoredOperator::In,
+                ..
+            }
+        ));
+        assert!(matches!(
+            capture("2 NOT IN (1, 3)")?.kind,
+            StoredExpressionKind::Operator {
+                kind: StoredOperator::Not,
+                ref children,
+            } if matches!(children[0].kind, StoredExpressionKind::Operator { kind: StoredOperator::In, .. })
+        ));
+        assert!(matches!(
+            capture("'duck' LIKE 'd%'")?.kind,
+            StoredExpressionKind::Function {
+                ref name,
+                is_operator: true,
+                ..
+            } if name == &["~~"]
+        ));
         Ok(())
     }
 

@@ -386,6 +386,19 @@ impl ExpressionEvaluator for ScalarEvaluator {
                     None => eval(otherwise)?,
                 }
             }
+            ExprKind::Between(input, lower, upper, operand_type) => {
+                let input = eval(input)?;
+                let lower = eval(lower)?;
+                let upper = eval(upper)?;
+                if input.is_null() || lower.is_null() || upper.is_null() {
+                    Value::Null
+                } else {
+                    Value::Boolean(
+                        !operand_type.compare(&input, &lower, query)?.is_lt()
+                            && !operand_type.compare(&input, &upper, query)?.is_gt(),
+                    )
+                }
+            }
             ExprKind::InList(needle, list, negated, operand_type) => {
                 let needle = eval(needle)?;
                 let mut unknown = needle.is_null();

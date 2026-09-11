@@ -85,7 +85,7 @@ fn closed_default_syntax_defers_effects_until_insert_demand() -> Result<()> {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 
     connection.execute("INSERT INTO retained DEFAULT VALUES")?;
-    assert_eq!(calls.load(Ordering::SeqCst), 6);
+    assert_eq!(calls.load(Ordering::SeqCst), 5);
     assert_eq!(
         connection.query("SELECT * FROM retained")?.rows,
         vec![vec![

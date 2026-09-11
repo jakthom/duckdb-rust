@@ -12,12 +12,37 @@ pub(super) fn expression(
         StoredExpressionKind::Literal { .. } => (7, 75),
         StoredExpressionKind::Cast { .. } => (3, 12),
         StoredExpressionKind::Function { .. } => (9, 140),
+        StoredExpressionKind::Case { .. } => (2, 150),
+        StoredExpressionKind::Comparison { kind, .. } => (
+            5,
+            match kind {
+                StoredComparison::Equal => 25,
+                StoredComparison::NotEqual => 26,
+                StoredComparison::LessThan => 27,
+                StoredComparison::GreaterThan => 28,
+                StoredComparison::LessThanOrEqual => 29,
+                StoredComparison::GreaterThanOrEqual => 30,
+            },
+        ),
+        StoredExpressionKind::Conjunction { kind, .. } => (
+            6,
+            match kind {
+                StoredConjunction::And => 50,
+                StoredConjunction::Or => 51,
+            },
+        ),
+        StoredExpressionKind::Between { .. } => (19, 38),
         StoredExpressionKind::Operator { kind, .. } => (
             10,
             match kind {
                 StoredOperator::ListConstructor => 156,
                 StoredOperator::Index => 153,
                 StoredOperator::Field => 155,
+                StoredOperator::Not => 13,
+                StoredOperator::IsNull => 14,
+                StoredOperator::IsNotNull => 15,
+                StoredOperator::In => 35,
+                StoredOperator::NotIn => 36,
             },
         ),
     };
@@ -49,6 +74,56 @@ pub(super) fn expression(
             if *try_cast {
                 output.field(202);
                 output.boolean(true);
+            }
+        }
+        StoredExpressionKind::Case { checks, otherwise } => {
+            let count = checks
+                .len()
+                .checked_mul(2)
+                .and_then(|count| count.checked_add(1))
+                .ok_or_else(|| Error::Resource("native CASE child count overflow".into()))?;
+            state.count(count)?;
+            output.property(200, checks.len() as u64);
+            for check in checks {
+                output.field(100);
+                output.boolean(true);
+                self::expression(output, &check.when_expression, depth + 1, state)?;
+                output.field(101);
+                output.boolean(true);
+                self::expression(output, &check.then_expression, depth + 1, state)?;
+                output.end();
+            }
+            output.field(201);
+            output.boolean(true);
+            self::expression(output, otherwise, depth + 1, state)?;
+        }
+        StoredExpressionKind::Comparison { left, right, .. } => {
+            state.count(2)?;
+            output.field(200);
+            output.boolean(true);
+            self::expression(output, left, depth + 1, state)?;
+            output.field(201);
+            output.boolean(true);
+            self::expression(output, right, depth + 1, state)?;
+        }
+        StoredExpressionKind::Conjunction { children, .. } => {
+            state.count(children.len())?;
+            output.property(200, children.len() as u64);
+            for child in children {
+                output.boolean(true);
+                self::expression(output, child, depth + 1, state)?;
+            }
+        }
+        StoredExpressionKind::Between {
+            input,
+            lower,
+            upper,
+        } => {
+            state.count(3)?;
+            for (field, child) in [(200, input), (201, lower), (202, upper)] {
+                output.field(field);
+                output.boolean(true);
+                self::expression(output, child, depth + 1, state)?;
             }
         }
         StoredExpressionKind::Operator { children, .. } => {
