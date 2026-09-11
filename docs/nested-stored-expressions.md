@@ -78,3 +78,21 @@ alias-order correction; its follow-up checks are recorded with the delivered
 commit. This internal increment has not independently run Kani or acceptance
 timing. The lead runs maintained Kani at the next substantial combined checkpoint;
 earlier checkpoint results do not prove these new adapters or stored mappings.
+
+## Syntax-only capture prerequisite
+
+`planner/binder/nested/capture.rs` now contains the approved recursive-callback
+helper for arrays, tuples, struct/MAP literals and access chains. It returns None
+for other syntax, retains constructor and operator identity, copies exact named
+field metadata, and never binds or evaluates a child. The caller callback must
+own type-name resolution, whole-expression budgets, cancellation and dependency
+rejection. Local arity checks and callback failures remain explicit.
+
+Registration is temporarily cfg(test): no catalog entrypoint calls it yet.
+Its two focused tests cover typed NULL casts, unevaluated failing function children,
+field/index ordering, local cardinality limits, fatal callback errors, and rejection
+of slices or row-dependent bases. The independent
+[raw ParsedExpression fixtures](nested-parsed-expression.md) establish supported
+literal-base mappings and qualified ColumnRef identity. In particular, the helper
+rejects a qualified base instead of splitting names into guessed field operators.
+These tests are not proof of general native default capture or publication.

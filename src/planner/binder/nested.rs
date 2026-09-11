@@ -1,5 +1,9 @@
 use super::*;
 use crate::common::NestedType;
+// The catalog's shared capture entrypoint is not wired yet. Keep this helper
+// test-only until that caller supplies whole-root budgets and cancellation.
+#[cfg(test)]
+mod capture;
 
 pub(super) struct ParsedScalarArguments<'a> {
     pub names: Vec<Option<String>>,
