@@ -10,6 +10,7 @@ use crate::{
 };
 use std::sync::Arc;
 mod bucket;
+mod calendar_extract;
 mod difference;
 mod epoch_extra;
 mod formatting;
@@ -26,6 +27,7 @@ struct TemporalFunction {
 pub(super) fn register(registry: &mut FunctionRegistry) {
     difference::register(registry);
     bucket::register(registry);
+    calendar_extract::register(registry);
     epoch_extra::register(registry);
     truncation::register(registry);
     formatting::register(registry);
@@ -229,7 +231,13 @@ impl ScalarFunction for TemporalFunction {
                     Date | Timestamp | Time | TimeNs | TimeTz | Interval,
                 ],
             ) => {
-                if self.part.is_none() || self.part.as_deref() == Some("epoch") {
+                if self.part.is_none()
+                    || self.part.as_deref() == Some("epoch")
+                    || self
+                        .part
+                        .as_deref()
+                        .is_some_and(calendar_extract::returns_double)
+                {
                     Double
                 } else {
                     BigInt
@@ -423,6 +431,7 @@ fn is_clock_extract(name: &str) -> bool {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn is_extract(name: &str) -> bool {
     is_clock_extract(name)
+        || calendar_extract::is_part(name)
         || matches!(
             name,
             "year"
@@ -624,6 +633,9 @@ fn epoch(value: &Value, part: &str) -> Result<Value> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn extract(value: &Value, part: &str) -> Result<Value> {
+    if let Some(result) = calendar_extract::extract(value, part) {
+        return result;
+    }
     let (date, months, days, micros) = match value {
         Value::Date(date) => (Some(*date), 0, 0, 0),
         Value::Temporal(TemporalValue::Interval {
