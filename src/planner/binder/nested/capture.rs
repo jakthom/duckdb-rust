@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn capture(
+pub(in crate::planner::binder) fn capture(
     expression: &ast::Expr,
     recurse: &mut dyn FnMut(&ast::Expr) -> Result<StoredExpression>,
 ) -> Result<Option<StoredExpression>> {

@@ -1,9 +1,8 @@
 use super::*;
 use crate::common::NestedType;
-// The catalog's shared capture entrypoint is not wired yet. Keep this helper
-// test-only until that caller supplies whole-root budgets and cancellation.
-#[cfg(test)]
-mod capture;
+// Syntax-only capture is shared by the catalog-expression entrypoint. The
+// caller owns whole-root validation, type resolution and dependency rejection.
+pub(super) mod capture;
 
 pub(super) struct ParsedScalarArguments<'a> {
     pub names: Vec<Option<String>>,

@@ -1,4 +1,5 @@
 mod alter;
+mod capture;
 mod coercion;
 mod expression;
 mod grouping;
