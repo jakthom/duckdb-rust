@@ -200,7 +200,7 @@ fn join_candidates(
             context.query.check()?;
             let mut row = left_row.clone();
             row.extend(right.rows[index].clone());
-            if condition.evaluate(&row, context)?.as_bool()? != Some(true) {
+            if !condition.select(&row, context)? {
                 continue;
             }
             matched = true;

@@ -331,7 +331,7 @@ impl Services {
                 for (id, row) in transaction.storage().scan(&table, query)? {
                     query.check()?;
                     if let Some(predicate) = &predicate
-                        && predicate.evaluate(&row, &context)?.as_bool()? != Some(true)
+                        && !predicate.select(&row, &context)?
                     {
                         continue;
                     }
@@ -357,7 +357,7 @@ impl Services {
                 for (id, row) in transaction.storage().scan(&table, query)? {
                     query.check()?;
                     if let Some(predicate) = &predicate
-                        && predicate.evaluate(&row, &context)?.as_bool()? != Some(true)
+                        && !predicate.select(&row, &context)?
                     {
                         continue;
                     }

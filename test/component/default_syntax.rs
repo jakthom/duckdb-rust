@@ -545,6 +545,44 @@ fn predicate_selection_short_circuits_runtime_conjunctions() -> Result<()> {
             vec![vec![Value::Integer(1)]]
         );
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        calls.store(0, Ordering::SeqCst);
+        let result = connection
+            .execute("UPDATE selected SET i=2 WHERE nextval('s')<0 AND error('update')=0")?;
+        assert_eq!(result[0].affected_rows, 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            connection.query("SELECT i FROM selected")?.rows,
+            vec![vec![Value::Integer(1)]]
+        );
+
+        calls.store(0, Ordering::SeqCst);
+        let result =
+            connection.execute("DELETE FROM selected WHERE nextval('s')>0 OR error('delete')=0")?;
+        assert_eq!(result[0].affected_rows, 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        calls.store(0, Ordering::SeqCst);
+        assert!(
+            connection
+                .query(
+                    "SELECT * FROM range(1)a(i) JOIN range(1)b(j) \
+                     ON nextval('s')<0 AND error('join')=0"
+                )?
+                .rows
+                .is_empty()
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        calls.store(0, Ordering::SeqCst);
+        assert!(matches!(
+            connection.query(
+                "SELECT sum(i) FILTER (WHERE nextval('s')<0 AND error('aggregate')=0) \
+                 FROM range(1)t(i)"
+            ),
+            Err(Error::InvalidInput(message)) if message == "aggregate"
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
     Ok(())
 }
