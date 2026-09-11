@@ -14,8 +14,9 @@ reader continues to return Unsupported for FUNCTION defaults. The integration
 lead owns that shared implementation; no Base64-specific exception is added.
 
 Follow-up: the lead's [stored-expression work](stored-expressions.md) now has an
-owned-tree and selected-binder prerequisite. Catalog/default migration, wire
-decoding and execution remain open; the independent failures above still apply.
+owned tree, selected binding/evaluation and explicitly composed startup/recovery
+context. Catalog/default migration, native wire decoding and connected default
+execution remain open; the independent failures above still apply.
 
 ## Verified parsed-expression wire shape
 

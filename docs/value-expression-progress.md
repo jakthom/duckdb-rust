@@ -43,8 +43,61 @@ do not replace a combined full-upstream or performance refresh.
 The lead's [stored-expression prerequisite](stored-expressions.md), `1bdf1a0`,
 and selected scalar expansion `e93a1d6` pass the eleventh combined workspace,
 tracing and exploratory Kani run below. Native DEFAULT decoding/catalog migration,
-non-NULL nested defaults, NULLIF's family/runtime follow-up and the larger
-milestone remain open. No new follow-up push has occurred.
+non-NULL nested defaults and the larger milestone remain open. The twelfth
+checkpoint integrates NULLIF, its comparison-runtime and expansion-resource
+repairs, calendar grids, and selected stored-expression startup/recovery context.
+No new follow-up push has occurred.
+
+## Twelfth integrated validation checkpoint
+
+Frozen engine `6f5e6ac` combines the lead's selected closed-expression evaluation
+and startup/recovery composition (`c71ee58`, `111f552`), NULLIF (`8fc1743`), actual
+argument-weight expansion bounds (`5e4b3fb`), constant-NULL comparison execution
+(`a26bc4d`) and calendar truncation/bucketing (`6f5e6ac`). The expansion bug found
+at checkpoint eleven is repaired before lowering/cloning; its dedicated nested
+duplicator and combined argument/template-depth regressions pass. Comparison
+execution preserves already demanded operands, selected validation, physical
+provenance and fatal errors across scalar/batch/predicate paths.
+
+Full workspace check/tests and all-target clippy with warnings denied pass. Only
+the same two external-CLI analytics tests are ignored. Library 68, compatibility
+19, contracts 60, numeric 48, temporal 35, nested 42, DATE 11, casts 12, types 22,
+execution 51, checkpointing 18, logging 7 and recovery 14 pass. The exhaustive
+recovery-tail sweep took 65.22 seconds. Coverage reports 358 files, 3,442
+functions and 231 interface methods with none missing. Traced all-target check
+passes in 73.942 seconds with zero errors, panics or open spans; temporary
+telemetry was deleted. These durations are not performance measurements.
+
+Full `python3 scripts/verify_kani.py`, Kani 0.67.0, passes all six maintained
+harnesses with zero failures: TIMETZ packing 43.590 s, unsigned keys 0.808 s,
+dense offsets 0.492 s, ROWS clipping 2.449 s, uniform bounds 2.871 s and packed
+byte counts 75.105 s. Caller-location (1) and foreign-function (2) warnings remain
+unreachable; atomic fences (4) and subtracts (5) remain sequential. The vendor
+parser's unused-variable warning remains. These proofs do not cover stored
+expression evaluation/composition, expansion budgets, calendar semantics,
+native protocols or general concurrent durability.
+
+The source-specific [NULLIF campaign](numeric-nullif-reference.json), retained
+in `f7bc459`, passes 894/899 exact development cases and 538/899 release cases;
+native paths pass 3/3 per pin. All preceding 830 development passes remain.
+Five new cases exposed VALUES literal-inference and reserved NULLIF arity gaps;
+their worker repairs are not part of this frozen source. The timestamp MIN
+physical-domain/native-validity repair and independent typed Value codec are
+also queued for the next integrated increment, not counted as acceptance here.
+
+The lead's [default-demand investigation](stored-expressions.md) confirms that
+CREATE/SET DEFAULT and never-populated ADD COLUMN must retain failing expressions
+without evaluating them, while development can demand backfill for deleted
+physical rows even with zero visible rows. Existing eager-default failures and
+the previously isolated raw timestamp planner-name mismatch remain open. Context
+transport contracts do not substitute for the native parsed-expression codec,
+catalog migration or connected default execution.
+
+No new production performance or full-upstream refresh ran on this source.
+Checkpoint nine remains the latest pushed faster-reference/upstream acceptance;
+checkpoint ten remains the latest production native-file campaign. A fresh
+remote fetch found 27 local commits and no incoming commits. README still matches
+`origin/main`; the user's pre-sync stash remains unchanged.
 
 ## Eleventh integrated validation checkpoint
 

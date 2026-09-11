@@ -45,8 +45,9 @@ catalog-error spelling; the corrected assertion matches the existing exact error
 and verifies outer-function lookup precedence. These are internal contracts, not
 end-to-end DEFAULT/persistence evidence. Full integrated checks and exploratory
 Kani pass at the [eleventh validation checkpoint](value-expression-progress.md).
-The selected-expansion total-tree resource repair identified during review is
-still open; the maintained proofs do not cover that path or this stored tree.
+The selected-expansion total-tree resource repair identified during that review
+is integrated at checkpoint twelve, with dedicated regression tests; the
+maintained proofs do not cover that path or this stored tree.
 
 ## Remaining connected path
 
@@ -79,7 +80,10 @@ contracts pass, along with check/clippy and instrumentation coverage (354 files,
 3,399 functions, 231 interface methods, no missing entries). One initial test
 expected `ASC` for an unset setting; the existing default is `ASCENDING`, while an
 explicit SET retains `ASC`. The assertion was corrected without engine changes.
-Native parsed DEFAULT codecs and internal background decoder/encoder work remain
+The full workspace, tracing and six maintained Kani harnesses now pass at the
+[twelfth integrated checkpoint](value-expression-progress.md); none of those
+proofs establishes this new context/evaluation path. Native parsed DEFAULT codecs
+and internal background decoder/encoder work remain
 open; contextual adapter plumbing is not evidence that those paths are finished.
 
 - Retain expressions in column defaults instead of eagerly evaluating SQL or
@@ -146,3 +150,73 @@ retain the valid physical instant, including explicit inserts and disabled-
 optimizer execution. A timestamp-domain restriction or an eager native-decoder
 cast would fix a different behavior. The existing default differential remains
 failing until the connected implementation addresses it.
+
+## Default demand: creation, backfill and deleted physical rows
+
+Additional in-memory CLI probes on the unchanged release/development pins during
+checkpoint twelve distinguish binding from evaluation. Use the deliberately
+failing expression `CAST('bad' AS INTEGER)` in each case:
+
+| Operation | Both pinned results unless noted |
+| --- | --- |
+| CREATE TABLE with that default, then count rows | Success, zero rows |
+| ADD COLUMN with that default to a never-populated table | Success, zero rows |
+| ADD COLUMN with that default to a table containing one row | Conversion error |
+| SET DEFAULT on an existing empty or one-row table | Success, existing rows unchanged |
+| CREATE with that default, then an explicit INSERT SELECT producing no rows | Success, zero rows |
+
+Rust at `6f5e6ac` still rejects both the CREATE and never-populated ADD probes
+with `Conversion Error: cannot cast "bad" to INTEGER`. These are confirmed
+existing eager-default gaps, not failures of the new context transport tests.
+The connected implementation must bind/check metadata without eagerly demanding
+these casts during CREATE/SET, and demand ADD backfill only when its storage
+operation actually requires values. The selected closed-expression service is
+an evaluation capability, not permission to call it unconditionally on DDL.
+
+Visible cardinality alone is insufficient. The following complete probes all
+produce a conversion error in development:
+
+```sql
+CREATE TABLE t(i INTEGER);
+INSERT INTO t VALUES(1);
+DELETE FROM t;
+ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER);
+SELECT count(*) FROM t;
+```
+
+```sql
+CREATE TABLE t(i INTEGER);
+BEGIN;
+INSERT INTO t VALUES(1);
+DELETE FROM t;
+ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER);
+COMMIT;
+SELECT count(*) FROM t;
+```
+
+```sql
+CREATE TABLE t(i INTEGER);
+INSERT INTO t VALUES(1);
+BEGIN;
+DELETE FROM t;
+ALTER TABLE t ADD COLUMN j INTEGER DEFAULT CAST('bad' AS INTEGER);
+COMMIT;
+SELECT count(*) FROM t;
+```
+
+Release succeeds with zero rows in the first two cases. In the third it reaches
+a commit-time TransactionContext error about another transaction altering the
+table. Development remains authoritative; none of these release outcomes is a
+reason to skip the demanded default or to change the correctness comparator.
+
+The development source retains a copied parsed default for serialization and
+binds a separate expression in
+[BindDefaultValues](../../duckdb/src/planner/binder/statement/bind_create_table.cpp).
+[AddColumn](../../duckdb/src/catalog/catalog_entry/duck_table_entry.cpp) also binds
+the added default during WAL replay. Its
+[row-group implementation](../../duckdb/src/storage/table/row_group.cpp) executes
+the expression for physical `count` rows, not a scan of visible rows, explaining
+why deleted slots can still demand it. The current Rust snapshot retains row-ID
+high-water metadata, but how that should preserve backfill demand through live
+snapshots, compaction and independent recovery remains implementation work.
+Do not treat a passing zero-visible-row shortcut as parity for this path.
