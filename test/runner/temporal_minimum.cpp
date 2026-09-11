@@ -51,11 +51,13 @@ static void Inspect(const std::string &path, bool mutated) {
         throw std::runtime_error("C++ fixture changed shape");
     }
     const auto minimum = std::numeric_limits<int64_t>::min();
+    const auto typed_columns = Timestamps(0);
     idx_t checked = 0;
     for (idx_t row = 0; row < 6; ++row) {
         if (result->GetValue(0, row).GetValue<int32_t>() != int32_t(row)) throw std::runtime_error("C++ fixture changed row identity");
         for (idx_t column = 1; column < result->ColumnCount(); ++column) {
             const auto value = result->GetValue(column, row);
+            if (value.type() != typed_columns[column - 1].type()) throw std::runtime_error("C++ fixture changed timestamp logical type");
             if (value.IsNull() != (row == 4)) throw std::runtime_error("C++ fixture lost MIN versus NULL");
             if (!value.IsNull()) {
                 const auto expected = row == 0 || row == 5 || (mutated && row == 3) ? minimum : row == 1 ? -std::numeric_limits<int64_t>::max() : row == 2 ? minimum + 2 : 0;

@@ -1,0 +1,1694 @@
+{
+  "recorded_at": "2026-09-11T01:13:25.783482+00:00",
+  "source_sha256": "a084354240d477e09de6d5b3f11f811bb7333b82717a48922935e3ccb7102198",
+  "rust_worker_sha256": "85f26dc085a85e68c0d26e7aa1895e5be5db2a4a1f21bd4e30d26414e210bf33",
+  "script_sha256": "e37787ce51f164309f5c8b27fb01d75d1812d608891283bd9927eb1125a9480b",
+  "scope": "Raw C++ timestamp Value/Appender API, checkpoint/WAL fixtures, exact SQL values/errors; no performance claim.",
+  "full_parity": false,
+  "targets": [
+    {
+      "target": "release",
+      "reference_identity": {
+        "target": "release",
+        "required_version": "1.5.5",
+        "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+        "reported_source_id": "d8cdaa33fd",
+        "version": "v1.5.5 (Variegata) d8cdaa33fd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+        "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+      },
+      "cpp_library_sha256": "0b65ec697fed7f54a10bc4024dc349828f243b5ea3da9a0533522bfebb80544c",
+      "cpp_fixture_source_sha256": "aaebc881abc4f83d44bd5af7dad6a1eaba6051651bb02bc43f7dd087985d1adb",
+      "cpp_fixture_binary_sha256": "4d38f8dd70f41d6c6542a1e4a57378f7ba175a907ca7a87f3b73c310811e64f0",
+      "sql": [
+        {
+          "sql": "SELECT epoch_us(make_timestamp('-9223372036854775808'::BIGINT))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_ns(make_timestamp_ns('-9223372036854775808'::BIGINT))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806))",
+          "rust": {
+            "message": "Conversion Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp conversion"
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT make_timestamp_ns('-9223372036854775808'::BIGINT)",
+          "rust": {
+            "message": "Conversion Error: Date out of range in timestamp_ns conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp_ns conversion"
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(time_bucket(INTERVAL '4us',t)) FROM (VALUES (make_timestamp(-9223372036854775806)))x(t)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT isfinite(t),isinf(t),epoch_us(t),t=TIMESTAMP '-infinity',t<TIMESTAMP '-infinity' FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN",
+              "BIGINT",
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1",
+                "0",
+                "-9223372036854775808",
+                "0",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN",
+              "BIGINT",
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "rows": [
+              [
+                "1",
+                "0",
+                "-9223372036854775808",
+                "0",
+                "1"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMP) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMPTZ) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMP_S) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Conversion Error: timestamp precision overflow",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert Timestamp(S) to Timestamp(US)"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMP_MS) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Conversion Error: timestamp precision overflow",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert Timestamp(MS) to Timestamp(US)"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_ns(t::TIMESTAMP_NS) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Conversion Error: timestamp precision overflow",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert Timestamp(US) to Timestamp(NS)"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT t::DATE FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "DATE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "290309-12-21 (BC)"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DATE"
+            ],
+            "rows": [
+              [
+                "290309-12-21 (BC)"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT t::TIME FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "TIME"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "19:59:05.224192"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "TIME"
+            ],
+            "rows": [
+              [
+                "19:59:05.224192"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t+INTERVAL '1 day') FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Conversion Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp conversion"
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us((t::VARIANT)::TIMESTAMP) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us({'t':t}.t) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us([t,NULL][1]) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT CAST(t AS VARCHAR) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp conversion"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST(t AS VARCHAR) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp conversion"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT CAST(t::VARIANT AS VARCHAR) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp conversion"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(date_trunc('microsecond',t)) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(date_trunc('day',t)) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "9223371964909551616"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date and time not in timestamp range"
+          },
+          "passed": false,
+          "outcome_passed": false
+        },
+        {
+          "sql": "SELECT epoch_us(time_bucket(INTERVAL '1us',t)) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(time_bucket(INTERVAL '4us',t)) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_ns(t) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMP) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854776"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775"
+              ]
+            ]
+          },
+          "passed": false,
+          "outcome_passed": false
+        },
+        {
+          "sql": "SELECT epoch_ns(t::TIMESTAMPTZ_NS) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "message": "Binder Error: no Explicit cast from TIMESTAMP_NS to TIMESTAMPTZ_NS",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Catalog Error: Type with name TIMESTAMPTZ_NS does not exist!\nDid you mean \"JSON\"?\n\nLINE 1: SELECT epoch_ns(t::TIMESTAMPTZ_NS) FROM (SELECT make_timestamp_ns('-9223372036...\n                           ^"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT t::DATE FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "columns": [
+              "DATE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1677-09-21"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DATE"
+            ],
+            "rows": [
+              [
+                "1677-09-21"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT t::TIME FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "columns": [
+              "TIME"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00:12:43.145224"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "TIME"
+            ],
+            "rows": [
+              [
+                "00:12:43.145225"
+              ]
+            ]
+          },
+          "passed": false,
+          "outcome_passed": false
+        },
+        {
+          "sql": "SELECT CAST(t AS VARCHAR) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp_ns conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp_ns conversion"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST(t AS VARCHAR) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp_ns conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp_ns conversion"
+          },
+          "passed": false,
+          "outcome_passed": true
+        }
+      ],
+      "fixtures": [
+        {
+          "name": "minima.duckdb",
+          "sha256": "1acd828d1fb0cfb7844acb24e670b3283ae8098b1ac71d4fab63e78b58d0df0b",
+          "bytes": 798720
+        },
+        {
+          "name": "minima-wal.duckdb",
+          "sha256": "313cfcaa0d1d01a491d653e006d2d202b03fff5cae87aaa07714e18667ea1d1e",
+          "bytes": 274432
+        },
+        {
+          "name": "minima-wal.duckdb.wal",
+          "sha256": "7c343c460d32947bb7e6038b3505989fc8d24f70ccfd13b2a38063488578c6a6",
+          "bytes": 497
+        }
+      ],
+      "cpp_api": {
+        "status": 0,
+        "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+        "stderr": ""
+      },
+      "native_roundtrips": [
+        {
+          "from_cpp_wal": false,
+          "rust_publication": "checkpoint",
+          "sql": "BEGIN; DELETE FROM minima WHERE id=0; UPDATE minima SET u=NULL WHERE id=5; ROLLBACK; UPDATE minima SET u=(SELECT u FROM minima WHERE id=0),s=(SELECT s FROM minima WHERE id=0),ms=(SELECT ms FROM minima WHERE id=0),n=(SELECT n FROM minima WHERE id=0),z=(SELECT z FROM minima WHERE id=0) WHERE id=3",
+          "passed": true,
+          "observations": [
+            {
+              "stage": "original",
+              "status": 0,
+              "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+              "stderr": ""
+            },
+            {
+              "stage": "mutated",
+              "status": 0,
+              "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+              "stderr": ""
+            }
+          ]
+        },
+        {
+          "from_cpp_wal": false,
+          "rust_publication": "wal",
+          "sql": "BEGIN; DELETE FROM minima WHERE id=0; UPDATE minima SET u=NULL WHERE id=5; ROLLBACK; UPDATE minima SET u=(SELECT u FROM minima WHERE id=0),s=(SELECT s FROM minima WHERE id=0),ms=(SELECT ms FROM minima WHERE id=0),n=(SELECT n FROM minima WHERE id=0),z=(SELECT z FROM minima WHERE id=0) WHERE id=3",
+          "passed": true,
+          "observations": [
+            {
+              "stage": "original",
+              "status": 0,
+              "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+              "stderr": ""
+            },
+            {
+              "stage": "mutated",
+              "status": 0,
+              "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+              "stderr": ""
+            }
+          ]
+        },
+        {
+          "from_cpp_wal": true,
+          "rust_publication": "checkpoint",
+          "sql": "BEGIN; DELETE FROM minima WHERE id=0; UPDATE minima SET u=NULL WHERE id=5; ROLLBACK; UPDATE minima SET u=(SELECT u FROM minima WHERE id=0),s=(SELECT s FROM minima WHERE id=0),ms=(SELECT ms FROM minima WHERE id=0),n=(SELECT n FROM minima WHERE id=0),z=(SELECT z FROM minima WHERE id=0) WHERE id=3",
+          "passed": true,
+          "observations": [
+            {
+              "stage": "original",
+              "status": 0,
+              "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+              "stderr": ""
+            },
+            {
+              "stage": "mutated",
+              "status": 0,
+              "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+              "stderr": ""
+            }
+          ]
+        },
+        {
+          "from_cpp_wal": true,
+          "rust_publication": "wal",
+          "sql": "BEGIN; DELETE FROM minima WHERE id=0; UPDATE minima SET u=NULL WHERE id=5; ROLLBACK; UPDATE minima SET u=(SELECT u FROM minima WHERE id=0),s=(SELECT s FROM minima WHERE id=0),ms=(SELECT ms FROM minima WHERE id=0),n=(SELECT n FROM minima WHERE id=0),z=(SELECT z FROM minima WHERE id=0) WHERE id=3",
+          "passed": true,
+          "observations": [
+            {
+              "stage": "original",
+              "status": 0,
+              "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+              "stderr": ""
+            },
+            {
+              "stage": "mutated",
+              "status": 0,
+              "stdout": "{\"checked_values\":30,\"passed\":true}\n",
+              "stderr": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "target": "development",
+      "reference_identity": {
+        "target": "development",
+        "required_version": "2.0.0-dev84019",
+        "required_revision": "99063af2bd7092aff02e14184a20e24699d34d71",
+        "reported_source_id": "99063af2bd",
+        "version": "v2.0.0-dev84019 (Development Version) 99063af2bd",
+        "path": "/Users/jacobthomas/code/ddb/duckdb/build/engine-walkthrough/duckdb",
+        "sha256": "e74ba6fda8b420678a2b2e2d4b434f97a68697f8523b0297b9535178ad8d54c2"
+      },
+      "cpp_library_sha256": "74b604b07e2c7d0f3d1e60afcbcfc388390f51d016d079f75aced1e6c1637240",
+      "cpp_fixture_source_sha256": "aaebc881abc4f83d44bd5af7dad6a1eaba6051651bb02bc43f7dd087985d1adb",
+      "cpp_fixture_binary_sha256": "63e2a8c6c532ed3cb132682f9ff1ab996c30747e15c4ae3213b60ac7a8b30030",
+      "sql": [
+        {
+          "sql": "SELECT epoch_us(make_timestamp('-9223372036854775808'::BIGINT))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_ns(make_timestamp_ns('-9223372036854775808'::BIGINT))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)))",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806))",
+          "rust": {
+            "message": "Conversion Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp conversion"
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT make_timestamp_ns('-9223372036854775808'::BIGINT)",
+          "rust": {
+            "message": "Conversion Error: Date out of range in timestamp_ns conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp_ns conversion"
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(time_bucket(INTERVAL '4us',t)) FROM (VALUES (make_timestamp(-9223372036854775806)))x(t)",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT isfinite(t),isinf(t),epoch_us(t),t=TIMESTAMP '-infinity',t<TIMESTAMP '-infinity' FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN",
+              "BIGINT",
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1",
+                "0",
+                "-9223372036854775808",
+                "0",
+                "1"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BOOLEAN",
+              "BOOLEAN",
+              "BIGINT",
+              "BOOLEAN",
+              "BOOLEAN"
+            ],
+            "rows": [
+              [
+                "1",
+                "0",
+                "-9223372036854775808",
+                "0",
+                "1"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMP) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMPTZ) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMP_S) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Conversion Error: timestamp precision overflow",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert Timestamp to higher precision.\n\nLINE 1: SELECT epoch_us(t::TIMESTAMP_S) FROM (SELECT time_bucket(INTERVAL '4us',make...\n                         ^^^^^^^^^^^^^"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMP_MS) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Conversion Error: timestamp precision overflow",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert Timestamp to higher precision.\n\nLINE 1: SELECT epoch_us(t::TIMESTAMP_MS) FROM (SELECT time_bucket(INTERVAL '4us'...\n                         ^^^^^^^^^^^^^^"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_ns(t::TIMESTAMP_NS) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Conversion Error: timestamp precision overflow",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Could not convert Timestamp to higher precision. when casting from source column t\n\nLINE 1: SELECT epoch_ns(t::TIMESTAMP_NS) FROM (SELECT time_bucket(INTERVAL '4us'...\n                         ^^^^^^^^^^^^^^"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT t::DATE FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "DATE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "290309-12-21 (BC)"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DATE"
+            ],
+            "rows": [
+              [
+                "290309-12-21 (BC)"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT t::TIME FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "TIME"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "19:59:05.224192"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "TIME"
+            ],
+            "rows": [
+              [
+                "19:59:05.224192"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t+INTERVAL '1 day') FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Conversion Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Date out of range in timestamp conversion"
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us((t::VARIANT)::TIMESTAMP) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us({'t':t}.t) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us([t,NULL][1]) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT CAST(t AS VARCHAR) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "INTERNAL Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion\n\nStack Trace:\n\n0        duckdb::Exception::ToJSON(duckdb::ExceptionType, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 48\n1        duckdb::InternalException::InternalException(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 32\n2        duckdb::InternalException::InternalException<duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&>(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 136\n3        duckdb::ThrowNonFallibleFunctionError(duckdb::Identifier const&, std::exception&) + 168\n4        duckdb::BaseScalarFunction<duckdb::BoundScalarFunction>::Execute(duckdb::DataChunk&, duckdb::ExpressionState&, duckdb::Vector&) const + 124\n5        duckdb::ExpressionExecutor::Execute(duckdb::BoundFunctionExpression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 472\n6        duckdb::ExpressionExecutor::Execute(duckdb::Expression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 312\n7        duckdb::ExpressionExecutor::Execute(duckdb::DataChunk*, duckdb::DataChunk&) + 104\n8        duckdb::PhysicalProjection::Execute(duckdb::ExecutionContext&, duckdb::DataChunk&, duckdb::DataChunk&, duckdb::GlobalOperatorState&, duckdb::OperatorState&) const + 24\n9        duckdb::PipelineExecutor::Execute(duckdb::DataChunk&, duckdb::DataChunk&, unsigned long long) + 500\n10       duckdb::PipelineExecutor::ExecutePushInternal(duckdb::DataChunk&, duckdb::ExecutionBudget&, unsigned long long) + 136\n11       duckdb::PipelineExecutor::Execute(unsigned long long) + 560\n12       duckdb::PipelineTask::ExecuteTask(duckdb::TaskExecutionMode) + 256\n13       duckdb::ExecutorTask::Execute(duckdb::TaskExecutionMode) + 284\n14       duckdb::Executor::ExecuteTask(bool) + 396\n15       duckdb::ClientContext::ExecuteTaskInternal(duckdb::ClientContextLock&, duckdb::BaseQueryResult&, bool) + 72\n16       duckdb::PendingQueryResult::ExecuteInternal(duckdb::ClientContextLock&) + 76\n17       duckdb::ClientContext::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::QueryParameters) + 652\n18       duckdb::Connection::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 40\n19       main + 1176\n20       start + 6992\n\nThis error signals an assertion failure within DuckDB. This usually occurs due to unexpected conditions or errors in the program's logic.\nFor more information, see https://duckdb.org/docs/current/dev/internal_errors"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST(t AS VARCHAR) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "INTERNAL Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion\n\nStack Trace:\n\n0        duckdb::Exception::ToJSON(duckdb::ExceptionType, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 48\n1        duckdb::InternalException::InternalException(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 32\n2        duckdb::InternalException::InternalException<duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&>(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 136\n3        duckdb::ThrowNonFallibleFunctionError(duckdb::Identifier const&, std::exception&) + 168\n4        duckdb::BaseScalarFunction<duckdb::BoundScalarFunction>::Execute(duckdb::DataChunk&, duckdb::ExpressionState&, duckdb::Vector&) const + 124\n5        duckdb::ExpressionExecutor::Execute(duckdb::BoundFunctionExpression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 472\n6        duckdb::ExpressionExecutor::Execute(duckdb::Expression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 312\n7        duckdb::ExpressionExecutor::Execute(duckdb::DataChunk*, duckdb::DataChunk&) + 104\n8        duckdb::PhysicalProjection::Execute(duckdb::ExecutionContext&, duckdb::DataChunk&, duckdb::DataChunk&, duckdb::GlobalOperatorState&, duckdb::OperatorState&) const + 24\n9        duckdb::PipelineExecutor::Execute(duckdb::DataChunk&, duckdb::DataChunk&, unsigned long long) + 500\n10       duckdb::PipelineExecutor::ExecutePushInternal(duckdb::DataChunk&, duckdb::ExecutionBudget&, unsigned long long) + 136\n11       duckdb::PipelineExecutor::Execute(unsigned long long) + 560\n12       duckdb::PipelineTask::ExecuteTask(duckdb::TaskExecutionMode) + 256\n13       duckdb::ExecutorTask::Execute(duckdb::TaskExecutionMode) + 284\n14       duckdb::Executor::ExecuteTask(bool) + 396\n15       duckdb::ClientContext::ExecuteTaskInternal(duckdb::ClientContextLock&, duckdb::BaseQueryResult&, bool) + 72\n16       duckdb::PendingQueryResult::ExecuteInternal(duckdb::ClientContextLock&) + 76\n17       duckdb::ClientContext::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::QueryParameters) + 652\n18       duckdb::Connection::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 40\n19       main + 1176\n20       start + 6992\n\nThis error signals an assertion failure within DuckDB. This usually occurs due to unexpected conditions or errors in the program's logic.\nFor more information, see https://duckdb.org/docs/current/dev/internal_errors"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT CAST(t::VARIANT AS VARCHAR) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "INTERNAL Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp conversion\n\nStack Trace:\n\n0        duckdb::Exception::ToJSON(duckdb::ExceptionType, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 48\n1        duckdb::InternalException::InternalException(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 32\n2        duckdb::InternalException::InternalException<duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&>(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 136\n3        duckdb::ThrowNonFallibleFunctionError(duckdb::Identifier const&, std::exception&) + 168\n4        duckdb::BaseScalarFunction<duckdb::BoundScalarFunction>::Execute(duckdb::DataChunk&, duckdb::ExpressionState&, duckdb::Vector&) const + 124\n5        duckdb::ExpressionExecutor::Execute(duckdb::BoundFunctionExpression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 472\n6        duckdb::ExpressionExecutor::Execute(duckdb::Expression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 312\n7        duckdb::ExpressionExecutor::Execute(duckdb::DataChunk*, duckdb::DataChunk&) + 104\n8        duckdb::PhysicalProjection::Execute(duckdb::ExecutionContext&, duckdb::DataChunk&, duckdb::DataChunk&, duckdb::GlobalOperatorState&, duckdb::OperatorState&) const + 24\n9        duckdb::PipelineExecutor::Execute(duckdb::DataChunk&, duckdb::DataChunk&, unsigned long long) + 500\n10       duckdb::PipelineExecutor::ExecutePushInternal(duckdb::DataChunk&, duckdb::ExecutionBudget&, unsigned long long) + 136\n11       duckdb::PipelineExecutor::Execute(unsigned long long) + 560\n12       duckdb::PipelineTask::ExecuteTask(duckdb::TaskExecutionMode) + 256\n13       duckdb::ExecutorTask::Execute(duckdb::TaskExecutionMode) + 284\n14       duckdb::Executor::ExecuteTask(bool) + 396\n15       duckdb::ClientContext::ExecuteTaskInternal(duckdb::ClientContextLock&, duckdb::BaseQueryResult&, bool) + 72\n16       duckdb::PendingQueryResult::ExecuteInternal(duckdb::ClientContextLock&) + 76\n17       duckdb::ClientContext::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::QueryParameters) + 652\n18       duckdb::Connection::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 40\n19       main + 1176\n20       start + 6992\n\nThis error signals an assertion failure within DuckDB. This usually occurs due to unexpected conditions or errors in the program's logic.\nFor more information, see https://duckdb.org/docs/current/dev/internal_errors"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(date_trunc('microsecond',t)) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(date_trunc('day',t)) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "9223371964909551616"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "9223371964909551616"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(time_bucket(INTERVAL '1us',t)) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(time_bucket(INTERVAL '4us',t)) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_ns(t) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854775808"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_us(t::TIMESTAMP) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "columns": [
+              "BIGINT"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "-9223372036854776"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "BIGINT"
+            ],
+            "rows": [
+              [
+                "-9223372036854776"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT epoch_ns(t::TIMESTAMPTZ_NS) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "message": "Binder Error: no Explicit cast from TIMESTAMP_NS to TIMESTAMPTZ_NS",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "Conversion Error: Unimplemented type for cast (TIMESTAMP_NS -> TIMESTAMPTZ_NS) when casting from source column t\n\nLINE 1: SELECT epoch_ns(t::TIMESTAMPTZ_NS) FROM (SELECT make_timestamp_ns('-92233720...\n                         ^^^^^^^^^^^^^^^^"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT t::DATE FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "columns": [
+              "DATE"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "1677-09-21"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "DATE"
+            ],
+            "rows": [
+              [
+                "1677-09-21"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT t::TIME FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "columns": [
+              "TIME"
+            ],
+            "ok": true,
+            "rows": [
+              [
+                "00:12:43.145224"
+              ]
+            ]
+          },
+          "cpp": {
+            "ok": true,
+            "columns": [
+              "TIME"
+            ],
+            "rows": [
+              [
+                "00:12:43.145224"
+              ]
+            ]
+          },
+          "passed": true,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT CAST(t AS VARCHAR) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp_ns conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "INTERNAL Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp_ns conversion\n\nStack Trace:\n\n0        duckdb::Exception::ToJSON(duckdb::ExceptionType, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 48\n1        duckdb::InternalException::InternalException(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 32\n2        duckdb::InternalException::InternalException<duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&>(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 136\n3        duckdb::ThrowNonFallibleFunctionError(duckdb::Identifier const&, std::exception&) + 168\n4        duckdb::BaseScalarFunction<duckdb::BoundScalarFunction>::Execute(duckdb::DataChunk&, duckdb::ExpressionState&, duckdb::Vector&) const + 124\n5        duckdb::ExpressionExecutor::Execute(duckdb::BoundFunctionExpression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 472\n6        duckdb::ExpressionExecutor::Execute(duckdb::Expression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 312\n7        duckdb::ExpressionExecutor::Execute(duckdb::DataChunk*, duckdb::DataChunk&) + 104\n8        duckdb::PhysicalProjection::Execute(duckdb::ExecutionContext&, duckdb::DataChunk&, duckdb::DataChunk&, duckdb::GlobalOperatorState&, duckdb::OperatorState&) const + 24\n9        duckdb::PipelineExecutor::Execute(duckdb::DataChunk&, duckdb::DataChunk&, unsigned long long) + 500\n10       duckdb::PipelineExecutor::ExecutePushInternal(duckdb::DataChunk&, duckdb::ExecutionBudget&, unsigned long long) + 136\n11       duckdb::PipelineExecutor::Execute(unsigned long long) + 560\n12       duckdb::PipelineTask::ExecuteTask(duckdb::TaskExecutionMode) + 256\n13       duckdb::ExecutorTask::Execute(duckdb::TaskExecutionMode) + 284\n14       duckdb::Executor::ExecuteTask(bool) + 396\n15       duckdb::ClientContext::ExecuteTaskInternal(duckdb::ClientContextLock&, duckdb::BaseQueryResult&, bool) + 72\n16       duckdb::PendingQueryResult::ExecuteInternal(duckdb::ClientContextLock&) + 76\n17       duckdb::ClientContext::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::QueryParameters) + 652\n18       duckdb::Connection::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 40\n19       main + 1176\n20       start + 6992\n\nThis error signals an assertion failure within DuckDB. This usually occurs due to unexpected conditions or errors in the program's logic.\nFor more information, see https://duckdb.org/docs/current/dev/internal_errors"
+          },
+          "passed": false,
+          "outcome_passed": true
+        },
+        {
+          "sql": "SELECT TRY_CAST(t AS VARCHAR) FROM (SELECT make_timestamp_ns('-9223372036854775808'::BIGINT) t) q",
+          "rust": {
+            "message": "Internal Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp_ns conversion",
+            "ok": false,
+            "unsupported": false
+          },
+          "cpp": {
+            "ok": false,
+            "message": "INTERNAL Error: Scalar function \"\"__cast\"\" threw an execution error, but the function is not marked as fallible - the function must call SetFallible(). Error: Date out of range in timestamp_ns conversion\n\nStack Trace:\n\n0        duckdb::Exception::ToJSON(duckdb::ExceptionType, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 48\n1        duckdb::InternalException::InternalException(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 32\n2        duckdb::InternalException::InternalException<duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&>(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::Identifier const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 136\n3        duckdb::ThrowNonFallibleFunctionError(duckdb::Identifier const&, std::exception&) + 168\n4        duckdb::BaseScalarFunction<duckdb::BoundScalarFunction>::Execute(duckdb::DataChunk&, duckdb::ExpressionState&, duckdb::Vector&) const + 124\n5        duckdb::ExpressionExecutor::Execute(duckdb::BoundFunctionExpression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 472\n6        duckdb::ExpressionExecutor::Execute(duckdb::Expression const&, duckdb::ExpressionState*, duckdb::SelectionVector const*, unsigned long long, duckdb::Vector&) + 312\n7        duckdb::ExpressionExecutor::Execute(duckdb::DataChunk*, duckdb::DataChunk&) + 104\n8        duckdb::PhysicalProjection::Execute(duckdb::ExecutionContext&, duckdb::DataChunk&, duckdb::DataChunk&, duckdb::GlobalOperatorState&, duckdb::OperatorState&) const + 24\n9        duckdb::PipelineExecutor::Execute(duckdb::DataChunk&, duckdb::DataChunk&, unsigned long long) + 500\n10       duckdb::PipelineExecutor::ExecutePushInternal(duckdb::DataChunk&, duckdb::ExecutionBudget&, unsigned long long) + 136\n11       duckdb::PipelineExecutor::Execute(unsigned long long) + 560\n12       duckdb::PipelineTask::ExecuteTask(duckdb::TaskExecutionMode) + 256\n13       duckdb::ExecutorTask::Execute(duckdb::TaskExecutionMode) + 284\n14       duckdb::Executor::ExecuteTask(bool) + 396\n15       duckdb::ClientContext::ExecuteTaskInternal(duckdb::ClientContextLock&, duckdb::BaseQueryResult&, bool) + 72\n16       duckdb::PendingQueryResult::ExecuteInternal(duckdb::ClientContextLock&) + 76\n17       duckdb::ClientContext::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, duckdb::QueryParameters) + 652\n18       duckdb::Connection::Query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 40\n19       main + 1176\n20       start + 6992\n\nThis error signals an assertion failure within DuckDB. This usually occurs due to unexpected conditions or errors in the program's logic.\nFor more information, see https://duckdb.org/docs/current/dev/internal_errors"
+          },
+          "passed": false,
+          "outcome_passed": true
+        }
+      ],
+      "fixtures": [
+        {
+          "name": "minima.duckdb",
+          "sha256": "a2406b8b5f075def185c1fe59a006101a7b0bd36ecafe4f93c9b9ea3ec587451",
+          "bytes": 798720
+        },
+        {
+          "name": "minima-wal.duckdb",
+          "sha256": "9f2f05a9293b12c38cf8dfb2aa880b227766c3bd1f4cd2a44eef3185d29084ec",
+          "bytes": 274432
+        },
+        {
+          "name": "minima-wal.duckdb.wal",
+          "sha256": "3ab5619692b9db0c4da1772493ddc12efdb1700390a2c2150d8a6f549a14d2a2",
+          "bytes": 602
+        }
+      ],
+      "cpp_api": {
+        "status": 0,
+        "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+        "stderr": ""
+      },
+      "native_roundtrips": [
+        {
+          "from_cpp_wal": false,
+          "rust_publication": "checkpoint",
+          "sql": "BEGIN; DELETE FROM minima WHERE id=0; UPDATE minima SET u=NULL WHERE id=5; ROLLBACK; UPDATE minima SET u=(SELECT u FROM minima WHERE id=0),s=(SELECT s FROM minima WHERE id=0),ms=(SELECT ms FROM minima WHERE id=0),n=(SELECT n FROM minima WHERE id=0),z=(SELECT z FROM minima WHERE id=0),zn=(SELECT zn FROM minima WHERE id=0) WHERE id=3",
+          "passed": true,
+          "observations": [
+            {
+              "stage": "original",
+              "status": 0,
+              "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+              "stderr": ""
+            },
+            {
+              "stage": "mutated",
+              "status": 0,
+              "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+              "stderr": ""
+            }
+          ]
+        },
+        {
+          "from_cpp_wal": false,
+          "rust_publication": "wal",
+          "sql": "BEGIN; DELETE FROM minima WHERE id=0; UPDATE minima SET u=NULL WHERE id=5; ROLLBACK; UPDATE minima SET u=(SELECT u FROM minima WHERE id=0),s=(SELECT s FROM minima WHERE id=0),ms=(SELECT ms FROM minima WHERE id=0),n=(SELECT n FROM minima WHERE id=0),z=(SELECT z FROM minima WHERE id=0),zn=(SELECT zn FROM minima WHERE id=0) WHERE id=3",
+          "passed": true,
+          "observations": [
+            {
+              "stage": "original",
+              "status": 0,
+              "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+              "stderr": ""
+            },
+            {
+              "stage": "mutated",
+              "status": 0,
+              "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+              "stderr": ""
+            }
+          ]
+        },
+        {
+          "from_cpp_wal": true,
+          "rust_publication": "checkpoint",
+          "sql": "BEGIN; DELETE FROM minima WHERE id=0; UPDATE minima SET u=NULL WHERE id=5; ROLLBACK; UPDATE minima SET u=(SELECT u FROM minima WHERE id=0),s=(SELECT s FROM minima WHERE id=0),ms=(SELECT ms FROM minima WHERE id=0),n=(SELECT n FROM minima WHERE id=0),z=(SELECT z FROM minima WHERE id=0),zn=(SELECT zn FROM minima WHERE id=0) WHERE id=3",
+          "passed": true,
+          "observations": [
+            {
+              "stage": "original",
+              "status": 0,
+              "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+              "stderr": ""
+            },
+            {
+              "stage": "mutated",
+              "status": 0,
+              "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+              "stderr": ""
+            }
+          ]
+        },
+        {
+          "from_cpp_wal": true,
+          "rust_publication": "wal",
+          "sql": "BEGIN; DELETE FROM minima WHERE id=0; UPDATE minima SET u=NULL WHERE id=5; ROLLBACK; UPDATE minima SET u=(SELECT u FROM minima WHERE id=0),s=(SELECT s FROM minima WHERE id=0),ms=(SELECT ms FROM minima WHERE id=0),n=(SELECT n FROM minima WHERE id=0),z=(SELECT z FROM minima WHERE id=0),zn=(SELECT zn FROM minima WHERE id=0) WHERE id=3",
+          "passed": true,
+          "observations": [
+            {
+              "stage": "original",
+              "status": 0,
+              "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+              "stderr": ""
+            },
+            {
+              "stage": "mutated",
+              "status": 0,
+              "stdout": "{\"checked_values\":36,\"passed\":true}\n",
+              "stderr": ""
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "passed": false
+}
