@@ -14,6 +14,8 @@ mod argument_provenance;
 mod closed_argument;
 #[path = "component/comparison_nulls.rs"]
 mod comparison_nulls;
+#[path = "component/native_decode_context.rs"]
+mod native_decode_context;
 #[path = "component/scalar_expansion.rs"]
 mod scalar_expansion;
 #[path = "component/stored_expression.rs"]

@@ -6,10 +6,7 @@ use super::{
     primitive::write_type,
 };
 use crate::common::{DataType, Error, NestedType, Result};
-use crate::{
-    common::{NestedPayload, NestedValue, Value},
-    storage::compression::DecoderRegistry,
-};
+use crate::common::{NestedPayload, NestedValue, Value};
 pub(super) mod variant;
 mod writer;
 pub(super) use writer::child_values;
@@ -83,26 +80,25 @@ pub(super) fn read_statistics(reader: &mut Reader, metadata: &NestedType) -> Res
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_column(
-    blocks: &super::Blocks,
-    decoders: &DecoderRegistry,
+    context: &super::columns::ReadContext<'_>,
     reader: &mut Reader,
     data_type: &DataType,
     count: usize,
     row_start: usize,
 ) -> Result<Vec<Value>> {
+    context.query.check_rows(count)?;
     let DataType::Nested(metadata) = data_type else {
         return Err(Error::Internal("nested column metadata".into()));
     };
     if matches!(metadata.as_ref(), NestedType::Variant) {
-        return variant::read_column(blocks, decoders, reader, count, row_start);
+        return variant::read_column(context, reader, count, row_start);
     }
     let variable = matches!(
         metadata.as_ref(),
         NestedType::List(_) | NestedType::Map { .. }
     );
     let offsets = super::columns::read_segments(
-        blocks,
-        decoders,
+        context,
         reader,
         Some(data_type),
         Some(&DataType::UBigInt),
@@ -113,7 +109,7 @@ pub(super) fn read_column(
         return Err(corrupt("LIST offset count mismatch"));
     }
     reader.field(101)?;
-    let validity = super::columns::read_column(blocks, decoders, reader, None, count, row_start)?;
+    let validity = super::columns::read_column(context, reader, None, count, row_start)?;
     if validity.iter().any(Value::is_null) {
         // Containers have no inline validity to preserve. Pinned development
         // selects EMPTY_VALIDITY only for DICT_FSST scalar base data.
@@ -147,8 +143,7 @@ pub(super) fn read_column(
                 ));
             }
             let children = super::columns::read_column(
-                blocks,
-                decoders,
+                context,
                 reader,
                 Some(&list_child(metadata)?),
                 total,
@@ -158,6 +153,7 @@ pub(super) fn read_column(
             )?;
             let mut start = 0;
             for (end, valid) in endpoints.into_iter().zip(validity) {
+                context.query.check()?;
                 let values = children.get(start..end).ok_or_else(|| {
                     corrupt("LIST offsets are decreasing or outside child column")
                 })?;
@@ -197,17 +193,11 @@ pub(super) fn read_column(
             let columns = fields
                 .iter()
                 .map(|(_, ty)| {
-                    super::columns::read_column(
-                        blocks,
-                        decoders,
-                        reader,
-                        Some(ty),
-                        count,
-                        row_start,
-                    )
+                    super::columns::read_column(context, reader, Some(ty), count, row_start)
                 })
                 .collect::<Result<Vec<_>>>()?;
             for (row, valid) in validity.into_iter().enumerate() {
+                context.query.check()?;
                 if valid != Value::Boolean(true) {
                     output.push(Value::Null);
                     continue;

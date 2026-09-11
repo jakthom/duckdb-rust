@@ -86,6 +86,19 @@ proofs establishes this new context/evaluation path. Native parsed DEFAULT codec
 and internal background decoder/encoder work remain
 open; contextual adapter plumbing is not evidence that those paths are finished.
 
+After checkpoint thirteen, native decoding now carries the selected caller
+context through catalog loading, scalar/nested/VARIANT child streams, compression
+dispatch and row restoration. Two connected native-format tests cover a mixed
+unsigned/decimal/timestamp/STRUCT/LIST/VARIANT schema, selected registry identity,
+settings and expression capability without evaluation, cancellation from a decoder,
+pre-cancelled malformed input, row-group and child-column limits, and legacy direct
+decode behavior. Focused tests, workspace check, all-target clippy and coverage
+pass (369 files/3,520 functions/231 methods, missing none). An initial test-only
+compile error passed RowCollection where insert requires Vec<Row>; the test now
+collects the rows explicitly. The next integrated checkpoint will run tracing
+and the full Kani suite. The native constant-default decoder, contextual encoding
+and retained catalog/default execution are still separate open work.
+
 - Retain expressions in column defaults instead of eagerly evaluating SQL or
   native parsed expressions; preserve backward decoding of existing private
   snapshots. Binding and assignment use the selected statement services.

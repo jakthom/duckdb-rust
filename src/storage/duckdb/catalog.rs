@@ -9,7 +9,6 @@ pub(super) fn constant_expression(
 }
 
 use super::{
-    Blocks,
     binary::{Reader, corrupt},
     columns,
 };
@@ -20,18 +19,17 @@ use crate::{
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(super) fn load(
-    blocks: &Blocks,
-    decoders: &crate::storage::compression::DecoderRegistry,
-    types: std::sync::Arc<crate::common::type_registry::TypeRegistry>,
-) -> Result<Snapshot> {
-    let mut snapshot = Snapshot::new(types);
+pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
+    let blocks = context.blocks;
+    context.query.check()?;
+    let mut snapshot = Snapshot::new(context.query.type_registry());
     if blocks.root == u64::MAX {
         return Ok(snapshot);
     }
     let mut reader = blocks.metadata((blocks.root, 0))?;
     reader.field(100)?;
     for _ in 0..reader.length()? {
+        context.query.check()?;
         reader.field(99)?;
         let kind = reader.unsigned()?;
         reader.field(100)?;
@@ -61,22 +59,10 @@ pub(super) fn load(
                 }
                 let next_row_id = reader.optional_unsigned(105, total as u64)?;
                 reader.end()?;
-                let rows = columns::read_table(
-                    blocks,
-                    decoders,
-                    pointer,
-                    &definition,
-                    total,
-                    next_row_id,
-                )?;
+                let rows = columns::read_table(context, pointer, &definition, total, next_row_id)?;
                 let name = definition.name.clone();
                 snapshot.create_table(definition, false)?;
-                snapshot.restore_rows(
-                    &name,
-                    rows,
-                    next_row_id,
-                    &crate::parallel::QueryContext::background(),
-                )?;
+                snapshot.restore_rows(&name, rows, next_row_id, context.query)?;
             }
             _ => {
                 return Err(Error::Unsupported(format!(
@@ -86,6 +72,7 @@ pub(super) fn load(
         }
     }
     reader.end()?;
+    context.query.check()?;
     Ok(snapshot)
 }
 

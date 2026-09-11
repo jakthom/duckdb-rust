@@ -188,7 +188,14 @@ Legacy direct construction has no stored-expression capability unless the caller
 composes it. A custom transaction manager remains responsible for its own initial
 recovery; DatabaseBuilder does not retroactively reload it or replace its types.
 
-The current default decode hook does not imply cooperative cancellation inside a
-legacy decoder, and the existing native encoder still has background-context
-work. Context-aware codec internals and retained native DEFAULT expression
-serialization remain part of the unfinished connected implementation.
+The default decode hook does not imply cooperative cancellation inside a legacy
+decoder. Native decoding overrides it: one selected request context follows
+catalog loading, scalar/nested/VARIANT child decoding, compression adapters and
+row restoration. Row-group and descendant-column allocations honor that context's
+intermediate-row limit; decoder callbacks retain its types, settings, cancellation
+and expression capability without invoking the latter. The legacy direct decode
+API explicitly supplies an unlimited maintenance context with the caller's types.
+This is not complete allocator accounting or interruption of every metadata/checksum
+operation. Native constant-default metadata still takes the old eager path, and
+the encoder still has background-context work. Retained native DEFAULT expression
+serialization remains part of the unfinished connected implementation.

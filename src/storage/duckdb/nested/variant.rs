@@ -22,12 +22,12 @@ pub(super) fn encode_rows(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_column(
-    blocks: &super::super::Blocks,
-    decoders: &DecoderRegistry,
+    context: &super::super::columns::ReadContext<'_>,
     reader: &mut Reader,
     count: usize,
     row_start: usize,
 ) -> Result<Vec<Value>> {
+    context.query.check_rows(count)?;
     let extra = if reader.optional(99)? && reader.boolean()? {
         reader.field(100)?;
         if reader.unsigned()? != 1 {
@@ -42,8 +42,7 @@ pub(super) fn read_column(
         None
     };
     super::super::columns::read_segments(
-        blocks,
-        decoders,
+        context,
         reader,
         Some(&NestedType::Variant.data_type()),
         None,
@@ -51,8 +50,7 @@ pub(super) fn read_column(
         row_start,
     )?;
     reader.field(101)?;
-    let validity =
-        super::super::columns::read_column(blocks, decoders, reader, None, count, row_start)?;
+    let validity = super::super::columns::read_column(context, reader, None, count, row_start)?;
     if validity
         .iter()
         .any(|value| !matches!(value, Value::Boolean(_)))
@@ -63,8 +61,7 @@ pub(super) fn read_column(
     }
     reader.field(102)?;
     let unshredded = super::super::columns::read_column(
-        blocks,
-        decoders,
+        context,
         reader,
         Some(&unshredded_type()),
         count,
@@ -73,8 +70,7 @@ pub(super) fn read_column(
     let shredded = if let Some(ty) = &extra {
         reader.field(103)?;
         Some(super::super::columns::read_column(
-            blocks,
-            decoders,
+            context,
             reader,
             Some(ty),
             count,
@@ -90,6 +86,7 @@ pub(super) fn read_column(
         .try_reserve_exact(count)
         .map_err(|_| Error::Resource("cannot allocate native VARIANT rows".into()))?;
     for (row, valid) in validity.iter().enumerate() {
+        context.query.check()?;
         if *valid == Value::Boolean(false) {
             result.push(Value::Null);
             continue;

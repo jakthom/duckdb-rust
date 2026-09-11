@@ -72,7 +72,25 @@ impl SnapshotFormat for DuckDbFormat {
         bytes: Vec<u8>,
         types: std::sync::Arc<crate::common::type_registry::TypeRegistry>,
     ) -> Result<Snapshot> {
-        catalog::load(&Blocks::new(bytes)?, &self.decoders, types)
+        self.decode_with_context(
+            bytes,
+            &crate::parallel::QueryContext::background().with_types(types),
+        )
+    }
+    fn decode_with_context(
+        &self,
+        bytes: Vec<u8>,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Snapshot> {
+        query.check()?;
+        let blocks = Blocks::new(bytes)?;
+        let snapshot = catalog::load(&columns::ReadContext {
+            blocks: &blocks,
+            decoders: &self.decoders,
+            query,
+        })?;
+        query.check()?;
+        Ok(snapshot)
     }
     fn encode(&self, snapshot: &Snapshot) -> Result<Vec<u8>> {
         snapshot.validate()?;

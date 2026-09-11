@@ -10,6 +10,14 @@ use crate::{
     common::{DataType, Error, Result, Row, Value},
 };
 
+/// One selected request context follows every descendant column and decoder.
+/// Wire ownership stays with Blocks; no ambient execution services are created.
+pub(super) struct ReadContext<'a> {
+    pub blocks: &'a Blocks,
+    pub decoders: &'a DecoderRegistry,
+    pub query: &'a QueryContext,
+}
+
 use crate::{
     parallel::QueryContext,
     storage::compression::{
@@ -20,13 +28,14 @@ use crate::{
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_table(
-    blocks: &Blocks,
-    decoders: &DecoderRegistry,
+    context: &ReadContext<'_>,
     pointer: (u64, usize),
     table: &TableDefinition,
     total: usize,
     next_row_id: u64,
 ) -> Result<Vec<(crate::storage::RowId, Row)>> {
+    let blocks = context.blocks;
+    context.query.check()?;
     let mut identities =
         row_identity::RowIdentity::new(blocks.storage_version, total, next_row_id)?;
     let mut reader = blocks.metadata(pointer)?;
@@ -36,6 +45,7 @@ pub(super) fn read_table(
         return Err(corrupt("table statistics column count mismatch"));
     }
     for column in &table.columns {
+        context.query.check()?;
         if !reader.boolean()? {
             return Err(corrupt("null column statistics"));
         }
@@ -65,10 +75,12 @@ pub(super) fn read_table(
     }
     let mut rows = Vec::new();
     for _ in 0..groups {
+        context.query.check()?;
         reader.field(100)?;
         let start = reader.unsigned()?;
         reader.field(101)?;
         let count = reader.length()?;
+        context.query.check_rows(count)?;
         let row_start = identities.push(start, count)?;
         reader.field(102)?;
         let column_count = reader.length()?;
@@ -100,8 +112,7 @@ pub(super) fn read_table(
         for (index, (column, pointer)) in table.columns.iter().zip(pointers).enumerate() {
             let mut column_reader = blocks.metadata(pointer)?;
             let values = read_column(
-                blocks,
-                decoders,
+                context,
                 &mut column_reader,
                 Some(&column.data_type),
                 count,
@@ -116,6 +127,7 @@ pub(super) fn read_table(
         ));
     }
     identities.finish()?;
+    context.query.check()?;
     Ok(rows)
 }
 
@@ -152,26 +164,27 @@ pub(super) fn read_column_ownership(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_column(
-    blocks: &Blocks,
-    decoders: &DecoderRegistry,
+    context: &ReadContext<'_>,
     reader: &mut Reader,
     data_type: Option<&DataType>,
     count: usize,
     row_start: usize,
 ) -> Result<Vec<Value>> {
+    context.query.check_rows(count)?;
     if let Some(data_type @ DataType::Nested(_)) = data_type {
-        return super::nested::read_column(blocks, decoders, reader, data_type, count, row_start);
+        return super::nested::read_column(context, reader, data_type, count, row_start);
     }
-    let mut output = read_segments(
-        blocks, decoders, reader, data_type, data_type, count, row_start,
-    )?;
+    let mut output = read_segments(context, reader, data_type, data_type, count, row_start)?;
     if output.len() != count {
         return Err(corrupt("column row count mismatch"));
     }
     if data_type.is_some() {
         reader.field(101)?;
-        let validity = read_column(blocks, decoders, reader, None, count, row_start)?;
-        for (value, valid) in output.iter_mut().zip(validity) {
+        let validity = read_column(context, reader, None, count, row_start)?;
+        for (index, (value, valid)) in output.iter_mut().zip(validity).enumerate() {
+            if index % 1024 == 0 {
+                context.query.check()?;
+            }
             if valid.is_null() {
                 // The selected validity decoder explicitly preserves the base
                 // decoder's inline NULLs (e.g. DICT_FSST dictionary entry zero).
@@ -189,17 +202,19 @@ pub(super) fn read_column(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn read_segments(
-    blocks: &Blocks,
-    decoders: &DecoderRegistry,
+    context: &ReadContext<'_>,
     reader: &mut Reader,
     data_type: Option<&DataType>,
     physical: Option<&DataType>,
     count: usize,
     row_start: usize,
 ) -> Result<Vec<Value>> {
+    let blocks = context.blocks;
+    context.query.check_rows(count)?;
     let mut output = Vec::new();
     if reader.optional(100)? {
         for _ in 0..reader.length()? {
+            context.query.check()?;
             if reader.optional(100)? {
                 let actual = reader.unsigned()?;
                 let expected = (row_start + output.len()) as u64;
@@ -265,7 +280,7 @@ pub(super) fn read_segments(
                     .ok_or_else(|| corrupt(format!("segment byte size {size} exceeds {} available bytes (block {block}, offset {offset}, codec {compression})", data.len())))?,
                 None => data,
             };
-            output.extend(decoders.decode(
+            output.extend(context.decoders.decode(
                 CodecId(compression),
                 DecodeInput {
                     kind: physical.map_or(SegmentType::Validity, SegmentType::Values),
@@ -275,7 +290,7 @@ pub(super) fn read_segments(
                 },
                 &DecodeContext {
                     blocks,
-                    query: &QueryContext::background(),
+                    query: context.query,
                     vector_size: blocks.vector_size,
                 },
             )?);
