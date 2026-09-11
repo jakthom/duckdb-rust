@@ -4704,6 +4704,10 @@ pub enum Statement {
     /// CREATE TYPE <name>
     /// ```
     CreateType {
+        /// Whether `OR REPLACE` was specified.
+        or_replace: bool,
+        /// Whether `IF NOT EXISTS` was specified.
+        if_not_exists: bool,
         /// Type name to create.
         name: ObjectName,
         /// Optional type representation details.
@@ -6254,10 +6258,17 @@ impl fmt::Display for Statement {
                 Ok(())
             }
             Statement::CreateType {
+                or_replace,
+                if_not_exists,
                 name,
                 representation,
             } => {
-                write!(f, "CREATE TYPE {name}")?;
+                write!(
+                    f,
+                    "CREATE{} TYPE{} {name}",
+                    if *or_replace { " OR REPLACE" } else { "" },
+                    if *if_not_exists { " IF NOT EXISTS" } else { "" },
+                )?;
                 if let Some(repr) = representation {
                     write!(f, " {repr}")?;
                 }

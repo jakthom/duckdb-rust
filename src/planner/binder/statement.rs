@@ -25,6 +25,42 @@ impl State<'_, '_> {
                 reset: ast::Reset::ConfigurationParameter(name),
             }) => self.setting(name, None, None),
             S::Query(query) => Ok(BoundStatement::Query(self.query(query)?)),
+            S::CreateType {
+                or_replace,
+                if_not_exists,
+                name,
+                representation: Some(ast::UserDefinedTypeRepresentation::Enum { labels }),
+            } => {
+                let labels = labels
+                    .iter()
+                    .map(|label| {
+                        if label.quote_style != Some('\'') {
+                            return Err(Error::Bind("ENUM labels must be string literals".into()));
+                        }
+                        Ok(label.value.clone())
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let conflict = match (*or_replace, *if_not_exists) {
+                    (false, false) => CreateConflictPolicy::Error,
+                    (false, true) => CreateConflictPolicy::Ignore,
+                    (true, false) => CreateConflictPolicy::Replace,
+                    (true, true) => {
+                        return Err(Error::Bind(
+                            "CREATE TYPE cannot combine OR REPLACE and IF NOT EXISTS".into(),
+                        ));
+                    }
+                };
+                Ok(BoundStatement::CreateType {
+                    definition: TypeDefinition::enumeration(
+                        self.resolve_create_type_target(name)?,
+                        labels,
+                    )?,
+                    conflict,
+                })
+            }
+            S::CreateType { .. } => Err(unsupported(
+                "only CREATE TYPE name AS ENUM ('label', ...) is supported",
+            )),
             S::CreateTable(table) => self.create(table),
             S::AlterTable(table) => self.alter(table),
             S::CreateSchema {
@@ -70,6 +106,27 @@ impl State<'_, '_> {
                     .map(|resolved| resolved.binding().clone())
                     .collect(),
                 if_exists: *if_exists,
+            }),
+            S::Drop {
+                object_type: ast::ObjectType::Type,
+                names,
+                if_exists,
+                cascade: false,
+                purge: false,
+                temporary: false,
+                table: None,
+                ..
+            } => Ok(BoundStatement::DropType {
+                types: names
+                    .iter()
+                    .map(|name| self.resolve_existing_type(name, *if_exists))
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .flatten()
+                    .map(|resolved| resolved.binding().clone())
+                    .collect(),
+                if_exists: *if_exists,
+                behavior: DropBehavior::Restrict,
             }),
             S::Insert(insert) => {
                 if insert.on.is_some()

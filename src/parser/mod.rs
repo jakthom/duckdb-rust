@@ -109,3 +109,74 @@ impl Parser for DuckDbParser {
         Ok(statements)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_enum_ddl_retains_conflict_policy_and_empty_dictionary() {
+        let statements = DuckDbParser
+            .parse(
+                "CREATE TYPE mood AS ENUM ('sad', 'ok'); \
+                 CREATE TYPE IF NOT EXISTS empty AS ENUM (); \
+                 CREATE OR REPLACE TYPE main.mood AS ENUM ('new')",
+            )
+            .unwrap();
+        let expected = [
+            (false, false, 2, "CREATE TYPE mood AS ENUM ('sad', 'ok')"),
+            (false, true, 0, "CREATE TYPE IF NOT EXISTS empty AS ENUM ()"),
+            (
+                true,
+                false,
+                1,
+                "CREATE OR REPLACE TYPE main.mood AS ENUM ('new')",
+            ),
+        ];
+        for (statement, (replace, ignore, labels, display)) in statements.iter().zip(expected) {
+            let Statement::Sql(statement) = statement else {
+                panic!("expected SQL statement")
+            };
+            let ast::Statement::CreateType {
+                or_replace,
+                if_not_exists,
+                representation: Some(ast::UserDefinedTypeRepresentation::Enum { labels: got }),
+                ..
+            } = statement.as_ref()
+            else {
+                panic!("expected CREATE TYPE ENUM")
+            };
+            assert_eq!(
+                (*or_replace, *if_not_exists, got.len()),
+                (replace, ignore, labels)
+            );
+            assert_eq!(statement.to_string(), display);
+        }
+    }
+
+    #[test]
+    fn named_enum_parser_rejects_conflicting_or_temporary_forms() {
+        assert!(
+            DuckDbParser
+                .parse("CREATE OR REPLACE TYPE IF NOT EXISTS mood AS ENUM ('x')")
+                .is_err()
+        );
+        assert!(
+            DuckDbParser
+                .parse("CREATE TEMP TYPE mood AS ENUM ('x')")
+                .is_err()
+        );
+        for sql in [
+            "CREATE OR ALTER TYPE mood AS ENUM ('x')",
+            "CREATE PERSISTENT TYPE mood AS ENUM ('x')",
+            "DROP TEMPORARY TYPE mood",
+            "DROP PERSISTENT TYPE mood",
+            "CREATE TYPE mood AS ENUM (not_a_literal)",
+            "CREATE TYPE mood AS ENUM (\"not_a_literal\")",
+            "CREATE TYPE mood AS ENUM (SELECT 'x')",
+            "CREATE TYPE alias AS INTEGER",
+        ] {
+            assert!(DuckDbParser.parse(sql).is_err(), "{sql}");
+        }
+    }
+}

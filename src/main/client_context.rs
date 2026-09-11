@@ -281,6 +281,27 @@ impl Services {
                 }
                 Ok(QueryResult::command(0))
             }
+            BoundStatement::CreateType {
+                definition,
+                conflict,
+            } => {
+                transaction
+                    .catalog_mut()?
+                    .create_type(definition, conflict)?;
+                Ok(QueryResult::command(0))
+            }
+            BoundStatement::DropType {
+                types,
+                if_exists,
+                behavior,
+            } => {
+                for type_ in types {
+                    transaction
+                        .catalog_mut()?
+                        .drop_type_identified(&type_, if_exists, behavior)?;
+                }
+                Ok(QueryResult::command(0))
+            }
             BoundStatement::Insert {
                 table,
                 columns,

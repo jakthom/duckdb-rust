@@ -5208,6 +5208,14 @@ impl<'a> Parser<'a> {
             self.parse_create_secret(or_replace, temporary, persistent)
         } else if self.parse_keyword(Keyword::USER) {
             self.parse_create_user(or_replace).map(Into::into)
+        } else if self.parse_keyword(Keyword::TYPE) {
+            if temporary || or_alter || global.is_some() || transient || persistent {
+                return parser_err!(
+                    "Unsupported modifier before CREATE TYPE",
+                    self.peek_token_ref().span.start
+                );
+            }
+            self.parse_create_type(or_replace)
         } else if or_replace {
             self.expected_ref(
                 "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION after CREATE OR REPLACE",
@@ -5231,8 +5239,6 @@ impl<'a> Parser<'a> {
             self.parse_create_sequence(temporary)
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
-        } else if self.parse_keyword(Keyword::TYPE) {
-            self.parse_create_type()
         } else if self.parse_keyword(Keyword::PROCEDURE) {
             self.parse_create_procedure(or_alter)
         } else if self.parse_keyword(Keyword::CONNECTOR) {
@@ -7450,6 +7456,12 @@ impl<'a> Parser<'a> {
                 self.peek_token_ref(),
             );
         };
+        if object_type == ObjectType::Type && (temporary || persistent) {
+            return parser_err!(
+                "Unsupported modifier before DROP TYPE",
+                self.peek_token_ref().span.start
+            );
+        }
         // Many dialects support the non-standard `IF EXISTS` clause and allow
         // specifying multiple objects to delete in a single statement
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -19941,7 +19953,14 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse `CREATE TYPE` statement.
-    pub fn parse_create_type(&mut self) -> Result<Statement, ParserError> {
+    pub fn parse_create_type(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        if or_replace && if_not_exists {
+            return parser_err!(
+                "Cannot specify both OR REPLACE and IF NOT EXISTS within single create statement",
+                self.peek_token_ref().span.start
+            );
+        }
         let name = self.parse_object_name(false)?;
 
         // Check if we have AS keyword
@@ -19954,6 +19973,8 @@ impl<'a> Parser<'a> {
                 let options = self.parse_create_type_sql_definition_options()?;
                 self.expect_token(&Token::RParen)?;
                 return Ok(Statement::CreateType {
+                    or_replace,
+                    if_not_exists,
                     name,
                     representation: Some(UserDefinedTypeRepresentation::SqlDefinition { options }),
                 });
@@ -19961,6 +19982,8 @@ impl<'a> Parser<'a> {
 
             // CREATE TYPE name; - no representation
             return Ok(Statement::CreateType {
+                or_replace,
+                if_not_exists,
                 name,
                 representation: None,
             });
@@ -19969,13 +19992,13 @@ impl<'a> Parser<'a> {
         // We have AS keyword
         if self.parse_keyword(Keyword::ENUM) {
             // CREATE TYPE name AS ENUM (labels)
-            self.parse_create_type_enum(name)
+            self.parse_create_type_enum(or_replace, if_not_exists, name)
         } else if self.parse_keyword(Keyword::RANGE) {
             // CREATE TYPE name AS RANGE (options)
-            self.parse_create_type_range(name)
+            self.parse_create_type_range(or_replace, if_not_exists, name)
         } else if self.consume_token(&Token::LParen) {
             // CREATE TYPE name AS (attributes) - Composite
-            self.parse_create_type_composite(name)
+            self.parse_create_type_composite(or_replace, if_not_exists, name)
         } else {
             self.expected_ref("ENUM, RANGE, or '(' after AS", self.peek_token_ref())
         }
@@ -19984,10 +20007,17 @@ impl<'a> Parser<'a> {
     /// Parse remainder of `CREATE TYPE AS (attributes)` statement (composite type)
     ///
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createtype.html)
-    fn parse_create_type_composite(&mut self, name: ObjectName) -> Result<Statement, ParserError> {
+    fn parse_create_type_composite(
+        &mut self,
+        or_replace: bool,
+        if_not_exists: bool,
+        name: ObjectName,
+    ) -> Result<Statement, ParserError> {
         if self.consume_token(&Token::RParen) {
             // Empty composite type
             return Ok(Statement::CreateType {
+                or_replace,
+                if_not_exists,
                 name,
                 representation: Some(UserDefinedTypeRepresentation::Composite {
                     attributes: vec![],
@@ -20017,6 +20047,8 @@ impl<'a> Parser<'a> {
         self.expect_token(&Token::RParen)?;
 
         Ok(Statement::CreateType {
+            or_replace,
+            if_not_exists,
             name,
             representation: Some(UserDefinedTypeRepresentation::Composite { attributes }),
         })
@@ -20025,12 +20057,30 @@ impl<'a> Parser<'a> {
     /// Parse remainder of `CREATE TYPE AS ENUM` statement (see [Statement::CreateType] and [Self::parse_create_type])
     ///
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createtype.html)
-    pub fn parse_create_type_enum(&mut self, name: ObjectName) -> Result<Statement, ParserError> {
+    pub fn parse_create_type_enum(
+        &mut self,
+        or_replace: bool,
+        if_not_exists: bool,
+        name: ObjectName,
+    ) -> Result<Statement, ParserError> {
         self.expect_token(&Token::LParen)?;
-        let labels = self.parse_comma_separated0(|p| p.parse_identifier(), Token::RParen)?;
+        let labels = self.parse_comma_separated0(
+            |parser| {
+                let token = parser.next_token();
+                match token.token {
+                    Token::SingleQuotedString(label) | Token::EscapedStringLiteral(label) => {
+                        Ok(Ident::with_quote('\'', label))
+                    }
+                    _ => parser.expected("a constant as type modifier", token),
+                }
+            },
+            Token::RParen,
+        )?;
         self.expect_token(&Token::RParen)?;
 
         Ok(Statement::CreateType {
+            or_replace,
+            if_not_exists,
             name,
             representation: Some(UserDefinedTypeRepresentation::Enum { labels }),
         })
@@ -20039,12 +20089,19 @@ impl<'a> Parser<'a> {
     /// Parse remainder of `CREATE TYPE AS RANGE` statement
     ///
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createtype.html)
-    fn parse_create_type_range(&mut self, name: ObjectName) -> Result<Statement, ParserError> {
+    fn parse_create_type_range(
+        &mut self,
+        or_replace: bool,
+        if_not_exists: bool,
+        name: ObjectName,
+    ) -> Result<Statement, ParserError> {
         self.expect_token(&Token::LParen)?;
         let options = self.parse_comma_separated0(|p| p.parse_range_option(), Token::RParen)?;
         self.expect_token(&Token::RParen)?;
 
         Ok(Statement::CreateType {
+            or_replace,
+            if_not_exists,
             name,
             representation: Some(UserDefinedTypeRepresentation::Range { options }),
         })

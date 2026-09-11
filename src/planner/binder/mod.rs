@@ -15,6 +15,7 @@ mod stored;
 mod subquery;
 mod table;
 mod table_name;
+mod type_name;
 mod window;
 
 use std::{
@@ -29,7 +30,10 @@ use super::{
     logical::{AggregateExpr, JoinKind, OrderExpr},
 };
 use crate::{
-    catalog::{ColumnDefinition, ResolvedTable, TableBinding, TableDefinition, TableName},
+    catalog::{
+        ColumnDefinition, CreateConflictPolicy, DropBehavior, ResolvedTable, TableBinding,
+        TableDefinition, TableName, TypeDefinition,
+    },
     common::{DataType, Error, Result, Value, cast::CastMode},
     function::operator::{Operator, OperatorArgument},
     parser::ast,
@@ -331,6 +335,17 @@ impl State<'_, '_> {
             | T::Text
             | T::String(_) => Ok(DataType::Varchar),
             T::Custom(name, modifiers) => {
+                if let Some(named) = self.resolve_optional_type_name(name)? {
+                    if !modifiers.is_empty() {
+                        return Err(Error::Bind(format!(
+                            "named type {} does not accept type parameters",
+                            named.binding().name()
+                        )));
+                    }
+                    let resolved = named.definition().data_type.clone();
+                    self.context.query.types().bind(&resolved)?;
+                    return Ok(resolved);
+                }
                 let name = name
                     .0
                     .iter()
