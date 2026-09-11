@@ -15,6 +15,84 @@ fn text_rows(result: duckdb_rust::QueryResult) -> Vec<Vec<String>> {
         .collect()
 }
 
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn generic_date_part_preserves_null_overload_and_validation_order() -> Result<()> {
+    for batched in [false, true] {
+        for optimizer in [
+            Arc::new(IdentityOptimizer) as Arc<dyn Optimizer>,
+            Arc::new(PipelineOptimizer::default()),
+        ] {
+            let mut c = DatabaseBuilder::new()
+                .batch_size(2)
+                .optimizer(optimizer)
+                .expressions(if batched {
+                    Arc::new(BatchedEvaluator)
+                } else {
+                    Arc::new(ScalarEvaluator)
+                })
+                .build()?
+                .connect();
+            for function in ["date_part", "datepart"] {
+                let typed = c.query(&format!(
+                    "SELECT {function}(NULL,DATE '2000-01-01'),
+                        {function}(NULL,TIMESTAMP '2000-01-01'),
+                        {function}(NULL,TIME '12:00:00'),
+                        {function}(NULL,INTERVAL '1 day')"
+                ))?;
+                assert!(
+                    typed
+                        .columns
+                        .iter()
+                        .all(|column| column.data_type == DataType::Double)
+                );
+                assert_eq!(typed.rows, vec![vec![Value::Null; 4]]);
+
+                // The first constant NULL prevents evaluation of the closed bad
+                // cast after overload resolution has typed it as VARCHAR.
+                assert_eq!(
+                    c.query(&format!("SELECT {function}(NULL,CAST('bad' AS DATE))"))?
+                        .rows,
+                    vec![vec![Value::Null]]
+                );
+
+                for first in ["'day'", "NULL"] {
+                    assert!(
+                        matches!(
+                            c.query(&format!("SELECT {function}({first},NULL)")),
+                            Err(Error::Bind(_))
+                        ),
+                        "{function} first argument {first}"
+                    );
+                }
+
+                assert!(matches!(
+                    c.query(&format!("SELECT {function}('bad',DATE 'infinity')")),
+                    Err(Error::Conversion(message))
+                        if message == "extract specifier \"bad\" not recognized"
+                ));
+                let null = c.query(&format!(
+                    "SELECT {function}('bad',NULL::DATE),
+                        typeof({function}('bad',NULL::DATE))"
+                ))?;
+                assert_eq!(
+                    null.rows,
+                    vec![vec![Value::Null, Value::Varchar("DOUBLE".into())]]
+                );
+                assert_eq!(
+                    c.query(&format!(
+                        "SELECT {function}(part,value)
+                     FROM (VALUES ('bad',DATE 'infinity')) input(part,value)"
+                    ))?
+                    .rows,
+                    vec![vec![Value::Null]]
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 #[path = "temporal_overloads.rs"]
 mod temporal_overloads;
 

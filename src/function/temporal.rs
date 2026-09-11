@@ -1,6 +1,6 @@
 //! Core calendar and epoch functions. Zone-aware ICU operations are not silently
 //! emulated by consulting the machine's local timezone.
-use super::{FunctionRegistry, ScalarBindArguments, ScalarFunction};
+use super::{ArgumentEvaluation, FunctionRegistry, ScalarBindArguments, ScalarFunction};
 use crate::{
     common::{
         DataType, Date, Error, Result, TemporalValue, Value,
@@ -94,6 +94,13 @@ impl ScalarFunction for TemporalFunction {
     fn name(&self) -> &str {
         self.name
     }
+    fn argument_evaluation(&self) -> ArgumentEvaluation {
+        if matches!(self.name, "date_part" | "datepart") {
+            ArgumentEvaluation::NullOnConstant
+        } else {
+            ArgumentEvaluation::Eager
+        }
+    }
     fn bind(
         &self,
         arguments: &dyn ScalarBindArguments,
@@ -101,10 +108,23 @@ impl ScalarFunction for TemporalFunction {
     ) -> Result<Option<Arc<dyn ScalarFunction>>> {
         if matches!(self.name, "date_part" | "datepart") && arguments.len() == 2 {
             return match arguments.constant(0) {
-                Ok(Value::Varchar(part)) => Ok(Some(Arc::new(Self {
-                    name: self.name,
-                    part: Some(part.to_ascii_lowercase()),
-                }))),
+                Ok(Value::Varchar(part)) => {
+                    // Core NULL handling replaces a provably NULL temporal
+                    // argument before the constant-specifier bind callback.
+                    // Keep the generic DOUBLE result and do not validate a
+                    // specifier whose value cannot be demanded.
+                    if arguments.is_provably_null(1)? {
+                        return Ok(Some(Arc::new(Self {
+                            name: self.name,
+                            part: None,
+                        })));
+                    }
+                    units::Unit::parse(&part)?;
+                    Ok(Some(Arc::new(Self {
+                        name: self.name,
+                        part: Some(part.to_ascii_lowercase()),
+                    })))
+                }
                 Ok(Value::Null) | Err(Error::Bind(_) | Error::Unsupported(_)) => Ok(None),
                 Ok(_) => Err(Error::Bind("date_part specifier must be VARCHAR".into())),
                 Err(error) => Err(error),
@@ -150,6 +170,25 @@ impl ScalarFunction for TemporalFunction {
                 *last = Double;
             }
         }
+        if matches!(self.name, "date_part" | "datepart") && types.len() == 2 {
+            // An untyped second NULL is ambiguous across the DATE, TIMESTAMP,
+            // TIME and INTERVAL overloads. Once that overload is fixed by a
+            // typed temporal argument, the first NULL belongs to VARCHAR.
+            if types[1] == Null {
+                return Err(Error::Bind(format!(
+                    "no overload for {}({arguments:?})",
+                    self.name
+                )));
+            }
+            if types[0] == Null
+                && matches!(
+                    types[1],
+                    Date | Timestamp | Time | TimeNs | TimeTz | Interval
+                )
+            {
+                types[0] = Varchar;
+            }
+        }
         Ok(types)
     }
     fn return_type(
@@ -187,7 +226,7 @@ impl ScalarFunction for TemporalFunction {
                 "date_part" | "datepart",
                 [
                     Varchar,
-                    Date | Timestamp | Time | TimeNs | TimeTz | Interval | Null,
+                    Date | Timestamp | Time | TimeNs | TimeTz | Interval,
                 ],
             ) => {
                 if self.part.is_none() || self.part.as_deref() == Some("epoch") {
