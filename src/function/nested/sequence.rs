@@ -601,6 +601,10 @@ mod tests {
             Ok(self.string_literals[index])
         }
 
+        fn is_provably_null(&self, index: usize) -> Result<bool> {
+            Ok(self.data_type(index)? == DataType::Null)
+        }
+
         fn combination_cast_mode(&self, index: usize, _: &DataType) -> Result<CastMode> {
             self.data_type(index)?;
             Ok(self.modes[index])
