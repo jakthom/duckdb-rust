@@ -636,3 +636,47 @@ mod float32_bits {
         Ok(f32::from_bits(u32::deserialize(deserializer)?))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::NestedType;
+
+    #[test]
+    fn regular_update_support_matches_nested_physical_layouts() {
+        let integer_struct = NestedType::Struct(vec![("i".into(), DataType::Integer)]).data_type();
+        let list = NestedType::List(DataType::Integer).data_type();
+        let nested_struct = NestedType::Struct(vec![("v".into(), list.clone())]).data_type();
+        let integer_tuple = NestedType::Tuple(vec![DataType::Integer]).data_type();
+        let nested_tuple = NestedType::Tuple(vec![list.clone()]).data_type();
+
+        assert!(DataType::Integer.supports_regular_update());
+        assert!(integer_struct.supports_regular_update());
+        assert!(integer_tuple.supports_regular_update());
+        assert!(!list.supports_regular_update());
+        assert!(
+            !NestedType::Array {
+                element: DataType::Integer,
+                length: 2,
+            }
+            .data_type()
+            .supports_regular_update()
+        );
+        assert!(
+            !NestedType::Map {
+                key: DataType::Integer,
+                value: DataType::Varchar,
+            }
+            .data_type()
+            .supports_regular_update()
+        );
+        assert!(
+            !NestedType::Union(vec![("i".into(), DataType::Integer)])
+                .data_type()
+                .supports_regular_update()
+        );
+        assert!(!NestedType::Variant.data_type().supports_regular_update());
+        assert!(!nested_struct.supports_regular_update());
+        assert!(!nested_tuple.supports_regular_update());
+    }
+}

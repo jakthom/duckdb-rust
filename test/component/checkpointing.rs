@@ -2,7 +2,9 @@ use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
     catalog::{
         Catalog, ColumnDefinition, TableAlteration, TableName,
-        expression::{StoredExpression, StoredExpressionEvaluator, StoredExpressionKind},
+        expression::{
+            StoredArgumentStyle, StoredExpression, StoredExpressionEvaluator, StoredExpressionKind,
+        },
     },
     execution::index::{BTreeIndexFactory, HashIndexFactory, IndexFactory},
     parallel::{InterruptHandle, QueryContext},
@@ -107,6 +109,142 @@ fn counted_default() -> StoredExpression {
             try_cast: false,
         },
     }
+}
+
+fn effect_default() -> StoredExpression {
+    StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Function {
+            name: vec!["count_physical_defaults".into()],
+            arguments: vec![],
+            is_operator: false,
+            argument_style: StoredArgumentStyle::Named,
+        },
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn wal_recovery_preserves_regular_and_relocated_update_order() -> Result<()> {
+    use duckdb_rust::{
+        catalog::{CatalogMut, TableDefinition, UniqueKey},
+        storage::{
+            TableStorage, TableStorageMut, UpdateMetadata,
+            log::{TransactionChange, TransactionLog},
+            recovery::{Recovery, RecoveryInput},
+            table::Snapshot,
+        },
+    };
+
+    let recover = |indexed: bool| -> Result<(Vec<(u64, Vec<Value>)>, usize)> {
+        let table = TableName::main("update_order");
+        let context = QueryContext::background();
+        let mut original = Snapshot::default();
+        let mut id = ColumnDefinition::new("id", DataType::Integer);
+        id.nullable = !indexed;
+        original.create_table(
+            TableDefinition {
+                name: table.clone(),
+                columns: vec![id, ColumnDefinition::new("v", DataType::Integer)],
+                unique_keys: indexed
+                    .then(|| UniqueKey {
+                        columns: vec![0],
+                        primary: true,
+                    })
+                    .into_iter()
+                    .collect(),
+            },
+            false,
+        )?;
+        original.insert(
+            &table,
+            vec![
+                vec![Value::Integer(1), Value::Integer(10)],
+                vec![Value::Integer(2), Value::Integer(20)],
+                vec![Value::Integer(3), Value::Integer(30)],
+            ],
+            &context,
+        )?;
+        let format = DuckDbFormat::default();
+        let checkpoint = format.encode(&original)?;
+        let start = DuckDbTransactionLog.start(&original, &context)?;
+        let columns = if indexed { vec![0] } else { vec![1] };
+        let metadata = UpdateMetadata::for_table(&original.table(&table)?, columns)?;
+        let row = if indexed {
+            vec![Value::Integer(10), Value::Integer(10)]
+        } else {
+            vec![Value::Integer(1), Value::Integer(11)]
+        };
+        let append = start.session.prepare(
+            &[TransactionChange::Update {
+                table: table.clone(),
+                metadata,
+                rows: vec![(0, row)],
+            }],
+            &context,
+        )?;
+        let mut log = start.header;
+        log.extend(append.bytes);
+        let mut recovered =
+            DuckDbWalRecovery.recover(RecoveryInput { checkpoint, log }, &format, &context)?;
+        let calls = Arc::new(CountPhysicalDefaults(AtomicUsize::new(0)));
+        let effect_context = context.with_stored_expressions(calls.clone());
+        recovered.alter_table(
+            &table,
+            &TableAlteration::AddColumn {
+                column: ColumnDefinition::new("observed", DataType::Integer)
+                    .with_default(effect_default()),
+                if_not_exists: false,
+            },
+            &effect_context,
+        )?;
+        Ok((
+            recovered.scan(&table, &effect_context)?,
+            calls.0.load(Ordering::SeqCst),
+        ))
+    };
+
+    let (regular, calls) = recover(false)?;
+    assert_eq!(calls, 3);
+    assert_eq!(
+        regular,
+        vec![
+            (
+                0,
+                vec![Value::Integer(1), Value::Integer(11), Value::Integer(1)]
+            ),
+            (
+                1,
+                vec![Value::Integer(2), Value::Integer(20), Value::Integer(2)]
+            ),
+            (
+                2,
+                vec![Value::Integer(3), Value::Integer(30), Value::Integer(3)]
+            ),
+        ]
+    );
+
+    let (relocated, calls) = recover(true)?;
+    assert_eq!(calls, 3);
+    assert_eq!(
+        relocated,
+        vec![
+            (
+                1,
+                vec![Value::Integer(2), Value::Integer(20), Value::Integer(1)]
+            ),
+            (
+                2,
+                vec![Value::Integer(3), Value::Integer(30), Value::Integer(2)]
+            ),
+            (
+                3,
+                vec![Value::Integer(10), Value::Integer(10), Value::Integer(3)]
+            ),
+        ]
+    );
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -1126,3 +1126,65 @@ fn add_default_demand_distinguishes_materialized_and_simple_physical_paths() -> 
     );
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn update_mode_controls_later_volatile_add_order() -> Result<()> {
+    let open = || -> Result<(duckdb_rust::Connection, Arc<AtomicUsize>)> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut functions = FunctionRegistry::builtins();
+        functions.register_scalar(Arc::new(VolatileDefault(calls.clone())))?;
+        Ok((
+            DatabaseBuilder::new()
+                .functions(functions)
+                .build()?
+                .connect(),
+            calls,
+        ))
+    };
+
+    // An ordinary scalar update retains the original physical row order.
+    let (mut regular, calls) = open()?;
+    regular.execute(
+        "CREATE TABLE t(id INTEGER, v INTEGER); \
+         INSERT INTO t VALUES (1,10),(2,20),(3,30); \
+         UPDATE t SET v=v+1 WHERE id=1; \
+         ALTER TABLE t ADD COLUMN observed INTEGER DEFAULT app.default_tick()",
+    )?;
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        regular.query("SELECT id,observed FROM t ORDER BY id")?.rows,
+        vec![integers(&[1, 1]), integers(&[2, 2]), integers(&[3, 3])]
+    );
+
+    // Naming an indexed column relocates the updated row. The old slot is
+    // skipped and its replacement is evaluated after untouched live slots.
+    let (mut indexed, calls) = open()?;
+    indexed.execute(
+        "CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER); \
+         INSERT INTO t VALUES (1,10),(2,20),(3,30); \
+         UPDATE t SET id=10 WHERE id=1; \
+         ALTER TABLE t ADD COLUMN observed INTEGER DEFAULT app.default_tick()",
+    )?;
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        indexed.query("SELECT id,observed FROM t ORDER BY id")?.rows,
+        vec![integers(&[2, 1]), integers(&[3, 2]), integers(&[10, 3])]
+    );
+
+    // LIST cannot use DuckDB's regular update path, so assigning it has the
+    // same relocation order without inspecting whether values changed.
+    let (mut nested, calls) = open()?;
+    nested.execute(
+        "CREATE TABLE t(id INTEGER, v INTEGER[]); \
+         INSERT INTO t VALUES (1,[1]),(2,[2]),(3,[3]); \
+         UPDATE t SET v=[9] WHERE id=1; \
+         ALTER TABLE t ADD COLUMN observed INTEGER DEFAULT app.default_tick()",
+    )?;
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        nested.query("SELECT id,observed FROM t ORDER BY id")?.rows,
+        vec![integers(&[1, 3]), integers(&[2, 1]), integers(&[3, 2])]
+    );
+    Ok(())
+}

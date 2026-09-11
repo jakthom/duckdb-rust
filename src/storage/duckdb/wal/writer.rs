@@ -357,7 +357,8 @@ impl LogSession for Session {
                             if let Some(staged) = pending.rows.get_mut(id) {
                                 *staged = row.clone();
                             } else {
-                                persisted.push((state.physical(*id)?, row));
+                                let physical = state.physical(*id)?;
+                                persisted.push((physical, row));
                             }
                         }
                         if !persisted.is_empty() {
@@ -526,26 +527,101 @@ impl Records {
             .get(column)
             .ok_or_else(|| invalid("update column"))?
             .data_type;
-        for rows in rows.chunks(2048) {
-            let values = rows
+        let values = rows
+            .iter()
+            .map(|(id, row)| {
+                Ok((
+                    *id,
+                    row.get(column)
+                        .ok_or_else(|| invalid("update row width"))?
+                        .clone(),
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.update_node(data_type, vec![column], &values, context)
+    }
+    fn update_node(
+        &mut self,
+        data_type: &DataType,
+        path: Vec<usize>,
+        values: &[(RowId, Value)],
+        context: &QueryContext,
+    ) -> Result<()> {
+        use crate::common::{NestedPayload, NestedType};
+        let fields: Option<Vec<&DataType>> = match data_type {
+            DataType::Nested(metadata) => match metadata.as_ref() {
+                NestedType::Struct(fields) => Some(fields.iter().map(|(_, ty)| ty).collect()),
+                NestedType::Tuple(fields) => Some(fields.iter().collect()),
+                _ => return Err(invalid("regular update nested type")),
+            },
+            _ => None,
+        };
+        if let Some(fields) = fields {
+            for (index, child_type) in fields.into_iter().enumerate() {
+                let children = values
+                    .iter()
+                    .map(|(id, value)| {
+                        let child = match value {
+                            Value::Null => Value::Null,
+                            Value::Nested(value) => match &value.payload {
+                                NestedPayload::Struct(values) => values
+                                    .get(index)
+                                    .ok_or_else(|| invalid("regular update STRUCT arity"))?
+                                    .clone(),
+                                _ => return Err(invalid("regular update nested payload")),
+                            },
+                            _ => return Err(invalid("regular update nested value")),
+                        };
+                        Ok((*id, child))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let mut child_path = path.clone();
+                child_path.push(index + 1);
+                self.update_node(child_type, child_path, &children, context)?;
+            }
+        } else {
+            self.update_values(data_type, &path, values, false, context)?;
+        }
+        let mut validity_path = path;
+        validity_path.push(0);
+        self.update_values(&DataType::Boolean, &validity_path, values, true, context)
+    }
+    fn update_values(
+        &mut self,
+        data_type: &DataType,
+        path: &[usize],
+        values: &[(RowId, Value)],
+        validity: bool,
+        context: &QueryContext,
+    ) -> Result<()> {
+        for values in values.chunks(2048) {
+            let rows = values
                 .iter()
-                .map(|(id, row)| {
-                    Ok(vec![
-                        row.get(column)
-                            .ok_or_else(|| invalid("update row width"))?
-                            .clone(),
+                .map(|(id, value)| {
+                    vec![
+                        if validity {
+                            if value.is_null() {
+                                Value::Null
+                            } else {
+                                Value::Boolean(true)
+                            }
+                        } else {
+                            value.clone()
+                        },
                         Value::Integer(i128::from(*id)),
-                    ])
+                    ]
                 })
-                .collect::<Result<Vec<_>>>()?;
+                .collect::<Vec<_>>();
             let mut e = record(28);
-            e.property(101, 1);
-            e.unsigned(column as u64);
+            e.property(101, path.len() as u64);
+            for &index in path {
+                e.unsigned(index as u64);
+            }
             e.field(102);
             chunk(
                 &mut e,
                 &[data_type.clone(), DataType::BigInt],
-                &values,
+                &rows,
                 context,
             )?;
             self.push(e)?;
