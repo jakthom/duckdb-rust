@@ -67,8 +67,8 @@ impl Durability for ContextDurability {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(Snapshot::new(query.type_registry()))
     }
-    fn publish(&self, _: Commit<'_>) -> Result<()> {
-        Ok(())
+    fn publish(&self, _: Commit<'_>) -> Result<duckdb_rust::storage::checkpoint::PublishOutcome> {
+        Ok(duckdb_rust::storage::checkpoint::PublishOutcome::Published)
     }
 }
 

@@ -351,8 +351,11 @@ impl Durability for ControlledCheckpoint {
     ) -> Result<Snapshot> {
         Ok(Snapshot::new(types))
     }
-    fn publish(&self, _commit: Commit<'_>) -> Result<()> {
-        Ok(())
+    fn publish(
+        &self,
+        _commit: Commit<'_>,
+    ) -> Result<duckdb_rust::storage::checkpoint::PublishOutcome> {
+        Ok(duckdb_rust::storage::checkpoint::PublishOutcome::Published)
     }
     fn checkpoint(&self, _snapshot: &Snapshot, query: &QueryContext) -> Result<()> {
         query.check()?;

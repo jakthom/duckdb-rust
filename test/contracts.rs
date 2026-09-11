@@ -646,9 +646,12 @@ impl Durability for FailingDurability {
     ) -> Result<Snapshot> {
         Ok(Snapshot::new(types))
     }
-    fn publish(&self, _: duckdb_rust::storage::log::Commit<'_>) -> Result<()> {
+    fn publish(
+        &self,
+        _: duckdb_rust::storage::log::Commit<'_>,
+    ) -> Result<duckdb_rust::storage::checkpoint::PublishOutcome> {
         if self.publications.fetch_add(1, Ordering::SeqCst) == 0 {
-            return Ok(());
+            return Ok(duckdb_rust::storage::checkpoint::PublishOutcome::Published);
         }
         if self.uncertain {
             Err(Error::CommitUnknown("injected failure".into()))

@@ -13,6 +13,16 @@ use super::{
 use crate::common::{Error, Result};
 pub mod policy;
 
+/// Durable work completed while publishing one transaction. A checkpointed
+/// basis is the acknowledged `Commit::before` state, never the incoming
+/// transaction itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PublishOutcome {
+    #[default]
+    Published,
+    CheckpointedBefore,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Publication must complete before a transaction becomes visible. An uncertain
 /// publication returns CommitUnknown, preventing further commits until recovery.
@@ -36,7 +46,10 @@ pub trait Durability: Send + Sync {
     fn requires_journal(&self) -> bool {
         false
     }
-    fn publish(&self, commit: Commit<'_>) -> Result<()>;
+    /// Return `CheckpointedBefore` only after the pre-commit snapshot was
+    /// durably checkpointed. Adapters returning it must require a journal so
+    /// the transaction manager can preserve incoming physical-slot changes.
+    fn publish(&self, commit: Commit<'_>) -> Result<PublishOutcome>;
     /// Persist acknowledged state without changing logical identities. The
     /// transaction manager serializes this with commits. Preparation errors
     /// leave the writer usable; publication failures can require recovery.
@@ -62,8 +75,8 @@ impl Durability for MemoryDurability {
     fn load(&self, types: Arc<crate::common::type_registry::TypeRegistry>) -> Result<Snapshot> {
         Ok(Snapshot::new(types))
     }
-    fn publish(&self, _commit: Commit<'_>) -> Result<()> {
-        Ok(())
+    fn publish(&self, _commit: Commit<'_>) -> Result<PublishOutcome> {
+        Ok(PublishOutcome::Published)
     }
     fn checkpoint(
         &self,
@@ -259,7 +272,7 @@ impl Durability for FileCheckpoint {
             Ok(snapshot)
         }
     }
-    fn publish(&self, commit: Commit<'_>) -> Result<()> {
+    fn publish(&self, commit: Commit<'_>) -> Result<PublishOutcome> {
         if !self.writable() {
             return Err(Error::Unsupported("writing a read-only checkpoint".into()));
         }
@@ -295,6 +308,6 @@ impl Durability for FileCheckpoint {
             encoder: next,
             context,
         };
-        Ok(())
+        Ok(PublishOutcome::Published)
     }
 }

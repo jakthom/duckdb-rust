@@ -242,15 +242,23 @@ impl Transaction for SnapshotTransaction {
             .generation
             .checked_add(1)
             .ok_or_else(|| Error::Resource("transaction identity exhausted".into()))?;
-        if let Err(error) = self.durability.publish(Commit {
+        let publication = match self.durability.publish(Commit {
             before: &state.snapshot,
             snapshot: &self.snapshot,
             changes: self.journal.as_deref(),
         }) {
-            state.failed(&error);
-            return Err(error);
-        }
-        state.snapshot = self.snapshot;
+            Ok(publication) => publication,
+            Err(error) => {
+                state.failed(&error);
+                return Err(error);
+            }
+        };
+        state.snapshot = match publication {
+            crate::storage::checkpoint::PublishOutcome::Published => self.snapshot,
+            crate::storage::checkpoint::PublishOutcome::CheckpointedBefore => self
+                .snapshot
+                .reclaim_checkpointed_basis(&state.snapshot, self.journal.as_deref()),
+        };
         state.generation = generation;
         Ok(())
     }

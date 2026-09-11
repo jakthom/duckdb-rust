@@ -1,6 +1,11 @@
 use duckdb_rust::{
-    Database, DatabaseBuilder, Error, Result, Value,
-    catalog::TableName,
+    DataType, Database, DatabaseBuilder, Error, Result, Value,
+    catalog::{
+        Catalog, ColumnDefinition, TableAlteration, TableName,
+        expression::{
+            StoredArgumentStyle, StoredExpression, StoredExpressionEvaluator, StoredExpressionKind,
+        },
+    },
     execution::index::{BTreeIndexFactory, HashIndexFactory, IndexFactory},
     parallel::{InterruptHandle, QueryContext},
     storage::{
@@ -24,7 +29,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -71,6 +76,100 @@ fn count(path: &Path) -> Result<i128> {
         .connect()
         .query("SELECT count(*) FROM t")?;
     Ok(result.rows[0][0].as_i128().unwrap())
+}
+
+struct CountPhysicalDefaults(AtomicUsize);
+
+impl StoredExpressionEvaluator for CountPhysicalDefaults {
+    fn evaluate(
+        &self,
+        _expression: &StoredExpression,
+        _target: &DataType,
+        _catalog: &dyn Catalog,
+        query: &QueryContext,
+    ) -> Result<Value> {
+        query.check()?;
+        Ok(Value::Integer(
+            self.0.fetch_add(1, Ordering::SeqCst) as i128 + 1,
+        ))
+    }
+}
+
+fn counted_default() -> StoredExpression {
+    StoredExpression {
+        alias: None,
+        source_span: None,
+        kind: StoredExpressionKind::Function {
+            name: vec!["count_physical_defaults".into()],
+            arguments: vec![],
+            is_operator: false,
+            argument_style: StoredArgumentStyle::Named,
+        },
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn automatic_policy_reclaims_only_checkpointed_basis_slots() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("automatic_reclamation.duckdb");
+    seed(&path)?;
+    let (database, transactions) = open(
+        &path,
+        Some(Arc::new(CommitCountCheckpoint(NonZeroU64::new(1).unwrap()))),
+        Arc::new(HashIndexFactory),
+        None,
+    )?;
+    let mut connection = database.connect();
+    connection.execute(
+        "BEGIN; INSERT INTO t VALUES(2,'deleted'),(3,'live'); \
+         DELETE FROM t WHERE i IN (1,2); COMMIT",
+    )?;
+    let mut retained = transactions.begin()?;
+    connection.execute(
+        "BEGIN; INSERT INTO t VALUES(4,'incoming'); DELETE FROM t WHERE i=3; \
+         ALTER TABLE t RENAME TO renamed; COMMIT",
+    )?;
+
+    let calls = Arc::new(CountPhysicalDefaults(AtomicUsize::new(0)));
+    let query = QueryContext::background().with_stored_expressions(calls.clone());
+    retained.catalog_mut()?.alter_table(
+        &TableName::main("t"),
+        &TableAlteration::AddColumn {
+            column: ColumnDefinition::new("old_demand", DataType::Integer)
+                .with_default(counted_default()),
+            if_not_exists: false,
+        },
+        &query,
+    )?;
+    assert_eq!(calls.0.load(Ordering::SeqCst), 3);
+    drop(retained);
+
+    calls.0.store(0, Ordering::SeqCst);
+    let mut current = transactions.begin()?;
+    let renamed = TableName::main("renamed");
+    current.catalog_mut()?.alter_table(
+        &renamed,
+        &TableAlteration::AddColumn {
+            column: ColumnDefinition::new("current_demand", DataType::Integer)
+                .with_default(counted_default()),
+            if_not_exists: false,
+        },
+        &query,
+    )?;
+    assert_eq!(calls.0.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        current.storage().scan(&renamed, &query)?,
+        vec![(
+            3,
+            vec![
+                Value::Integer(4),
+                Value::Varchar("incoming".into()),
+                Value::Integer(2)
+            ]
+        )]
+    );
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -182,6 +182,61 @@ impl Snapshot {
         }
         compacted
     }
+    /// Remove only deleted physical slots already present in the acknowledged
+    /// snapshot checkpointed immediately before this transaction. Journaled
+    /// renames keep the old table lineage; transaction-local deletes remain.
+    pub(crate) fn reclaim_checkpointed_basis(
+        &self,
+        basis: &Self,
+        changes: Option<&[super::log::TransactionChange]>,
+    ) -> Self {
+        let mut lineages = basis
+            .tables
+            .values()
+            .map(|table| {
+                let name = table.definition.name.clone();
+                let deleted = table
+                    .physical_slots
+                    .iter()
+                    .filter_map(|slot| match slot {
+                        PhysicalSlot::Deleted(id) => Some(*id),
+                        PhysicalSlot::Live(_) => None,
+                    })
+                    .collect::<HashSet<_>>();
+                (name, deleted)
+            })
+            .collect::<BTreeMap<_, _>>();
+        for change in changes.unwrap_or_default() {
+            match change {
+                super::log::TransactionChange::DropTable(name) => {
+                    lineages.remove(name);
+                }
+                super::log::TransactionChange::AlterTable {
+                    table,
+                    alteration: crate::catalog::TableAlteration::RenameTable(name),
+                    ..
+                } => {
+                    if let Some(deleted) = lineages.remove(table) {
+                        let renamed = TableName::new(&table.schema, name);
+                        lineages.insert(renamed, deleted);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut result = self.clone();
+        for (name, deleted) in lineages {
+            if deleted.is_empty() {
+                continue;
+            }
+            if let Some(table) = result.tables.get_mut(&name.key()) {
+                Arc::make_mut(table).physical_slots.retain(
+                    |slot| !matches!(slot, PhysicalSlot::Deleted(id) if deleted.contains(id)),
+                );
+            }
+        }
+        result
+    }
     /// Rebuilds derived index state before exposing a newly selected adapter.
     /// The returned snapshot owns its selection; old snapshots remain usable.
     pub fn with_indexes(

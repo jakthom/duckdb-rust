@@ -1,7 +1,7 @@
 //! WAL durability composes checkpoint recovery, transaction encoding and I/O.
 use super::{
     checkpoint::{
-        Durability, FileCheckpoint,
+        Durability, FileCheckpoint, PublishOutcome,
         policy::{CheckpointPolicy, LogProgress, LogSizeCheckpoint},
     },
     log::{Commit, LogCheckpoint, LogSession, TransactionLog},
@@ -205,7 +205,7 @@ impl Durability for FileWal {
         }
         result
     }
-    fn publish(&self, commit: Commit<'_>) -> Result<()> {
+    fn publish(&self, commit: Commit<'_>) -> Result<PublishOutcome> {
         let changes = commit.changes.ok_or_else(|| {
             Error::Internal("transaction logger requires an ordered journal".into())
         })?;
@@ -216,7 +216,7 @@ impl Durability for FileWal {
         let result = (|| {
             let ready = state.ready()?;
             if changes.is_empty() {
-                return Ok(());
+                return Ok(PublishOutcome::Published);
             }
             let mut append = ready.session.prepare(changes, &ready.context)?;
             let progress = LogProgress {
@@ -224,12 +224,12 @@ impl Durability for FileWal {
                 committed_transactions: ready.commits,
                 pending_bytes: append.bytes.len() as u64,
             };
-            if ready.commits != 0
+            let checkpointed = ready.commits != 0
                 && self
                     .policy
                     .as_ref()
-                    .is_some_and(|policy| policy.should_checkpoint(progress))
-            {
+                    .is_some_and(|policy| policy.should_checkpoint(progress));
+            if checkpointed {
                 self.checkpoint_ready(ready, commit.before, &ready.context.clone())?;
                 append = ready.session.prepare(changes, &ready.context)?;
             }
@@ -253,7 +253,11 @@ impl Durability for FileWal {
                 .append_log(ready.length, &append.bytes)?;
             ready.session = append.next;
             ready.commits = commits;
-            Ok(())
+            Ok(if checkpointed {
+                PublishOutcome::CheckpointedBefore
+            } else {
+                PublishOutcome::Published
+            })
         })();
         if let Err(error) = &result {
             state.failed(error);
