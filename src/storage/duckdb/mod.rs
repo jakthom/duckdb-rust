@@ -5,6 +5,9 @@ pub mod compression;
 mod nested;
 mod primitive;
 mod temporal;
+// Typed literal codec prerequisite; the parsed-expression owner wires callers.
+#[cfg(test)]
+mod value;
 #[cfg(test)]
 mod version_tests;
 mod visibility;

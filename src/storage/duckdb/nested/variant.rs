@@ -4,6 +4,8 @@ use super::*;
 mod encoding;
 mod payload;
 mod shredded;
+#[cfg(test)]
+pub(in crate::storage::duckdb) mod value;
 pub(in crate::storage::duckdb) mod wal;
 // Exact content traversal is an internal prerequisite for the format owner's
 // layout-validation/publication seam, not a change to SQL VARIANT equality.

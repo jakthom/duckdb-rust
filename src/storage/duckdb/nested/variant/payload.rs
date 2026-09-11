@@ -10,7 +10,7 @@ pub(super) type Typed = (DataType, Value);
 
 pub(super) struct Budget {
     pub(super) nodes: usize,
-    bytes: usize,
+    pub(super) bytes: usize,
     query: Option<crate::parallel::QueryContext>,
 }
 
