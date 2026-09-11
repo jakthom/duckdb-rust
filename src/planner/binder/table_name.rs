@@ -41,8 +41,10 @@ impl UnresolvedTableName {
         &self.table
     }
 
-    fn current_name(&self) -> TableName {
-        TableName::new(self.schema.as_deref().unwrap_or("main"), &self.table)
+    fn explicit_name(&self) -> Option<TableName> {
+        self.schema
+            .as_deref()
+            .map(|schema| TableName::new(schema, &self.table))
     }
 }
 
@@ -61,16 +63,70 @@ impl State<'_, '_> {
         if_exists: bool,
     ) -> Result<Option<ResolvedTable>> {
         let unresolved = self.unresolved_table_name(name)?;
-        let current = unresolved.current_name();
         if if_exists {
-            self.context.catalog.table_entry_if_exists(&current)
+            self.resolve_optional_table(&unresolved)
+        } else if let Some(resolved) = self.resolve_optional_table(&unresolved)? {
+            Ok(Some(resolved))
         } else {
-            self.context.catalog.table_entry(&current).map(Some)
+            // Preserve the catalog adapter's ordinary missing-table error
+            // contract after exhausting the configured search path.
+            self.context
+                .catalog
+                .table_entry(&TableName::main(unresolved.table()))
+                .map(Some)
         }
     }
 
     pub(super) fn resolve_create_target(&self, name: &ast::ObjectName) -> Result<TableName> {
-        Ok(self.unresolved_table_name(name)?.current_name())
+        let unresolved = self.unresolved_table_name(name)?;
+        if let Some(name) = unresolved.explicit_name() {
+            return Ok(name);
+        }
+        let path = self
+            .context
+            .query
+            .settings()
+            .search_path(self.context.query)?;
+        if path
+            .entries()
+            .first()
+            .and_then(|entry| entry.catalog())
+            .is_some()
+        {
+            return Err(unsupported(
+                "catalog-qualified search_path entries require attached catalog routing",
+            ));
+        }
+        Ok(TableName::new(path.current_schema(), unresolved.table()))
+    }
+
+    fn resolve_optional_table(
+        &self,
+        unresolved: &UnresolvedTableName,
+    ) -> Result<Option<ResolvedTable>> {
+        if let Some(name) = unresolved.explicit_name() {
+            return self.context.catalog.table_entry_if_exists(&name);
+        }
+        let path = self
+            .context
+            .query
+            .settings()
+            .search_path(self.context.query)?;
+        for entry in path.entries() {
+            self.context.query.check()?;
+            if entry.catalog().is_some() {
+                return Err(unsupported(
+                    "catalog-qualified search_path entries require attached catalog routing",
+                ));
+            }
+            let candidate = TableName::new(entry.schema_name(), unresolved.table());
+            if let Some(resolved) = self.context.catalog.table_entry_if_exists(&candidate)? {
+                return Ok(Some(resolved));
+            }
+        }
+        self.context
+            .catalog
+            .table_entry_if_exists(&TableName::main(unresolved.table()))
     }
 }
 
@@ -100,6 +156,6 @@ mod tests {
         let unresolved = UnresolvedTableName::parse(name).unwrap();
         assert!(unresolved.is_unqualified());
         assert_eq!(unresolved.table(), "items");
-        assert_eq!(unresolved.current_name(), TableName::main("items"));
+        assert_eq!(unresolved.explicit_name(), None);
     }
 }

@@ -1,18 +1,52 @@
 use super::*;
+use crate::catalog::SearchPath;
 
 #[derive(Debug)]
 struct OrderingSetting {
     nulls: bool,
 }
+
+#[derive(Debug)]
+struct SearchPathSetting;
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut SettingRegistry) {
     registry
         .register(Arc::new(IeeeFloatingPointSetting))
         .expect("unique IEEE floating point setting");
+    registry
+        .register(Arc::new(SearchPathSetting))
+        .expect("unique search path setting");
     for nulls in [false, true] {
         registry
             .register(Arc::new(OrderingSetting { nulls }))
             .expect("unique ordering setting");
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Setting for SearchPathSetting {
+    fn definition(&self) -> SettingDefinition {
+        SettingDefinition {
+            name: "search_path".into(),
+            aliases: vec![],
+            data_type: DataType::Varchar,
+            default: Value::Varchar(String::new()),
+            default_scope: SettingScope::Session,
+            global: false,
+            session: true,
+        }
+    }
+
+    fn normalize(&self, value: &Value, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        let Value::Varchar(value) = value else {
+            return Err(Error::InvalidInput(
+                "search_path must be a non-NULL VARCHAR".into(),
+            ));
+        };
+        let path = SearchPath::from_setting(value)?;
+        query.check()?;
+        Ok(Value::Varchar(path.to_string()))
     }
 }
 

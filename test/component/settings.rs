@@ -14,6 +14,8 @@ mod contracts;
 mod ieee;
 #[path = "../runner/mod.rs"]
 mod runner;
+#[path = "settings/search_path.rs"]
+mod search_path;
 #[path = "settings/values.rs"]
 mod values;
 

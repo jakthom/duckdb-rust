@@ -1,4 +1,5 @@
 use super::*;
+use crate::catalog::SearchPath;
 use crate::main::settings::SettingScope;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -64,11 +65,40 @@ impl State<'_, '_> {
                 Ok(value)
             })
             .transpose()?;
-        Ok(BoundStatement::Configure(registry.bind(
-            name,
-            scope,
-            value,
-            self.context.query,
-        )?))
+        let change = registry.bind(name, scope, value, self.context.query)?;
+        if change.name() == "search_path"
+            && let Some(value) = change.value()
+        {
+            self.validate_search_path(value)?;
+        }
+        Ok(BoundStatement::Configure(change))
+    }
+
+    fn validate_search_path(&self, value: &Value) -> Result<()> {
+        let Value::Varchar(value) = value else {
+            return Err(Error::Internal(
+                "normalized search_path is not VARCHAR".into(),
+            ));
+        };
+        let path = SearchPath::from_setting(value)?;
+        let schemas = self.context.catalog.schemas()?;
+        for entry in path.entries() {
+            self.context.query.check()?;
+            if entry.catalog().is_some() {
+                return Err(unsupported(
+                    "catalog-qualified search_path entries require attached catalog routing",
+                ));
+            }
+            if !schemas
+                .iter()
+                .any(|schema| schema.eq_ignore_ascii_case(entry.schema_name()))
+            {
+                return Err(Error::Catalog(format!(
+                    "SET search_path: No catalog + schema named \"{}\" found.",
+                    entry
+                )));
+            }
+        }
+        Ok(())
     }
 }

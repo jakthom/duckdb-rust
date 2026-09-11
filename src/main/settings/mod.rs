@@ -327,6 +327,14 @@ impl SettingsSnapshot {
         };
         Ok((!ascending, first))
     }
+
+    /// The normalized session catalog search path for this statement.
+    pub fn search_path(&self, query: &QueryContext) -> Result<crate::catalog::SearchPath> {
+        match self.get("search_path", query)? {
+            Value::Varchar(value) => crate::catalog::SearchPath::from_setting(value),
+            _ => Err(Error::Internal("invalid search_path setting".into())),
+        }
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
