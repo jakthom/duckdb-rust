@@ -1,8 +1,8 @@
 use duckdb_rust::{
     DataType, Database, Error, Result, Value,
     catalog::{
-        Catalog, CatalogMut, ColumnDefinition, ResolvedTable, TableAlteration, TableDefinition,
-        TableName,
+        Catalog, CatalogMut, ColumnDefinition, CreateConflictPolicy, DropBehavior, ResolvedTable,
+        TableAlteration, TableDefinition, TableName, TypeDefinition, TypeName,
     },
     common::cast::CastRegistry,
     execution::{
@@ -19,7 +19,9 @@ use duckdb_rust::{
     },
     storage::{
         checkpoint::{Durability, MemoryDurability, PublishOutcome},
+        layout::CheckpointLayout,
         log::{Commit, TransactionChange},
+        recovery::{RecoveredChange, RecoveryTarget},
         table::Snapshot,
     },
     transaction::{SnapshotTransactions, TransactionManager},
@@ -33,6 +35,13 @@ fn definition(schema: &str, name: &str) -> TableDefinition {
         columns: vec![ColumnDefinition::new("i", DataType::Integer)],
         unique_keys: Vec::new(),
     }
+}
+
+fn enum_definition(schema: &str, name: &str, labels: &[&str]) -> Result<TypeDefinition> {
+    TypeDefinition::enumeration(
+        TypeName::new(schema, name),
+        labels.iter().map(|label| (*label).into()).collect(),
+    )
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -486,6 +495,133 @@ fn schema_dependencies_make_restrict_atomic() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn snapshot_named_types_preserve_identity_conflicts_and_concrete_table_enums() -> Result<()> {
+    let mut snapshot = Snapshot::default();
+    snapshot.create_schema("analytics", false)?;
+
+    let empty = enum_definition("analytics", "empty", &[])?;
+    assert!(snapshot.create_type(empty.clone(), CreateConflictPolicy::Error)?);
+    assert_eq!(snapshot.named_type(&empty.name)?, empty);
+
+    let original = enum_definition("analytics", "mood", &["sad"])?;
+    assert!(snapshot.create_type(original.clone(), CreateConflictPolicy::Error)?);
+    let original_entry = snapshot.type_entry(&original.name)?;
+    let original_binding = original_entry.binding().clone();
+    let before_ignore = snapshot.identity();
+    assert!(!snapshot.create_type(
+        enum_definition("analytics", "mood", &["ignored"])?,
+        CreateConflictPolicy::Ignore,
+    )?);
+    assert_eq!(snapshot.identity(), before_ignore);
+    assert_eq!(snapshot.named_type(&original.name)?, original);
+
+    let table = TableDefinition {
+        name: TableName::new("analytics", "mood"),
+        columns: vec![ColumnDefinition::new(
+            "value",
+            original_entry.definition().data_type.clone(),
+        )],
+        unique_keys: Vec::new(),
+    };
+    snapshot.create_table(table.clone(), false)?;
+
+    let replacement = enum_definition("analytics", "mood", &["happy"])?;
+    let before_replace = snapshot.identity().expect("snapshot identity");
+    assert!(snapshot.create_type(replacement.clone(), CreateConflictPolicy::Replace)?);
+    assert_eq!(
+        snapshot.identity().expect("snapshot identity").version,
+        Some(
+            before_replace
+                .version
+                .expect("versioned snapshot")
+                .checked_next()?
+        )
+    );
+    let replacement_entry = snapshot.type_entry(&replacement.name)?;
+    assert_ne!(
+        replacement_entry.binding().identity(),
+        original_binding.identity()
+    );
+    assert_eq!(
+        snapshot.table(&table.name)?.columns[0].data_type,
+        original.data_type
+    );
+    assert_eq!(snapshot.named_type(&replacement.name)?, replacement);
+    assert!(matches!(
+        snapshot.drop_type_identified(&original_binding, false, DropBehavior::Restrict),
+        Err(Error::Catalog(_))
+    ));
+    assert!(!snapshot.drop_type_identified(&original_binding, true, DropBehavior::Restrict,)?);
+    assert_eq!(
+        snapshot
+            .type_entry(&TypeName::new("analytics", "mood"))?
+            .binding()
+            .identity(),
+        replacement_entry.binding().identity()
+    );
+
+    assert!(matches!(
+        snapshot.drop_schema("analytics", false),
+        Err(Error::Catalog(_))
+    ));
+    assert!(snapshot.drop_type(
+        &TypeName::new("analytics", "mood"),
+        false,
+        DropBehavior::Restrict,
+    )?);
+    assert_eq!(snapshot.table(&table.name)?, table);
+    snapshot.drop_table(&table.name, false)?;
+    assert!(matches!(
+        snapshot.drop_schema("analytics", false),
+        Err(Error::Catalog(_))
+    ));
+    assert!(snapshot.drop_type(&empty.name, false, DropBehavior::Restrict)?);
+    snapshot.drop_schema("analytics", false)?;
+    snapshot.validate()?;
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn named_type_recovery_is_atomic_and_obeys_schema_dependencies() -> Result<()> {
+    let context = QueryContext::background();
+    let mut snapshot = Snapshot::default();
+    let definition = enum_definition("analytics", "mood", &["sad", "happy"])?;
+    snapshot.apply_committed(
+        &[
+            RecoveredChange::CreateSchema("analytics".into()),
+            RecoveredChange::CreateType {
+                definition: definition.clone(),
+                conflict: CreateConflictPolicy::Error,
+            },
+        ],
+        &context,
+    )?;
+    assert_eq!(snapshot.named_type(&definition.name)?, definition);
+    let before_failed_drop = snapshot.identity();
+    assert!(matches!(
+        snapshot.apply_committed(&[RecoveredChange::DropSchema("analytics".into())], &context,),
+        Err(Error::Catalog(_))
+    ));
+    assert_eq!(snapshot.identity(), before_failed_drop);
+    assert_eq!(
+        snapshot.named_type(&TypeName::new("analytics", "mood"))?,
+        definition
+    );
+    snapshot.apply_committed(
+        &[
+            RecoveredChange::DropType(TypeName::new("analytics", "mood")),
+            RecoveredChange::DropSchema("analytics".into()),
+        ],
+        &context,
+    )?;
+    assert!(!snapshot.schemas()?.contains(&"analytics".into()));
+    snapshot.validate()?;
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn transaction_snapshots_publish_and_rollback_catalog_versions() -> Result<()> {
     let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
     let old_reader = manager.begin()?;
@@ -658,15 +794,117 @@ fn transaction_bindings_mutate_renamed_objects_and_reject_replacements() -> Resu
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn transaction_named_types_publish_effective_changes_and_rollback() -> Result<()> {
+    let durability = Arc::new(CapturingDurability::default());
+    let manager = SnapshotTransactions::new(durability.clone())?;
+    let old_reader = manager.begin()?;
+    let mut transaction = manager.begin()?;
+    transaction
+        .catalog_mut()?
+        .create_schema("analytics", false)?;
+    let original = enum_definition("analytics", "mood", &["sad"])?;
+    assert!(
+        transaction
+            .catalog_mut()?
+            .create_type(original.clone(), CreateConflictPolicy::Error)?
+    );
+    let stale = transaction
+        .catalog()
+        .type_entry(&original.name)?
+        .binding()
+        .clone();
+    let before_ignore = transaction.catalog().identity();
+    assert!(!transaction.catalog_mut()?.create_type(
+        enum_definition("analytics", "mood", &["ignored"])?,
+        CreateConflictPolicy::Ignore,
+    )?);
+    assert_eq!(transaction.catalog().identity(), before_ignore);
+
+    let replacement = enum_definition("analytics", "mood", &["happy"])?;
+    assert!(
+        transaction
+            .catalog_mut()?
+            .create_type(replacement.clone(), CreateConflictPolicy::Replace)?
+    );
+    assert!(!transaction.catalog_mut()?.drop_type_identified(
+        &stale,
+        true,
+        DropBehavior::Restrict,
+    )?);
+    assert_eq!(
+        transaction.catalog().named_type(&replacement.name)?,
+        replacement
+    );
+    transaction.commit()?;
+
+    assert!(old_reader.catalog().named_type(&original.name).is_err());
+    let published = manager.begin()?;
+    assert_eq!(
+        published.catalog().named_type(&replacement.name)?,
+        replacement
+    );
+    let published_identity = published.catalog().identity();
+
+    let mut abandoned = manager.begin()?;
+    assert!(abandoned.catalog_mut()?.create_type(
+        enum_definition("analytics", "abandoned", &[])?,
+        CreateConflictPolicy::Error,
+    )?);
+    drop(abandoned);
+    let after_rollback = manager.begin()?;
+    assert_eq!(after_rollback.catalog().identity(), published_identity);
+    assert!(
+        after_rollback
+            .catalog()
+            .named_type(&TypeName::new("analytics", "abandoned"))
+            .is_err()
+    );
+
+    let publications = durability
+        .publications
+        .lock()
+        .map_err(|_| Error::Internal("capturing journal mutex poisoned".into()))?;
+    let [changes] = publications.as_slice() else {
+        return Err(Error::Internal(
+            "named type transaction must publish exactly once".into(),
+        ));
+    };
+    let [
+        TransactionChange::CreateSchema(schema),
+        TransactionChange::CreateType {
+            definition: created,
+            conflict: CreateConflictPolicy::Error,
+        },
+        TransactionChange::CreateType {
+            definition: replaced,
+            conflict: CreateConflictPolicy::Replace,
+        },
+    ] = changes.as_slice()
+    else {
+        return Err(Error::Internal(
+            "named type mutations produced an unexpected journal".into(),
+        ));
+    };
+    assert_eq!(schema, "analytics");
+    assert_eq!(created, &original);
+    assert_eq!(replaced, &replacement);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn private_reopen_rebuilds_fresh_runtime_handles_without_wire_fields() -> Result<()> {
     let mut snapshot = Snapshot::default();
     snapshot.create_schema("analytics", false)?;
     snapshot.create_table(definition("analytics", "events"), false)?;
+    let named_type = enum_definition("analytics", "mood", &[])?;
+    snapshot.create_type(named_type.clone(), CreateConflictPolicy::Error)?;
     let before_catalog = snapshot.identity().expect("snapshot identity");
     let before_table = snapshot
         .table_entry(&TableName::new("analytics", "events"))?
         .binding()
         .identity();
+    let before_type = snapshot.type_entry(&named_type.name)?.binding().identity();
 
     let bytes =
         serde_json::to_vec(&snapshot).map_err(|error| Error::Internal(error.to_string()))?;
@@ -675,7 +913,7 @@ fn private_reopen_rebuilds_fresh_runtime_handles_without_wire_fields() -> Result
     let fields = wire.as_object().expect("snapshot JSON object");
     assert_eq!(
         fields.keys().map(String::as_str).collect::<Vec<_>>(),
-        vec!["schemas", "tables"]
+        vec!["named_types", "schemas", "tables"]
     );
     let reopened: Snapshot =
         serde_json::from_slice(&bytes).map_err(|error| Error::Internal(error.to_string()))?;
@@ -684,13 +922,38 @@ fn private_reopen_rebuilds_fresh_runtime_handles_without_wire_fields() -> Result
         .table_entry(&TableName::new("analytics", "events"))?
         .binding()
         .identity();
+    let after_type = reopened.type_entry(&named_type.name)?.binding().identity();
     assert_ne!(after_catalog.id, before_catalog.id);
     assert_eq!(after_catalog.version.map(|version| version.get()), Some(0));
     assert_ne!(after_table, before_table);
+    assert_ne!(after_type, before_type);
     assert!(matches!(
         reopened.table_by_identity(&before_table.expect("old table identity")),
         Err(Error::InvalidInput(_))
     ));
+    assert!(matches!(
+        reopened.type_by_identity(&before_type.expect("old named type identity")),
+        Err(Error::InvalidInput(_))
+    ));
+    assert_eq!(reopened.named_type(&named_type.name)?, named_type);
+
+    let mut legacy_wire = wire;
+    legacy_wire
+        .as_object_mut()
+        .expect("snapshot JSON object")
+        .remove("named_types");
+    let legacy: Snapshot =
+        serde_json::from_value(legacy_wire).map_err(|error| Error::Internal(error.to_string()))?;
+    assert!(legacy.named_types()?.is_empty());
+    legacy.table(&TableName::new("analytics", "events"))?;
+    let layout = CheckpointLayout::identity(&snapshot)?;
+    snapshot.validate_checkpoint_layout(&reopened, &layout, &QueryContext::background())?;
+    assert!(
+        snapshot
+            .validate_checkpoint_layout(&legacy, &layout, &QueryContext::background())
+            .is_err()
+    );
     reopened.validate()?;
+    legacy.validate()?;
     Ok(())
 }

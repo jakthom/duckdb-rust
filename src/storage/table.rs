@@ -17,9 +17,10 @@ use super::{
 };
 use crate::{
     catalog::{
-        Catalog, CatalogIdentity, CatalogMut, CatalogObjectName, CatalogRegistry, DropBehavior,
-        ObjectIdentity, PreparedCatalogInsert, ResolvedTable, TableBinding, TableDefinition,
-        TableName,
+        Catalog, CatalogIdentity, CatalogMut, CatalogObjectKind, CatalogObjectName,
+        CatalogRegistry, CreateConflictPolicy, DropBehavior, ObjectIdentity, PreparedCatalogCreate,
+        PreparedCatalogInsert, ResolvedTable, ResolvedType, TableBinding, TableDefinition,
+        TableName, TypeBinding, TypeDefinition, TypeName,
     },
     common::{Error, Result, Row},
     execution::index::{HashIndexFactory, IndexFactory, IndexSpec, KeyIndex},
@@ -30,6 +31,7 @@ use crate::{
 pub struct Snapshot {
     schemas: BTreeSet<String>,
     tables: BTreeMap<String, Arc<TableData>>,
+    named_types: BTreeMap<String, TypeDefinition>,
     #[serde(skip)]
     registry: CatalogRegistry,
     #[serde(skip)]
@@ -60,7 +62,8 @@ impl Snapshot {
         Ok(Self {
             schemas: BTreeSet::from(["main".into()]),
             tables: BTreeMap::new(),
-            registry: CatalogRegistry::rebuild(["main".into()], [])?,
+            named_types: BTreeMap::new(),
+            registry: CatalogRegistry::rebuild_with_types(["main".into()], [], [])?,
             indexes: Arc::new(HashIndexFactory),
             types,
         })
@@ -111,6 +114,7 @@ impl std::fmt::Debug for Snapshot {
         f.debug_struct("Snapshot")
             .field("schemas", &self.schemas)
             .field("tables", &self.tables)
+            .field("named_types", &self.named_types)
             .field("catalog", &self.registry.identity())
             .field("indexes", &self.indexes.name())
             .finish()
@@ -121,6 +125,8 @@ impl std::fmt::Debug for Snapshot {
 struct SnapshotState {
     schemas: BTreeSet<String>,
     tables: BTreeMap<String, Arc<TableData>>,
+    #[serde(default)]
+    named_types: BTreeMap<String, TypeDefinition>,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'de> Deserialize<'de> for Snapshot {
@@ -159,16 +165,21 @@ impl Snapshot {
                     .collect();
             }
         }
-        let registry = CatalogRegistry::rebuild(
+        let registry = CatalogRegistry::rebuild_with_types(
             state.schemas.iter().cloned(),
             state
                 .tables
                 .values()
                 .map(|table| table.definition.name.clone()),
+            state
+                .named_types
+                .values()
+                .map(|definition| definition.name.clone()),
         )?;
         Self {
             schemas: state.schemas,
             tables: state.tables,
+            named_types: state.named_types,
             registry,
             indexes: Arc::new(HashIndexFactory),
             types: types.clone(),
@@ -334,6 +345,7 @@ impl Snapshot {
             .schemas
             .len()
             .checked_add(self.tables.len())
+            .and_then(|count| count.checked_add(self.named_types.len()))
             .ok_or_else(|| Error::Resource("snapshot catalog object count overflow".into()))?;
         if self.registry.len() != catalog_objects {
             return Err(Error::Corrupt(
@@ -352,6 +364,23 @@ impl Snapshot {
             if self.registry.lookup_schema(schema)?.is_none() {
                 return Err(Error::Corrupt(
                     "runtime registry omits a snapshot schema".into(),
+                ));
+            }
+        }
+        for (key, definition) in &self.named_types {
+            if *key != type_key(&definition.name)
+                || !self.schemas.contains(&definition.name.schema)
+                || definition.name != TypeName::new(&definition.name.schema, &definition.name.name)
+            {
+                return Err(Error::Corrupt("invalid named type identity".into()));
+            }
+            definition.validate().map_err(|error| match error {
+                Error::Resource(_) => error,
+                other => Error::Corrupt(other.to_string()),
+            })?;
+            if self.registry.lookup_type(&definition.name)?.is_none() {
+                return Err(Error::Corrupt(
+                    "runtime registry omits a snapshot named type".into(),
                 ));
             }
         }
@@ -407,6 +436,15 @@ impl Catalog for Snapshot {
     fn tables(&self) -> Result<Vec<TableDefinition>> {
         Ok(self.tables.values().map(|t| t.definition.clone()).collect())
     }
+    fn named_type(&self, name: &TypeName) -> Result<TypeDefinition> {
+        self.named_types
+            .get(&type_key(name))
+            .cloned()
+            .ok_or_else(|| Error::Catalog(format!("type {name} does not exist")))
+    }
+    fn named_types(&self) -> Result<Vec<TypeDefinition>> {
+        Ok(self.named_types.values().cloned().collect())
+    }
     fn table_entry(&self, name: &TableName) -> Result<ResolvedTable> {
         let definition = self.table(name)?;
         let binding = self.registry.bind_table(name)?;
@@ -438,6 +476,42 @@ impl Catalog for Snapshot {
         let name = name.table_name()?;
         ResolvedTable::identified(*identity, self.registry.identity(), self.table(&name)?).map(Some)
     }
+    fn type_entry(&self, name: &TypeName) -> Result<ResolvedType> {
+        let definition = self.named_type(name)?;
+        let binding = self.registry.bind_type(name)?;
+        ResolvedType::identified(
+            binding
+                .identity()
+                .ok_or_else(|| Error::Internal("runtime type binding has no identity".into()))?,
+            self.registry.identity(),
+            definition,
+        )
+    }
+    fn type_entry_if_exists(&self, name: &TypeName) -> Result<Option<ResolvedType>> {
+        if self.registry.lookup_type(name)?.is_none() {
+            return Ok(None);
+        }
+        self.type_entry(name).map(Some)
+    }
+    fn type_by_identity(&self, identity: &ObjectIdentity) -> Result<ResolvedType> {
+        let name = self.registry.name(*identity)?.type_name()?;
+        ResolvedType::identified(*identity, self.registry.identity(), self.named_type(&name)?)
+    }
+    fn type_by_identity_if_exists(
+        &self,
+        identity: &ObjectIdentity,
+    ) -> Result<Option<ResolvedType>> {
+        let Some(name) = self.registry.name_if_exists(*identity)? else {
+            return Ok(None);
+        };
+        let name = name.type_name()?;
+        ResolvedType::identified(*identity, self.registry.identity(), self.named_type(&name)?)
+            .map(Some)
+    }
+}
+
+fn type_key(name: &TypeName) -> String {
+    format!("{}:{}{}", name.schema.len(), name.schema, name.name)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -568,6 +642,67 @@ impl CatalogMut for Snapshot {
         Ok(())
     }
 
+    fn create_type(
+        &mut self,
+        definition: TypeDefinition,
+        conflict: CreateConflictPolicy,
+    ) -> Result<bool> {
+        let prepared = self.prepare_type_creation(&definition, conflict)?;
+        self.apply_type_creation(definition, &prepared)
+    }
+
+    fn drop_type(
+        &mut self,
+        name: &TypeName,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        let key = type_key(name);
+        if !self.named_types.contains_key(&key) {
+            return if if_exists {
+                Ok(false)
+            } else {
+                Err(Error::Catalog(format!("type {name} does not exist")))
+            };
+        }
+        let identity = self
+            .registry
+            .lookup_type(name)?
+            .ok_or_else(|| Error::Internal("runtime registry lost named type".into()))?;
+        let mut registry = self.registry.clone();
+        let removed = registry.drop_object(identity, behavior)?;
+        if removed.len() != 1
+            || removed[0].identity() != identity
+            || removed[0].name().kind() != CatalogObjectKind::Type
+        {
+            return Err(Error::Internal(
+                "named type drop produced an invalid plan".into(),
+            ));
+        }
+        self.named_types.remove(&key);
+        self.registry = registry;
+        Ok(true)
+    }
+
+    fn drop_type_identified(
+        &mut self,
+        type_: &TypeBinding,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        if type_.identity().is_none() {
+            return Err(Error::InvalidInput(
+                "runtime snapshot requires an identified type binding".into(),
+            ));
+        }
+        let name = match self.resolve_type_binding_if_exists(type_)? {
+            Some(resolved) => resolved.definition().name.clone(),
+            None if if_exists => return Ok(false),
+            None => return Err(Error::Catalog(format!("type {type_} does not exist"))),
+        };
+        self.drop_type(&name, if_exists, behavior)
+    }
+
     fn drop_table_identified(&mut self, table: &TableBinding, if_exists: bool) -> Result<()> {
         if table.identity().is_none() {
             return Err(Error::InvalidInput(
@@ -595,6 +730,63 @@ impl CatalogMut for Snapshot {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
+    pub(crate) fn prepare_type_creation(
+        &self,
+        definition: &TypeDefinition,
+        conflict: CreateConflictPolicy,
+    ) -> Result<PreparedCatalogCreate> {
+        definition.validate()?;
+        if definition.name != TypeName::new(&definition.name.schema, &definition.name.name) {
+            return Err(Error::Catalog("invalid named type identity".into()));
+        }
+        if !self.schemas.contains(&definition.name.schema) {
+            return Err(Error::Catalog(format!(
+                "schema {} does not exist",
+                definition.name.schema
+            )));
+        }
+        self.registry
+            .prepare_type_create(&definition.name, conflict)
+    }
+
+    pub(crate) fn apply_type_creation(
+        &mut self,
+        definition: TypeDefinition,
+        prepared: &PreparedCatalogCreate,
+    ) -> Result<bool> {
+        definition.validate()?;
+        if definition.name != TypeName::new(&definition.name.schema, &definition.name.name) {
+            return Err(Error::Catalog("invalid named type identity".into()));
+        }
+        if !self.schemas.contains(&definition.name.schema) {
+            return Err(Error::Catalog(format!(
+                "schema {} does not exist",
+                definition.name.schema
+            )));
+        }
+        if prepared.name() != &CatalogObjectName::named_type(&definition.name)? {
+            return Err(Error::InvalidInput(
+                "prepared named type creation has a different name".into(),
+            ));
+        }
+        let key = type_key(&definition.name);
+        let existed = self.named_types.contains_key(&key);
+        let should_exist = !prepared.changes_catalog() || prepared.replaced_identity().is_some();
+        if existed != should_exist {
+            return Err(Error::Internal(
+                "named type payload and runtime registry disagree".into(),
+            ));
+        }
+        let mut registry = self.registry.clone();
+        let changed = registry.apply_prepared_create(prepared)?;
+        if !changed {
+            return Ok(false);
+        }
+        self.named_types.insert(key, definition);
+        self.registry = registry;
+        Ok(true)
+    }
+
     pub(crate) fn prepare_schema_creation(
         &self,
         name: &str,

@@ -1,5 +1,11 @@
 use super::*;
-use crate::{catalog::TableDefinition, storage::UpdateMetadata};
+use crate::{
+    catalog::{
+        CreateConflictPolicy, DropBehavior, ResolvedType, TableDefinition, TypeBinding,
+        TypeDefinition, TypeName,
+    },
+    storage::UpdateMetadata,
+};
 use std::collections::BTreeSet;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -15,6 +21,12 @@ impl Catalog for SnapshotTransaction {
     }
     fn tables(&self) -> Result<Vec<TableDefinition>> {
         self.snapshot.tables()
+    }
+    fn named_type(&self, name: &TypeName) -> Result<TypeDefinition> {
+        self.snapshot.named_type(name)
+    }
+    fn named_types(&self) -> Result<Vec<TypeDefinition>> {
+        self.snapshot.named_types()
     }
     fn table_entry(&self, name: &TableName) -> Result<crate::catalog::ResolvedTable> {
         self.snapshot.table_entry(name)
@@ -36,6 +48,21 @@ impl Catalog for SnapshotTransaction {
         identity: &crate::catalog::ObjectIdentity,
     ) -> Result<Option<crate::catalog::ResolvedTable>> {
         self.snapshot.table_by_identity_if_exists(identity)
+    }
+    fn type_entry(&self, name: &TypeName) -> Result<ResolvedType> {
+        self.snapshot.type_entry(name)
+    }
+    fn type_entry_if_exists(&self, name: &TypeName) -> Result<Option<ResolvedType>> {
+        self.snapshot.type_entry_if_exists(name)
+    }
+    fn type_by_identity(&self, identity: &crate::catalog::ObjectIdentity) -> Result<ResolvedType> {
+        self.snapshot.type_by_identity(identity)
+    }
+    fn type_by_identity_if_exists(
+        &self,
+        identity: &crate::catalog::ObjectIdentity,
+    ) -> Result<Option<ResolvedType>> {
+        self.snapshot.type_by_identity_if_exists(identity)
     }
 }
 
@@ -153,6 +180,80 @@ impl CatalogMut for SnapshotTransaction {
             self.record(TransactionChange::DropTable(name.clone()));
         }
         Ok(())
+    }
+
+    fn create_type(
+        &mut self,
+        definition: TypeDefinition,
+        conflict: CreateConflictPolicy,
+    ) -> Result<bool> {
+        let prepared = self.snapshot.prepare_type_creation(&definition, conflict)?;
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        let changed = snapshot.apply_type_creation(definition.clone(), &prepared)?;
+        let basis_changed = basis.apply_type_creation(definition.clone(), &prepared)?;
+        if changed != basis_changed {
+            return Err(Error::Internal(
+                "transaction catalog views disagree about named type creation".into(),
+            ));
+        }
+        if changed {
+            ensure_catalog_views_match(&snapshot, &basis)?;
+            self.snapshot = snapshot;
+            self.catalog_basis = basis;
+            if self.journal.is_some() {
+                self.record(TransactionChange::CreateType {
+                    definition,
+                    conflict,
+                });
+            }
+        }
+        Ok(changed)
+    }
+
+    fn drop_type(
+        &mut self,
+        name: &TypeName,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        let changed = snapshot.drop_type(name, if_exists, behavior)?;
+        let basis_changed = basis.drop_type(name, if_exists, behavior)?;
+        if changed != basis_changed {
+            return Err(Error::Internal(
+                "transaction catalog views disagree about named type existence".into(),
+            ));
+        }
+        if changed {
+            ensure_catalog_views_match(&snapshot, &basis)?;
+            self.snapshot = snapshot;
+            self.catalog_basis = basis;
+            if self.journal.is_some() {
+                self.record(TransactionChange::DropType(name.clone()));
+            }
+        }
+        Ok(changed)
+    }
+
+    fn drop_type_identified(
+        &mut self,
+        type_: &TypeBinding,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        if type_.identity().is_none() {
+            return Err(Error::InvalidInput(
+                "runtime transaction requires an identified type binding".into(),
+            ));
+        }
+        let name = match self.snapshot.resolve_type_binding_if_exists(type_)? {
+            Some(resolved) => resolved.definition().name.clone(),
+            None if if_exists => return Ok(false),
+            None => return Err(Error::Catalog(format!("type {type_} does not exist"))),
+        };
+        self.drop_type(&name, if_exists, behavior)
     }
 
     fn drop_table_identified(

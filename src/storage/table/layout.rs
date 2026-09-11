@@ -46,6 +46,7 @@ impl Snapshot {
             )
         };
         if self.schemas != target.schemas
+            || self.named_types != target.named_types
             || self.tables.len() != target.tables.len()
             || self.tables.len() != layout.tables.len()
         {
