@@ -108,3 +108,30 @@ Routine workspace checks and the paired report are recorded in the follow-up
 evidence commit. Kani remains assigned to the substantial integrated checkpoint;
 neither the comparison/expansion invariants nor general NULLIF/macro completeness
 are claimed formally proved by this internal delivery.
+
+## First retained paired checkpoint
+
+On unchanged engine source `38952bd`, `numeric-nullif-reference.json` records
+894/899 development SQL cases and all 3 native producer/checkpoint/WAL paths
+against each pin. The existing 830 development case identities all still pass.
+Release passes 538/899; development remains correctness authority. The first
+report is immutable, including five new failures, not evidence of full parity.
+
+Two failures concern GROUP/window output types: the VALUES input
+`(1::UHUGEINT),(2),(NULL)` already becomes BIGINT in Rust but UHUGEINT in
+development before NULLIF is applied. Direct independent CLI probes confirm
+that replacing literal `2` with `2::INTEGER` produces BIGINT in development.
+The other three failures concern `nullif()`, `nullif(1)` and `nullif(1,2,3)`:
+both references report Parser while Rust reports Binder. The initial campaign's
+declared Binder expectation was itself incorrect; raw results remain retained.
+Follow-ups repair VALUES literal combination and reserved NULLIF syntax rather
+than special-case NULLIF result coercion or weaken result/error comparison.
+
+Routine checks passed: full workspace before the final earlier-value validation
+tightening; then contracts 51, numeric 48, execution 51, nested 42, temporal 31,
+operators 10 and types 22 on final source. All-target clippy, coverage
+(348 files / 3,322 functions / 227 interface methods, missing 0), trace
+compatibility and 38 Python harness tests pass. A focused final-source SQL trace
+returns `NULL,1,UHUGEINT` with 59,338 completed operations, zero error returns,
+zero panics and zero open spans. Temporary telemetry was deleted. No acceptance
+timings were run; integrated Kani remains pending for this continuing slice.

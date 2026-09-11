@@ -266,7 +266,7 @@ def equivalent(a, b, expected_error=None):
 def persistence(rust, cpp, directory):
     outcomes = []
     definition = "CREATE TABLE t(k DECIMAL(38,3) PRIMARY KEY, a UTINYINT DEFAULT 255, b USMALLINT DEFAULT 65535, c UINTEGER DEFAULT 4294967295, d UBIGINT DEFAULT 18446744073709551615, e UHUGEINT DEFAULT '340282366920938463463374607431768211455'); INSERT INTO t(k) VALUES (1.125),(-99999999999999999999999999999999999.999)"
-    query = "SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e,ceil(k)::VARCHAR AS ceiling_value,floor(k)::VARCHAR AS floor_value,sign(k) AS sign_value,round(k,2)::VARCHAR AS rounded_value,trunc(k,1)::VARCHAR AS truncated_value,trunc(e,-38)::VARCHAR AS unsigned_truncated,abs(k)::VARCHAR AS absolute_value,abs(e)::VARCHAR AS unsigned_absolute FROM t ORDER BY k"
+    query = "SELECT k::VARCHAR AS k,a::VARCHAR AS a,b::VARCHAR AS b,c::VARCHAR AS c,d::VARCHAR AS d,e::VARCHAR AS e,ceil(k)::VARCHAR AS ceiling_value,floor(k)::VARCHAR AS floor_value,sign(k) AS sign_value,round(k,2)::VARCHAR AS rounded_value,trunc(k,1)::VARCHAR AS truncated_value,trunc(e,-38)::VARCHAR AS unsigned_truncated,abs(k)::VARCHAR AS absolute_value,abs(e)::VARCHAR AS unsigned_absolute,nullif(k,0::DECIMAL(38,3))::VARCHAR AS nullif_decimal,nullif(e,0::UHUGEINT)::VARCHAR AS nullif_unsigned FROM t ORDER BY k"
     for label, producer in [('cpp', cpp), ('rust-checkpoint', rust), ('rust-wal', Engine(rust.binary, True, ('--durability', 'wal')))]:
         result = {'producer': label, 'passed': False}
         outcomes.append(result)
@@ -281,7 +281,7 @@ def persistence(rust, cpp, directory):
             actual = command(rust, path, query, json_output=True, readonly=True)
             if actual != expected:
                 raise AssertionError({'cpp': expected, 'rust': actual})
-            command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET k=round(k,0)+1.25 WHERE k=1.125; INSERT INTO t(k) VALUES (3.375)")
+            command(rust, path, "BEGIN; DELETE FROM t; ROLLBACK; UPDATE t SET k=round(k,0)+1.25 WHERE nullif(k,0::DECIMAL(38,3))=1.125; INSERT INTO t(k) VALUES (3.375)")
             expected = command(cpp, path, query, json_output=True, readonly=True)
             actual = command(rust, path, query, json_output=True, readonly=True)
             if actual != expected or len(actual) != 3:
@@ -324,6 +324,42 @@ ERROR_CASES += [(f'SELECT {expression}', 'Conversion Error') for expression in (
     'TRY_CAST(coalesce(340282366920938463463374607431768211455,1) AS BIGINT)',
 )]
 ERROR_CASES += [("SELECT coalesce('1'::VARCHAR,1::INTEGER)", 'Binder Error')]
+
+# NULLIF is the selected CASE/equality expansion, not an eager common-typed
+# function. Preserve all preceding 830 case identities and error expectations.
+for kind in ('TINYINT','SMALLINT','INTEGER','BIGINT','HUGEINT','UTINYINT','USMALLINT','UINTEGER','UBIGINT','UHUGEINT','FLOAT','DOUBLE','DECIMAL(4,2)','DECIMAL(38,3)','BIGNUM'):
+    SQL.append(f'SELECT typeof(nullif(1::{kind},2::INTEGER)),nullif(1::{kind},2::INTEGER),nullif(1::{kind},1::INTEGER),nullif(NULL::{kind},2::INTEGER),nullif(1::{kind},NULL::INTEGER)')
+for expression in (
+    "nullif('2',2)", "nullif('3',2)", "nullif('3'::VARCHAR,2)",
+    'nullif(NULL,NULL)', 'nullif([1::UHUGEINT],[2::INTEGER])',
+    "nullif({'d':1.25},{'d':2.5})", "nullif('x'::ENUM('x','y'),'y')",
+    "nullif('0101'::BIT,'0000'::BIT)", "nullif('abc'::BLOB,'abd'::BLOB)",
+    "nullif('00000000-0000-0000-0000-000000000001'::UUID,'00000000-0000-0000-0000-000000000002'::UUID)",
+    "nullif(DATE '2024-01-02',TIMESTAMP '2024-01-03 00:00:00')",
+    "nullif(TIMESTAMP '2024-01-02 03:04:05',DATE '2024-01-03')",
+    'nullif(340282366920938463463374607431768211455,2::UHUGEINT)',
+):
+    SQL.append(f'SELECT typeof({expression}),{expression}')
+for op in ('=','<>','<','<=','>','>='):
+    SQL += [
+        f"SELECT NULL::INTEGER {op} CAST('bad' AS INTEGER)",
+        f"SELECT a {op} CAST('bad' AS INTEGER) FROM (SELECT NULL::INTEGER a FROM range(3))t",
+        f"SELECT i FROM (SELECT NULL::INTEGER a,i FROM range(3)t(i))t WHERE a {op} CAST('bad' AS INTEGER)",
+    ]
+    ERROR_CASES += [(f"SELECT CAST('bad' AS INTEGER) {op} NULL::INTEGER",'Conversion Error'),
+                    (f"SELECT a {op} CAST('bad' AS INTEGER) FROM (VALUES(NULL::INTEGER),(NULL))t(a)",'Conversion Error')]
+SQL += [
+    "SELECT nullif(NULL::INTEGER,CAST('bad' AS INTEGER)),(SELECT NULL::INTEGER)=CAST('bad' AS INTEGER)",
+    'SELECT nullif(a,b),count(*) FROM (VALUES(1::UHUGEINT,1::INTEGER),(2,9),(NULL,NULL))t(a,b) GROUP BY nullif(a,b) ORDER BY 1',
+    'SELECT a.i,b.i FROM (VALUES(1,1::UHUGEINT,1::INTEGER),(2,2,9),(3,NULL,NULL))a(i,u,s) JOIN (VALUES(1,1::UHUGEINT,1::INTEGER),(2,2,9),(3,NULL,NULL))b(i,u,s) ON nullif(a.u,a.s)=nullif(b.u,b.s)',
+    'SELECT nullif(u,s),sum(nullif(u,s)) OVER(ORDER BY i ROWS UNBOUNDED PRECEDING) FROM (VALUES(1,1::UHUGEINT,1::INTEGER),(2,2,9),(3,NULL,NULL))t(i,u,s) ORDER BY i',
+]
+ERROR_CASES += [(f'SELECT {expression}','Conversion Error') for expression in (
+    'nullif(340282366920938463463374607431768211455,1)',
+    'TRY_CAST(nullif(340282366920938463463374607431768211455,1) AS BIGINT)',
+    "nullif('bad',1)", "nullif(CAST('bad' AS INTEGER),NULL::INTEGER)",
+)]
+ERROR_CASES += [(f'SELECT nullif({arguments})','Binder Error') for arguments in ('','1','1,2,3')]
 
 
 def main():
