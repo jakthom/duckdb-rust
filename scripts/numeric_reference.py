@@ -200,13 +200,42 @@ ERROR_CASES += [(f'SELECT {expression}', 'Binder Error') for expression in (
     "CASE WHEN false THEN NULL WHEN false THEN 2 ELSE '1' END",
     "CASE WHEN false THEN 1 ELSE '2'::VARCHAR END",
 )]
-# Deliberately retained broader follow-up: the existing signed-only literal
-# hook and wide unsigned/signed common-type proposals do not implement these
-# development UHUGEINT combinations. Do not claim the parser repair closes them.
+# Originally retained wider inference failures. Keep these identities when the
+# selected full-width literal/common-type follow-up repairs them.
 SQL += [
     'SELECT typeof(CASE WHEN false THEN 340282366920938463463374607431768211455 ELSE 1 END)',
     'SELECT typeof(CASE WHEN false THEN 340282366920938463463374607431768211455::UHUGEINT ELSE 1::INTEGER END)',
     'SELECT typeof([340282366920938463463374607431768211455,1])',
+]
+
+# Full-width inference distinguishes generic combination from arithmetic
+# overload ranking and retains casts for values outside the selected domain.
+for signed in ('TINYINT','SMALLINT','INTEGER','BIGINT','HUGEINT'):
+    SQL.append(f'SELECT typeof(CASE WHEN false THEN 1::UHUGEINT ELSE 1::{signed} END),typeof([1::UHUGEINT,1::{signed}]),typeof(1::UHUGEINT+1::{signed}),typeof(1::{signed}+1::UHUGEINT)')
+    for value in ('170141183460469231731687303715884105728','340282366920938463463374607431768211455'):
+        for expression in (value,f'{value}::UHUGEINT'):
+            SQL.append(f'SELECT typeof(CASE WHEN false THEN {expression} ELSE 1::{signed} END),typeof([{expression},1::{signed}]),CASE WHEN false THEN {expression} ELSE 1::{signed} END')
+            if signed != 'HUGEINT':
+                ERROR_CASES += [(f'SELECT CASE WHEN true THEN {expression} ELSE 1::{signed} END','Conversion Error'),
+                                (f'SELECT [{expression},1::{signed}]','Conversion Error')]
+for value in ('170141183460469231731687303715884105728','340282366920938463463374607431768211455'):
+    for expression in (value,f'{value}::UHUGEINT',f'CASE WHEN true THEN {value} ELSE {value} END'):
+        for other in ('1','1::INTEGER','1::UHUGEINT','NULL','CASE WHEN true THEN 1 ELSE 1 END'):
+            SQL.append(f'SELECT typeof(CASE WHEN false THEN ({expression}) ELSE ({other}) END),typeof([({expression}),({other})])')
+SQL += [
+    'SELECT typeof([340282366920938463463374607431768211455,NULL,340282366920938463463374607431768211455]),typeof([340282366920938463463374607431768211455,NULL,1])',
+    "SELECT typeof([{'u':340282366920938463463374607431768211455},{'u':1::INTEGER}]),typeof(CASE WHEN false THEN {'u':340282366920938463463374607431768211455} ELSE {'u':1::INTEGER} END)",
+    'SELECT typeof(MAP {340282366920938463463374607431768211455:1,1:2})',
+    'SELECT CASE WHEN false THEN 340282366920938463463374607431768211455 ELSE 1 END',
+    "SELECT CASE WHEN false THEN CAST('bad' AS UHUGEINT) ELSE 1::INTEGER END",
+    'SELECT CASE WHEN f THEN u ELSE s END FROM (VALUES (false,340282366920938463463374607431768211455::UHUGEINT,0::INTEGER),(true,2::UHUGEINT,1::INTEGER)) t(f,u,s) ORDER BY s',
+]
+ERROR_CASES += [
+    ('SELECT CASE WHEN true THEN 340282366920938463463374607431768211455 ELSE 1 END','Conversion Error'),
+    ('SELECT [340282366920938463463374607431768211455,1]','Conversion Error'),
+    ('SELECT MAP {340282366920938463463374607431768211455:1,1:2}','Conversion Error'),
+    ('SELECT TRY_CAST(CASE WHEN true THEN 340282366920938463463374607431768211455 ELSE 1 END AS BIGINT)','Conversion Error'),
+    ('SELECT xor(1::UHUGEINT,1::INTEGER)','Binder Error'),
 ]
 
 

@@ -2,6 +2,88 @@ use super::*;
 use duckdb_rust::common::type_registry::{IntegerLiteral, KeyWriter};
 use std::sync::Mutex;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn builtin_wide_literal_proposals_keep_exact_domains_and_pairwise_normalization() -> Result<()> {
+    let types = TypeRegistry::builtins();
+    for target in [
+        DataType::TinyInt,
+        DataType::SmallInt,
+        DataType::Integer,
+        DataType::BigInt,
+        DataType::HugeInt,
+        DataType::UTinyInt,
+        DataType::USmallInt,
+        DataType::UInteger,
+        DataType::UBigInt,
+        DataType::UHugeInt,
+    ] {
+        let ordinary = types.try_common_type(&DataType::UHugeInt, &target)?;
+        for value in [
+            0,
+            1,
+            127,
+            128,
+            255,
+            256,
+            u32::MAX as u128,
+            u64::MAX as u128,
+            i128::MAX as u128,
+            (i128::MAX as u128) + 1,
+            u128::MAX,
+        ] {
+            let fits = if target.is_unsigned_integer() {
+                Value::Unsigned(value).fits_type(&target)
+            } else {
+                i128::try_from(value).is_ok_and(|v| Value::Integer(v).fits_type(&target))
+            };
+            let expected = if fits {
+                Some(target.clone())
+            } else {
+                ordinary.clone()
+            };
+            let hint = Some(IntegerLiteral::Unsigned(value));
+            assert_eq!(
+                types.try_common_type_with_literals(&DataType::UHugeInt, &target, hint, None)?,
+                expected
+            );
+            assert_eq!(
+                types.try_common_type_with_literals(&target, &DataType::UHugeInt, None, hint)?,
+                expected
+            );
+        }
+    }
+    let hint = Some(IntegerLiteral::Unsigned(u128::MAX));
+    assert_eq!(
+        types.try_common_type_with_literals(
+            &DataType::UHugeInt,
+            &DataType::Integer,
+            hint,
+            Some(IntegerLiteral::Signed(1))
+        )?,
+        Some(DataType::BigInt)
+    );
+    assert_eq!(
+        types.try_common_type_with_literals(
+            &DataType::UHugeInt,
+            &DataType::Integer,
+            None,
+            Some(IntegerLiteral::Signed(1))
+        )?,
+        Some(DataType::UHugeInt)
+    );
+    assert_eq!(
+        types.try_common_type_with_literals(
+            &DataType::UHugeInt,
+            &DataType::UHugeInt,
+            hint,
+            Some(IntegerLiteral::Unsigned(1))
+        )?,
+        Some(DataType::UHugeInt)
+    );
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Call {
     Ordinary(DataType, DataType),
@@ -261,5 +343,53 @@ fn signed_compatibility_never_forwards_a_partial_or_narrowed_unsigned_hint() -> 
         ));
     }
     assert!(calls.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn sql_case_and_collection_binding_pass_full_hints_to_selected_families() -> Result<()> {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut types = TypeRegistry::builtins();
+    for family in ["builtin.integer", "builtin.uhugeint"] {
+        types.replace(
+            family,
+            Arc::new(Full(
+                Legacy {
+                    calls: calls.clone(),
+                    target: DataType::Double,
+                },
+                false,
+            )),
+        )?;
+    }
+    let mut c = DatabaseBuilder::new()
+        .types(Arc::new(types))
+        .build()?
+        .connect();
+    let a = Some(IntegerLiteral::Signed(1));
+    let b = Some(IntegerLiteral::Unsigned(u128::MAX));
+    for expression in [
+        "CASE WHEN false THEN 340282366920938463463374607431768211455 ELSE 1 END",
+        "[1,340282366920938463463374607431768211455]",
+    ] {
+        calls.lock().unwrap().clear();
+        let target = if expression.starts_with('[') {
+            "DOUBLE[]"
+        } else {
+            "DOUBLE"
+        };
+        assert_eq!(
+            c.query(&format!("SELECT typeof({expression})"))?.rows,
+            vec![vec![Value::Varchar(target.into())]]
+        );
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                Call::Full(DataType::Integer, DataType::UHugeInt, a, b),
+                Call::Full(DataType::UHugeInt, DataType::Integer, b, a)
+            ]
+        );
+    }
     Ok(())
 }

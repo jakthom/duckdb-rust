@@ -109,6 +109,19 @@ pub fn common_type(left: &DataType, right: &DataType) -> Result<DataType> {
     let unsigned_bits = unsigned
         .unsigned_bits()
         .ok_or_else(|| Error::Bind("invalid numeric coercion".into()))?;
+    if unsigned_bits == 128 {
+        // The reference combination fallback checks the signed operand first,
+        // even when that selected target cannot contain the UHUGEINT domain.
+        // Subsequent selected casts still reject unrepresentable values. This
+        // is common-type inference, not arithmetic overload ranking.
+        return Ok(match signed {
+            TinyInt => SmallInt,
+            SmallInt => Integer,
+            Integer => BigInt,
+            BigInt => HugeInt,
+            _ => Double,
+        });
+    }
     for (bits, data_type) in [
         (8, TinyInt),
         (16, SmallInt),

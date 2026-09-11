@@ -2,6 +2,7 @@
 //! set operations and comparisons retain selected casts after common-type
 //! inference. Equality has an additional type fallback ordering does not share.
 use super::*;
+use crate::common::type_registry::IntegerLiteral;
 
 #[derive(Clone, Copy)]
 pub(super) enum CombinationSequence {
@@ -19,12 +20,26 @@ pub(super) fn string_literal(value: &BoundExpr) -> bool {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn integer_literal(value: &BoundExpr) -> Option<i128> {
+    match full_integer_literal(value) {
+        Some(IntegerLiteral::Signed(value)) => Some(value),
+        _ => None,
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn full_integer_literal(value: &BoundExpr) -> Option<IntegerLiteral> {
     match &value.kind {
         ExprKind::Literal(Value::Integer(number))
             if value.data_type.integer_bits().is_some()
                 && Value::Integer(*number).fits_type(&value.data_type) =>
         {
-            Some(*number)
+            Some(IntegerLiteral::Signed(*number))
+        }
+        ExprKind::Literal(Value::Unsigned(number))
+            if value.data_type.is_unsigned_integer()
+                && Value::Unsigned(*number).fits_type(&value.data_type) =>
+        {
+            Some(IntegerLiteral::Unsigned(*number))
         }
         _ => None,
     }
@@ -71,11 +86,11 @@ impl State<'_, '_> {
         let types = self.context.query.types();
         let mut child = first.data_type.clone();
         let mut literal = string_literal(first);
-        let mut integer = integer_literal(first);
+        let mut integer = full_integer_literal(first);
         for argument in arguments {
             self.context.query.check()?;
             let other_literal = string_literal(argument);
-            let other_integer = integer_literal(argument);
+            let other_integer = full_integer_literal(argument);
             if matches!(context, CombinationSequence::Collection) {
                 // These are collection-template rules, not generic CASE
                 // combination. CASE must normalize even equal pseudo-types.
@@ -88,7 +103,7 @@ impl State<'_, '_> {
                     continue;
                 }
             }
-            let inferred = types.try_common_type_with_integer_literals(
+            let inferred = types.try_common_type_with_literals(
                 &child,
                 &argument.data_type,
                 integer,

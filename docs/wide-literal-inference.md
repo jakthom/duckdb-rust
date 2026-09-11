@@ -48,3 +48,33 @@ replaced by a silently lossless-widening assumption. Arithmetic overload ranking
 is distinct: UHUGEINT plus typed INTEGER or BIGINT selects DOUBLE. Pinned direct
 CLI probes confirm these differences. Implementation and regression evidence
 for the selected family follows separately.
+
+## CASE and collection integration
+
+The SQL frontend now passes the exact unsigned hint to the selected adapter
+without changing signed-only scalar overload metadata. Built-in signed and
+exact-numeric families accept a single fitting full-width literal; two literal
+hints combine the underlying types. The common-type fallback follows the
+development signed-width ordering above. Explicit casts, prepared parameters,
+CASE wrappers and computed expressions remain nonliteral inputs.
+
+Focused tests cover both evaluators and optimizers, exact hint replacement
+dispatch, CASE short-circuiting, required conversion failures, fatal selected
+casts, MAP and nested child metadata, prepared parameters, joins, grouping,
+windows, indexed lookup, atomic failed updates, rollback and native/private
+checkpoint and WAL reopen. Types 22, numeric 43, contracts 32, nested 41, bit 8,
+operators 10 and casts 12 pass. All-target check and clippy pass. Coverage lists
+330 files, 3,084 functions and 217 interface methods with no missing annotations.
+An initial test expected an outer TRY_CAST to catch a failed child CASE cast;
+independent development execution also raises Conversion, so the test now
+preserves that boundary instead of weakening required child evaluation.
+
+This is an integrable internal step, not a completed verification checkpoint.
+Paired reference evidence, tracing and maintained Kani follow on the combined
+slice. The source-wide common correction exposed a directly affected existing
+COALESCE policy gap: `coalesce(1::UHUGEINT,1::INTEGER)` now raises Rust Binder
+`no Implicit cast from UHUGEINT to BIGINT`; development returns BIGINT value 1.
+The former DOUBLE result was already incorrect, but its accepted query must
+not be lost. A selected combination specialization is the next repair; global
+implicit casts will not be widened. NULLIF also has an independently observed
+existing result-type gap: development retains its first UHUGEINT input type.

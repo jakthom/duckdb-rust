@@ -758,18 +758,28 @@ pub struct PrimitiveTypes;
 fn integer_literal_target(
     left: &DataType,
     right: &DataType,
-    left_literal: Option<i128>,
-    right_literal: Option<i128>,
+    left_literal: Option<IntegerLiteral>,
+    right_literal: Option<IntegerLiteral>,
 ) -> Option<DataType> {
     let (value, target) = match (left_literal, right_literal) {
         (Some(value), None) => (value, right),
         (None, Some(value)) => (value, left),
         _ => return None,
     };
-    let fits = if target.is_unsigned_integer() {
-        value >= 0 && Value::Unsigned(value as u128).fits_type(target)
-    } else {
-        target.is_signed_integer() && Value::Integer(value).fits_type(target)
+    let fits = match value {
+        IntegerLiteral::Signed(value) if target.is_unsigned_integer() => {
+            value >= 0 && Value::Unsigned(value as u128).fits_type(target)
+        }
+        IntegerLiteral::Signed(value) => {
+            target.is_signed_integer() && Value::Integer(value).fits_type(target)
+        }
+        IntegerLiteral::Unsigned(value) if target.is_unsigned_integer() => {
+            Value::Unsigned(value).fits_type(target)
+        }
+        IntegerLiteral::Unsigned(value) => {
+            target.is_signed_integer()
+                && i128::try_from(value).is_ok_and(|value| Value::Integer(value).fits_type(target))
+        }
     };
     fits.then(|| target.clone())
 }
@@ -833,6 +843,22 @@ impl TypeAdapter for PrimitiveTypes {
         right: &DataType,
         left_literal: Option<i128>,
         right_literal: Option<i128>,
+        types: &TypeRegistry,
+    ) -> Result<Option<DataType>> {
+        self.common_type_with_literals(
+            left,
+            right,
+            left_literal.map(IntegerLiteral::Signed),
+            right_literal.map(IntegerLiteral::Signed),
+            types,
+        )
+    }
+    fn common_type_with_literals(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        left_literal: Option<IntegerLiteral>,
+        right_literal: Option<IntegerLiteral>,
         types: &TypeRegistry,
     ) -> Result<Option<DataType>> {
         if let Some(target) = integer_literal_target(left, right, left_literal, right_literal) {

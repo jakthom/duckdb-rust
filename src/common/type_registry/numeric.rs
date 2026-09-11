@@ -1,5 +1,6 @@
 use super::{
-    ComparisonPredicate, KeyRepresentation, KeyWriter, TypeAdapter, TypeRegistry, ValueValidation,
+    ComparisonPredicate, IntegerLiteral, KeyRepresentation, KeyWriter, TypeAdapter, TypeRegistry,
+    ValueValidation,
 };
 use crate::{
     common::{DataType, Error, Result, Value},
@@ -69,6 +70,22 @@ impl TypeAdapter for ExactNumericTypes {
         right: &DataType,
         left_literal: Option<i128>,
         right_literal: Option<i128>,
+        types: &TypeRegistry,
+    ) -> Result<Option<DataType>> {
+        self.common_type_with_literals(
+            left,
+            right,
+            left_literal.map(IntegerLiteral::Signed),
+            right_literal.map(IntegerLiteral::Signed),
+            types,
+        )
+    }
+    fn common_type_with_literals(
+        &self,
+        left: &DataType,
+        right: &DataType,
+        left_literal: Option<IntegerLiteral>,
+        right_literal: Option<IntegerLiteral>,
         types: &TypeRegistry,
     ) -> Result<Option<DataType>> {
         if let Some(target) =
