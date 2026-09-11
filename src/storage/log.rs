@@ -1,5 +1,5 @@
 //! Transaction change capture and replaceable, effect-free log encoding.
-use super::{RowId, format::FormatId, table::Snapshot};
+use super::{RowId, UpdateMetadata, format::FormatId, table::Snapshot};
 use crate::{
     catalog::{TableDefinition, TableName},
     common::{Result, Row},
@@ -29,6 +29,7 @@ pub enum TransactionChange {
     },
     Update {
         table: TableName,
+        metadata: UpdateMetadata,
         rows: Vec<(RowId, Row)>,
     },
     Delete {

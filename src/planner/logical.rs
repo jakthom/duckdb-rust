@@ -415,6 +415,7 @@ pub enum BoundStatement {
     Update {
         table: TableName,
         assignments: Vec<(usize, BoundExpr)>,
+        metadata: crate::storage::UpdateMetadata,
         predicate: Option<BoundExpr>,
     },
     Delete {

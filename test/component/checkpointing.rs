@@ -7,6 +7,7 @@ use duckdb_rust::{
     execution::index::{BTreeIndexFactory, HashIndexFactory, IndexFactory},
     parallel::{InterruptHandle, QueryContext},
     storage::{
+        UpdateMetadata,
         checkpoint::{
             FileCheckpoint,
             policy::{CheckpointPolicy, CommitCountCheckpoint, LogSizeCheckpoint},
@@ -205,8 +206,10 @@ fn checkpoints_preserve_live_ids_readers_and_pending_writers_across_policies() -
                 vec![0, 2]
             );
             let mut pending = transactions.begin()?;
+            let update = UpdateMetadata::for_table(&pending.catalog().table(&table)?, vec![0, 1])?;
             pending.storage_mut()?.update(
                 &table,
+                &update,
                 vec![(
                     0,
                     vec![Value::Integer(11), Value::Varchar("pending writer".into())],
@@ -394,6 +397,7 @@ fn checkpoint_layouts_preserve_duplicate_rows_nan_bits_and_reject_aliases() -> R
         image.bytes,
         duckdb_rust::common::type_registry::builtin_types(),
     )?;
+    let update = UpdateMetadata::for_table(&decoded.table(&table)?, vec![0])?;
     snapshot.validate_checkpoint_layout(&decoded, &image.layout, &context)?;
     for fault in 0..4 {
         let mut bad = image.layout.clone();
@@ -417,6 +421,7 @@ fn checkpoint_layouts_preserve_duplicate_rows_nan_bits_and_reject_aliases() -> R
     }
     decoded.update(
         &table,
+        &update,
         vec![(0, vec![Value::Float(f32::from_bits(0xffc01235))])],
         &context,
     )?;

@@ -11,12 +11,74 @@ pub mod scan;
 pub mod table;
 
 use crate::{
-    catalog::TableName,
-    common::{Result, Row},
+    catalog::{TableDefinition, TableName},
+    common::{Error, Result, Row},
     parallel::QueryContext,
 };
+use std::collections::HashSet;
 
 pub type RowId = u64;
+
+/// Physical behavior selected from the assigned columns at bind time. Regular
+/// updates retain their physical slot; indexed or unsupported nested-column
+/// updates relocate the row through DELETE + INSERT while retaining its logical
+/// identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdateMode {
+    Regular,
+    DeleteInsert,
+}
+
+/// The columns named by the UPDATE statement and their required physical mode.
+/// This travels with the mutation so storage and durability adapters never try
+/// to infer intent from whether the resulting values happen to differ.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdateMetadata {
+    pub columns: Vec<usize>,
+    pub mode: UpdateMode,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl UpdateMetadata {
+    pub fn for_table(definition: &TableDefinition, columns: Vec<usize>) -> Result<Self> {
+        if columns.is_empty() {
+            return Err(Error::Bind("UPDATE requires an assigned column".into()));
+        }
+        let mut seen = HashSet::new();
+        for &column in &columns {
+            if column >= definition.columns.len() || !seen.insert(column) {
+                return Err(Error::Bind("invalid UPDATE column identity".into()));
+            }
+        }
+        let indexed = definition
+            .unique_keys
+            .iter()
+            .any(|key| key.columns.iter().any(|column| seen.contains(column)));
+        let unsupported = columns.iter().any(|&column| {
+            !definition.columns[column]
+                .data_type
+                .supports_regular_update()
+        });
+        Ok(Self {
+            columns,
+            mode: if indexed || unsupported {
+                UpdateMode::DeleteInsert
+            } else {
+                UpdateMode::Regular
+            },
+        })
+    }
+
+    pub fn validate_for(&self, definition: &TableDefinition) -> Result<()> {
+        let expected = Self::for_table(definition, self.columns.clone())?;
+        if *self != expected {
+            return Err(Error::Bind(
+                "UPDATE physical mode differs from assigned columns".into(),
+            ));
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct StorageCapabilities {
@@ -77,6 +139,7 @@ pub trait TableStorageMut: TableStorage {
     fn update(
         &mut self,
         table: &TableName,
+        metadata: &UpdateMetadata,
         rows: Vec<(RowId, Row)>,
         context: &QueryContext,
     ) -> Result<usize>;

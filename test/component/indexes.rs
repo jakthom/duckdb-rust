@@ -5,13 +5,13 @@ use std::sync::{
 
 use duckdb_rust::{
     DataType, DatabaseBuilder, Error, Result, Value,
-    catalog::{CatalogMut, ColumnDefinition, TableDefinition, TableName, UniqueKey},
+    catalog::{Catalog, CatalogMut, ColumnDefinition, TableDefinition, TableName, UniqueKey},
     common::Row,
     execution::index::{BTreeIndexFactory, HashIndexFactory, IndexFactory, IndexSpec, KeyIndex},
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer, RemoveTrueFilters, UseKeyLookup},
     parallel::{InterruptHandle, QueryContext},
     storage::{
-        RowId, TableStorage, TableStorageMut,
+        RowId, TableStorage, TableStorageMut, UpdateMetadata,
         checkpoint::FileCheckpoint,
         duckdb::DuckDbFormat,
         filesystem::OpenMode,
@@ -157,6 +157,7 @@ fn snapshot_indexes_publish_atomically_with_rows() -> Result<()> {
         assert!(snapshot.capabilities().key_lookup);
         assert_eq!(snapshot.key_columns(&name)?, vec![vec![1, 0]]);
         snapshot.insert(&name, vec![ints(&[1, 10]), ints(&[2, 20])], &context)?;
+        let update = UpdateMetadata::for_table(&snapshot.table(&name)?, vec![0, 1])?;
         let before = snapshot.clone();
         assert!(
             snapshot
@@ -174,14 +175,14 @@ fn snapshot_indexes_publish_atomically_with_rows() -> Result<()> {
         ));
         assert!(
             snapshot
-                .update(&name, vec![(0, ints(&[2, 20]))], &context)
+                .update(&name, &update, vec![(0, ints(&[2, 20]))], &context)
                 .is_err()
         );
         assert_eq!(
             snapshot.lookup(&name, &[1, 0], &ints(&[10, 1]), &context)?,
             vec![(0, ints(&[1, 10]))]
         );
-        snapshot.update(&name, vec![(0, ints(&[3, 30]))], &context)?;
+        snapshot.update(&name, &update, vec![(0, ints(&[3, 30]))], &context)?;
         snapshot.delete(&name, &[1, 1], &context)?;
         snapshot.insert(&name, vec![ints(&[2, 20])], &context)?;
         assert_eq!(
@@ -455,13 +456,14 @@ fn failed_index_replacement_keeps_the_previous_rows_and_keys() -> Result<()> {
             false,
         )?;
         snapshot.insert(&name, vec![ints(&[1]), ints(&[2])], &context)?;
+        let update = UpdateMetadata::for_table(&snapshot.table(&name)?, vec![0])?;
         fail.store(true, Ordering::Relaxed);
         assert!(matches!(
             snapshot.insert(&name, vec![ints(&[3])], &context),
             Err(Error::Resource(_))
         ));
         assert!(matches!(
-            snapshot.update(&name, vec![(0, ints(&[3]))], &context),
+            snapshot.update(&name, &update, vec![(0, ints(&[3]))], &context),
             Err(Error::Resource(_))
         ));
         assert!(matches!(

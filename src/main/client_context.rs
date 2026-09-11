@@ -198,6 +198,7 @@ impl Services {
             BoundStatement::Update {
                 table,
                 assignments,
+                metadata,
                 predicate,
             } => {
                 let assignments = assignments
@@ -229,7 +230,9 @@ impl Services {
                     updates.push((id, updated));
                 }
                 Ok(QueryResult::command(
-                    transaction.storage_mut()?.update(&table, updates, query)?,
+                    transaction
+                        .storage_mut()?
+                        .update(&table, &metadata, updates, query)?,
                 ))
             }
             BoundStatement::Delete { table, predicate } => {

@@ -131,6 +131,31 @@ impl DataType {
         matches!(self, Self::Float | Self::Double)
     }
 
+    /// Whether DuckDB can update this physical column without relocating the
+    /// row. Variable-size nested layouts are rewritten as DELETE + INSERT;
+    /// STRUCT/TUPLE inherit the strictest requirement of their children.
+    pub fn supports_regular_update(&self) -> bool {
+        let Self::Nested(metadata) = self else {
+            return true;
+        };
+        match metadata.as_ref() {
+            super::NestedType::Struct(fields) => fields
+                .iter()
+                .all(|(_, data_type)| data_type.supports_regular_update()),
+            super::NestedType::Tuple(fields) => {
+                fields.iter().all(DataType::supports_regular_update)
+            }
+            // OBJECT is an internal dynamic nested layout and has the same
+            // relocation requirement as the other variable-size families.
+            super::NestedType::List(_)
+            | super::NestedType::Array { .. }
+            | super::NestedType::Map { .. }
+            | super::NestedType::Union(_)
+            | super::NestedType::Variant
+            | super::NestedType::Object(_) => false,
+        }
+    }
+
     pub fn common(left: &Self, right: &Self) -> Result<Self> {
         if matches!(left, Self::Extension(_)) || matches!(right, Self::Extension(_)) {
             return Err(Error::Unsupported(

@@ -33,7 +33,7 @@ mod value_binding;
 
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
-    catalog::{CatalogMut, ColumnDefinition, TableDefinition, TableName},
+    catalog::{Catalog, CatalogMut, ColumnDefinition, TableDefinition, TableName},
     common::vector::{DataChunk, Vector},
     execution::{
         operator::join::{HashJoin, NestedLoopJoin},
@@ -43,7 +43,7 @@ use duckdb_rust::{
     optimizer::IdentityOptimizer,
     parallel::QueryContext,
     storage::{
-        TableStorage, TableStorageMut,
+        TableStorage, TableStorageMut, UpdateMetadata,
         checkpoint::{Durability, FileCheckpoint, MemoryDurability},
         filesystem::OpenMode,
         format::JsonSnapshotFormat,
@@ -784,10 +784,12 @@ fn snapshot_api_mutations_are_atomic() -> Result<()> {
         vec![integers(&[1]), integers(&[2])],
         &QueryContext::background(),
     )?;
+    let update = UpdateMetadata::for_table(&state.table(&name)?, vec![0])?;
     assert!(
         state
             .update(
                 &name,
+                &update,
                 vec![(0, integers(&[2]))],
                 &QueryContext::background()
             )

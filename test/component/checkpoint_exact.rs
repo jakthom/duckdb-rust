@@ -1,10 +1,11 @@
 use super::*;
 use duckdb_rust::{
     DataType,
-    catalog::{CatalogMut, ColumnDefinition, TableDefinition},
+    catalog::{Catalog, CatalogMut, ColumnDefinition, TableDefinition},
     common::{NestedPayload, NestedType, NestedValue},
     storage::{
-        TableStorageMut, format::JsonSnapshotFormat, layout::CheckpointLayout, table::Snapshot,
+        TableStorageMut, UpdateMetadata, format::JsonSnapshotFormat, layout::CheckpointLayout,
+        table::Snapshot,
     },
 };
 
@@ -118,12 +119,14 @@ fn checkpoint_layouts_compare_all_nested_float_bits_without_sql_equality() -> Re
             )?;
             let target = JsonSnapshotFormat
                 .decode(JsonSnapshotFormat.encode(&source)?, source.type_registry())?;
+            let update = UpdateMetadata::for_table(&target.table(&name)?, vec![0])?;
             let layout = CheckpointLayout::identity(&source)?;
             source.validate_checkpoint_layout(&target, &layout, &query)?;
             for (row, nan) in [(0, true), (1, false)] {
                 let mut bad = target.clone();
                 bad.update(
                     &name,
+                    &update,
                     vec![(row, vec![wrapped(float(nan, true), shape)?])],
                     &query,
                 )?;

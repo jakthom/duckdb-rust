@@ -124,10 +124,20 @@ impl BoundStatement {
             Self::Update {
                 table,
                 assignments,
+                metadata,
                 predicate,
             } => {
-                let input: Vec<_> = catalog
-                    .table(table)?
+                let definition = catalog.table(table)?;
+                metadata.validate_for(&definition)?;
+                require(
+                    metadata.columns
+                        == assignments
+                            .iter()
+                            .map(|(column, _)| *column)
+                            .collect::<Vec<_>>(),
+                    "UPDATE assigned-column metadata",
+                )?;
+                let input: Vec<_> = definition
                     .columns
                     .into_iter()
                     .map(|c| c.data_type)

@@ -12,7 +12,9 @@ use rows::Rows;
 
 use serde::{Deserialize, Serialize};
 
-use super::{RowId, StorageCapabilities, TableStorage, TableStorageMut};
+use super::{
+    RowId, StorageCapabilities, TableStorage, TableStorageMut, UpdateMetadata, UpdateMode,
+};
 use crate::{
     catalog::{Catalog, CatalogMut, TableDefinition, TableName},
     common::{Error, Result, Row},
@@ -663,18 +665,42 @@ impl TableStorageMut for Snapshot {
     fn update(
         &mut self,
         table: &TableName,
+        metadata: &UpdateMetadata,
         rows: Vec<(RowId, Row)>,
         context: &QueryContext,
     ) -> Result<usize> {
         context.check_rows(self.get(table)?.rows.len())?;
-        let count = rows.len();
         let mut next = self.get(table)?.clone();
-        for (id, row) in rows {
+        metadata.validate_for(&next.definition)?;
+        // Statement validation observes the final replacement for each logical
+        // row. Relocating a duplicate more than once would manufacture phantom
+        // physical slots, so normalize before changing either representation.
+        let rows = rows.into_iter().collect::<BTreeMap<_, _>>();
+        let count = rows.len();
+        for (&id, row) in &rows {
             context.check()?;
             if !next.rows.contains_key(&id) {
                 return Err(Error::Transaction(format!("row {id} is not visible")));
             }
-            next.rows.insert(id, row);
+            next.rows.insert(id, row.clone());
+        }
+        if metadata.mode == UpdateMode::DeleteInsert {
+            let mut relocated = Vec::with_capacity(count);
+            for slot in &mut next.physical_slots {
+                let PhysicalSlot::Live(id) = *slot else {
+                    continue;
+                };
+                if rows.contains_key(&id) {
+                    *slot = PhysicalSlot::Deleted(id);
+                    relocated.push(PhysicalSlot::Live(id));
+                }
+            }
+            if relocated.len() != count {
+                return Err(Error::Internal(
+                    "updated row has no live physical slot".into(),
+                ));
+            }
+            next.physical_slots.extend(relocated);
         }
         next.validate(
             self.indexes.as_ref(),

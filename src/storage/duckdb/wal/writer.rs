@@ -6,7 +6,7 @@ use crate::{
     common::{DataType, Error, Result, Row, Value},
     parallel::QueryContext,
     storage::{
-        RowId,
+        RowId, UpdateMode,
         format::{DUCKDB_FORMAT, FormatId, StorageVersion},
         log::{LogAppend, LogCheckpoint, LogSession, LogStart, TransactionChange, TransactionLog},
         table::Snapshot,
@@ -339,18 +339,41 @@ impl LogSession for Session {
                             .insert(advance(&mut state.logical_next)?, row.clone());
                     }
                 }
-                TransactionChange::Update { table, rows } => {
+                TransactionChange::Update {
+                    table,
+                    metadata,
+                    rows,
+                } => {
                     let state = next
                         .tables
                         .get_mut(table)
                         .ok_or_else(|| invalid("missing update table"))?;
+                    metadata.validate_for(&state.definition)?;
                     let pending = pending.entry(table.clone()).or_default();
-                    for (id, row) in rows {
-                        context.check()?;
-                        if !pending.rows.contains_key(id) {
-                            pending.deleted.insert(state.physical(*id)?);
+                    if metadata.mode == UpdateMode::Regular {
+                        let mut persisted = Vec::new();
+                        for (id, row) in rows {
+                            context.check()?;
+                            if let Some(staged) = pending.rows.get_mut(id) {
+                                *staged = row.clone();
+                            } else {
+                                persisted.push((state.physical(*id)?, row));
+                            }
                         }
-                        pending.rows.insert(*id, row.clone());
+                        if !persisted.is_empty() {
+                            output.push(named(25, table)?)?;
+                            for &column in &metadata.columns {
+                                output.update(&state.definition, column, &persisted, context)?;
+                            }
+                        }
+                    } else {
+                        for (id, row) in rows {
+                            context.check()?;
+                            if !pending.rows.contains_key(id) {
+                                pending.deleted.insert(state.physical(*id)?);
+                            }
+                            pending.rows.insert(*id, row.clone());
+                        }
                     }
                 }
                 TransactionChange::Delete { table, ids } => {
@@ -487,6 +510,44 @@ impl Records {
             let mut e = record(27);
             e.field(101);
             chunk(&mut e, &[DataType::BigInt], &rows, context)?;
+            self.push(e)?;
+        }
+        Ok(())
+    }
+    fn update(
+        &mut self,
+        definition: &TableDefinition,
+        column: usize,
+        rows: &[(RowId, &Row)],
+        context: &QueryContext,
+    ) -> Result<()> {
+        let data_type = &definition
+            .columns
+            .get(column)
+            .ok_or_else(|| invalid("update column"))?
+            .data_type;
+        for rows in rows.chunks(2048) {
+            let values = rows
+                .iter()
+                .map(|(id, row)| {
+                    Ok(vec![
+                        row.get(column)
+                            .ok_or_else(|| invalid("update row width"))?
+                            .clone(),
+                        Value::Integer(i128::from(*id)),
+                    ])
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let mut e = record(28);
+            e.property(101, 1);
+            e.unsigned(column as u64);
+            e.field(102);
+            chunk(
+                &mut e,
+                &[data_type.clone(), DataType::BigInt],
+                &values,
+                context,
+            )?;
             self.push(e)?;
         }
         Ok(())

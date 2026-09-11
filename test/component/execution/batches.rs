@@ -1,9 +1,9 @@
 use super::*;
 use duckdb_rust::{
-    catalog::{CatalogMut, ColumnDefinition, TableDefinition, TableName},
+    catalog::{Catalog, CatalogMut, ColumnDefinition, TableDefinition, TableName},
     common::{RowCollection, type_registry::TypeRegistry, vector::Vector},
     function::{AggregateFunction, AggregateState},
-    storage::{TableStorage, TableStorageMut, scan::ScanBatch, table::Snapshot},
+    storage::{TableStorage, TableStorageMut, UpdateMetadata, scan::ScanBatch, table::Snapshot},
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -187,6 +187,7 @@ fn published_columns_preserve_holes_writes_restart_and_retained_batches() -> Res
         expected.iter().map(|(_, row)| row.clone()).collect(),
         &context,
     )?;
+    let update = UpdateMetadata::for_table(&snapshot.table(&table)?, vec![0, 1])?;
     let before = snapshot.clone();
     let mut scan = before.open_scan(&table)?;
     let first = scan.next(1, &context)?.unwrap();
@@ -194,11 +195,12 @@ fn published_columns_preserve_holes_writes_restart_and_retained_batches() -> Res
     assert_eq!(first.rows().collect::<Vec<_>>(), expected[..1]);
     assert_eq!(bulk.rows().collect::<Vec<_>>(), expected[1..3001]);
     snapshot.delete(&table, &[0, 2048, 2048, 4096], &context)?;
-    snapshot.update(&table, vec![(1, row(-1))], &context)?;
+    snapshot.update(&table, &update, vec![(1, row(-1))], &context)?;
     snapshot.insert(&table, vec![row(5000)], &context)?;
     assert!(matches!(
         snapshot.update(
             &table,
+            &update,
             vec![(1, vec![Value::Varchar("invalid".into()), Value::Null])],
             &context
         ),

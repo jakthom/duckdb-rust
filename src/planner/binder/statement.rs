@@ -196,6 +196,10 @@ impl State<'_, '_> {
                 {
                     return Err(Error::Bind("duplicate UPDATE assignment".into()));
                 }
+                let metadata = crate::storage::UpdateMetadata::for_table(
+                    &self.context.catalog.table(&table)?,
+                    assignments.iter().map(|(column, _)| *column).collect(),
+                )?;
                 let predicate = update
                     .selection
                     .as_ref()
@@ -204,6 +208,7 @@ impl State<'_, '_> {
                 Ok(BoundStatement::Update {
                     table,
                     assignments,
+                    metadata,
                     predicate,
                 })
             }

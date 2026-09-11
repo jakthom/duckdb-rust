@@ -1,5 +1,5 @@
 use super::*;
-use crate::catalog::TableDefinition;
+use crate::{catalog::TableDefinition, storage::UpdateMetadata};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -124,11 +124,13 @@ impl TableStorageMut for SnapshotTransaction {
     fn update(
         &mut self,
         table: &TableName,
+        metadata: &UpdateMetadata,
         rows: Vec<(RowId, Row)>,
         context: &QueryContext,
     ) -> Result<usize> {
         let record = self.journal.as_ref().map(|_| TransactionChange::Update {
             table: table.clone(),
+            metadata: metadata.clone(),
             // Statement validation observes the last replacement of each row.
             rows: rows
                 .iter()
@@ -137,7 +139,7 @@ impl TableStorageMut for SnapshotTransaction {
                 .into_iter()
                 .collect(),
         });
-        let count = self.snapshot.update(table, rows, context)?;
+        let count = self.snapshot.update(table, metadata, rows, context)?;
         if count != 0
             && let Some(change) = record
         {
