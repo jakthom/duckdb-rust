@@ -4,6 +4,8 @@
 /docs/**/*.json
 /docs/*.jsonl
 /docs/**/*.jsonl
+/docs/*.log
+/docs/**/*.log
 *.ddb
 *.ddb.lock
 __pycache__/

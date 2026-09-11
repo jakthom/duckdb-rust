@@ -147,11 +147,9 @@ calls inside closures. Interface calls remain visible when an external adapter
 has no internal instrumentation. The
 source coverage command checks `src/`, `tools/`, `test/`, and `benchmark/`, and
 requires explicit instrumentation of macro-generated implementations. New code
-cannot pass `cargo dev trace` or `cargo dev coverage` with missing attributes. The current source
-inventory is 189 Rust files, 1,560 non-const function bodies, 167 interface method
-declarations and 14,187 call expressions, plus four explicitly instrumented
-function-generating macro definitions. These are source counts, not a claim that
-every operation executes in every test.
+cannot pass `cargo dev trace` or `cargo dev coverage` with missing attributes.
+Run `cargo dev coverage` for the current source inventory. Source counts do not
+show which operations executed or establish behavioral test coverage.
 
 While recording, every executed instrumented function creates a start record and an end record with
 nanosecond wall duration. Normal return, Result success/error, and panic unwinding

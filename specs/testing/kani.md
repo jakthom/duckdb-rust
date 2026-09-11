@@ -1,6 +1,6 @@
 # Kani exploratory checkpoints
 
-[Rewrite principles](../rewrite-principles.md) · [Parity acceptance](parity.md) · [Implementation checks](../../docs/verification.md)
+[Rewrite principles](../rewrite-principles.md) · [Parity acceptance](parity.md) · [Chunk completion](../../docs/parity-backlog.md#how-to-assign-this-work)
 
 Accepted rewrite requirement, 2026-09-10. [Kani](https://github.com/model-checking/kani)
 is a required checkpoint for each substantial Rust implementation chunk. This is
@@ -18,7 +18,10 @@ Run Kani before completing a feature slice, subsystem or adapter, cross-module
 refactor, or change to a significant representation, ownership, arithmetic, or
 state-transition invariant. A chunk can span multiple commits. Every such chunk
 gets a checkpoint, even within a long-running PR; do not wait for final PR review.
-Documentation-only, formatting, and isolated low-impact edits need no Kani run.
+Routine documentation, formatting and isolated low-impact edits do not create a
+chunk boundary. At an explicitly declared work-chunk boundary, the full staged
+sweep required by [AGENTS.md](../../AGENTS.md) includes the Kani checkpoint; this
+applies even when that explicit chunk concerns documentation or tooling.
 
 At the checkpoint:
 

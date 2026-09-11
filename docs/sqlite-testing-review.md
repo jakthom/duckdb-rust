@@ -51,8 +51,8 @@ cargo test --offline --release --test adversarial
 python3 scripts/run_mutations.py --report target/mutations-new.json
 ```
 
-The recorded mutation campaign detected all three mutants.
-The earlier failed campaign remains available:
-its unchanged baseline exposed a harness build-cache isolation error, not an
-engine mutation result. Each campaign builds inside its temporary workspace;
-build outputs are removed automatically while failure logs and reports remain.
+Each mutation campaign builds inside its temporary workspace. Verify the
+unchanged baseline before interpreting a mutant result; a build-cache isolation
+failure is not a detected engine mutation. Retain diagnostic output under the
+ignored `target/` directory and record outstanding coverage in the
+[parity backlog](parity-backlog.md).

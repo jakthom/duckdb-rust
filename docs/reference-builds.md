@@ -94,32 +94,14 @@ Historical v1.3.0 fixtures retain their producer metadata. New generation does
 not overwrite them by default. The user-installed v1.5.5 CLI is an additional
 available binary; the default campaigns above use the source build explicitly.
 
-## Recorded outcomes
+## Interpreting outcomes
 
-The [latest performance comparisons](aggregation-exists/README.md) pass all
-twelve workloads against both references with 21 paired samples and the
-unchanged 1.0 maximum. Aggregation and correlated EXISTS take 0.737× and 0.181×
-the v1.5.5 times; development ratios are 0.243× and 0.152×. The code review,
-implementation changes, tests, profiles, plans and failed intermediate
-measurements are retained with those reports.
+Use a fresh output directory and retain both source/executable identities for
+every run. An early file-campaign failure leaves subsequent cases unexecuted.
+Different ALTER behavior between pins must be recorded under the development-wins
+rule, not hidden by changing assertions. Performance acceptance uses the faster
+reference separately for each semantically comparable workload.
 
-The earlier combined source-build campaign
-remains **failing**, with unresolved file/ALTER compatibility gaps:
-
-| Check | v1.5.5 | Development |
-| --- | --- | --- |
-| File/query campaign | 28 checks completed, then Rust rejects native WAL metadata field 103 | Reference fails opening a historical checkpoint before completing a check |
-| Local ALTER corpus, checkpoint and WAL configurations | Reference accepts dropping NOT NULL on a primary-key column; the unchanged negative assertion fails | Reference accepts ADD COLUMN NOT NULL while discarding the constraint; the unchanged negative assertion fails |
-| Performance, 21 paired samples | 10/12 pass; aggregation 1.196× C++, correlated EXISTS 1.400× C++ | 12/12 pass |
-
-Checks after a file-campaign error remain unexecuted, not passed. These runs do
-not establish general file compatibility, full ALTER parity or complete
-performance parity. Its failed performance measurements are preserved; the
-latest comparisons above resolve those two measured regressions for the
-covered workloads.
-
-The initial setup attempt is retained: the
-v1.5.5 CLI and native runner had built, but the shared library had not yet been
-linked. Its development campaigns ran; its release campaigns did not. The
-subsequent campaign above starts after explicit library linking and contains all
-six report identities. No failed report was overwritten or relabeled.
+This runbook describes reproduction, not current pass status. See the
+[parity backlog](parity-backlog.md) for remaining obligations. Historical campaigns
+and their failed trials remain recoverable from Git at `20c8214` and earlier.

@@ -1,17 +1,52 @@
 # Development feedback
 
-Use ordinary `cargo check`, `cargo test` and `cargo clippy` for each edit/test pass.
+## Project context
+
+Use `docs/parity-backlog.md` for current functionality gaps, goal groups and
+dependencies, and `docs/architecture.md` to locate implementations. Read only
+the assigned goal and relevant `specs/`/source files; do not bulk-load historical
+reports. The specs describe requirements and the pinned C++ source, not a claim
+that the Rust counterpart exists. Update the backlog in place when behavior
+changes; do not create another progress/checkpoint summary document.
+
+## Edit loop
+
+While a chunk is in progress, use the narrowest useful feedback: ordinary
+`cargo check` plus tests directly affected by the edit. Do not launch the full
+workspace test suite, all-target Clippy, or Kani after each edit, file, commit,
+or tool call.
+
+## Chunk completion sweep
+
+A chunk is an explicit goal group, feature slice, subsystem or adapter
+implementation, cross-module refactor, or other unit of work identified in the
+task plan. Several edits and commits can form one chunk. Do not infer a chunk
+boundary merely because an intermediate edit or commit is complete.
+
+Before declaring each chunk complete, delegate one full sweep to the project
+`verifier` agent. The primary agent must not run or babysit the full sweep. The
+verifier uses `gpt-5.6-terra` with low reasoning effort, as configured in
+`.codex/agents/verifier.toml`. Do not silently substitute a higher-priced model
+for verification. The verifier runs this single command from the repository root:
+
+```sh
+python3 scripts/verify_chunk.py
+```
+
+The runner is progressive and fail-fast. It reports elapsed time for each stage
+and performs formatting, all-target checking, all-target Clippy, the full test
+suite except the exhaustive recovery truncation test, that exhaustive test in a
+visible final test stage, and the maintained Kani checkpoint. A chunk is not
+complete until every ordinary stage has passed against its final source tree and
+Kani has been run and reported. If an edit is made after the sweep begins, rerun
+the complete sweep against the new final tree. Use
+`python3 scripts/verify_chunk.py --list` to inspect the stages without executing
+them.
 
 ## Exploratory checkpoints with Kani
 
-Run `python3 scripts/verify_kani.py` before declaring each substantial rewrite
-chunk or planned implementation stage complete. This includes a feature slice,
-subsystem/adapter implementation, cross-module refactor, or change to an important
-data, ownership, arithmetic, or state-transition invariant. Several small commits
-can form one chunk; do not defer validation until the whole PR is finished.
-
-Keep Kani out of the routine edit/check/test loop. Documentation-only changes,
-formatting, and isolated low-impact edits do not require a run. Focused
+The chunk completion runner invokes `python3 scripts/verify_kani.py` after all
+ordinary stages. Keep Kani out of the routine edit/check/test loop. Focused
 `cargo kani --harness ...` runs are useful when debugging a proof, but stage
 completion requires the full maintained suite through the command above.
 
@@ -81,9 +116,10 @@ Production builds use `cargo build --release --no-default-features` and exclude 
 
 ## Validation artifacts
 
-Keep raw JSON and JSONL validation output under the Git-ignored `target/`
-directory, not under `docs/`. Documentation can retain compact prose summaries
-and the source revision needed to reproduce them. Historical raw reports remain
-recoverable from Git history.
+Keep raw JSON, JSONL, logs, profiles and validation dumps under the Git-ignored
+`target/` directory, not under `docs/`. Keep docs to the maintained backlog,
+architecture, durable implementation notes and runbooks. Record only concise
+revision-specific outcomes in the appropriate backlog entry. Historical reports
+remain recoverable from Git history.
 
 The root README must remain exactly as on main. Do not edit README files.

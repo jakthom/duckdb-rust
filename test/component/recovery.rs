@@ -198,7 +198,8 @@ fn every_framed_tail_truncation_exposes_only_complete_transactions() -> Result<(
     )?
     .scan(&TableName::main("t"), &QueryContext::background())?;
     // All byte boundaries after the complete unframed version header.
-    for end in 8..log.len() {
+    let boundaries = log.len().saturating_sub(8);
+    for (completed, end) in (8..log.len()).enumerate() {
         let snapshot = recover(
             "mutations",
             log[..end].to_vec(),
@@ -214,6 +215,10 @@ fn every_framed_tail_truncation_exposes_only_complete_transactions() -> Result<(
             },
             "torn at byte {end}"
         );
+        let completed = completed + 1;
+        if completed == 1 || completed % 128 == 0 || completed == boundaries {
+            eprintln!("recovery truncation sweep: {completed}/{boundaries} boundaries");
+        }
     }
     Ok(())
 }
