@@ -73,7 +73,7 @@ impl Durability for MemoryDurability {
         "memory"
     }
     fn load(&self, types: Arc<crate::common::type_registry::TypeRegistry>) -> Result<Snapshot> {
-        Ok(Snapshot::new(types))
+        Snapshot::try_new(types)
     }
     fn publish(&self, _commit: Commit<'_>) -> Result<PublishOutcome> {
         Ok(PublishOutcome::Published)

@@ -4,6 +4,9 @@ use std::collections::BTreeSet;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Catalog for SnapshotTransaction {
+    fn identity(&self) -> Option<crate::catalog::CatalogIdentity> {
+        self.snapshot.identity()
+    }
     fn schemas(&self) -> Result<Vec<String>> {
         self.snapshot.schemas()
     }
@@ -12,6 +15,15 @@ impl Catalog for SnapshotTransaction {
     }
     fn tables(&self) -> Result<Vec<TableDefinition>> {
         self.snapshot.tables()
+    }
+    fn table_entry(&self, name: &TableName) -> Result<crate::catalog::ResolvedTable> {
+        self.snapshot.table_entry(name)
+    }
+    fn table_by_identity(
+        &self,
+        identity: &crate::catalog::ObjectIdentity,
+    ) -> Result<crate::catalog::ResolvedTable> {
+        self.snapshot.table_by_identity(identity)
     }
 }
 
@@ -29,12 +41,13 @@ impl CatalogMut for SnapshotTransaction {
         } else {
             None
         };
+        let mut snapshot = self.snapshot.clone();
         let mut basis = self.catalog_basis.clone();
         basis.apply_prepared_alter(name, alteration, &prepared, context)?;
-        let changed = self
-            .snapshot
-            .apply_prepared_alter(name, alteration, &prepared, context)?;
+        let changed = snapshot.apply_prepared_alter(name, alteration, &prepared, context)?;
         if changed {
+            ensure_catalog_views_match(&snapshot, &basis)?;
+            self.snapshot = snapshot;
             self.catalog_basis = basis;
             self.record(TransactionChange::AlterTable {
                 table: name.clone(),
@@ -45,14 +58,26 @@ impl CatalogMut for SnapshotTransaction {
         Ok(changed)
     }
     fn create_schema(&mut self, name: &str, if_not_exists: bool) -> Result<()> {
-        let record = self.journal.is_some()
-            && !self
-                .snapshot
-                .schemas()?
-                .contains(&name.to_ascii_lowercase());
-        self.snapshot.create_schema(name, if_not_exists)?;
-        self.catalog_basis.create_schema(name, if_not_exists)?;
-        if record {
+        let Some(prepared) = self.snapshot.prepare_schema_creation(name, if_not_exists)? else {
+            if self
+                .catalog_basis
+                .prepare_schema_creation(name, if_not_exists)?
+                .is_some()
+            {
+                return Err(Error::Internal(
+                    "transaction catalog views disagree about schema existence".into(),
+                ));
+            }
+            return Ok(());
+        };
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        snapshot.apply_schema_creation(name, &prepared)?;
+        basis.apply_schema_creation(name, &prepared)?;
+        ensure_catalog_views_match(&snapshot, &basis)?;
+        self.snapshot = snapshot;
+        self.catalog_basis = basis;
+        if self.journal.is_some() {
             self.record(TransactionChange::CreateSchema(name.to_ascii_lowercase()));
         }
         Ok(())
@@ -63,33 +88,104 @@ impl CatalogMut for SnapshotTransaction {
                 .snapshot
                 .schemas()?
                 .contains(&name.to_ascii_lowercase());
-        self.snapshot.drop_schema(name, if_exists)?;
-        self.catalog_basis.drop_schema(name, if_exists)?;
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        snapshot.drop_schema(name, if_exists)?;
+        basis.drop_schema(name, if_exists)?;
+        ensure_catalog_views_match(&snapshot, &basis)?;
+        self.snapshot = snapshot;
+        self.catalog_basis = basis;
         if record {
             self.record(TransactionChange::DropSchema(name.to_ascii_lowercase()));
         }
         Ok(())
     }
     fn create_table(&mut self, definition: TableDefinition, if_not_exists: bool) -> Result<()> {
-        let record = (self.journal.is_some() && self.snapshot.table(&definition.name).is_err())
-            .then(|| TransactionChange::CreateTable(definition.clone()));
-        self.snapshot
-            .create_table(definition.clone(), if_not_exists)?;
-        self.catalog_basis.create_table(definition, if_not_exists)?;
-        if let Some(change) = record {
-            self.record(change);
+        let Some(prepared) = self
+            .snapshot
+            .prepare_table_creation(&definition, if_not_exists)?
+        else {
+            if self
+                .catalog_basis
+                .prepare_table_creation(&definition, if_not_exists)?
+                .is_some()
+            {
+                return Err(Error::Internal(
+                    "transaction catalog views disagree about table existence".into(),
+                ));
+            }
+            return Ok(());
+        };
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        snapshot.apply_table_creation(definition.clone(), &prepared)?;
+        basis.apply_table_creation(definition.clone(), &prepared)?;
+        ensure_catalog_views_match(&snapshot, &basis)?;
+        self.snapshot = snapshot;
+        self.catalog_basis = basis;
+        if self.journal.is_some() {
+            self.record(TransactionChange::CreateTable(definition));
         }
         Ok(())
     }
     fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()> {
         let record = self.journal.is_some() && self.snapshot.table(name).is_ok();
-        self.snapshot.drop_table(name, if_exists)?;
-        self.catalog_basis.drop_table(name, if_exists)?;
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        snapshot.drop_table(name, if_exists)?;
+        basis.drop_table(name, if_exists)?;
+        ensure_catalog_views_match(&snapshot, &basis)?;
+        self.snapshot = snapshot;
+        self.catalog_basis = basis;
         if record {
             self.record(TransactionChange::DropTable(name.clone()));
         }
         Ok(())
     }
+
+    fn drop_table_identified(
+        &mut self,
+        table: &crate::catalog::TableBinding,
+        if_exists: bool,
+    ) -> Result<()> {
+        let identity = table.identity().ok_or_else(|| {
+            Error::InvalidInput("runtime transaction requires an identified table binding".into())
+        })?;
+        let name = match self.snapshot.table_by_identity(&identity) {
+            Ok(resolved) => resolved.definition().name.clone(),
+            Err(Error::Catalog(_)) if if_exists => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        self.drop_table(&name, if_exists)
+    }
+
+    fn alter_table_identified(
+        &mut self,
+        table: &crate::catalog::TableBinding,
+        alteration: &crate::catalog::TableAlteration,
+        context: &QueryContext,
+    ) -> Result<bool> {
+        let identity = table.identity().ok_or_else(|| {
+            Error::InvalidInput("runtime transaction requires an identified table binding".into())
+        })?;
+        let name = self
+            .snapshot
+            .table_by_identity(&identity)?
+            .definition()
+            .name
+            .clone();
+        self.alter_table(&name, alteration, context)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn ensure_catalog_views_match(snapshot: &Snapshot, basis: &Snapshot) -> Result<()> {
+    if !snapshot.has_same_runtime_catalog(basis) {
+        return Err(Error::Internal(
+            "transaction catalog views have different runtime identities".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

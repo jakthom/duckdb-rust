@@ -156,6 +156,19 @@ impl Snapshot {
         let Some(definition) = &prepared.definition else {
             return Ok(false);
         };
+        let identity = self
+            .registry
+            .lookup_table(name)?
+            .ok_or_else(|| Error::Internal("runtime registry lost altered table".into()))?;
+        let mut registry = self.registry.clone();
+        if definition.name != *name {
+            registry.rename(
+                identity,
+                crate::catalog::CatalogObjectName::table(&definition.name)?,
+            )?;
+        } else {
+            registry.alter(identity)?;
+        }
         let mut after = before.clone();
         match alteration {
             TableAlteration::AddColumn { column, .. } => {
@@ -192,6 +205,7 @@ impl Snapshot {
         self.tables.remove(&name.key());
         self.tables
             .insert(after.definition.name.key(), Arc::new(after));
+        self.registry = registry;
         Ok(true)
     }
 }

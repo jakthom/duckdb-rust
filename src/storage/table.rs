@@ -16,7 +16,11 @@ use super::{
     RowId, StorageCapabilities, TableStorage, TableStorageMut, UpdateMetadata, UpdateMode,
 };
 use crate::{
-    catalog::{Catalog, CatalogMut, TableDefinition, TableName},
+    catalog::{
+        Catalog, CatalogIdentity, CatalogMut, CatalogObjectName, CatalogRegistry, DropBehavior,
+        ObjectIdentity, PreparedCatalogInsert, ResolvedTable, TableBinding, TableDefinition,
+        TableName,
+    },
     common::{Error, Result, Row},
     execution::index::{HashIndexFactory, IndexFactory, IndexSpec, KeyIndex},
     parallel::QueryContext,
@@ -26,6 +30,8 @@ use crate::{
 pub struct Snapshot {
     schemas: BTreeSet<String>,
     tables: BTreeMap<String, Arc<TableData>>,
+    #[serde(skip)]
+    registry: CatalogRegistry,
     #[serde(skip)]
     indexes: Arc<dyn IndexFactory>,
     #[serde(skip)]
@@ -46,12 +52,18 @@ impl Snapshot {
         self.types.clone()
     }
     pub fn new(types: Arc<crate::common::type_registry::TypeRegistry>) -> Self {
-        Self {
+        Self::try_new(types).expect("runtime catalog identity space exhausted")
+    }
+    /// Construct a fresh in-memory snapshot without hiding runtime identity
+    /// allocation failure from fallible database startup paths.
+    pub fn try_new(types: Arc<crate::common::type_registry::TypeRegistry>) -> Result<Self> {
+        Ok(Self {
             schemas: BTreeSet::from(["main".into()]),
             tables: BTreeMap::new(),
+            registry: CatalogRegistry::rebuild(["main".into()], [])?,
             indexes: Arc::new(HashIndexFactory),
             types,
-        }
+        })
     }
 }
 
@@ -99,6 +111,7 @@ impl std::fmt::Debug for Snapshot {
         f.debug_struct("Snapshot")
             .field("schemas", &self.schemas)
             .field("tables", &self.tables)
+            .field("catalog", &self.registry.identity())
             .field("indexes", &self.indexes.name())
             .finish()
     }
@@ -146,9 +159,17 @@ impl Snapshot {
                     .collect();
             }
         }
+        let registry = CatalogRegistry::rebuild(
+            state.schemas.iter().cloned(),
+            state
+                .tables
+                .values()
+                .map(|table| table.definition.name.clone()),
+        )?;
         Self {
             schemas: state.schemas,
             tables: state.tables,
+            registry,
             indexes: Arc::new(HashIndexFactory),
             types: types.clone(),
         }
@@ -161,6 +182,12 @@ impl Snapshot {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
+    /// Transaction payload views may differ in rows, but their runtime catalog
+    /// metadata must remain byte-for-byte equivalent.
+    pub(crate) fn has_same_runtime_catalog(&self, other: &Self) -> bool {
+        self.registry == other.registry
+    }
+
     /// Next unused physical row ID, including holes left by deleted rows.
     /// Log encoders use this to preserve append identity after a checkpoint.
     pub fn next_row_id(&self, table: &TableName) -> Result<RowId> {
@@ -302,6 +329,17 @@ impl Snapshot {
     }
     fn validate_rows(&self, context: &QueryContext) -> Result<()> {
         context.check()?;
+        self.registry.validate()?;
+        let catalog_objects = self
+            .schemas
+            .len()
+            .checked_add(self.tables.len())
+            .ok_or_else(|| Error::Resource("snapshot catalog object count overflow".into()))?;
+        if self.registry.len() != catalog_objects {
+            return Err(Error::Corrupt(
+                "runtime catalog registry differs from snapshot objects".into(),
+            ));
+        }
         if !self.schemas.contains("main")
             || self
                 .schemas
@@ -310,12 +348,28 @@ impl Snapshot {
         {
             return Err(Error::Corrupt("invalid schema identity".into()));
         }
+        for schema in &self.schemas {
+            if self.registry.lookup_schema(schema)?.is_none() {
+                return Err(Error::Corrupt(
+                    "runtime registry omits a snapshot schema".into(),
+                ));
+            }
+        }
         for (key, table) in &self.tables {
             if *key != table.definition.name.key()
                 || table.rows.keys().any(|&id| id >= table.next_id)
                 || !self.schemas.contains(&table.definition.name.schema)
             {
                 return Err(Error::Corrupt("invalid table or row identity".into()));
+            }
+            if self
+                .registry
+                .lookup_table(&table.definition.name)?
+                .is_none()
+            {
+                return Err(Error::Corrupt(
+                    "runtime registry omits a snapshot table".into(),
+                ));
             }
             validate_definition(&table.definition, &self.types)?;
             let live_slots = table
@@ -341,6 +395,9 @@ impl Snapshot {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Catalog for Snapshot {
+    fn identity(&self) -> Option<CatalogIdentity> {
+        Some(self.registry.identity())
+    }
     fn schemas(&self) -> Result<Vec<String>> {
         Ok(self.schemas.iter().cloned().collect())
     }
@@ -349,6 +406,21 @@ impl Catalog for Snapshot {
     }
     fn tables(&self) -> Result<Vec<TableDefinition>> {
         Ok(self.tables.values().map(|t| t.definition.clone()).collect())
+    }
+    fn table_entry(&self, name: &TableName) -> Result<ResolvedTable> {
+        let definition = self.table(name)?;
+        let binding = self.registry.bind_table(name)?;
+        ResolvedTable::identified(
+            binding
+                .identity()
+                .ok_or_else(|| Error::Internal("runtime table binding has no identity".into()))?,
+            self.registry.identity(),
+            definition,
+        )
+    }
+    fn table_by_identity(&self, identity: &ObjectIdentity) -> Result<ResolvedTable> {
+        let name = self.registry.name(*identity)?.table_name()?;
+        ResolvedTable::identified(*identity, self.registry.identity(), self.table(&name)?)
     }
 }
 
@@ -415,32 +487,143 @@ impl CatalogMut for Snapshot {
         self.alter(name, alteration, context)
     }
     fn create_schema(&mut self, name: &str, if_not_exists: bool) -> Result<()> {
-        if name.is_empty() {
-            return Err(Error::Catalog("empty schema name".into()));
-        }
-        if !self.schemas.insert(name.to_ascii_lowercase()) && !if_not_exists {
-            return Err(Error::Catalog(format!("schema {name} already exists")));
-        }
-        Ok(())
+        let Some(prepared) = self.prepare_schema_creation(name, if_not_exists)? else {
+            return Ok(());
+        };
+        self.apply_schema_creation(name, &prepared)
     }
     fn drop_schema(&mut self, name: &str, if_exists: bool) -> Result<()> {
         let name = name.to_ascii_lowercase();
         if name == "main" {
             return Err(Error::Catalog("cannot drop the main schema".into()));
         }
-        if self
-            .tables
-            .values()
-            .any(|t| t.definition.name.schema == name)
+        if !self.schemas.contains(&name) {
+            return if if_exists {
+                Ok(())
+            } else {
+                Err(Error::Catalog(format!("schema {name} does not exist")))
+            };
+        }
+        let identity = self
+            .registry
+            .lookup_schema(&name)?
+            .ok_or_else(|| Error::Internal("runtime registry lost schema".into()))?;
+        let mut registry = self.registry.clone();
+        let removed = registry.drop_object(identity, DropBehavior::Restrict)?;
+        if removed.len() != 1
+            || removed[0].identity() != identity
+            || removed[0].name().kind() != crate::catalog::CatalogObjectKind::Schema
         {
-            return Err(Error::Catalog(format!("schema {name} is not empty")));
+            return Err(Error::Internal(
+                "restricted schema drop produced an invalid plan".into(),
+            ));
         }
-        if !self.schemas.remove(&name) && !if_exists {
-            return Err(Error::Catalog(format!("schema {name} does not exist")));
-        }
+        self.schemas.remove(&name);
+        self.registry = registry;
         Ok(())
     }
     fn create_table(&mut self, definition: TableDefinition, if_not_exists: bool) -> Result<()> {
+        let Some(prepared) = self.prepare_table_creation(&definition, if_not_exists)? else {
+            return Ok(());
+        };
+        self.apply_table_creation(definition, &prepared)
+    }
+    fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()> {
+        if !self.tables.contains_key(&name.key()) {
+            return if if_exists {
+                Ok(())
+            } else {
+                Err(Error::Catalog(format!("table {name} does not exist")))
+            };
+        }
+        let identity = self
+            .registry
+            .lookup_table(name)?
+            .ok_or_else(|| Error::Internal("runtime registry lost table".into()))?;
+        let mut registry = self.registry.clone();
+        let removed = registry.drop_object(identity, DropBehavior::Restrict)?;
+        if removed.len() != 1 || removed[0].identity() != identity {
+            return Err(Error::Internal(
+                "restricted table drop produced an invalid plan".into(),
+            ));
+        }
+        self.tables.remove(&name.key());
+        self.registry = registry;
+        Ok(())
+    }
+
+    fn drop_table_identified(&mut self, table: &TableBinding, if_exists: bool) -> Result<()> {
+        let name = match self.registry.table_name_for_binding(table) {
+            Ok(name) => name,
+            Err(Error::Catalog(_)) if if_exists => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        self.drop_table(&name, if_exists)
+    }
+
+    fn alter_table_identified(
+        &mut self,
+        table: &TableBinding,
+        alteration: &crate::catalog::TableAlteration,
+        context: &QueryContext,
+    ) -> Result<bool> {
+        let name = self.registry.table_name_for_binding(table)?;
+        self.alter_table(&name, alteration, context)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Snapshot {
+    pub(crate) fn prepare_schema_creation(
+        &self,
+        name: &str,
+        if_not_exists: bool,
+    ) -> Result<Option<PreparedCatalogInsert>> {
+        if name.is_empty() {
+            return Err(Error::Catalog("empty schema name".into()));
+        }
+        let name = name.to_ascii_lowercase();
+        if self.schemas.contains(&name) {
+            return if if_not_exists {
+                Ok(None)
+            } else {
+                Err(Error::Catalog(format!("schema {name} already exists")))
+            };
+        }
+        self.registry
+            .prepare_insert(CatalogObjectName::schema(name)?)
+            .map(Some)
+    }
+
+    pub(crate) fn apply_schema_creation(
+        &mut self,
+        name: &str,
+        prepared: &PreparedCatalogInsert,
+    ) -> Result<()> {
+        if name.is_empty() {
+            return Err(Error::Catalog("empty schema name".into()));
+        }
+        let name = name.to_ascii_lowercase();
+        if self.schemas.contains(&name) {
+            return Err(Error::Catalog(format!("schema {name} already exists")));
+        }
+        if prepared.name() != &CatalogObjectName::schema(&name)? {
+            return Err(Error::InvalidInput(
+                "prepared schema insertion has a different name".into(),
+            ));
+        }
+        let mut registry = self.registry.clone();
+        registry.insert_prepared(prepared)?;
+        self.schemas.insert(name);
+        self.registry = registry;
+        Ok(())
+    }
+
+    pub(crate) fn prepare_table_creation(
+        &self,
+        definition: &TableDefinition,
+        if_not_exists: bool,
+    ) -> Result<Option<PreparedCatalogInsert>> {
         if !self.schemas.contains(&definition.name.schema) {
             return Err(Error::Catalog(format!(
                 "schema {} does not exist",
@@ -449,7 +632,7 @@ impl CatalogMut for Snapshot {
         }
         if self.tables.contains_key(&definition.name.key()) {
             return if if_not_exists {
-                Ok(())
+                Ok(None)
             } else {
                 Err(Error::Catalog(format!(
                     "table {} already exists",
@@ -457,7 +640,35 @@ impl CatalogMut for Snapshot {
                 )))
             };
         }
+        validate_definition(definition, &self.types)?;
+        self.registry
+            .prepare_insert(CatalogObjectName::table(&definition.name)?)
+            .map(Some)
+    }
+
+    pub(crate) fn apply_table_creation(
+        &mut self,
+        definition: TableDefinition,
+        prepared: &PreparedCatalogInsert,
+    ) -> Result<()> {
+        if !self.schemas.contains(&definition.name.schema) {
+            return Err(Error::Catalog(format!(
+                "schema {} does not exist",
+                definition.name.schema
+            )));
+        }
+        if self.tables.contains_key(&definition.name.key()) {
+            return Err(Error::Catalog(format!(
+                "table {} already exists",
+                definition.name
+            )));
+        }
         validate_definition(&definition, &self.types)?;
+        if prepared.name() != &CatalogObjectName::table(&definition.name)? {
+            return Err(Error::InvalidInput(
+                "prepared table insertion has a different name".into(),
+            ));
+        }
         let mut table = TableData {
             definition,
             rows: Rows::default(),
@@ -469,14 +680,11 @@ impl CatalogMut for Snapshot {
             self.indexes.as_ref(),
             &QueryContext::background().with_types(self.types.clone()),
         )?;
+        let mut registry = self.registry.clone();
+        registry.insert_prepared(prepared)?;
         self.tables
             .insert(table.definition.name.key(), Arc::new(table));
-        Ok(())
-    }
-    fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()> {
-        if self.tables.remove(&name.key()).is_none() && !if_exists {
-            return Err(Error::Catalog(format!("table {name} does not exist")));
-        }
+        self.registry = registry;
         Ok(())
     }
 }

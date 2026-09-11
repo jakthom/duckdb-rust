@@ -16,7 +16,7 @@ use crate::{
 pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
     let blocks = context.blocks;
     context.query.check()?;
-    let mut snapshot = Snapshot::new(context.query.type_registry());
+    let mut snapshot = Snapshot::try_new(context.query.type_registry())?;
     if blocks.root == u64::MAX {
         return Ok(snapshot);
     }

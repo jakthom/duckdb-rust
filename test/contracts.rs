@@ -10,6 +10,8 @@ use std::{
 mod argument_combination;
 #[path = "component/argument_provenance.rs"]
 mod argument_provenance;
+#[path = "component/catalog_identity.rs"]
+mod catalog_identity;
 #[path = "component/closed_argument.rs"]
 mod closed_argument;
 #[path = "component/comparison_nulls.rs"]
