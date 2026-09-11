@@ -316,10 +316,20 @@ impl State<'_, '_> {
         {
             return windows.bind(self, expr, fields, grouping);
         }
-        if let ast::Expr::Identifier(name) = expr
-            && let Some(aliases) = fields.aliases.get(&name.value.to_ascii_lowercase())
+        let unqualified_name = match expr {
+            ast::Expr::Identifier(name) => Some(&name.value),
+            ast::Expr::Function(function) if bare_current_timestamp(expr) => function
+                .name
+                .0
+                .first()
+                .and_then(ast::ObjectNamePart::as_ident)
+                .map(|name| &name.value),
+            _ => None,
+        };
+        if let Some(name) = unqualified_name
+            && let Some(aliases) = fields.aliases.get(&name.to_ascii_lowercase())
             && fields
-                .resolve_optional(std::slice::from_ref(&name.value))?
+                .resolve_optional(std::slice::from_ref(name))?
                 .is_none()
         {
             let [bound] = aliases.as_slice() else {
@@ -339,6 +349,13 @@ impl State<'_, '_> {
                 index,
                 grouping.groups[index].1.data_type.clone(),
             ));
+        }
+        if let Some(name) = unqualified_name.filter(|_| bare_current_timestamp(expr)) {
+            let parts = std::slice::from_ref(name);
+            if fields.resolve_optional(parts)?.is_some() {
+                return self.column(parts, fields, grouping);
+            }
+            return self.scalar_call("get_current_timestamp", Vec::new());
         }
         let recurse = |e: &ast::Expr| self.expr(e, fields, grouping);
         match expr {

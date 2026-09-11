@@ -64,6 +64,13 @@ impl State<'_, '_> {
         if let ast::Expr::Nested(expression) = expression {
             return self.capture_stored_expression(expression);
         }
+        if bare_current_timestamp(expression) {
+            return Ok(StoredExpression {
+                alias: None,
+                source_span: None,
+                kind: StoredExpressionKind::CurrentTimestamp,
+            });
+        }
         if let Some(expression) = super::nested::capture::capture(expression, &mut |child| {
             self.capture_stored_expression(child)
         })? {

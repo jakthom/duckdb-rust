@@ -13,6 +13,7 @@ pub struct DatabaseBuilder {
     expressions: Arc<dyn ExpressionEvaluator>,
     subqueries: Arc<dyn SubqueryExecutor>,
     scheduler: Arc<dyn Scheduler>,
+    transaction_clock: Arc<dyn TransactionClock>,
     configuration: Arc<dyn settings::Configuration>,
     functions: FunctionRegistry,
     casts: CastRegistry,
@@ -37,6 +38,7 @@ impl Default for DatabaseBuilder {
             expressions: Arc::new(BatchedEvaluator),
             subqueries: Arc::new(StreamingSubqueries),
             scheduler: Arc::new(InlineScheduler),
+            transaction_clock: Arc::new(SystemTransactionClock),
             configuration: Arc::new(settings::SnapshotConfiguration::default()),
             functions: FunctionRegistry::builtins(),
             casts: CastRegistry::builtins(),
@@ -95,6 +97,10 @@ impl DatabaseBuilder {
     }
     pub fn scheduler(mut self, adapter: Arc<dyn Scheduler>) -> Self {
         self.scheduler = adapter;
+        self
+    }
+    pub fn transaction_clock(mut self, adapter: Arc<dyn TransactionClock>) -> Self {
+        self.transaction_clock = adapter;
         self
     }
     pub fn configuration(mut self, adapter: Arc<dyn settings::Configuration>) -> Self {
@@ -179,6 +185,7 @@ impl DatabaseBuilder {
                 stored_expressions,
                 subqueries: self.subqueries,
                 scheduler: self.scheduler,
+                transaction_clock: self.transaction_clock,
                 configuration: self.configuration,
                 functions: self.functions,
                 casts: self.casts,
@@ -267,6 +274,7 @@ impl Database {
             ("expressions", s.expressions.name()),
             ("subqueries", s.subqueries.name()),
             ("scheduler", s.scheduler.name()),
+            ("transaction-clock", s.transaction_clock.name()),
             ("configuration", s.configuration.name()),
         ]);
         adapters

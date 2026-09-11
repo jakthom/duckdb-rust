@@ -9,6 +9,11 @@ pub(super) fn expression(
 ) -> Result<()> {
     state.visit(depth)?;
     let (class, kind) = match &expression.kind {
+        StoredExpressionKind::CurrentTimestamp => {
+            return Err(Error::Unsupported(
+                "native CURRENT_TIMESTAMP retained expression encoding".into(),
+            ));
+        }
         StoredExpressionKind::Literal { .. } => (7, 75),
         StoredExpressionKind::Cast { .. } => (3, 12),
         StoredExpressionKind::Function { .. } => (9, 140),
@@ -56,6 +61,7 @@ pub(super) fn expression(
         }
     }
     match &expression.kind {
+        StoredExpressionKind::CurrentTimestamp => unreachable!("rejected before native encoding"),
         StoredExpressionKind::Literal { data_type, value } => {
             output.field(200);
             state.values.write_typed(output, data_type, value)?;

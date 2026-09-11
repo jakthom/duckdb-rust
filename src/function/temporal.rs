@@ -11,6 +11,7 @@ use crate::{
 use std::sync::Arc;
 mod bucket;
 mod calendar_extract;
+mod current;
 mod difference;
 mod epoch_extra;
 mod formatting;
@@ -28,6 +29,7 @@ struct TemporalFunction {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     difference::register(registry);
+    current::register(registry);
     bucket::register(registry);
     calendar_extract::register(registry);
     epoch_extra::register(registry);

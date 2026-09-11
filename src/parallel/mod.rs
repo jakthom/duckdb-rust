@@ -30,6 +30,7 @@ pub struct QueryContext {
     types: Arc<crate::common::type_registry::TypeRegistry>,
     settings: crate::main::settings::SettingsSnapshot,
     stored_expressions: Option<Arc<dyn crate::catalog::expression::StoredExpressionEvaluator>>,
+    transaction_timestamp_micros: Option<i64>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -40,6 +41,21 @@ impl QueryContext {
     ) -> Self {
         self.stored_expressions = Some(expressions);
         self
+    }
+    /// Attach the already sampled transaction-start instant. Construction does
+    /// not consult a clock; transaction ownership remains with the runtime.
+    pub fn with_transaction_timestamp(mut self, micros: i64) -> Self {
+        self.transaction_timestamp_micros = Some(micros);
+        self
+    }
+    /// Return the transaction-start UTC instant in microseconds since the Unix
+    /// epoch. Background contexts reject this capability instead of consulting
+    /// the host clock implicitly.
+    pub fn transaction_timestamp_micros(&self) -> Result<i64> {
+        self.check()?;
+        self.transaction_timestamp_micros.ok_or_else(|| {
+            Error::Unsupported("no transaction timestamp is available in this context".into())
+        })
     }
     /// Missing composition is a capability error, never a request to construct
     /// ambient builtin functions/casts in a decoder or recovery implementation.
@@ -93,6 +109,7 @@ impl QueryContext {
             types: crate::common::type_registry::builtin_types(),
             settings: crate::main::settings::SettingsSnapshot::default(),
             stored_expressions: None,
+            transaction_timestamp_micros: None,
         }
     }
     pub fn new(
@@ -114,6 +131,7 @@ impl QueryContext {
             types: crate::common::type_registry::builtin_types(),
             settings: crate::main::settings::SettingsSnapshot::default(),
             stored_expressions: None,
+            transaction_timestamp_micros: None,
         })
     }
     pub fn check(&self) -> Result<()> {

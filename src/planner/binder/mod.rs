@@ -135,6 +135,30 @@ fn function_name(name: &ast::ObjectName) -> Result<String> {
     }
 }
 
+fn bare_current_timestamp(expression: &ast::Expr) -> bool {
+    if let ast::Expr::Identifier(identifier) = expression {
+        return identifier.quote_style.is_none()
+            && identifier.value.eq_ignore_ascii_case("current_timestamp");
+    }
+    let ast::Expr::Function(function) = expression else {
+        return false;
+    };
+    let [part] = function.name.0.as_slice() else {
+        return false;
+    };
+    let Some(identifier) = part.as_ident() else {
+        return false;
+    };
+    identifier.quote_style.is_none()
+        && identifier.value.eq_ignore_ascii_case("current_timestamp")
+        && matches!(function.parameters, ast::FunctionArguments::None)
+        && matches!(function.args, ast::FunctionArguments::None)
+        && function.over.is_none()
+        && function.filter.is_none()
+        && function.null_treatment.is_none()
+        && function.within_group.is_empty()
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
     fn data_type(&self, data_type: &ast::DataType) -> Result<DataType> {

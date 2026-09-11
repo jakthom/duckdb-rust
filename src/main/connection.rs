@@ -2,8 +2,13 @@ use super::*;
 
 pub(super) enum Session {
     Idle,
-    Active(Box<dyn Transaction>),
+    Active(ActiveTransaction),
     Failed,
+}
+
+pub(super) struct ActiveTransaction {
+    transaction: Box<dyn Transaction>,
+    timestamp_micros: i64,
 }
 
 struct BoundWork {
@@ -11,6 +16,7 @@ struct BoundWork {
     transaction: Box<dyn Transaction>,
     explicit: bool,
     context: QueryContext,
+    timestamp_micros: i64,
 }
 
 pub struct PreparedStatement {
@@ -57,7 +63,7 @@ impl Connection {
             Session::Failed => Err(Error::Transaction(
                 "transaction is aborted; ROLLBACK is required".into(),
             )),
-            Session::Active(transaction) => transaction.catalog().table_entry(name),
+            Session::Active(active) => active.transaction.catalog().table_entry(name),
             Session::Idle => {
                 let transaction = self.services.transactions.begin()?;
                 transaction.catalog().table_entry(name)
@@ -137,14 +143,18 @@ impl Connection {
             transaction,
             explicit,
             context,
+            timestamp_micros,
         } = work;
         match statement {
             BoundStatement::Configure(change) => {
-                self.configure(change, transaction, explicit, context)
+                self.configure(change, transaction, explicit, context, timestamp_micros)
             }
             BoundStatement::Checkpoint => {
                 if explicit {
-                    self.session = Session::Active(transaction);
+                    self.session = Session::Active(ActiveTransaction {
+                        transaction,
+                        timestamp_micros,
+                    });
                     return Err(Error::Transaction(
                         "CHECKPOINT requires an idle connection".into(),
                     ));
@@ -154,7 +164,10 @@ impl Connection {
                 Ok(QueryResult::command(0))
             }
             BoundStatement::Begin => {
-                self.session = Session::Active(transaction);
+                self.session = Session::Active(ActiveTransaction {
+                    transaction,
+                    timestamp_micros,
+                });
                 if explicit {
                     return Err(Error::Transaction("a transaction is already active".into()));
                 }
@@ -179,6 +192,7 @@ impl Connection {
                     transaction,
                     explicit,
                     context,
+                    timestamp_micros,
                 },
                 |services, statement, transaction, context| {
                     services.execute(statement, transaction, context)
@@ -193,6 +207,7 @@ impl Connection {
         transaction: Box<dyn Transaction>,
         explicit: bool,
         context: QueryContext,
+        timestamp_micros: i64,
     ) -> Result<QueryResult> {
         // Validate under the selected scheduler, then publish only after it
         // successfully executed the task exactly once. Configuration is not
@@ -218,7 +233,10 @@ impl Connection {
         match result {
             Ok(()) => {
                 if explicit {
-                    self.session = Session::Active(transaction);
+                    self.session = Session::Active(ActiveTransaction {
+                        transaction,
+                        timestamp_micros,
+                    });
                 }
                 Ok(QueryResult::command(0))
             }
@@ -244,10 +262,18 @@ impl Connection {
         let context = self.context()?;
         let previous = std::mem::replace(&mut self.session, Session::Idle);
         let explicit = matches!(previous, Session::Active(_));
-        let transaction = match previous {
-            Session::Active(tx) => tx,
-            _ => self.services.transactions.begin()?,
+        let (transaction, timestamp_micros) = match previous {
+            Session::Active(active) => (active.transaction, active.timestamp_micros),
+            _ => {
+                let transaction = self.services.transactions.begin()?;
+                context.check()?;
+                let timestamp_micros =
+                    self.services.transaction_clock.timestamp_micros(&context)?;
+                context.check()?;
+                (transaction, timestamp_micros)
+            }
         };
+        let context = context.with_transaction_timestamp(timestamp_micros);
         match self.services.binder.bind(
             syntax,
             &BindContext {
@@ -265,10 +291,14 @@ impl Connection {
                 transaction,
                 explicit,
                 context,
+                timestamp_micros,
             }),
             Err(error) => {
                 if explicit {
-                    self.session = Session::Active(transaction);
+                    self.session = Session::Active(ActiveTransaction {
+                        transaction,
+                        timestamp_micros,
+                    });
                 }
                 Err(error)
             }
@@ -285,6 +315,7 @@ impl Connection {
             mut transaction,
             explicit,
             context,
+            timestamp_micros,
         } = work;
         let mut task = Some((task, statement));
         let mut output = None;
@@ -309,7 +340,10 @@ impl Connection {
         match result {
             Ok(output) => {
                 if explicit {
-                    self.session = Session::Active(transaction);
+                    self.session = Session::Active(ActiveTransaction {
+                        transaction,
+                        timestamp_micros,
+                    });
                 } else {
                     transaction.commit()?;
                 }
@@ -347,7 +381,10 @@ impl Connection {
         let work = self.bind_statement(&statement.syntax, parameters)?;
         if !matches!(work.statement, BoundStatement::Query(_)) {
             if work.explicit {
-                self.session = Session::Active(work.transaction);
+                self.session = Session::Active(ActiveTransaction {
+                    transaction: work.transaction,
+                    timestamp_micros: work.timestamp_micros,
+                });
             }
             return Err(Error::Bind(
                 "batch consumption requires a SELECT query".into(),
@@ -373,15 +410,21 @@ impl Connection {
             ));
         }
         let transaction = self.services.transactions.begin()?;
+        let context = self.context()?;
+        context.check()?;
+        let timestamp_micros = self.services.transaction_clock.timestamp_micros(&context)?;
+        context.check()?;
+        let context = context.with_transaction_timestamp(timestamp_micros);
         if let BoundStatement::Configure(change) = statement {
-            return self.configure(change, transaction, false, self.context()?);
+            return self.configure(change, transaction, false, context, timestamp_micros);
         }
         self.run(
             BoundWork {
                 statement,
                 transaction,
                 explicit: false,
-                context: self.context()?,
+                context,
+                timestamp_micros,
             },
             |services, statement, transaction, context| {
                 services.execute(statement, transaction, context)

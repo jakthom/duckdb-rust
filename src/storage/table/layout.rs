@@ -132,6 +132,9 @@ fn equal_default(
         return Ok(false);
     }
     match (&left.kind, &right.kind) {
+        (StoredExpressionKind::CurrentTimestamp, StoredExpressionKind::CurrentTimestamp) => {
+            Ok(true)
+        }
         (
             StoredExpressionKind::Literal {
                 data_type: left_type,

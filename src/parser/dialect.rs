@@ -77,6 +77,16 @@ impl Dialect for RewriteDialect {
         }
         if let Token::Word(word) = parser.peek_token().token
             && word.quote_style.is_none()
+            && word.keyword == Keyword::CURRENT_TIMESTAMP
+            && parser.peek_nth_token(1).token != Token::LParen
+        {
+            // DuckDB first treats this SQL value spelling as an unqualified
+            // column reference. Binding falls back to get_current_timestamp()
+            // only after visible columns and aliases have had precedence.
+            return Some(parser.parse_identifier().map(Expr::Identifier));
+        }
+        if let Token::Word(word) = parser.peek_token().token
+            && word.quote_style.is_none()
             && matches!(word.keyword, Keyword::CEIL | Keyword::FLOOR)
         {
             // DuckDB uses ordinary catalog functions, not sqlparser's special
@@ -212,5 +222,33 @@ mod tests {
                 .parse("SELECT floor(TIMESTAMP '2024-01-01' TO DAY)")
                 .is_err()
         );
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn bare_current_timestamp_remains_a_column_candidate_but_call_syntax_does_not() {
+        for (sql, bare) in [
+            ("SELECT CURRENT_TIMESTAMP", true),
+            ("SELECT current_timestamp::TIMESTAMPTZ", true),
+            ("SELECT CURRENT_TIMESTAMP()", false),
+        ] {
+            let statements = DuckDbParser.parse(sql).unwrap();
+            let Statement::Sql(statement) = &statements[0] else {
+                panic!("SQL statement");
+            };
+            let ast::Statement::Query(query) = statement.as_ref() else {
+                panic!("query");
+            };
+            let SetExpr::Select(select) = query.body.as_ref() else {
+                panic!("select");
+            };
+            let expression = match &select.projection[0] {
+                SelectItem::UnnamedExpr(Expr::Cast { expr, .. }) => expr.as_ref(),
+                SelectItem::UnnamedExpr(expression) => expression,
+                _ => panic!("expression"),
+            };
+            assert_eq!(matches!(expression, Expr::Identifier(_)), bare, "{sql}");
+            assert_eq!(matches!(expression, Expr::Function(_)), !bare, "{sql}");
+        }
     }
 }

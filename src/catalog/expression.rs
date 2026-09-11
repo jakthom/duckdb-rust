@@ -31,6 +31,10 @@ pub enum StoredExpressionKind {
     /// Declared metadata is independent of the physical Value, including typed
     /// NULLs and small integers whose physical representation is full-width.
     Literal { data_type: DataType, value: Value },
+    /// Unqualified bare SQL `CURRENT_TIMESTAMP`. Native DuckDB retains this as
+    /// a column-reference-shaped SQL value node, distinct from callable scalar
+    /// functions and from row-dependent column references.
+    CurrentTimestamp,
     Cast {
         expression: Box<StoredExpression>,
         target: DataType,
@@ -200,6 +204,7 @@ impl StoredExpression {
                 ));
             }
             match &expression.kind {
+                StoredExpressionKind::CurrentTimestamp => {}
                 StoredExpressionKind::Literal { data_type, value } => {
                     query.types().bind(data_type)?.validate(value, query)?;
                 }

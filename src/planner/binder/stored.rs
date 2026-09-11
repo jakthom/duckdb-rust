@@ -10,6 +10,9 @@ impl State<'_, '_> {
     pub(super) fn stored_expression(&self, expression: &StoredExpression) -> Result<BoundExpr> {
         self.context.query.check()?;
         match &expression.kind {
+            StoredExpressionKind::CurrentTimestamp => {
+                self.scalar_call("get_current_timestamp", Vec::new())
+            }
             StoredExpressionKind::Operator { kind, children } => {
                 let children = children
                     .iter()
