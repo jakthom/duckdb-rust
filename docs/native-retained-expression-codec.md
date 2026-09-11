@@ -42,8 +42,16 @@ type-expression cases and 14 row-reference cases). The initial pass supported
 target cases. A first clippy pass found one collapsible conditional, repaired
 without changing its error policy. All 59 native library tests, ordinary workspace
 check and warnings-denied all-target clippy pass; coverage reports 382 files,
-3,693 functions and 239 methods, none missing. Reverse C++ reading and the next
-integrated tracing/Kani checkpoint are still pending for this source.
+3,693 functions and 239 methods, none missing.
+
+The [reverse-read campaign](native-retained-expression-codec-reference.json) on
+frozen `65bf5d3` now records 129 passed, zero failed and the same 71 unsupported
+fixtures. Each supported Rust export is read by its independently pinned producing
+C++ engine with identical raw structural/name inventory and diagnostic display.
+Both library identities are checked and engine source hashes remain unchanged.
+This comparison excludes source spans, and does not establish general bit-exact
+scalar payload equality (covered separately by the typed-Value codec fixtures).
+The next integrated tracing/Kani checkpoint remains pending for this source.
 
 The remaining connected work is retained UNBOUND type syntax and selected type
 binding, catalog/default ownership and bit-exact identity, SQL capture, omitted
