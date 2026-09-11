@@ -111,6 +111,26 @@ class LogicTests(unittest.TestCase):
         self.assertEqual((runner.skipped, runner.passed), (1, 0))
         self.assertEqual(len(engine.requests), 1)
 
+    def test_recognized_not_implemented_rejection_keeps_exact_error_assertion(self):
+        source = parse("statement error\nSELECT incompatible\n----\n"
+                       "Not implemented Error: recognized rejection\n")
+        response = {"ok": False, "unsupported": False,
+                    "message": "Not implemented Error: recognized rejection"}
+        runner = Runner(RecordingEngine([response]))
+        runner.run(source)
+        self.assertEqual(runner.passed, 1)
+        for message in ["Not implemented: recognized rejection",
+                        "Not Implemented Error: recognized rejection",
+                        "Not implemented Error: a different rejection"]:
+            with self.assertRaises(AssertionError):
+                Runner(RecordingEngine([{**response, "message": message}])).run(source)
+        for message in [response["message"], "Not implemented: missing capability"]:
+            runner = Runner(RecordingEngine([{**response, "unsupported": True,
+                                             "message": message}]))
+            with self.assertRaises(Unsupported):
+                runner.run(source)
+            self.assertEqual(runner.passed, 0)
+
     def test_unknown_directives_and_malformed_loops_fail(self):
         for source in ["require parquet\n", "mode skip\n", "concurrentloop i 0 3\n", "halt\nstatement ok\nSELECT 1\n"]:
             with self.assertRaises(Unsupported):

@@ -27,6 +27,20 @@ class NumericOracleTests(unittest.TestCase):
         self.assertFalse(equivalent(error, error, 'Out of Range Error'))
         self.assertFalse(equivalent(error, {**error, 'unsupported': True}, 'Conversion Error'))
 
+    def test_supported_not_implemented_rejection_is_not_missing_capability(self):
+        error = {'ok': False, 'unsupported': False,
+                 'message': 'Not implemented Error: incompatible recognized types'}
+        category = 'Not implemented Error'
+        self.assertTrue(equivalent(error, error, category))
+        self.assertFalse(equivalent(error, error))
+        for other in [
+                {**error, 'unsupported': True},
+                {**error, 'message': 'Not implemented: incompatible recognized types'},
+                {**error, 'message': 'Not Implemented Error: incompatible recognized types'},
+                {**error, 'message': 'Binder Error: incompatible recognized types'}]:
+            self.assertFalse(equivalent(error, other, category))
+            self.assertFalse(equivalent(other, error, category))
+
 
 if __name__ == '__main__':
     unittest.main()

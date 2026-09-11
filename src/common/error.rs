@@ -20,6 +20,12 @@ pub enum Error {
     CommitUnknown(String),
     #[error("Storage maintenance requires recovery; close and reopen the database: {0}")]
     RecoveryRequired(String),
+    /// A recognized operation is rejected by its implemented semantics, matching
+    /// a source-confirmed reference NotImplementedException. This is not a claim
+    /// that an absent rewrite capability has been implemented.
+    #[error("Not implemented Error: {0}")]
+    NotImplemented(String),
+    /// A required rewrite/adapter capability is absent, not a supported rejection.
     #[error("Not implemented: {0}")]
     Unsupported(String),
     #[error("Execution Error: {0}")]

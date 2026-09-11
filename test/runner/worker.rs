@@ -153,6 +153,11 @@ impl Session {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn error_response(error: Error) -> serde_json::Value {
+    json!({"ok":false,"unsupported":matches!(error,Error::Unsupported(_)),"message":error.to_string()})
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn main() -> Result<()> {
     let mut session = Session {
         database: Some(Database::memory()?),
@@ -166,9 +171,7 @@ fn main() -> Result<()> {
             .and_then(|request| session.run(request));
         let response = match result {
             Ok(value) => value,
-            Err(error) => {
-                json!({"ok":false,"unsupported":matches!(error,Error::Unsupported(_)),"message":error.to_string()})
-            }
+            Err(error) => error_response(error),
         };
         println!("{response}");
         io::stdout().flush()?;
@@ -179,6 +182,43 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn supported_rejections_remain_distinct_from_missing_capabilities() {
+        for (error, unsupported, message) in [
+            (
+                Error::NotImplemented("recognized invalid combination".into()),
+                false,
+                "Not implemented Error: recognized invalid combination",
+            ),
+            (
+                Error::Unsupported("missing adapter".into()),
+                true,
+                "Not implemented: missing adapter",
+            ),
+            (
+                Error::Bind("type mismatch".into()),
+                false,
+                "Binder Error: type mismatch",
+            ),
+            (
+                Error::Resource("budget".into()),
+                false,
+                "Resource limit exceeded: budget",
+            ),
+            (
+                Error::Internal("invariant".into()),
+                false,
+                "Internal Error: invariant",
+            ),
+        ] {
+            assert_eq!(
+                error_response(error),
+                json!({"ok":false,"unsupported":unsupported,"message":message})
+            );
+        }
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]

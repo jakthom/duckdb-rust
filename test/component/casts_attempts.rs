@@ -19,6 +19,8 @@ fn failure(code: u8) -> Error {
         4 => Error::Resource("cast resource witness".into()),
         5 => Error::Interrupted,
         6 => Error::Corrupt("cast corruption witness".into()),
+        8 => Error::NotImplemented("cast recognized rejection witness".into()),
+        9 => Error::Unsupported("cast missing capability witness".into()),
         _ => Error::Execution("cast execution witness".into()),
     }
 }
@@ -58,7 +60,7 @@ fn try_cast_uses_selected_failure_origin_without_reclassifying_public_errors() -
     let source = DataType::Varchar;
     let target = DataType::Integer;
     let input = Value::Varchar("x".into());
-    for code in 0..8 {
+    for code in 0..10 {
         for recoverable in [false, true] {
             let mut casts = CastRegistry::builtins();
             casts.replace(
@@ -155,7 +157,7 @@ impl TypeAdapter for RejectLogical {
 fn try_cast_keeps_source_target_and_nested_child_validation_failures_fatal() -> Result<()> {
     let query = QueryContext::background();
     let casts = CastRegistry::builtins();
-    for code in 0..8 {
+    for code in 0..10 {
         for source_failure in [false, true] {
             let mut types: TypeRegistry = builtin_types().as_ref().clone();
             types.replace(

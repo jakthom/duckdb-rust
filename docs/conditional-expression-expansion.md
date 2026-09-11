@@ -209,3 +209,19 @@ over mixed typed/literal VALUES returns `NULL,2,NULL`, all typed UHUGEINT, with
 Temporary telemetry was deleted and `cargo dev clean` completed. No worker
 acceptance benchmarks ran. The parent owns the substantial integrated Kani
 checkpoint; these internal checks do not prove expansion or execution parity.
+
+### Recognized-rejection prerequisite
+
+The shared `Error::NotImplemented(String)` now carries the exact reference
+category prefix without changing `Error::Unsupported` or any existing consumer.
+The worker transport marks only the latter as missing capability. Transport,
+numeric-oracle and SQLLogicTest contracts distinguish both variants, reject
+case-changed/wrong prefixes and preserve exact message assertions. No comparator
+implementation changed. The selected cast matrix includes both errors through
+ordinary/nested casts and source/target validation; TRY_CAST cannot suppress
+either, even when a replacement incorrectly requests invalid-input recovery.
+This prerequisite alone does not fix the retained VALUES mismatch or mark a
+missing operation implemented. Check, worker tests (2), casts (12), Python
+harness tests (40), all-target clippy, trace compatibility and coverage (349 files
+/ 3,333 functions / 227 interface methods, missing 0) pass; the combined Kani obligation remains
+with the parent checkpoint.
