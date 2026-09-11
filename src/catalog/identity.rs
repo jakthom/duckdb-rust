@@ -118,13 +118,13 @@ impl fmt::Display for CatalogObjectKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ObjectIdentity {
-    pub catalog: CatalogIdentity,
+    pub catalog: CatalogId,
     pub object: ObjectId,
     pub kind: CatalogObjectKind,
 }
 
 impl ObjectIdentity {
-    pub const fn new(catalog: CatalogIdentity, object: ObjectId, kind: CatalogObjectKind) -> Self {
+    pub const fn new(catalog: CatalogId, object: ObjectId, kind: CatalogObjectKind) -> Self {
         Self {
             catalog,
             object,
@@ -145,6 +145,9 @@ impl fmt::Display for ObjectIdentity {
 pub struct TableBinding {
     name: TableName,
     identity: Option<ObjectIdentity>,
+    /// Version observed while resolving this binding. It invalidates cached
+    /// resolution without changing the stable object key.
+    catalog_version: Option<CatalogVersion>,
 }
 
 impl TableBinding {
@@ -152,19 +155,30 @@ impl TableBinding {
         Self {
             name,
             identity: None,
+            catalog_version: None,
         }
     }
 
-    pub fn identified(name: TableName, identity: ObjectIdentity) -> Result<Self> {
+    pub fn identified(
+        name: TableName,
+        identity: ObjectIdentity,
+        catalog: CatalogIdentity,
+    ) -> Result<Self> {
         if identity.kind != CatalogObjectKind::Table {
             return Err(Error::InvalidInput(format!(
                 "table binding requires a table identity, got {}",
                 identity.kind
             )));
         }
+        if identity.catalog != catalog.id {
+            return Err(Error::InvalidInput(
+                "table identity and resolved catalog identity do not match".into(),
+            ));
+        }
         Ok(Self {
             name,
             identity: Some(identity),
+            catalog_version: catalog.version,
         })
     }
 
@@ -174,6 +188,10 @@ impl TableBinding {
 
     pub const fn identity(&self) -> Option<ObjectIdentity> {
         self.identity
+    }
+
+    pub const fn catalog_version(&self) -> Option<CatalogVersion> {
+        self.catalog_version
     }
 }
 
@@ -198,9 +216,13 @@ impl ResolvedTable {
         }
     }
 
-    pub fn identified(identity: ObjectIdentity, definition: TableDefinition) -> Result<Self> {
+    pub fn identified(
+        identity: ObjectIdentity,
+        catalog: CatalogIdentity,
+        definition: TableDefinition,
+    ) -> Result<Self> {
         Ok(Self {
-            binding: TableBinding::identified(definition.name.clone(), identity)?,
+            binding: TableBinding::identified(definition.name.clone(), identity, catalog)?,
             definition,
         })
     }
@@ -231,7 +253,7 @@ mod tests {
     use std::thread;
 
     use super::*;
-    use crate::catalog::{Catalog, CatalogMut, ColumnDefinition, UniqueKey};
+    use crate::catalog::{Catalog, CatalogMut, ColumnDefinition, TableAlteration, UniqueKey};
     use crate::common::DataType;
 
     fn definition(name: &str) -> TableDefinition {
@@ -246,11 +268,9 @@ mod tests {
     }
 
     fn table_identity(kind: CatalogObjectKind) -> ObjectIdentity {
-        ObjectIdentity::new(
-            CatalogIdentity::new(CatalogId::allocate().unwrap(), Some(CatalogVersion::new(7))),
-            ObjectId::allocate().unwrap(),
-            kind,
-        )
+        let catalog =
+            CatalogIdentity::new(CatalogId::allocate().unwrap(), Some(CatalogVersion::new(7)));
+        ObjectIdentity::new(catalog.id, ObjectId::allocate().unwrap(), kind)
     }
 
     #[test]
@@ -294,11 +314,18 @@ mod tests {
     #[test]
     fn handles_validate_kind_and_have_stable_diagnostics() {
         let name = TableName::new("Analytics", "Events");
-        let identity = table_identity(CatalogObjectKind::Table);
-        let binding = TableBinding::identified(name.clone(), identity).unwrap();
+        let catalog =
+            CatalogIdentity::new(CatalogId::allocate().unwrap(), Some(CatalogVersion::new(7)));
+        let identity = ObjectIdentity::new(
+            catalog.id,
+            ObjectId::allocate().unwrap(),
+            CatalogObjectKind::Table,
+        );
+        let binding = TableBinding::identified(name.clone(), identity, catalog).unwrap();
         assert_eq!(binding, binding.clone());
         assert_eq!(binding.name(), &name);
         assert_eq!(binding.identity(), Some(identity));
+        assert_eq!(binding.catalog_version(), catalog.version);
         assert_eq!(binding.to_string(), "analytics.events");
         assert_eq!(
             identity.to_string(),
@@ -307,22 +334,52 @@ mod tests {
 
         let schema = table_identity(CatalogObjectKind::Schema);
         assert!(matches!(
-            TableBinding::identified(name, schema),
+            TableBinding::identified(name, schema, catalog),
             Err(Error::InvalidInput(_))
         ));
         assert!(matches!(
-            ResolvedTable::identified(schema, definition("events")),
+            ResolvedTable::identified(schema, catalog, definition("events")),
             Err(Error::InvalidInput(_))
         ));
+
+        let other_catalog = CatalogIdentity::unversioned(CatalogId::allocate().unwrap());
+        assert!(matches!(
+            TableBinding::identified(TableName::main("events"), identity, other_catalog),
+            Err(Error::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn object_identity_survives_catalog_version_changes() {
+        let catalog_id = CatalogId::allocate().unwrap();
+        let object_id = ObjectId::allocate().unwrap();
+        let old_catalog = CatalogIdentity::new(catalog_id, Some(CatalogVersion::new(7)));
+        let new_catalog = CatalogIdentity::new(catalog_id, Some(CatalogVersion::new(8)));
+        let old_identity = ObjectIdentity::new(old_catalog.id, object_id, CatalogObjectKind::Table);
+        let new_identity = ObjectIdentity::new(new_catalog.id, object_id, CatalogObjectKind::Table);
+        let name = TableName::main("items");
+        let old = TableBinding::identified(name.clone(), old_identity, old_catalog).unwrap();
+        let new = TableBinding::identified(name, new_identity, new_catalog).unwrap();
+
+        assert_eq!(old_identity, new_identity);
+        assert_eq!(old.identity(), new.identity());
+        assert_ne!(old.catalog_version(), new.catalog_version());
+        assert_ne!(old, new);
     }
 
     #[derive(Clone)]
     struct LegacyCatalog {
         table: TableDefinition,
+        identity: Option<CatalogIdentity>,
         drops: usize,
+        alters: usize,
     }
 
     impl Catalog for LegacyCatalog {
+        fn identity(&self) -> Option<CatalogIdentity> {
+            self.identity
+        }
+
         fn schemas(&self) -> Result<Vec<String>> {
             Ok(vec!["main".into()])
         }
@@ -359,13 +416,26 @@ mod tests {
             self.drops += 1;
             Ok(())
         }
+
+        fn alter_table(
+            &mut self,
+            name: &TableName,
+            _alteration: &TableAlteration,
+            _context: &crate::parallel::QueryContext,
+        ) -> Result<bool> {
+            assert_eq!(name, &self.table.name);
+            self.alters += 1;
+            Ok(true)
+        }
     }
 
     #[test]
     fn legacy_catalog_defaults_are_explicitly_unversioned() {
         let mut catalog = LegacyCatalog {
             table: definition("items"),
+            identity: None,
             drops: 0,
+            alters: 0,
         };
         assert_eq!(catalog.identity(), None);
 
@@ -382,12 +452,48 @@ mod tests {
             catalog.table_by_identity(&identity),
             Err(Error::Unsupported(_))
         ));
-        let identified = TableBinding::identified(TableName::main("items"), identity).unwrap();
+        let identified = TableBinding::identified(
+            TableName::main("items"),
+            identity,
+            CatalogIdentity::unversioned(identity.catalog),
+        )
+        .unwrap();
         assert!(matches!(
             catalog.drop_table_identified(&identified, false),
             Err(Error::Unsupported(_))
         ));
         assert_eq!(catalog.drops, 1);
+    }
+
+    #[test]
+    fn identity_advertising_adapter_must_override_entry_and_mutation_paths() {
+        let identity =
+            CatalogIdentity::new(CatalogId::allocate().unwrap(), Some(CatalogVersion::new(3)));
+        let mut catalog = LegacyCatalog {
+            table: definition("items"),
+            identity: Some(identity),
+            drops: 0,
+            alters: 0,
+        };
+        let binding = TableBinding::unversioned(TableName::main("items"));
+
+        assert!(matches!(
+            catalog.table_entry(binding.name()),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            catalog.drop_table_identified(&binding, false),
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            catalog.alter_table_identified(
+                &binding,
+                &TableAlteration::RenameTable("renamed".into()),
+                &crate::parallel::QueryContext::background()
+            ),
+            Err(Error::Unsupported(_))
+        ));
+        assert_eq!((catalog.drops, catalog.alters), (0, 0));
     }
 
     #[test]

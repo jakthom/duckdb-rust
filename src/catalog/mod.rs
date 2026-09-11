@@ -138,6 +138,11 @@ pub trait Catalog: Send {
     /// Resolves a table together with the strongest handle this catalog can
     /// provide. The compatibility implementation is deliberately name-only.
     fn table_entry(&self, name: &TableName) -> Result<ResolvedTable> {
+        if self.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware catalog must implement table entry resolution".into(),
+            ));
+        }
         Ok(ResolvedTable::unversioned(self.table(name)?))
     }
 
@@ -161,7 +166,7 @@ pub trait CatalogMut: Catalog {
     /// Drops a previously resolved table. Legacy adapters may safely use their
     /// name-based path only for a name-only binding.
     fn drop_table_identified(&mut self, table: &TableBinding, if_exists: bool) -> Result<()> {
-        if table.identity().is_some() {
+        if self.identity().is_some() || table.identity().is_some() {
             return Err(Error::Unsupported(
                 "identity-aware table drop on this catalog".into(),
             ));
@@ -192,7 +197,7 @@ pub trait CatalogMut: Catalog {
         alteration: &TableAlteration,
         context: &crate::parallel::QueryContext,
     ) -> Result<bool> {
-        if table.identity().is_some() {
+        if self.identity().is_some() || table.identity().is_some() {
             return Err(Error::Unsupported(
                 "identity-aware table alteration on this catalog".into(),
             ));

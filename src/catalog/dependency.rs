@@ -517,7 +517,7 @@ mod tests {
     }
 
     fn object(catalog: CatalogIdentity, kind: CatalogObjectKind) -> ObjectIdentity {
-        ObjectIdentity::new(catalog, ObjectId::allocate().unwrap(), kind)
+        ObjectIdentity::new(catalog.id, ObjectId::allocate().unwrap(), kind)
     }
 
     fn table(catalog: CatalogIdentity) -> ObjectIdentity {
@@ -798,6 +798,36 @@ mod tests {
         assert_eq!(
             graph.plan_drop(schema, DropBehavior::Restrict).unwrap(),
             vec![table, schema]
+        );
+    }
+
+    #[test]
+    fn dependencies_survive_unrelated_catalog_version_increments() {
+        let catalog_v1 = catalog();
+        let subject_v1 = table(catalog_v1);
+        let dependent_v1 = table(catalog_v1);
+        let mut graph = DependencyGraph::new();
+        graph
+            .add_dependency(
+                dependent_v1,
+                subject_v1,
+                DependentFlags::automatic(),
+                SubjectFlags::ordinary(),
+            )
+            .unwrap();
+
+        let catalog_v2 = CatalogIdentity::new(
+            catalog_v1.id,
+            Some(catalog_v1.version.unwrap().checked_next().unwrap()),
+        );
+        let subject_v2 = ObjectIdentity::new(catalog_v2.id, subject_v1.object, subject_v1.kind);
+        let dependent_v2 =
+            ObjectIdentity::new(catalog_v2.id, dependent_v1.object, dependent_v1.kind);
+        assert_eq!(subject_v1, subject_v2);
+        assert_eq!(dependent_v1, dependent_v2);
+        assert_eq!(
+            graph.plan_drop(subject_v2, DropBehavior::Restrict).unwrap(),
+            vec![dependent_v2, subject_v2]
         );
     }
 
