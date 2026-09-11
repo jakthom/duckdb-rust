@@ -1,6 +1,6 @@
 # Rust implementation map
 
-Source-checked 2026-09-11 at `0b30fa8`. This is a navigation map, not a parity
+Source-checked 2026-09-11 at `e0cb423`. This is a navigation map, not a parity
 claim. Current work and dependencies live in the [parity backlog](parity-backlog.md);
 the [rewrite principles](../specs/rewrite-principles.md) define required replaceability.
 
@@ -26,7 +26,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 | Values/types | [type/value definitions](../src/common/types.rs), [registry](../src/common/type_registry.rs) | Broad scalar/temporal/nested foundation; function and consumer coverage incomplete |
 | Vectors | [flat/constant/dictionary vectors and chunks](../src/common/vector.rs) | Immutable owned/shared data; not complete native or Arrow vector parity |
 | Expressions | [scalar/batched evaluators](../src/execution/expression_executor.rs), [registered functions](../src/function/mod.rs) | Full overload/effect/default semantics remain open |
-| Stored expressions | [owned trees](../src/catalog/expression.rs), [capture](../src/planner/binder/capture.rs), [binding](../src/planner/binder/stored.rs), [selected evaluator](../src/planner/stored.rs) | Selected default DDL/demand/native lifecycle exists; native predicate trees and broader G04/G10/G11 consumers remain open |
+| Stored expressions | [owned trees](../src/catalog/expression.rs), [capture](../src/planner/binder/capture.rs), [binding](../src/planner/binder/stored.rs), [selected evaluator](../src/planner/stored.rs) | Closed representable default DDL/demand/native lifecycle exists; current-time/timezone (G04), catalog identity/dependencies (G10) and DML constraints/generated columns (G11) remain separate |
 | Optimization | [identity/configurable pipeline](../src/optimizer/mod.rs) | Default simplify/equality-lookup/EXISTS passes; no cost model |
 | Joins/subqueries | [join operators](../src/execution/operator/join.rs), [subquery adapters](../src/execution/subquery.rs) | Hash/nested-loop and streaming/materializing variants; broader SQL remains open |
 | Aggregation/windows | [aggregate](../src/execution/operator/aggregate.rs), [window](../src/execution/operator/window.rs) | Grouping sets and core windows exist; catalog/frame completeness remains open |
@@ -55,8 +55,9 @@ compatibility, encrypted files, all catalog objects or every concurrent history.
 The physical format, catalog/default representation and selected services must
 agree before publication. See [implementation notes](implementation-notes.md).
 
-INSERT materialization evaluates omitted default effects column-major inside fixed
-2,048-row DuckDB vectors and retains all rows until statement success. Snapshot
+INSERT materialization pulls at most 2,048 source rows at a time and evaluates
+omitted default effects column-major over each returned batch. Short natural child
+batches remain boundaries, and all rows stay staged until statement success. Snapshot
 tables separately retain physical slot order: regular updates remain in place,
 while indexed-column and unsupported nested updates leave a deleted slot and append
 their replacement. Manual and automatic checkpoint publication encode that order
@@ -69,9 +70,11 @@ simple in development but not in v1.5.5.
 The native default boundary retains absence separately from explicit `DEFAULT NULL`
 and carries selected function identity, qualification and argument provenance through
 checkpoint and WAL exchange. Ambiguous named-to-legacy conversion is rejected.
-Independent development-reference fixtures cover representable FUNCTION defaults;
-native CASE/predicate-tree completion remains a pending gate, not implied by the
-general stored-expression model.
+The checked-in development fixture covers FUNCTION checkpoint input. The independent
+process gate covers FUNCTION/CASE/predicate checkpoint exchange in both directions
+and Rust-origin WAL recovery. The pinned release accepts the checkpoint cases but
+its two Rust-origin WAL cases containing FUNCTION nodes retain the upstream startup
+limitation.
 
 ## Finding the right evidence
 

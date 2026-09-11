@@ -11,9 +11,11 @@ counts or a second status dashboard. Work ownership is in the
 an explicit typed `DEFAULT NULL`. Catalog validation and private snapshots retain
 the owned syntax and provenance. SQL CREATE/SET/ADD capture and selected native
 checkpoint/WAL integration are connected for closed representable trees. Native
-CASE/predicate-tree coverage still needs its final gate. Row-level explicit
-`DEFAULT`, CHECK and generated expressions remain G11 work; current-time defaults
-remain G04 work and sequence-backed defaults remain G10 work.
+CASE, comparison, conjunction, NULL-test, BETWEEN, IN and LIKE trees use DuckDB's
+parsed-node representation. Built-in current-date/time and timezone/calendar defaults
+remain G04 work. Real sequence objects and `nextval`, catalog function/object identity,
+search-path resolution, dependencies and prepared invalidation remain G10 work.
+DML-level explicit `DEFAULT`, CHECK constraints and generated columns remain G11 work.
 Independent Base64 (`DEFAULT from_base64('AP8=')`) and calendar function defaults
 expose this difference. A Rust-produced file can appear to work because the writer
 stored the evaluated value instead of retaining the default's semantics.
@@ -28,11 +30,22 @@ built-in registry inside a decoder when the selected context is unavailable.
 
 Binding and evaluation demand are different. CREATE/SET DEFAULT must not eagerly
 execute expressions that the reference defers until INSERT or ADD backfill. INSERT
-evaluates omitted defaults column-major within each fixed 2,048-row standard DuckDB
-vector, then advances to the next vector. Explicitly supplied columns bypass their
-defaults. All rows remain staged until evaluation and validation succeed, so a
-later default failure publishes no partial insert; empty input has no effects and
+pulls one source batch with a 2,048-row maximum, then evaluates omitted defaults
+column-major over exactly that batch. A short natural child batch remains a boundary;
+the source and defaults therefore share one effect pipeline rather than collecting
+the complete source first. Explicitly supplied columns bypass their defaults. All
+rows remain staged until evaluation and validation succeed, so a later source or
+default failure publishes no partial insert; empty input has no effects and
 `DEFAULT VALUES` supplies one row.
+
+Predicate demand depends on consumption mode. Projected and retained conjunction
+values evaluate both runtime children, while filter selection can stop once a row
+cannot change membership. Development-authoritative evaluation skips undemanded
+constant-NULL comparison siblings and decisive pure BETWEEN/IN branches without
+reordering remaining observable children. Direct BETWEEN input is evaluated once;
+effectful non-NULL input retains eager bound demand. LIKE/NOT LIKE likewise suppress
+an undemanded sibling when the other argument is constant NULL. These rules apply
+through both scalar and batch evaluators and through retained-default rebinding.
 
 For ADD, the pinned development behavior wins the known reference divergence.
 Development treats a constant, or one non-TRY cast directly around a constant, as
@@ -60,10 +73,11 @@ the pinned development process for FUNCTION-default WAL interoperability; the
 release remains valid for checkpoint-origin cases.
 `scripts/default_interoperability_reference.py` owns the bidirectional process
 check, and `scripts/generate_default_function_fixture.py` owns the checked-in
-pinned-development checkpoint used by the focused Rust regression. The process
-checks retained FUNCTION behavior and deferred failures in both directions, plus
-DuckDB metadata for an absent default versus explicit `DEFAULT NULL` across Rust
-checkpoint and WAL origins.
+development FUNCTION checkpoint used by the focused Rust regression. The process
+runs every case independently, so a known release WAL failure cannot hide later
+checkpoint results. It covers FUNCTION/CASE/predicate checkpoint exchange in both
+directions, Rust-origin WAL recovery, deferred failures, and DuckDB metadata for an
+absent default versus explicit `DEFAULT NULL`.
 
 Relevant sources: Rust `src/catalog/expression.rs`, `src/main/client_context.rs`,
 `src/planner/binder/{capture,stored}.rs`, `src/planner/stored.rs`,

@@ -324,11 +324,14 @@ Sources: `src/function/{aggregate,window}.rs`, `src/planner/window.rs`,
 
 ## G09 — Retained expressions and default lifecycle
 
-**Current:** Catalog columns and private snapshots retain optional `StoredExpression`
-trees, including absence, declared literal type and syntax provenance. SQL
-CREATE/SET/ADD captures and binds closed defaults without executing them. Omitted
-INSERT defaults run column-major within each fixed 2,048-row DuckDB vector, while
-the full row set remains staged so failure publishes no partial insert. ADD follows
+**Status: scoped retained-default lifecycle complete.** Catalog columns and private
+snapshots retain optional `StoredExpression` trees, including absence, declared
+literal type and syntax provenance. SQL CREATE/SET/ADD captures and binds closed
+defaults without executing during capture or binding; INSERT and demanded ADD
+backfill evaluate later at their documented demand points. Omitted
+INSERT defaults run column-major over each source batch requested with the fixed
+2,048-row DuckDB maximum; a short natural child batch remains a boundary, while the
+full row set remains staged so failure publishes no partial insert. ADD follows
 the pinned development behavior where the references diverge: a constant or one non-TRY
 cast around a constant is simple, while v1.5.5 treats only the bare constant as
 simple. Non-simple ADD evaluates visible rows only; simple ADD evaluates retained
@@ -340,34 +343,44 @@ Successful manual and automatic checkpoints reclaim only the current acknowledge
 snapshot; failed checkpoints leave slots, generation and the durable image unchanged,
 and older snapshots retain their holes.
 Native checkpoint/WAL expression codecs preserve selected function/default metadata,
-including absent versus explicit `DEFAULT NULL`, with bidirectional acceptance
-against the pinned development process.
+including absent versus explicit `DEFAULT NULL`, with bidirectional FUNCTION, CASE
+and predicate acceptance against the pinned development process. Both release
+checkpoint directions pass independently; its two Rust-origin WAL cases containing
+FUNCTION nodes retain the known upstream startup failure.
 
-- **G09.1 Retain catalog expressions — implemented core.** Optional owned expressions
+- **G09.1 Retain catalog expressions — implemented.** Optional owned expressions
   now retain declared types, aliases/argument provenance, qualification, operators
   and source spans through catalog alteration and private snapshot round trips.
   Closed CASE, NULL-test, BETWEEN, IN and LIKE defaults share ordinary binding;
   conditional ADD no-ops are resolved before type/default binding.
-- **G09.2 Connect DDL and evaluation demand — implemented core.** Capture
-  CREATE/SET/ADD defaults without eager execution. Evaluate omitted INSERT values
-  column-major per standard vector. Resolve ADD backfill once in the applicable
-  live-only or retained-physical demand order and reuse it across catalog-basis,
-  current-snapshot and WAL paths.
-- **G09.3 Connect native serialization — implemented representable core.** Integrate
+- **G09.2 Connect DDL and evaluation demand — implemented.** Capture
+  and bind CREATE/SET/ADD defaults without executing during those stages. Evaluate
+  omitted INSERT values column-major per source vector while interleaving source
+  effects and preserving short child-batch boundaries. Resolve demanded ADD backfill
+  once in the applicable live-only or retained-physical demand order and reuse it
+  across catalog-basis, current-snapshot and WAL paths.
+- **G09.3 Connect native serialization — implemented representable scope.** Integrate
   parsed/value codecs, unresolved/named type binding, private format, native
-  checkpoints and WAL. Selected FUNCTION defaults and absence/explicit-NULL metadata
-  pass independent exchange. Reject unrepresentable legacy argument provenance;
-  native CASE/predicate-tree coverage remains a final gate rather than a completed claim.
-- **G09.4 Finish lifetime/effect semantics (selected lifecycle implemented).** Closed
+  checkpoints and WAL. Selected FUNCTION, CASE and predicate defaults plus
+  absence/explicit-NULL metadata pass independent exchange. Reject unrepresentable
+  legacy argument provenance.
+- **G09.4 Preserve lifetime/effect semantics — implemented for closed defaults.** Closed
   retained binding permits volatile/external effects. Prepared omitted INSERT uses
-  execution-time settings; tests cover vector boundaries, failed-statement atomicity,
+  execution-time settings; value versus selection predicate demand matches the pinned
+  execution modes. Tests cover source/vector boundaries, failed-statement atomicity,
   CREATE/SET rollback, old catalog snapshots, update relocation, manual/automatic
-  reclamation, reopen and deferred error timing. Built-in current-time defaults
-  remain with G04, sequences with G10, and row-level explicit `DEFAULT`, CHECK and
-  generated expressions with G11.
+  reclamation, reopen and deferred error timing. Built-in current-date/time and
+  timezone/calendar defaults remain with G04. Real sequences/`nextval`, catalog
+  function/object identity, search-path resolution, dependencies and prepared
+  invalidation remain with G10. DML-level explicit `DEFAULT`, CHECK constraints and
+  generated columns remain with G11. Those are separate consumer scopes and are not
+  claimed by this G09 exit.
 
-**Exit:** independent C++ function-default files and Rust-origin files work through
-read/write/recovery; a one-time evaluated literal or codec-only round trip cannot pass.
+**Exit achieved for this slice:** the checked-in development fixture covers FUNCTION
+checkpoint input, and the independent process gate passes FUNCTION/CASE/predicate
+checkpoint exchange in both directions plus Rust-origin WAL recovery. A one-time
+evaluated literal or codec-only round trip cannot pass. Release checkpoint exchange
+passes separately from its documented upstream FUNCTION-node WAL startup limit.
 Sources: `src/catalog/{mod,expression}.rs`, `src/planner/binder/stored.rs`,
 `src/storage/duckdb/{parsed,value}/`, [implementation notes](implementation-notes.md#retained-defaults).
 
