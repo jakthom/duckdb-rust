@@ -279,6 +279,21 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
             c.execute_prepared(&c.prepare(physical_null)?, &[])?.rows,
             vec![vec![Value::Null]]
         );
+        let nullif_physical = "SELECT pow(NULLIF(length(enum_range_boundary(a,NULL)::VARCHAR),length(enum_range_boundary(a,NULL)::VARCHAR)),length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null";
+        assert_eq!(c.query(nullif_physical)?.rows, vec![vec![Value::Null]]);
+        assert_eq!(
+            c.execute_prepared(&c.prepare(nullif_physical)?, &[])?.rows,
+            vec![vec![Value::Null]]
+        );
+        c.execute("CREATE TABLE physical_null_two(a ENUM('z','a'),b VARCHAR); INSERT INTO physical_null_two VALUES ('z','enum_bad'),('a','enum_bad')")?;
+        let nullif_two = "SELECT pow(NULLIF(length(enum_range_boundary(a,NULL)::VARCHAR),length(enum_range_boundary(a,NULL)::VARCHAR)),length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null_two";
+        assert_eq!(
+            c.query(nullif_two)?.rows,
+            vec![vec![Value::Null], vec![Value::Null]]
+        );
+        let negative = "SELECT pow(NULLIF(length(enum_range_boundary(a,NULL)::VARCHAR),0),length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null";
+        let error = c.query(negative).unwrap_err();
+        assert!(error.to_string().contains("enum_bad"), "{error}");
         c.execute("CREATE TABLE physical_mixed(a ENUM('z','a'),b VARCHAR); INSERT INTO physical_mixed VALUES ('z','ok'),('a','enum_bad')")?;
         let mixed = "SELECT pow(CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR) END,length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_mixed";
         let error = c.query(mixed).unwrap_err();

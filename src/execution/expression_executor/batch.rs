@@ -430,6 +430,30 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     input: &DataChunk,
     context: &dyn EvaluationContext,
 ) -> Result<(Vector, ArgumentProvenance)> {
+    // NULLIF's expanded CASE is commonly wrapped in a combination cast. Keep
+    // the selected CASE vector and its runtime encoding across that wrapper
+    // instead of sending the whole cast tree through generic materialization.
+    if let ExprKind::Cast(inner, cast, false) = &expression.kind {
+        let (column, _) =
+            evaluate_child_with_semantic_provenance(evaluator, inner, input, context)?;
+        let column = if let Some(value) = column.constant_value() {
+            Vector::constant(
+                expression.data_type.clone(),
+                cast.apply(value, context.query())?,
+                input.len(),
+            )?
+        } else {
+            cast.apply_batch(&column, context.query())?
+        };
+        return Ok((
+            column.clone(),
+            if column.constant_value().is_some() {
+                ArgumentProvenance::Constant
+            } else {
+                ArgumentProvenance::Unknown
+            },
+        ));
+    }
     if matches!(expression.kind, ExprKind::Case(..)) {
         return evaluate_case_with_semantic_provenance(evaluator, expression, input, context);
     }
