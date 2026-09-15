@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g06_1a_unicode_caseconvert_50k",
+      "path": "test/performance/g06_caseconvert.test"
+    }
+  ]
+}
