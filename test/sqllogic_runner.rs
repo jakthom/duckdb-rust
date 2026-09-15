@@ -112,27 +112,169 @@ fn mode_skip_suppresses_all_non_mode_directives_and_debug_output_is_observable()
     let report = runner::run_file_report(&Database::memory()?, &path)?;
     assert!(matches!(report.status, runner::FileStatus::Skipped(_)));
     assert_eq!(
-        (report.declarations, report.passed, report.skipped),
-        (5, 3, 2)
+        (
+            report.declarations,
+            report.passed,
+            report.skipped,
+            report.generated
+        ),
+        (5, 1, 2, 2)
     );
     assert!(report.output.iter().any(|line| line.contains("SELECT 42")));
     assert!(
         report
             .output
             .iter()
-            .any(|line| line.contains("OUTPUT_HASH requested for 1 value"))
+            .any(|line| line == "1 values hashing to 84bc3da1b3e33a18e8d5e1bdd7a18d7a")
     );
     assert!(report.output.iter().any(|line| line.contains("SELECT 8")));
+    assert!(report.output.iter().any(|line| line == "42"));
+    assert!(report.output.iter().any(|line| line == "8"));
+    assert!(
+        !report
+            .output
+            .iter()
+            .any(|line| line.contains("result set(s)"))
+    );
     Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
-fn output_hash_mode_does_not_hide_a_wrong_result() -> duckdb_rust::Result<()> {
+fn output_modes_emit_pinned_values_and_hash_without_comparing_generated_hash_expectations()
+-> duckdb_rust::Result<()> {
     let root = root();
+    let result_path = root.path().join("test/output_result.test");
+    std::fs::write(
+        &result_path,
+        "mode output_result\n\nquery II\nSELECT true AS flag, '' AS blank\n----\n1\n(empty)\n",
+    )?;
+    let result_report = runner::run_file_report(&Database::memory()?, &result_path)?;
+    assert_eq!(result_report.status, runner::FileStatus::Passed);
+    assert_eq!(result_report.generated, 0);
+    assert!(
+        result_report
+            .output
+            .iter()
+            .any(|line| line == "flag\tblank")
+    );
+    assert!(
+        result_report
+            .output
+            .iter()
+            .any(|line| line == "BOOLEAN\tVARCHAR")
+    );
+    assert!(result_report.output.iter().any(|line| line == "1\t(empty)"));
+
+    let wrong_result_path = root.path().join("test/output_result_wrong.test");
+    std::fs::write(
+        &wrong_result_path,
+        "mode output_result\n\nquery I\nSELECT 1\n----\n2\n",
+    )?;
+    assert!(runner::run_file_report(&Database::memory()?, &wrong_result_path).is_err());
+
     let path = root.path().join("test/output_hash_wrong.test");
     std::fs::write(&path, "mode output_hash\n\nquery I\nSELECT 1\n----\n2\n")?;
-    assert!(runner::run_file_report(&Database::memory()?, &path).is_err());
+    let report = runner::run_file_report(&Database::memory()?, &path)?;
+    assert!(matches!(
+        report.status,
+        runner::FileStatus::GeneratedOutput(_)
+    ));
+    assert_eq!((report.passed, report.generated), (0, 1));
+    assert!(
+        report
+            .output
+            .iter()
+            .any(|line| line == "1 values hashing to b026324c6904b2a9cb4b88d6d61c81d1")
+    );
+    assert!(runner::run_file(&Database::memory()?, &path).is_err());
+
+    let sorted_path = root.path().join("test/output_hash_sorted.test");
+    std::fs::write(
+        &sorted_path,
+        "mode output_result\n\nmode output_hash\n\nquery I rowsort\nSELECT 2 AS i UNION ALL SELECT 1\n----\nignored\n",
+    )?;
+    let sorted = runner::run_file_report(&Database::memory()?, &sorted_path)?;
+    assert!(matches!(
+        sorted.status,
+        runner::FileStatus::GeneratedOutput(_)
+    ));
+    assert!(
+        sorted
+            .output
+            .iter()
+            .any(|line| line == "2 values hashing to 6ddb4095eb719e2a9f0a3f95677d24e0")
+    );
+    let two = sorted.output.iter().position(|line| line == "2").unwrap();
+    let one = sorted.output.iter().position(|line| line == "1").unwrap();
+    assert!(
+        two < one,
+        "output_result must precede sorting: {:?}",
+        sorted.output
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn re2_adapter_preserves_utf8_runes_and_ascii_perl_classes() -> duckdb_rust::Result<()> {
+    let root = root();
+    let passing = root.path().join("test/re2_utf8.test");
+    std::fs::write(
+        &passing,
+        "query T\nSELECT 'é'\n----\n<REGEX>:.\n\n\
+         query T\nSELECT 'éß'\n----\n<REGEX>:.{2}\n\n\
+         query T\nSELECT 'é'\n----\n<!REGEX>:\\w\n\n\
+         query T\nSELECT 'é'\n----\n<REGEX>:\\W\n\n\
+         query T\nSELECT 'é'\n----\n<REGEX>:[\\W]\n\n\
+         query T\nSELECT 'Az_09'\n----\n<REGEX>:\\w+\n\n\
+         query T\nSELECT '١'\n----\n<!REGEX>:\\d\n\n\
+         query T\nSELECT ' '\n----\n<!REGEX>:\\s\n\n\
+         query T\nSELECT ' '\n----\n<REGEX>:\\s\n",
+    )?;
+    let report = runner::run_file_report(&Database::memory()?, &passing)?;
+    assert_eq!(report.status, runner::FileStatus::Passed);
+    assert_eq!(report.passed, 9);
+
+    for (name, expected) in [
+        ("negative_dot", "<!REGEX>:."),
+        ("two_dots", "<REGEX>:.."),
+        ("unicode_word", "<REGEX>:\\w"),
+        ("negative_nonword", "<!REGEX>:\\W"),
+    ] {
+        let path = root.path().join(format!("test/{name}.test"));
+        std::fs::write(&path, format!("query T\nSELECT 'é'\n----\n{expected}\n"))?;
+        assert!(
+            runner::run_file_report(&Database::memory()?, &path).is_err(),
+            "{name} must reject the divergent expectation"
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn cli_emits_file_report_generated_output() -> duckdb_rust::Result<()> {
+    let root = root();
+    let path = root.path().join("test/cli_output.test");
+    std::fs::write(
+        &path,
+        "mode output_hash\n\nquery I\nSELECT 1\n----\nwrong\n",
+    )?;
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_sqllogictest"))
+        .arg(&path)
+        .output()?;
+    assert!(result.status.success());
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(
+        stdout.contains("1 values hashing to b026324c6904b2a9cb4b88d6d61c81d1"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("GENERATED "), "{stdout}");
+    assert!(
+        stdout.contains("0 records passed; 0 skipped; 1 generated"),
+        "{stdout}"
+    );
     Ok(())
 }
 

@@ -9,7 +9,7 @@ mod oracle;
 mod parser;
 
 use directives::{DirectiveAction, DirectiveHeader, DirectiveState, Mode};
-use duckdb_rust::{Connection, Database, Error, Result, Value};
+use duckdb_rust::{Connection, DataType, Database, Error, QueryResult, Result, Value};
 use fixtures::FixtureResolver;
 use oracle::{
     ActualCell, ActualColumn, ActualError, ActualResult, ErrorKind, ExpectedStatement,
@@ -28,6 +28,11 @@ use std::{
 pub(crate) enum FileStatus {
     Passed,
     Skipped(String),
+    /// At least one source command deliberately bypassed an expectation while
+    /// emitting replacement output (currently `mode output_hash` or a
+    /// statement-level `debug`/`debug_skip`). The source run succeeded, but it
+    /// is not an assertion-backed parity pass.
+    GeneratedOutput(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,6 +41,7 @@ pub(crate) struct FileReport {
     pub declarations: usize,
     pub passed: usize,
     pub skipped: usize,
+    pub generated: usize,
     /// Output requested by `mode output_*`, `mode debug`, or statement-level
     /// `debug`/`debug_skip`. Keeping it in the report makes the source modes
     /// observable without writing nondeterministically during test execution.
@@ -98,21 +104,72 @@ impl Re2Matcher for RustRe2Matcher {
     fn full_match(&self, pattern: &[u8], value: &[u8]) -> std::result::Result<bool, String> {
         let pattern = std::str::from_utf8(pattern)
             .map_err(|_| "RE2 pattern is not valid UTF-8".to_string())?;
+        let pattern = re2_ascii_perl_classes(pattern);
         // Anchoring the expression implements RE2 FullMatch. Both engines use
         // a linear-time automaton and reject look-around and backreferences.
         let expression = format!(r"\A(?:{pattern})\z");
         regex::bytes::RegexBuilder::new(&expression)
             .dot_matches_new_line(true)
-            // RE2's Perl character classes are ASCII. In particular, `\d`,
-            // `\w`, and `\s` must not grow to Unicode classes in this adapter.
-            .unicode(false)
+            // Keep Unicode mode enabled so `.`, classes and their quantifiers
+            // consume UTF-8 codepoints like RE2. The adapter above narrows only
+            // RE2's ASCII Perl classes and word-boundary assertions.
+            .unicode(true)
             .build()
             .map(|regex| regex.is_match(value))
             .map_err(|error| error.to_string())
     }
 }
 
+/// Rust regexes make the Perl classes Unicode-aware by default, while RE2's
+/// generated `perl_groups.cc` defines them over ASCII ranges. Expand those
+/// escapes into Unicode character classes with the exact RE2 ranges; unlike
+/// disabling Unicode globally, this preserves rune semantics for `.` and
+/// quantifiers. Nested classes are supported by the Rust regex syntax, so the
+/// same expansion is valid both inside and outside bracket expressions.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn re2_ascii_perl_classes(pattern: &str) -> String {
+    let mut output = String::with_capacity(pattern.len());
+    let mut characters = pattern.chars().peekable();
+    let mut in_class = false;
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            let Some(escaped) = characters.next() else {
+                output.push(character);
+                break;
+            };
+            match escaped {
+                'd' => output.push_str("[0-9]"),
+                'D' => output.push_str("[^0-9]"),
+                's' => output.push_str(r"[\x09-\x0A\x0C-\x0D\x20]"),
+                'S' => output.push_str(r"[^\x09-\x0A\x0C-\x0D\x20]"),
+                'w' => output.push_str("[0-9A-Z_a-z]"),
+                'W' => output.push_str("[^0-9A-Z_a-z]"),
+                // RE2's Perl word boundaries use the ASCII `\w` definition.
+                'b' | 'B' if !in_class => {
+                    output.push_str("(?-u:\\");
+                    output.push(escaped);
+                    output.push(')');
+                }
+                _ => {
+                    output.push(character);
+                    output.push(escaped);
+                }
+            }
+            continue;
+        }
+        if character == '[' {
+            in_class = true;
+        } else if character == ']' && in_class {
+            in_class = false;
+        }
+        output.push(character);
+    }
+    output
+}
+
 static SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const OUTPUT_SEPARATOR: &str =
+    "================================================================================";
 
 struct Scratch(PathBuf);
 
@@ -142,10 +199,9 @@ pub fn run_file(database: &Database, path: &Path) -> Result<usize> {
     let report = run_file_report(database, path)?;
     match report.status {
         FileStatus::Passed => Ok(report.passed),
-        FileStatus::Skipped(reason) => Err(Error::Execution(format!(
-            "{} was not fully executed: {reason}",
-            path.display()
-        ))),
+        FileStatus::Skipped(reason) | FileStatus::GeneratedOutput(reason) => Err(Error::Execution(
+            format!("{} was not fully executed: {reason}", path.display()),
+        )),
     }
 }
 
@@ -182,6 +238,7 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
     let mut directives = default_directive_state();
     let mut hash_threshold = 0usize;
     let mut output = Vec::new();
+    let mut generated = 0usize;
     let mut active_sources = vec![top];
     let original_sqlite = path
         .to_string_lossy()
@@ -241,6 +298,9 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
 
         match token.kind {
             TokenKind::Statement => {
+                let statement_debug = token.parameters.first().is_some_and(|argument| {
+                    matches!(argument.as_slice(), b"debug" | b"debug_skip")
+                });
                 let debug_skip = execute_statement(
                     database,
                     &mut connections,
@@ -256,20 +316,24 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                 if debug_skip {
                     directives.mode.skip_depth += 1;
                 }
+                generated += usize::from(statement_debug);
             }
-            TokenKind::Query => execute_query(
-                database,
-                &mut connections,
-                &mut parser,
-                &mut accounting,
-                &mut oracle,
-                &substitutions,
-                &token,
-                hash_threshold,
-                original_sqlite,
-                directives.mode,
-                &mut output,
-            )?,
+            TokenKind::Query => {
+                execute_query(
+                    database,
+                    &mut connections,
+                    &mut parser,
+                    &mut accounting,
+                    &mut oracle,
+                    &substitutions,
+                    &token,
+                    hash_threshold,
+                    original_sqlite,
+                    directives.mode,
+                    &mut output,
+                )?;
+                generated += usize::from(directives.mode.output_hash);
+            }
             TokenKind::HashThreshold => {
                 let value = one_argument(&token, "hash-threshold")?;
                 hash_threshold = ascii(value, &token, "hash threshold")?
@@ -330,8 +394,9 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                         return Ok(FileReport {
                             status: FileStatus::Skipped(reason),
                             declarations: snapshot.declarations,
-                            passed: snapshot.passed,
+                            passed: snapshot.passed.saturating_sub(generated),
                             skipped: snapshot.skipped,
+                            generated,
                             output,
                         });
                     }
@@ -384,14 +449,19 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
         )));
     }
     Ok(FileReport {
-        status: if snapshot.skipped == 0 {
-            FileStatus::Passed
-        } else {
+        status: if snapshot.skipped != 0 {
             FileStatus::Skipped(format!("{} records skipped", snapshot.skipped))
+        } else if generated != 0 {
+            FileStatus::GeneratedOutput(format!(
+                "{generated} record(s) emitted unchecked generated output"
+            ))
+        } else {
+            FileStatus::Passed
         },
         declarations: snapshot.declarations,
-        passed: snapshot.passed,
+        passed: snapshot.passed.saturating_sub(generated),
         skipped: snapshot.skipped,
+        generated,
         output,
     })
 }
@@ -456,7 +526,7 @@ fn execute_statement(
         .map_err(accounting_error)?;
     let sql_bytes = substitutions.replace(&sql.bytes);
     if mode.output_result || mode.debug || statement_debug {
-        output.push(format!("{}: SQL {}", token.location, escaped(&sql_bytes)));
+        append_output_preamble(output, token, &sql_bytes);
     }
     let text = transport_sql(&sql_bytes).map_err(|error| {
         let _ = accounting.record(execution, ExecutionOutcome::Failed);
@@ -467,11 +537,16 @@ fn execute_statement(
         .or_insert_with(|| database.connect())
         .execute(text);
     if mode.output_result || mode.debug || statement_debug {
-        let rendered = match &outcome {
-            Ok(results) => format!("{} result set(s)", results.len()),
-            Err(error) => format!("error: {error}"),
-        };
-        output.push(format!("{}: RESULT {rendered}", token.location));
+        match &outcome {
+            Ok(results) => {
+                for result in results {
+                    let values =
+                        convert_output_result(result, false).map_err(|error| at(token, &error))?;
+                    append_output_result(output, result, &values);
+                }
+            }
+            Err(error) => output.push(format!("error: {error}")),
+        }
     }
     let checked = match outcome {
         Ok(_) => oracle.check_statement(StatementResult::Success, expected),
@@ -548,7 +623,7 @@ fn execute_query(
         .map_err(accounting_error)?;
     let sql_bytes = substitutions.replace(&sql.bytes);
     if mode.output_result || mode.debug {
-        output.push(format!("{}: SQL {}", token.location, escaped(&sql_bytes)));
+        append_output_preamble(output, token, &sql_bytes);
     }
     let text = transport_sql(&sql_bytes).map_err(|error| {
         let _ = accounting.record(execution, ExecutionOutcome::Failed);
@@ -592,15 +667,25 @@ fn execute_query(
             Some(value) => ActualCell::Text(value),
         })
         .collect();
+    let actual_values = convert_output_result(&result, original_sqlite).map_err(|error| {
+        let _ = accounting.record(execution, ExecutionOutcome::Failed);
+        at(token, &error)
+    })?;
     if mode.output_result {
-        output.push(format!("{}: RESULT {:?}", token.location, rendered));
+        append_output_result(output, &result, &actual_values);
     }
     if mode.output_hash {
-        output.push(format!(
-            "{}: OUTPUT_HASH requested for {} value(s)",
-            token.location,
-            rendered.len()
-        ));
+        let mut hash_values = actual_values.clone();
+        sort_output_values(sort, &mut hash_values, result.columns.len())?;
+        output.push(OUTPUT_SEPARATOR.into());
+        output.push(sql_with_semicolon(&sql_bytes));
+        output.push(OUTPUT_SEPARATOR.into());
+        output.push(output_hash(&hash_values));
+        output.push(OUTPUT_SEPARATOR.into());
+        accounting
+            .record(execution, ExecutionOutcome::Passed)
+            .map_err(accounting_error)?;
+        return Ok(());
     }
     let checked = oracle.check_query(
         ActualResult {
@@ -627,6 +712,326 @@ fn execute_query(
     accounting
         .record(execution, ExecutionOutcome::Passed)
         .map_err(accounting_error)
+}
+
+/// Convert in row-major order using the pinned runner's
+/// `SQLLogicTestConvertValue` wire format.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn convert_output_result(
+    result: &QueryResult,
+    original_sqlite: bool,
+) -> std::result::Result<Vec<String>, String> {
+    result
+        .rows
+        .iter()
+        .flat_map(|row| row.iter().enumerate())
+        .map(|(column, value)| {
+            let data_type = &result.columns[column].data_type;
+            convert_output_value(value, data_type, original_sqlite)
+        })
+        .collect()
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn convert_output_value(
+    value: &Value,
+    data_type: &DataType,
+    original_sqlite: bool,
+) -> std::result::Result<String, String> {
+    if matches!(value, Value::Null) {
+        return Ok("NULL".into());
+    }
+    if original_sqlite {
+        let integer = match (data_type, value) {
+            (DataType::Float, Value::Float(value)) => {
+                rounded_sqlite_float(f64::from(*value), "FLOAT")?
+            }
+            (DataType::Double, Value::Double(value)) => rounded_sqlite_float(*value, "DOUBLE")?,
+            (DataType::Decimal { scale, .. }, Value::Decimal { value, .. }) => {
+                let divisor = 10_u128.pow(u32::from(*scale));
+                let magnitude = value.unsigned_abs();
+                let quotient = magnitude / divisor;
+                let remainder = magnitude % divisor;
+                let rounded = quotient + u128::from(remainder.saturating_mul(2) >= divisor);
+                let signed = i128::try_from(rounded)
+                    .ok()
+                    .and_then(|rounded| {
+                        if *value < 0 {
+                            rounded.checked_neg()
+                        } else {
+                            Some(rounded)
+                        }
+                    })
+                    .ok_or_else(|| "DECIMAL cannot be cast to BIGINT".to_string())?;
+                i64::try_from(signed)
+                    .map_err(|_| "DECIMAL cannot be cast to BIGINT".to_string())?
+                    .to_string()
+            }
+            _ => String::new(),
+        };
+        if !integer.is_empty() {
+            return Ok(integer);
+        }
+    }
+    if let (DataType::Boolean, Value::Boolean(value)) = (data_type, value) {
+        return Ok(if *value { "1" } else { "0" }.into());
+    }
+    let rendered = value.to_string();
+    if rendered.is_empty() {
+        Ok("(empty)".into())
+    } else {
+        Ok(rendered.replace('\0', "\\0"))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn rounded_sqlite_float(value: f64, name: &str) -> std::result::Result<String, String> {
+    let rounded = value.round();
+    if !rounded.is_finite() || rounded < i64::MIN as f64 || rounded > i64::MAX as f64 {
+        return Err(format!("{name} cannot be cast to BIGINT"));
+    }
+    Ok((rounded as i64).to_string())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn append_output_result(output: &mut Vec<String>, result: &QueryResult, values: &[String]) {
+    if result.columns.is_empty() {
+        output.push(format!("{} affected row(s)", result.affected_rows));
+        return;
+    }
+    output.push(
+        result
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>()
+            .join("\t"),
+    );
+    output.push(
+        result
+            .columns
+            .iter()
+            .map(|column| column.data_type.to_string())
+            .collect::<Vec<_>>()
+            .join("\t"),
+    );
+    output.push(OUTPUT_SEPARATOR.into());
+    for row in values.chunks(result.columns.len()) {
+        output.push(row.join("\t"));
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn append_output_preamble(output: &mut Vec<String>, token: &Token, sql: &[u8]) {
+    output.push(OUTPUT_SEPARATOR.into());
+    output.push(format!("File {})", token.location));
+    output.push("SQL Query".into());
+    output.push(String::from_utf8_lossy(sql).into_owned());
+    output.push(OUTPUT_SEPARATOR.into());
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn sql_with_semicolon(sql: &[u8]) -> String {
+    let mut sql = String::from_utf8_lossy(sql).into_owned();
+    if sql.ends_with('\n') {
+        if !sql.ends_with(";\n") {
+            sql.pop();
+            sql.push_str(";\n");
+        }
+    } else if !sql.ends_with(';') {
+        sql.push(';');
+    }
+    sql
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn sort_output_values(mode: SortMode, values: &mut [String], columns: usize) -> Result<()> {
+    match mode {
+        SortMode::None => Ok(()),
+        SortMode::Values => {
+            values.sort();
+            Ok(())
+        }
+        SortMode::Rows => {
+            if columns == 0 || !values.len().is_multiple_of(columns) {
+                return Err(Error::Internal(format!(
+                    "cannot row-sort {} generated values into {columns} columns",
+                    values.len()
+                )));
+            }
+            let mut rows: Vec<Vec<String>> =
+                values.chunks(columns).map(<[String]>::to_vec).collect();
+            rows.sort();
+            for (target, value) in values.iter_mut().zip(rows.into_iter().flatten()) {
+                *target = value;
+            }
+            Ok(())
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn output_hash(values: &[String]) -> String {
+    let mut md5 = Md5::new();
+    for value in values {
+        md5.update(value.as_bytes());
+        md5.update(b"\n");
+    }
+    format!("{} values hashing to {}", values.len(), md5.finish_hex())
+}
+
+// Small local MD5 implementation matching DuckDB's `MD5Context::FinishHex()`.
+// The result oracle has the same primitive, but its state is intentionally
+// private; output generation must compute the digest before deciding whether
+// expectation comparison is applicable.
+struct Md5 {
+    state: [u32; 4],
+    length: u64,
+    pending: Vec<u8>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Md5 {
+    fn new() -> Self {
+        Self {
+            state: [0x6745_2301, 0xefcd_ab89, 0x98ba_dcfe, 0x1032_5476],
+            length: 0,
+            pending: Vec::new(),
+        }
+    }
+
+    fn update(&mut self, input: &[u8]) {
+        self.length = self.length.wrapping_add(input.len() as u64);
+        self.pending.extend_from_slice(input);
+        while self.pending.len() >= 64 {
+            let block: [u8; 64] = self.pending[..64].try_into().expect("block length");
+            self.compress(&block);
+            self.pending.drain(..64);
+        }
+    }
+
+    fn finish_hex(mut self) -> String {
+        let bit_length = self.length.wrapping_mul(8);
+        self.pending.push(0x80);
+        while self.pending.len() % 64 != 56 {
+            self.pending.push(0);
+        }
+        self.pending.extend_from_slice(&bit_length.to_le_bytes());
+        while !self.pending.is_empty() {
+            let block: [u8; 64] = self.pending[..64].try_into().expect("block length");
+            self.compress(&block);
+            self.pending.drain(..64);
+        }
+        let mut result = String::with_capacity(32);
+        for word in self.state {
+            for byte in word.to_le_bytes() {
+                use std::fmt::Write;
+                write!(result, "{byte:02x}").expect("writing to String cannot fail");
+            }
+        }
+        result
+    }
+
+    fn compress(&mut self, block: &[u8; 64]) {
+        const SHIFT: [u32; 64] = [
+            7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20,
+            5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+            6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+        ];
+        const K: [u32; 64] = [
+            0xd76a_a478,
+            0xe8c7_b756,
+            0x2420_70db,
+            0xc1bd_ceee,
+            0xf57c_0faf,
+            0x4787_c62a,
+            0xa830_4613,
+            0xfd46_9501,
+            0x6980_98d8,
+            0x8b44_f7af,
+            0xffff_5bb1,
+            0x895c_d7be,
+            0x6b90_1122,
+            0xfd98_7193,
+            0xa679_438e,
+            0x49b4_0821,
+            0xf61e_2562,
+            0xc040_b340,
+            0x265e_5a51,
+            0xe9b6_c7aa,
+            0xd62f_105d,
+            0x0244_1453,
+            0xd8a1_e681,
+            0xe7d3_fbc8,
+            0x21e1_cde6,
+            0xc337_07d6,
+            0xf4d5_0d87,
+            0x455a_14ed,
+            0xa9e3_e905,
+            0xfcef_a3f8,
+            0x676f_02d9,
+            0x8d2a_4c8a,
+            0xfffa_3942,
+            0x8771_f681,
+            0x6d9d_6122,
+            0xfde5_380c,
+            0xa4be_ea44,
+            0x4bde_cfa9,
+            0xf6bb_4b60,
+            0xbebf_bc70,
+            0x289b_7ec6,
+            0xeaa1_27fa,
+            0xd4ef_3085,
+            0x0488_1d05,
+            0xd9d4_d039,
+            0xe6db_99e5,
+            0x1fa2_7cf8,
+            0xc4ac_5665,
+            0xf429_2244,
+            0x432a_ff97,
+            0xab94_23a7,
+            0xfc93_a039,
+            0x655b_59c3,
+            0x8f0c_cc92,
+            0xffef_f47d,
+            0x8584_5dd1,
+            0x6fa8_7e4f,
+            0xfe2c_e6e0,
+            0xa301_4314,
+            0x4e08_11a1,
+            0xf753_7e82,
+            0xbd3a_f235,
+            0x2ad7_d2bb,
+            0xeb86_d391,
+        ];
+        let mut words = [0_u32; 16];
+        for (index, word) in words.iter_mut().enumerate() {
+            *word = u32::from_le_bytes(block[index * 4..index * 4 + 4].try_into().expect("word"));
+        }
+        let [mut a, mut b, mut c, mut d] = self.state;
+        for index in 0..64 {
+            let (function, word) = match index {
+                0..=15 => ((b & c) | (!b & d), index),
+                16..=31 => ((d & b) | (!d & c), (5 * index + 1) % 16),
+                32..=47 => (b ^ c ^ d, (3 * index + 5) % 16),
+                _ => (c ^ (b | !d), (7 * index) % 16),
+            };
+            let next = b.wrapping_add(
+                a.wrapping_add(function)
+                    .wrapping_add(K[index])
+                    .wrapping_add(words[word])
+                    .rotate_left(SHIFT[index]),
+            );
+            a = d;
+            d = c;
+            c = b;
+            b = next;
+        }
+        self.state[0] = self.state[0].wrapping_add(a);
+        self.state[1] = self.state[1].wrapping_add(b);
+        self.state[2] = self.state[2].wrapping_add(c);
+        self.state[3] = self.state[3].wrapping_add(d);
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

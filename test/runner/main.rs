@@ -19,26 +19,38 @@ fn main() -> std::process::ExitCode {
     };
     let mut passed = 0;
     let mut skipped = 0;
+    let mut generated = 0;
     for path in paths {
         let result =
             duckdb_rust::Database::memory().and_then(|db| runner::run_file_report(&db, &path));
         match result {
-            Ok(report) => match report.status {
-                runner::FileStatus::Passed => {
-                    passed += report.passed;
-                    println!("PASS {} ({} records)", path.display(), report.passed);
+            Ok(report) => {
+                for line in &report.output {
+                    println!("{line}");
                 }
-                runner::FileStatus::Skipped(reason) => {
-                    skipped += report.skipped.max(1);
-                    println!("SKIP {} ({reason})", path.display());
+                match report.status {
+                    runner::FileStatus::Passed => {
+                        passed += report.passed;
+                        println!("PASS {} ({} records)", path.display(), report.passed);
+                    }
+                    runner::FileStatus::Skipped(reason) => {
+                        skipped += report.skipped.max(1);
+                        generated += report.generated;
+                        println!("SKIP {} ({reason})", path.display());
+                    }
+                    runner::FileStatus::GeneratedOutput(reason) => {
+                        passed += report.passed;
+                        generated += report.generated;
+                        println!("GENERATED {} ({reason})", path.display());
+                    }
                 }
-            },
+            }
             Err(e) => {
                 eprintln!("{e}");
                 return std::process::ExitCode::FAILURE;
             }
         }
     }
-    println!("{passed} records passed; {skipped} skipped");
+    println!("{passed} records passed; {skipped} skipped; {generated} generated");
     std::process::ExitCode::SUCCESS
 }
