@@ -879,6 +879,7 @@ impl TransposeUtf8 for Option<Vec<u8>> {
 mod tests {
     use super::*;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn substitutions_replace_legacy_marker_before_braced_marker() {
         let substitutions = Substitutions::default();
@@ -886,6 +887,7 @@ mod tests {
         assert_eq!(substitutions.replace(b"${NAME}/{NAME}"), b"value/value");
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn regex_perl_classes_are_ascii_and_non_ascii_mutations_fail() {
         let matcher = RustRe2Matcher;
@@ -902,6 +904,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn invalid_utf8_transport_error_states_that_engine_was_not_invoked() {
         let error = transport_sql(b"SELECT \xff").unwrap_err();

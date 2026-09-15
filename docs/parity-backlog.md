@@ -78,8 +78,10 @@ reference build; no Rust overload-completion percentage is inferred from them.
 Raw, revision-specific evidence lives under ignored `target/g01-20260915/`:
 `inventory-complete/inventory.json`, `sql/accounting-final.json`,
 `compatibility/summary.json` and `performance/*-fastest.json`.
-The G01 Wave A paired runner evidence is under ignored
-`target/g01-wave-a-20260915/performance/acceptance-1.json`.
+The authoritative G01 Wave A paired runner evidence is under ignored
+`target/g01-wave-a-20260915/performance/acceptance-2.json`. The retained
+`acceptance-1.json` attempt is rejected because its serializer discarded raw
+observations; it is not acceptance evidence.
 Source/binary/harness hashes and exact commands belong in those reports. Historical
 pass counts and the superseded milestone baseline have been removed from this plan;
 they must not be added to fresh scoped results.
@@ -125,15 +127,18 @@ accounting; source-rooted includes, bounded fixture staging and gzip extraction;
 `require`, mode, environment, tag and sleep controls; and the typed numeric,
 sort/hash/label, external-file, full-match regex and error oracle. Skips are not
 reported as passes, and unsupported/internal/verification engine errors cannot
-satisfy expected SQL errors. The development invalid-UTF-8 location case reaches
-the engine diagnostic boundary and passes all four records; both pins' invisible-
-space inputs are preserved and parsed in byte-level regression tests.
+satisfy expected SQL errors. The development invalid-UTF-8 input is byte-preserved
+through parsing and rejected explicitly by the current UTF-8 SQL transport at byte
+offset 14; the engine is not invoked, so this is not evidence for JSON diagnostic
+or invalid-byte engine parity. Both pins' invisible-space inputs are preserved and
+parsed in byte-level regression tests. The production diagnostic boundary remains
+with G02.4.
 
-The focused integrated targets pass 82 runner/corpus tests, including deliberate
+The focused integrated targets pass 96 runner/corpus tests, including deliberate
 wrong-value, wrong-hash, invalid-regex, fixture-escape and skip false-green cases.
 Both pinned native runners and the Rust production runner pass the two declared
 Wave A SQLLogic workloads. On nine paired samples after three warmups, Rust was
-0.300x the faster pinned wall-time median and at most 0.289x its peak RSS; measured
+at most 0.300x the faster pinned wall-time median and 0.291x its peak RSS; measured
 CPU and block I/O were independently no worse. Gate P therefore records
 **at-parity or better performance: pass** for each of G01.2a/b/d. These bounded
 workloads do not change the older 4,834/5,637-file campaign counts above.
