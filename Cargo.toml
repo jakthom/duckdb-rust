@@ -178,6 +178,7 @@ sqlparser = { version = "0.62.0", default-features = false, features = ["std"] }
 thiserror = "2.0.18"
 crc32fast = "1.5.0"
 flate2 = "1.1.9"
+utf8proc = "0.1.2"
 libm = "0.2.16"
 # Both pinned DuckDB references vendor RE2 2023-02-01 and its Unicode 15.0
 # tables. Keep the complete Rust regex stack on the last Unicode-15 releases so

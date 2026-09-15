@@ -151,18 +151,17 @@ impl ScalarFunction for Builtin {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn case_convert(input: &str, upper: bool) -> String {
-    // The pinned utf8proc table uses U+1E9E for sharp-s uppercase and maps
-    // dotted capital I directly to ASCII i. Keep Rust's existing full mapping
-    // for every other scalar; these two source-visible exceptions otherwise
-    // expand to a different sequence.
+    // DuckDB's pinned implementation maps each decoded codepoint with
+    // utf8proc_toupper/utf8proc_tolower. Those are simple one-codepoint case
+    // mappings, unlike Rust's full Unicode mappings which can expand one input
+    // character into several output characters.
     let mut result = String::with_capacity(input.len());
     for character in input.chars() {
-        match (upper, character) {
-            (true, 'ß') => result.push('ẞ'),
-            (false, 'İ') => result.push('i'),
-            (true, character) => result.extend(character.to_uppercase()),
-            (false, character) => result.extend(character.to_lowercase()),
-        }
+        result.push(if upper {
+            utf8proc::case::to_upper(character)
+        } else {
+            utf8proc::case::to_lower(character)
+        });
     }
     result
 }

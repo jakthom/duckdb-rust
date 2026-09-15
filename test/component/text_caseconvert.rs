@@ -19,7 +19,7 @@ fn unicode_case_conversion_aliases_nulls_nuls_batches_and_prepared_execution() -
         let mut connection = db.connect();
 
         assert_eq!(
-            connection.query("SELECT upper('áaaá'),upper('ö'),lower('S̈'),upper('ω'),upper('ß'),lower('İ'),ucase('MotörHead'),lcase('MotörHead'),upper(''),upper(NULL)")?.rows,
+            connection.query("SELECT upper('áaaá'),upper('ö'),lower('S̈'),upper('ω'),upper('ß'),lower('İ'),upper('ﬀ'),upper('ΐ'),ucase('MotörHead'),lcase('MotörHead'),upper(''),upper(NULL)")?.rows,
             vec![vec![
                 Value::Varchar("ÁAAÁ".into()),
                 Value::Varchar("Ö".into()),
@@ -27,6 +27,8 @@ fn unicode_case_conversion_aliases_nulls_nuls_batches_and_prepared_execution() -
                 Value::Varchar("Ω".into()),
                 Value::Varchar("ẞ".into()),
                 Value::Varchar("i".into()),
+                Value::Varchar("ﬀ".into()),
+                Value::Varchar("ΐ".into()),
                 Value::Varchar("MOTÖRHEAD".into()),
                 Value::Varchar("motörhead".into()),
                 Value::Varchar("".into()),
