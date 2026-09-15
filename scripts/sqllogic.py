@@ -162,11 +162,12 @@ def check_query(record, response, labels):
 
 class Runner:
     """An engine supplies request(dict)->dict; unsupported controls never pass."""
-    def __init__(self, engine, substitutions=None, max_records=100000):
+    def __init__(self, engine, substitutions=None, max_records=100000, max_threads=None):
         self.engine = engine
         self.substitutions = substitutions or {}
         self.reserved = frozenset(self.substitutions)
         self.max_records = max_records
+        self.max_threads = max_threads
         self.passed = 0
         self.skipped = 0
         self.labels = {}
@@ -179,6 +180,201 @@ class Runner:
             text = text.replace("${" + key + "}", str(value))
             text = text.replace("{" + key + "}", str(value))
         return text
+
+    def condition(self, expression, variables, only_if):
+        """Evaluate pinned loop-variable/system onlyif and skipif expressions."""
+        # The pinned parser lowercases the condition token and does not apply
+        # loop/substitution replacement to it.
+        expression = expression.lower()
+        systems = ("duckdb", "sqlite", "mysql", "postgresql", "mssql")
+        if expression in systems:
+            holds = expression == "duckdb"
+            return holds if only_if else not holds
+        outcomes = []
+        for term in expression.split("&&"):
+            parsed = None
+            for operator in ("<>", ">=", ">", "<=", "<", "="):
+                if operator not in term:
+                    continue
+                parts = term.split(operator)
+                if len(parts) != 2:
+                    raise ValueError(f"invalid loop condition {term}")
+                parsed = (parts[0].strip(), operator, parts[1].strip())
+                break
+            if parsed is None or not parsed[0] or not parsed[2]:
+                raise Unsupported(f"condition {expression}")
+            name, operator, right = parsed
+            if name not in variables:
+                raise ValueError(f"condition iterator {name} was not found")
+            left = str(variables[name])
+            if operator in ("=", "<>"):
+                holds = left == right
+                if operator == "<>":
+                    holds = not holds
+            else:
+                try:
+                    lhs_number, rhs_number = int(left), int(right)
+                except ValueError as error:
+                    raise ValueError(f"non-numeric loop condition {term}") from error
+                if not -(2**63) <= lhs_number < 2**63 or not -(2**63) <= rhs_number < 2**63:
+                    raise ValueError(f"loop condition is outside std::stoll range: {term}")
+                holds = {"<": lhs_number < rhs_number, "<=": lhs_number <= rhs_number,
+                         ">": lhs_number > rhs_number, ">=": lhs_number >= rhs_number}[operator]
+            outcomes.append(holds)
+        return all(outcomes) if only_if else not any(outcomes)
+
+    @staticmethod
+    def loop_body(records, position):
+        begin, nesting = position, 1
+        while position < len(records) and nesting:
+            next_op = records[position].words[0]
+            nesting += int(next_op in ("loop", "foreach", "concurrentloop", "concurrentforeach"))
+            nesting -= int(next_op == "endloop")
+            position += 1
+        if nesting:
+            raise ValueError("unterminated loop")
+        return records[begin:position-1], position
+
+    def foreach_values(self, tokens):
+        signed = ["tinyint", "smallint", "integer", "bigint", "hugeint"]
+        unsigned = ["utinyint", "usmallint", "uinteger", "ubigint", "uhugeint"]
+        all_columns = "bool tinyint smallint int bigint hugeint uhugeint utinyint usmallint uint ubigint date time timestamp timestamp_s timestamp_ms timestamp_ns time_tz timestamp_tz float double dec_4_1 dec_9_4 dec_18_6 dec38_10 uuid interval varchar blob bit small_enum medium_enum large_enum int_array double_array date_array timestamp_array timestamptz_array varchar_array nested_int_array struct struct_of_arrays array_of_structs map union fixed_int_array fixed_varchar_array fixed_nested_int_array fixed_nested_varchar_array fixed_struct_array struct_of_fixed_array fixed_array_of_int_list list_of_fixed_int_array".split()
+        collections = {
+            "<signed>": signed,
+            "<unsigned>": unsigned,
+            "<integral>": signed + unsigned,
+            "<numeric>": signed + unsigned + ["float", "double"],
+            "<alltypes>": signed + unsigned + ["float", "double", "bool", "interval", "varchar"],
+            "<compression>": "none uncompressed rle bitpacking dictionary fsst dict_fsst alp alprd".split(),
+            "<all_types_columns>": all_columns,
+        }
+        result = []
+        for token in tokens:
+            lower = token.strip().lower()
+            if lower.startswith("<variable:"):
+                if not lower.endswith(">"):
+                    raise ValueError(f"invalid foreach variable {token}")
+                parts = token[len("<variable:"):-1].split(":")
+                if len(parts) == 1:
+                    connection, name = "", parts[0]
+                elif len(parts) == 2:
+                    connection, name = parts
+                else:
+                    raise ValueError(f"invalid foreach variable {token}")
+                response = self.engine.request({"operation": "foreach", "connection": connection, "sql": name})
+                if response.get("unsupported"):
+                    raise Unsupported(response["message"])
+                if not response.get("ok"):
+                    raise AssertionError(response.get("message", "foreach variable lookup failed"))
+                result.extend(response.get("values", []))
+            elif lower in collections:
+                result.extend(collections[lower])
+            elif lower.startswith("!"):
+                try:
+                    result.remove(token[1:])
+                except ValueError:
+                    result.append(token)
+            else:
+                result.append(token)
+        return result
+
+    def loop_values(self, words):
+        if len(words) < 3 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*", words[1]):
+            raise ValueError("invalid loop iterator")
+        if words[0] in ("loop", "concurrentloop"):
+            if len(words) != 4:
+                raise ValueError("loop requires name, inclusive start and exclusive end")
+            start, end = int(words[2]), int(words[3])
+            if not -(2**31) <= start < 2**31 or not -(2**31) <= end < 2**31:
+                raise ValueError("loop bounds are outside std::stoi range")
+            return [start] if start >= end else range(start, end)
+        return self.foreach_values(words[2:])
+
+    @staticmethod
+    def bind_loop(variables, name, value):
+        names, values = name.split(","), str(value).split(",")
+        if len(names) != len(values):
+            raise ValueError(f"foreach iterator {name} does not match replacement {value}")
+        return {**variables, **dict(zip(names, values)), name: value}
+
+    def request_for(self, record):
+        words, op = record.words, record.words[0]
+        connection = ""
+        if op == "statement":
+            if len(words) not in (2, 3) or words[1] not in ("ok", "error"):
+                raise ValueError("invalid statement signature")
+            if len(words) == 3:
+                connection = words[2]
+        elif len(words) > 2 and words[2] not in ("none", "nosort", "rowsort", "valuesort"):
+            connection = words[2]
+        return {"operation": op, "sql": record.sql, "connection": connection,
+                "expect_error": op == "statement" and words[1] == "error"}
+
+    def check_response(self, record, response):
+        if response.get("unsupported"):
+            raise Unsupported(response["message"])
+        words, op = record.words, record.words[0]
+        if op == "statement" and words[1] == "error":
+            if response["ok"]:
+                raise AssertionError("expected SQL failure")
+            expected = "\n".join(record.expected)
+            if expected and not (matches(response["message"], expected) if expected.startswith(("<REGEX>:", "<!REGEX>:")) else expected in response["message"]):
+                raise AssertionError(f"wrong error: {response['message']}")
+        else:
+            if not response["ok"]:
+                raise AssertionError(response["message"])
+            if op == "query":
+                check_query(record, response, self.labels)
+
+    def compile_stream(self, records, variables, depth=0):
+        """Expand a concurrent iteration without executing it.
+
+        Pinned concurrent loops accept only statement/query and nested serial
+        loops whose leaves support concurrency. Named connections and continue
+        are rejected before the worker starts any stream.
+        """
+        if depth > 64:
+            raise Unsupported("test loop nesting exceeds 64")
+        result, position, conditions = [], 0, []
+        while position < len(records):
+            original = records[position]
+            position += 1
+            record = Record(original.line, tuple(self.replace(w, variables) for w in original.words),
+                            self.replace(original.sql, variables), tuple(self.replace(v, variables) for v in original.expected))
+            words, op = record.words, record.words[0]
+            if op in ("skipif", "onlyif"):
+                if len(words) != 2:
+                    raise ValueError("skipif/onlyif requires one condition")
+                conditions.append(self.condition(words[1], variables, op == "onlyif"))
+                continue
+            selected = all(conditions)
+            conditions.clear()
+            if op in ("query", "statement"):
+                if not selected:
+                    self.skipped += 1
+                    continue
+                request = self.request_for(record)
+                if request["connection"]:
+                    raise ValueError("Named connections not supported in parallel loop")
+                result.append(record)
+            elif op in ("loop", "foreach"):
+                if not selected:
+                    raise ValueError("conditions on loop controls are not supported")
+                body, position = self.loop_body(records, position)
+                values = self.loop_values(words)
+                for value in values:
+                    result.extend(self.compile_stream(body, self.bind_loop(variables, words[1], value), depth + 1))
+            elif op in ("concurrentloop", "concurrentforeach"):
+                raise ValueError("Nested parallel loop commands not allowed")
+            elif op == "endloop":
+                raise ValueError("endloop without active loop")
+            elif op == "continue":
+                raise ValueError("Concurrent loop is not supported over this command")
+            else:
+                raise ValueError("Concurrent loop is not supported over this command")
+        if conditions:
+            raise ValueError("dangling test condition")
+        return result
 
     def run(self, records, variables=None, depth=0):
         if depth > 64:
@@ -193,9 +389,9 @@ class Runner:
                             self.replace(original.sql, variables), tuple(self.replace(v, variables) for v in original.expected))
             words, op = record.words, record.words[0]
             if op in ("skipif", "onlyif"):
-                if len(words) != 2 or words[1] not in ("duckdb", "sqlite", "mysql", "postgresql", "mssql"):
-                    raise Unsupported(f"condition {words}")
-                conditions.append((op == "onlyif") == (words[1] == "duckdb"))
+                if len(words) != 2:
+                    raise ValueError("skipif/onlyif requires one condition")
+                conditions.append(self.condition(words[1], variables, op == "onlyif"))
                 continue
             if op in ("query", "statement"):
                 if self.passed + self.skipped >= self.max_records:
@@ -205,53 +401,48 @@ class Runner:
                 if not selected:
                     self.skipped += 1
                     continue
-                connection = ""
-                if op == "statement":
-                    if len(words) not in (2, 3) or words[1] not in ("ok", "error"):
-                        raise ValueError("invalid statement signature")
-                    if len(words) == 3:
-                        connection = words[2]
-                elif len(words) > 2 and words[2] not in ("none", "nosort", "rowsort", "valuesort"):
-                    connection = words[2]
-                response = self.engine.request({"operation": op, "sql": record.sql, "connection": connection})
-                if response.get("unsupported"):
-                    raise Unsupported(response["message"])
-                if op == "statement" and words[1] == "error":
-                    if response["ok"]:
-                        raise AssertionError("expected SQL failure")
-                    expected = "\n".join(record.expected)
-                    if expected and not (matches(response["message"], expected) if expected.startswith(("<REGEX>:", "<!REGEX>:")) else expected in response["message"]):
-                        raise AssertionError(f"wrong error: {response['message']}")
-                else:
-                    if not response["ok"]:
-                        raise AssertionError(response["message"])
-                    if op == "query":
-                        check_query(record, response, self.labels)
+                response = self.engine.request(self.request_for(record))
+                self.check_response(record, response)
                 self.passed += 1
             elif op in ("loop", "foreach"):
                 if conditions:
                     raise Unsupported("conditions on loop controls")
-                begin, nesting = position, 1
-                while position < len(records) and nesting:
-                    next_op = records[position].words[0]
-                    nesting += int(next_op in ("loop", "foreach", "concurrentloop", "concurrentforeach")) - int(next_op == "endloop")
-                    position += 1
-                if nesting:
-                    raise ValueError("unterminated loop")
-                if len(words) < 3:
-                    raise ValueError("invalid loop")
-                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", words[1]):
-                    raise Unsupported("compound loop variables")
-                if op == "loop":
-                    if len(words) != 4:
-                        raise ValueError("loop requires name, inclusive start and exclusive end")
-                    values = range(int(words[2]), int(words[3]))
-                else:
-                    values = words[2:]
+                body, position = self.loop_body(records, position)
+                values = self.loop_values(words)
                 if len(values) > self.max_records:
                     raise Unsupported("loop expansion exceeds record limit")
                 for value in values:
-                    self.run(records[begin:position-1], {**variables, words[1]: value}, depth+1)
+                    self.run(body, self.bind_loop(variables, words[1], value), depth+1)
+            elif op in ("concurrentloop", "concurrentforeach"):
+                if conditions:
+                    raise Unsupported("conditions on loop controls")
+                body, position = self.loop_body(records, position)
+                values = list(self.loop_values(words))
+                if len(values) > self.max_records:
+                    raise Unsupported("loop expansion exceeds record limit")
+                streams = [self.compile_stream(body, self.bind_loop(variables, words[1], value), depth + 1)
+                           for value in values]
+                requests = [[self.request_for(item) for item in stream] for stream in streams]
+                request = {"operation": "concurrent", "streams": requests}
+                if self.max_threads is not None:
+                    request["max_threads"] = self.max_threads
+                response = self.engine.request(request)
+                if response.get("unsupported"):
+                    raise Unsupported(response["message"])
+                if not response.get("ok"):
+                    raise AssertionError(response.get("message", "concurrent worker failed"))
+                responses = response.get("streams")
+                if not isinstance(responses, list) or len(responses) != len(streams):
+                    raise AssertionError("concurrent worker returned the wrong stream count")
+                for stream, stream_responses in zip(streams, responses):
+                    if len(stream_responses) != len(stream):
+                        raise AssertionError("concurrent worker returned the wrong response count")
+                    for item, item_response in zip(stream, stream_responses):
+                        if self.passed + self.skipped >= self.max_records:
+                            raise Unsupported("expanded test record limit exceeded")
+                        self.line = item.line
+                        self.check_response(item, item_response)
+                        self.passed += 1
             elif op == "hash-threshold" and len(words) == 2:
                 if int(words[1]) < 0:
                     raise ValueError("negative hash threshold")
@@ -278,6 +469,15 @@ class Runner:
                 response = self.engine.request(request)
                 if not response["ok"]:
                     raise Unsupported(response["message"]) if response.get("unsupported") else AssertionError(response["message"])
+            elif op == "continue":
+                if depth == 0:
+                    raise ValueError("continue cannot be called outside of a loop")
+                selected = all(conditions)
+                conditions.clear()
+                if selected:
+                    return
+            elif op == "endloop":
+                raise ValueError("endloop without active loop")
             elif op == "halt":
                 if position < len(records):
                     raise Unsupported("halt leaves unexecuted records")

@@ -7,21 +7,30 @@ mod fixtures;
 mod oracle;
 #[allow(dead_code)]
 mod parser;
+mod schedule;
+mod session;
 
 use directives::{DirectiveAction, DirectiveHeader, DirectiveState, Mode};
-use duckdb_rust::{Connection, DataType, Database, Error, QueryResult, Result, Value};
+use duckdb_rust::{DataType, Database, Error, QueryResult, Result, Value};
 use fixtures::FixtureResolver;
 use oracle::{
     ActualCell, ActualColumn, ActualError, ActualResult, ErrorKind, ExpectedStatement,
     ExpectedSubstitutions, ExpectedValues, Oracle, QueryExpectation, Re2Matcher, SortMode,
     SourceRootFileResolver, StatementResult,
 };
-use parser::{ExecutionOutcome, RecordAccounting, SqlLogicParser, Token, TokenKind};
+use parser::{
+    ByteSection, DeclarationId, ExecutionOutcome, RecordAccounting, SourceLine, SqlLogicParser,
+    Token, TokenKind,
+};
+use schedule::{Condition, LoopDefinition, LoopFrame};
+use session::Sessions;
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Mutex, RwLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,13 +79,14 @@ impl DirectiveHeader for Header {
 }
 
 #[derive(Default)]
-struct Substitutions(RefCell<BTreeMap<Vec<u8>, Vec<u8>>>);
+struct Substitutions(RwLock<BTreeMap<Vec<u8>, Vec<u8>>>);
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Substitutions {
     fn insert(&self, name: impl AsRef<[u8]>, value: impl AsRef<[u8]>) {
         self.0
-            .borrow_mut()
+            .write()
+            .expect("substitution map poisoned")
             .insert(name.as_ref().to_vec(), value.as_ref().to_vec());
     }
 }
@@ -85,7 +95,7 @@ impl Substitutions {
 impl ExpectedSubstitutions for Substitutions {
     fn replace(&self, input: &[u8]) -> Vec<u8> {
         let mut result = input.to_vec();
-        for (name, value) in self.0.borrow().iter() {
+        for (name, value) in self.0.read().expect("substitution map poisoned").iter() {
             for marker in [
                 [b"${".as_slice(), name, b"}"].concat(),
                 [b"{".as_slice(), name, b"}"].concat(),
@@ -860,6 +870,44 @@ const OUTPUT_SEPARATOR: &str =
 
 struct Scratch(PathBuf);
 
+struct ParsedStatement {
+    token: Token,
+    args: Vec<String>,
+    sql: ByteSection,
+    error: ByteSection,
+    declaration: DeclarationId,
+    conditions: Vec<Condition>,
+}
+
+struct ParsedQuery {
+    token: Token,
+    args: Vec<String>,
+    sql: ByteSection,
+    expected: Vec<SourceLine>,
+    declaration: DeclarationId,
+    conditions: Vec<Condition>,
+}
+
+enum LoopCommand {
+    Statement(ParsedStatement),
+    Query(ParsedQuery),
+    Loop(ParsedLoop),
+    Continue {
+        token: Token,
+        conditions: Vec<Condition>,
+    },
+    Load(Token),
+    Restart(Token),
+    Reconnect(Token),
+    Reset(Token),
+}
+
+struct ParsedLoop {
+    token: Token,
+    definition: LoopDefinition,
+    body: Vec<LoopCommand>,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Scratch {
     fn create() -> Result<Self> {
@@ -893,8 +941,8 @@ pub fn run_file(database: &Database, path: &Path) -> Result<usize> {
 }
 
 /// Execute one file through the byte parser, source-rooted fixture resolver,
-/// and typed result oracle. Wave B owns loop scheduling, restart/load and
-/// concurrent controls; encountering one here remains a visible harness error.
+/// and typed result oracle, including loop scheduling, restart/load, and
+/// concurrent controls.
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileReport> {
     let path = path.canonicalize()?;
@@ -911,17 +959,16 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
         "TEST_DIR_ABSOLUTE",
         scratch.0.as_os_str().as_encoded_bytes(),
     );
-    for (name, value) in std::env::vars_os() {
-        substitutions.insert(name.as_encoded_bytes(), value.as_encoded_bytes());
-    }
     let matcher = RustRe2Matcher;
-    let mut oracle = Oracle::new()
-        .with_regex(&matcher)
-        .with_substitutions(&substitutions)
-        .with_files(&expected_files);
+    let oracle = Mutex::new(
+        Oracle::new()
+            .with_regex(&matcher)
+            .with_substitutions(&substitutions)
+            .with_files(&expected_files),
+    );
     let mut parser = SqlLogicParser::from_bytes(&path, &source);
-    let mut accounting = RecordAccounting::default();
-    let mut connections = BTreeMap::<String, Connection>::new();
+    let accounting = Mutex::new(RecordAccounting::default());
+    let mut sessions = Sessions::new(database, &scratch.0);
     let mut directives = default_directive_state();
     let mut hash_threshold = 0usize;
     let mut output = Vec::new();
@@ -955,7 +1002,11 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                 .first()
                 .ok_or_else(|| at(&token, "skipif/onlyif requires a parameter"))?;
             let system = ascii(system, &token, "condition")?.to_ascii_lowercase();
-            if system.contains('=') && !original_sqlite {
+            if system
+                .bytes()
+                .any(|byte| matches!(byte, b'=' | b'<' | b'>'))
+                && !original_sqlite
+            {
                 return Err(at(
                     &token,
                     "loop-variable conditions require the Wave B loop runner",
@@ -969,6 +1020,7 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
 
         if skip_record || (directives.mode.skip_depth > 0 && token.kind != TokenKind::Mode) {
             if token.kind.is_test_command() {
+                let mut accounting = accounting.lock().expect("record accounting poisoned");
                 let declaration = accounting.declare(token.location.clone());
                 let execution = accounting
                     .plan(declaration, Vec::new())
@@ -989,11 +1041,10 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                     matches!(argument.as_slice(), b"debug" | b"debug_skip")
                 });
                 let debug_skip = execute_statement(
-                    database,
-                    &mut connections,
+                    &mut sessions,
                     &mut parser,
-                    &mut accounting,
-                    &mut oracle,
+                    &accounting,
+                    &oracle,
                     &substitutions,
                     &token,
                     allow_missing_error,
@@ -1007,11 +1058,10 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
             }
             TokenKind::Query => {
                 execute_query(
-                    database,
-                    &mut connections,
+                    &mut sessions,
                     &mut parser,
-                    &mut accounting,
-                    &mut oracle,
+                    &accounting,
+                    &oracle,
                     &substitutions,
                     &token,
                     hash_threshold,
@@ -1034,6 +1084,8 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                     return Err(at(&token, "expected reset label NAME"));
                 }
                 oracle
+                    .lock()
+                    .expect("oracle poisoned")
                     .reset_label(&args[1])
                     .map_err(|error| at(&token, &error.to_string()))?;
             }
@@ -1076,7 +1128,10 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                         return Err(at(&token, "continue requires the Wave B loop runner"));
                     }
                     DirectiveAction::SkipFile { reason } => {
-                        let snapshot = accounting.snapshot();
+                        let snapshot = accounting
+                            .lock()
+                            .expect("record accounting poisoned")
+                            .snapshot();
                         fixtures.finish_script();
                         return Ok(FileReport {
                             status: FileStatus::Skipped(reason),
@@ -1105,24 +1160,89 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                 }
             }
             TokenKind::SkipIf | TokenKind::OnlyIf => unreachable!("conditions consumed above"),
+            TokenKind::Load => {
+                let args = string_arguments(&token)?;
+                if args.len() > 3 {
+                    return Err(at(
+                        &token,
+                        "load accepts PATH [readonly|readwrite] [VERSION]",
+                    ));
+                }
+                let read_only = match args.get(1).map(String::as_str) {
+                    None | Some("readwrite") => false,
+                    Some("readonly") => true,
+                    Some(value) => return Err(at(&token, &format!("invalid load mode {value:?}"))),
+                };
+                if let Some(version) = args.get(2) {
+                    return Err(at(
+                        &token,
+                        &format!("storage compatibility version {version:?} is not available"),
+                    ));
+                }
+                let path = args
+                    .first()
+                    .map(|path| substitutions.replace(path.as_bytes()))
+                    .transpose_utf8(&token, "load path")?
+                    .map(PathBuf::from);
+                sessions
+                    .load(path, read_only)
+                    .map_err(|error| at(&token, &error.to_string()))?;
+            }
+            TokenKind::Restart => {
+                let args = string_arguments(&token)?;
+                if !(args.is_empty() || args == ["no_extension_load"]) {
+                    return Err(at(
+                        &token,
+                        "restart accepts only optional no_extension_load",
+                    ));
+                }
+                sessions
+                    .restart()
+                    .map_err(|error| at(&token, &error.to_string()))?;
+            }
+            TokenKind::Reconnect => {
+                if !token.parameters.is_empty() {
+                    return Err(at(&token, "reconnect accepts no arguments"));
+                }
+                sessions.reconnect();
+            }
             TokenKind::Loop
             | TokenKind::Foreach
             | TokenKind::ConcurrentLoop
-            | TokenKind::ConcurrentForeach
-            | TokenKind::EndLoop
-            | TokenKind::Load
-            | TokenKind::Restart
-            | TokenKind::Reconnect => {
-                return Err(at(
+            | TokenKind::ConcurrentForeach => {
+                let command = capture_loop(
+                    &mut parser,
+                    &mut fixtures,
+                    &mut active_sources,
+                    &accounting,
+                    &mut sessions,
                     &token,
-                    "directive requires the Wave B session/concurrent runner",
-                ));
+                    allow_missing_error,
+                    original_sqlite,
+                )?;
+                generated += execute_loop(
+                    &command,
+                    &mut sessions,
+                    &accounting,
+                    &oracle,
+                    &substitutions,
+                    hash_threshold,
+                    original_sqlite,
+                    directives.mode,
+                    &mut output,
+                    &[],
+                    None,
+                )?;
             }
+            TokenKind::EndLoop => return Err(at(&token, "endloop without active loop")),
             TokenKind::Invalid => return Err(at(&token, "invalid SQLLogicTest directive")),
         }
     }
     fixtures.finish_script();
-    let snapshot = accounting.snapshot();
+    let snapshot = accounting
+        .lock()
+        .expect("record accounting poisoned")
+        .snapshot();
     if snapshot.declarations == 0 || snapshot.pending != 0 {
         return Err(Error::Execution(format!(
             "{} contains no completely accounted test records",
@@ -1153,26 +1273,470 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
     })
 }
 
+fn loop_conditions(
+    parser: &mut SqlLogicParser,
+    mut token: Token,
+    original_sqlite: bool,
+) -> Result<(Vec<Condition>, Token)> {
+    let mut conditions = Vec::new();
+    while matches!(token.kind, TokenKind::SkipIf | TokenKind::OnlyIf) {
+        let text = one_argument(&token, "skipif/onlyif")?;
+        let text = ascii(text, &token, "condition")?.to_ascii_lowercase();
+        for term in text.split("&&") {
+            conditions.push(
+                schedule::parse_condition(term, token.kind == TokenKind::SkipIf, original_sqlite)
+                    .map_err(|error| at(&token, &error.to_string()))?,
+            );
+        }
+        parser.next_line();
+        token = parser.tokenize().map_err(parse_error)?;
+    }
+    Ok((conditions, token))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn capture_loop(
+    parser: &mut SqlLogicParser,
+    fixtures: &mut FixtureResolver,
+    active_sources: &mut Vec<PathBuf>,
+    accounting: &Mutex<RecordAccounting>,
+    sessions: &mut Sessions,
+    header: &Token,
+    allow_missing_error: bool,
+    original_sqlite: bool,
+) -> Result<ParsedLoop> {
+    let arguments = string_arguments(header)?;
+    let foreach = matches!(
+        header.kind,
+        TokenKind::Foreach | TokenKind::ConcurrentForeach
+    );
+    let concurrent = matches!(
+        header.kind,
+        TokenKind::ConcurrentLoop | TokenKind::ConcurrentForeach
+    );
+    let definition = schedule::parse_loop_with(&arguments, concurrent, foreach, |specification| {
+        let (connection, name) = specification
+            .split_once(':')
+            .map_or(("", specification), |(connection, name)| (connection, name));
+        let name = name.replace('\'', "''");
+        let result = sessions
+            .connection(connection)?
+            .query(&format!("SELECT unnest(getvariable('{name}')::VARCHAR[])"))?;
+        Ok(result
+            .rows
+            .iter()
+            .map(|row| {
+                row.first()
+                    .map(Value::to_string)
+                    .unwrap_or_else(|| "NULL".into())
+            })
+            .collect())
+    })
+    .map_err(|error| at(header, &error.to_string()))?;
+    let mut body = Vec::new();
+    loop {
+        let Some(start) = parser.next_statement().map_err(parse_error)? else {
+            return Err(at(header, "missing endloop"));
+        };
+        sync_include_stack(fixtures, active_sources, &start.location)?;
+        let token = parser.tokenize().map_err(parse_error)?;
+        if token.kind.is_single_line() && !parser.next_line_empty_or_comment() {
+            return Err(at(
+                &token,
+                "all test statements need to be separated by an empty line",
+            ));
+        }
+        let (conditions, token) = loop_conditions(parser, token, original_sqlite)?;
+        match token.kind {
+            TokenKind::Statement => body.push(LoopCommand::Statement(parse_statement(
+                parser,
+                accounting,
+                &token,
+                allow_missing_error,
+                conditions,
+            )?)),
+            TokenKind::Query => body.push(LoopCommand::Query(parse_query(
+                parser, accounting, &token, conditions,
+            )?)),
+            TokenKind::Loop
+            | TokenKind::Foreach
+            | TokenKind::ConcurrentLoop
+            | TokenKind::ConcurrentForeach => {
+                if !conditions.is_empty() {
+                    return Err(at(&token, "conditions on loop controls are not supported"));
+                }
+                body.push(LoopCommand::Loop(capture_loop(
+                    parser,
+                    fixtures,
+                    active_sources,
+                    accounting,
+                    sessions,
+                    &token,
+                    allow_missing_error,
+                    original_sqlite,
+                )?));
+            }
+            TokenKind::Continue => body.push(LoopCommand::Continue { token, conditions }),
+            TokenKind::Load => body.push(LoopCommand::Load(token)),
+            TokenKind::Restart => body.push(LoopCommand::Restart(token)),
+            TokenKind::Reconnect => body.push(LoopCommand::Reconnect(token)),
+            TokenKind::Reset => body.push(LoopCommand::Reset(token)),
+            TokenKind::EndLoop => {
+                if !conditions.is_empty() {
+                    return Err(at(&token, "conditions cannot precede endloop"));
+                }
+                return Ok(ParsedLoop {
+                    token: header.clone(),
+                    definition,
+                    body,
+                });
+            }
+            TokenKind::Include => {
+                if !conditions.is_empty() {
+                    return Err(at(&token, "conditions cannot precede include"));
+                }
+                let include = one_argument(&token, "include")?;
+                let include = ascii(include, &token, "include path")?;
+                let current = active_sources
+                    .last()
+                    .ok_or_else(|| Error::Internal("empty include stack".into()))?;
+                let location = directive_header(&token)?.location;
+                let include_path = fixtures
+                    .enter_include(current, include, location)
+                    .map_err(fixture_error)?;
+                let bytes = std::fs::read(&include_path)?;
+                parser.push_include(&include_path, bytes);
+                active_sources.push(include_path);
+            }
+            _ => {
+                return Err(at(
+                    &token,
+                    "control directive is not supported inside a loop by the integrated runner",
+                ));
+            }
+        }
+    }
+}
+
+fn concurrent_supported(command: &LoopCommand) -> Result<()> {
+    match command {
+        LoopCommand::Statement(statement) => {
+            if statement.args.get(1).is_some_and(|name| !name.is_empty()) {
+                return Err(at(
+                    &statement.token,
+                    "Named connections not supported in parallel loop",
+                ));
+            }
+        }
+        LoopCommand::Query(query) => {
+            if query
+                .args
+                .get(1)
+                .is_some_and(|argument| sort_mode(argument).is_none())
+            {
+                return Err(at(
+                    &query.token,
+                    "Named connections not supported in parallel loop",
+                ));
+            }
+        }
+        LoopCommand::Loop(loop_command) if loop_command.definition.concurrent => {
+            return Err(at(
+                &loop_command.token,
+                "Nested parallel loop commands not allowed",
+            ));
+        }
+        LoopCommand::Loop(loop_command) => {
+            for nested in &loop_command.body {
+                concurrent_supported(nested)?;
+            }
+        }
+        LoopCommand::Continue { token, .. }
+        | LoopCommand::Load(token)
+        | LoopCommand::Restart(token)
+        | LoopCommand::Reconnect(token) => {
+            return Err(at(
+                token,
+                "Concurrent loop is not supported over this command",
+            ));
+        }
+        LoopCommand::Reset(_) => {}
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_loop(
+    command: &ParsedLoop,
+    sessions: &mut Sessions,
+    accounting: &Mutex<RecordAccounting>,
+    oracle: &Mutex<Oracle<'_>>,
+    substitutions: &Substitutions,
+    hash_threshold: usize,
+    original_sqlite: bool,
+    mode: Mode,
+    output: &mut Vec<String>,
+    outer_loops: &[LoopFrame],
+    finished: Option<&AtomicBool>,
+) -> Result<usize> {
+    if command.definition.concurrent {
+        for body in &command.body {
+            concurrent_supported(body)?;
+        }
+        let database = sessions.database().clone();
+        let scratch = sessions.scratch().to_path_buf();
+        let concurrent_finished = AtomicBool::new(false);
+        let outcomes = schedule::run_concurrent(command.definition.values.len(), |ordinal| {
+            if concurrent_finished.load(Ordering::Acquire) {
+                return Ok((0, Vec::new()));
+            }
+            let mut local_sessions = Sessions::new(&database, &scratch);
+            let mut loops = outer_loops.to_vec();
+            loops.push(LoopFrame {
+                name: command.definition.name.clone(),
+                value: command.definition.values[ordinal].clone(),
+                ordinal,
+                concurrent: true,
+            });
+            let mut local_output = Vec::new();
+            let mut generated = 0;
+            let result = execute_loop_body(
+                &command.body,
+                &mut local_sessions,
+                accounting,
+                oracle,
+                substitutions,
+                hash_threshold,
+                original_sqlite,
+                mode,
+                &mut local_output,
+                &loops,
+                &mut generated,
+                Some(&concurrent_finished),
+            );
+            if result.is_err() {
+                concurrent_finished.store(true, Ordering::Release);
+            }
+            result?;
+            Ok((generated, local_output))
+        })?;
+        let mut generated = 0;
+        let mut failure = None;
+        for outcome in outcomes {
+            match outcome {
+                Ok((count, mut local_output)) => {
+                    generated += count;
+                    output.append(&mut local_output);
+                }
+                Err(error) if failure.is_none() => failure = Some(error),
+                Err(_) => {}
+            }
+        }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        Ok(generated)
+    } else {
+        let mut generated = 0;
+        for (ordinal, value) in command.definition.values.iter().enumerate() {
+            let mut loops = outer_loops.to_vec();
+            loops.push(LoopFrame {
+                name: command.definition.name.clone(),
+                value: value.clone(),
+                ordinal,
+                concurrent: false,
+            });
+            if execute_loop_body(
+                &command.body,
+                sessions,
+                accounting,
+                oracle,
+                substitutions,
+                hash_threshold,
+                original_sqlite,
+                mode,
+                output,
+                &loops,
+                &mut generated,
+                finished,
+            )? {
+                continue;
+            }
+        }
+        Ok(generated)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_loop_body(
+    body: &[LoopCommand],
+    sessions: &mut Sessions,
+    accounting: &Mutex<RecordAccounting>,
+    oracle: &Mutex<Oracle<'_>>,
+    substitutions: &Substitutions,
+    hash_threshold: usize,
+    original_sqlite: bool,
+    mode: Mode,
+    output: &mut Vec<String>,
+    loops: &[LoopFrame],
+    generated: &mut usize,
+    finished: Option<&AtomicBool>,
+) -> Result<bool> {
+    for command in body {
+        if finished.is_some_and(|finished| finished.load(Ordering::Acquire)) {
+            break;
+        }
+        match command {
+            LoopCommand::Statement(statement) => {
+                *generated += usize::from(matches!(
+                    statement.args.first().map(String::as_str),
+                    Some("debug" | "debug_skip")
+                ));
+                let _ = execute_parsed_statement(
+                    sessions,
+                    accounting,
+                    oracle,
+                    substitutions,
+                    statement,
+                    loops,
+                    original_sqlite,
+                    mode,
+                    output,
+                )?;
+            }
+            LoopCommand::Query(query) => {
+                execute_parsed_query(
+                    sessions,
+                    accounting,
+                    oracle,
+                    substitutions,
+                    query,
+                    loops,
+                    hash_threshold,
+                    original_sqlite,
+                    mode,
+                    output,
+                )?;
+                *generated += usize::from(mode.output_hash);
+            }
+            LoopCommand::Loop(loop_command) => {
+                *generated += execute_loop(
+                    loop_command,
+                    sessions,
+                    accounting,
+                    oracle,
+                    substitutions,
+                    hash_threshold,
+                    original_sqlite,
+                    mode,
+                    output,
+                    loops,
+                    finished,
+                )?;
+            }
+            LoopCommand::Continue { token, conditions } => {
+                if schedule::selected(conditions, loops, original_sqlite)
+                    .map_err(|error| at(token, &error.to_string()))?
+                {
+                    return Ok(true);
+                }
+            }
+            LoopCommand::Load(token) => execute_loop_load(sessions, substitutions, token, loops)?,
+            LoopCommand::Restart(token) => {
+                let args = string_arguments(token)?;
+                if !(args.is_empty() || args == ["no_extension_load"]) {
+                    return Err(at(token, "restart accepts only optional no_extension_load"));
+                }
+                sessions
+                    .restart()
+                    .map_err(|error| at(token, &error.to_string()))?;
+            }
+            LoopCommand::Reconnect(token) => {
+                if !token.parameters.is_empty() {
+                    return Err(at(token, "reconnect accepts no arguments"));
+                }
+                sessions.reconnect();
+            }
+            LoopCommand::Reset(token) => {
+                let args = string_arguments(token)?;
+                if args.len() != 2 || !args[0].eq_ignore_ascii_case("label") {
+                    return Err(at(token, "expected reset label NAME"));
+                }
+                oracle
+                    .lock()
+                    .expect("oracle poisoned")
+                    .reset_label(&args[1])
+                    .map_err(|error| at(token, &error.to_string()))?;
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn execute_loop_load(
+    sessions: &mut Sessions,
+    substitutions: &Substitutions,
+    token: &Token,
+    loops: &[LoopFrame],
+) -> Result<()> {
+    let args = string_arguments(token)?;
+    if args.len() > 2 {
+        return Err(at(
+            token,
+            "load in a loop supports PATH [readonly|readwrite]",
+        ));
+    }
+    let read_only = match args.get(1).map(String::as_str) {
+        None | Some("readwrite") => false,
+        Some("readonly") => true,
+        Some(value) => return Err(at(token, &format!("invalid load mode {value:?}"))),
+    };
+    let path = args
+        .first()
+        .map(|path| schedule::replace_loops(substitutions.replace(path.as_bytes()), loops))
+        .transpose()?
+        .transpose_utf8(token, "load path")?
+        .map(PathBuf::from);
+    sessions
+        .load(path, read_only)
+        .map_err(|error| at(token, &error.to_string()))
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[allow(clippy::too_many_arguments)]
 fn execute_statement(
-    database: &Database,
-    connections: &mut BTreeMap<String, Connection>,
+    sessions: &mut Sessions,
     parser: &mut SqlLogicParser,
-    accounting: &mut RecordAccounting,
-    oracle: &mut Oracle<'_>,
+    accounting: &Mutex<RecordAccounting>,
+    oracle: &Mutex<Oracle<'_>>,
     substitutions: &Substitutions,
     token: &Token,
     allow_missing_error: bool,
     mode: Mode,
     output: &mut Vec<String>,
 ) -> Result<bool> {
+    let command = parse_statement(parser, accounting, token, allow_missing_error, Vec::new())?;
+    execute_parsed_statement(
+        sessions,
+        accounting,
+        oracle,
+        substitutions,
+        &command,
+        &[],
+        false,
+        mode,
+        output,
+    )
+}
+
+fn parse_statement(
+    parser: &mut SqlLogicParser,
+    accounting: &Mutex<RecordAccounting>,
+    token: &Token,
+    allow_missing_error: bool,
+    conditions: Vec<Condition>,
+) -> Result<ParsedStatement> {
     let args = string_arguments(token)?;
-    let statement_debug = matches!(
-        args.first().map(String::as_str),
-        Some("debug" | "debug_skip")
-    );
-    let debug_skip = args.first().is_some_and(|arg| arg == "debug_skip");
     let expected = match args.first().map(String::as_str) {
         Some("ok") => ExpectedStatement::Success,
         Some("error") => ExpectedStatement::Error(None),
@@ -1185,7 +1749,6 @@ fn execute_statement(
             ));
         }
     };
-    let connection_name = args.get(1).cloned().unwrap_or_default();
     parser.next_line();
     let sql = parser.extract_statement();
     if sql.bytes.is_empty() {
@@ -1198,31 +1761,79 @@ fn execute_statement(
     let error_section = parser
         .extract_expected_error(expects_message, allow_missing_error)
         .map_err(parse_error)?;
-    let expected = match expected {
-        ExpectedStatement::Error(_) => ExpectedStatement::Error(
-            (!error_section.bytes.is_empty()).then_some(error_section.bytes.as_slice()),
+    let declaration = accounting
+        .lock()
+        .expect("record accounting poisoned")
+        .declare(token.location.clone());
+    Ok(ParsedStatement {
+        token: token.clone(),
+        args,
+        sql,
+        error: error_section,
+        declaration,
+        conditions,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_parsed_statement(
+    sessions: &mut Sessions,
+    accounting: &Mutex<RecordAccounting>,
+    oracle: &Mutex<Oracle<'_>>,
+    substitutions: &Substitutions,
+    command: &ParsedStatement,
+    loops: &[LoopFrame],
+    original_sqlite: bool,
+    mode: Mode,
+    output: &mut Vec<String>,
+) -> Result<bool> {
+    let token = &command.token;
+    let args = &command.args;
+    let statement_debug = matches!(
+        args.first().map(String::as_str),
+        Some("debug" | "debug_skip")
+    );
+    let debug_skip = args.first().is_some_and(|arg| arg == "debug_skip");
+    let expected_error =
+        schedule::replace_loops(substitutions.replace(&command.error.bytes), loops)?;
+    let expected = match args.first().map(String::as_str) {
+        Some("ok") => ExpectedStatement::Success,
+        Some("error") => ExpectedStatement::Error(
+            (!expected_error.is_empty()).then_some(expected_error.as_slice()),
         ),
-        ExpectedStatement::Unknown(_) => ExpectedStatement::Unknown(
-            (!error_section.bytes.is_empty()).then_some(error_section.bytes.as_slice()),
+        Some("maybe") => ExpectedStatement::Unknown(
+            (!expected_error.is_empty()).then_some(expected_error.as_slice()),
         ),
-        other => other,
+        Some("debug" | "debug_skip") => ExpectedStatement::DontCare,
+        _ => unreachable!("validated while parsing"),
     };
-    let declaration = accounting.declare(token.location.clone());
+    let connection_name = args.get(1).cloned().unwrap_or_default();
+    let loop_iterations = loops.iter().map(|frame| frame.ordinal).collect();
     let execution = accounting
-        .plan(declaration, Vec::new())
+        .lock()
+        .expect("record accounting poisoned")
+        .plan(command.declaration, loop_iterations)
         .map_err(accounting_error)?;
-    let sql_bytes = substitutions.replace(&sql.bytes);
+    if !schedule::selected(&command.conditions, loops, original_sqlite)? {
+        accounting
+            .lock()
+            .expect("record accounting poisoned")
+            .record(execution, ExecutionOutcome::Skipped)
+            .map_err(accounting_error)?;
+        return Ok(false);
+    }
+    let sql_bytes = schedule::replace_loops(substitutions.replace(&command.sql.bytes), loops)?;
     if mode.output_result || mode.debug || statement_debug {
         append_output_preamble(output, token, &sql_bytes);
     }
     let text = transport_sql(&sql_bytes).map_err(|error| {
-        let _ = accounting.record(execution, ExecutionOutcome::Failed);
+        let _ = accounting
+            .lock()
+            .expect("record accounting poisoned")
+            .record(execution, ExecutionOutcome::Failed);
         at(token, &format!("{error}; SQL {}", escaped(&sql_bytes)))
     })?;
-    let outcome = connections
-        .entry(connection_name.clone())
-        .or_insert_with(|| database.connect())
-        .execute(text);
+    let outcome = sessions.connection(&connection_name)?.execute(text);
     if mode.output_result || mode.debug || statement_debug {
         match &outcome {
             Ok(results) => {
@@ -1236,10 +1847,13 @@ fn execute_statement(
         }
     }
     let checked = match outcome {
-        Ok(_) => oracle.check_statement(StatementResult::Success, expected),
+        Ok(_) => oracle
+            .lock()
+            .expect("oracle poisoned")
+            .check_statement(StatementResult::Success, expected),
         Err(error) => {
             let message = error.to_string();
-            oracle.check_statement(
+            oracle.lock().expect("oracle poisoned").check_statement(
                 StatementResult::Error(ActualError {
                     message: message.as_bytes(),
                     rendered: message.as_bytes(),
@@ -1251,11 +1865,15 @@ fn execute_statement(
     };
     if let Err(error) = checked {
         accounting
+            .lock()
+            .expect("record accounting poisoned")
             .record(execution, ExecutionOutcome::Failed)
             .map_err(accounting_error)?;
         return Err(at(token, &format!("{error}; SQL {}", escaped(&sql_bytes))));
     }
     accounting
+        .lock()
+        .expect("record accounting poisoned")
         .record(execution, ExecutionOutcome::Passed)
         .map_err(accounting_error)?;
     Ok(debug_skip)
@@ -1264,11 +1882,10 @@ fn execute_statement(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[allow(clippy::too_many_arguments)]
 fn execute_query(
-    database: &Database,
-    connections: &mut BTreeMap<String, Connection>,
+    sessions: &mut Sessions,
     parser: &mut SqlLogicParser,
-    accounting: &mut RecordAccounting,
-    oracle: &mut Oracle<'_>,
+    accounting: &Mutex<RecordAccounting>,
+    oracle: &Mutex<Oracle<'_>>,
     substitutions: &Substitutions,
     token: &Token,
     hash_threshold: usize,
@@ -1276,6 +1893,27 @@ fn execute_query(
     mode: Mode,
     output: &mut Vec<String>,
 ) -> Result<()> {
+    let command = parse_query(parser, accounting, token, Vec::new())?;
+    execute_parsed_query(
+        sessions,
+        accounting,
+        oracle,
+        substitutions,
+        &command,
+        &[],
+        hash_threshold,
+        original_sqlite,
+        mode,
+        output,
+    )
+}
+
+fn parse_query(
+    parser: &mut SqlLogicParser,
+    accounting: &Mutex<RecordAccounting>,
+    token: &Token,
+    conditions: Vec<Condition>,
+) -> Result<ParsedQuery> {
     let args = string_arguments(token)?;
     let signature = args
         .first()
@@ -1287,41 +1925,87 @@ fn execute_query(
     {
         return Err(at(token, "query signature must contain only I, R or T"));
     }
+    parser.next_line();
+    let sql = parser.extract_statement();
+    let expected_lines = parser.extract_expected_result();
+    let declaration = accounting
+        .lock()
+        .expect("record accounting poisoned")
+        .declare(token.location.clone());
+    Ok(ParsedQuery {
+        token: token.clone(),
+        args,
+        sql,
+        expected: expected_lines,
+        declaration,
+        conditions,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_parsed_query(
+    sessions: &mut Sessions,
+    accounting: &Mutex<RecordAccounting>,
+    oracle: &Mutex<Oracle<'_>>,
+    substitutions: &Substitutions,
+    command: &ParsedQuery,
+    loops: &[LoopFrame],
+    hash_threshold: usize,
+    original_sqlite: bool,
+    mode: Mode,
+    output: &mut Vec<String>,
+) -> Result<()> {
+    let token = &command.token;
+    let signature = &command.args[0];
     let mut sort = SortMode::None;
     let mut connection_name = String::new();
-    if let Some(second) = args.get(1) {
+    if let Some(second) = command.args.get(1) {
         if let Some(parsed) = sort_mode(second) {
             sort = parsed;
         } else {
             connection_name = second.clone();
         }
     }
-    let label = args.get(2).map(String::as_str);
-    parser.next_line();
-    let sql = parser.extract_statement();
-    let expected_lines = parser.extract_expected_result();
-    let expected: Vec<_> = expected_lines
+    let label = command.args.get(2).map(String::as_str);
+    let expected_owned: Vec<_> = command
+        .expected
         .iter()
-        .map(|line| line.normalized())
-        .collect();
-    let declaration = accounting.declare(token.location.clone());
+        .map(|line| schedule::replace_loops(substitutions.replace(line.normalized()), loops))
+        .collect::<Result<_>>()?;
+    let expected: Vec<_> = expected_owned.iter().map(Vec::as_slice).collect();
+    let loop_iterations = loops.iter().map(|frame| frame.ordinal).collect();
     let execution = accounting
-        .plan(declaration, Vec::new())
+        .lock()
+        .expect("record accounting poisoned")
+        .plan(command.declaration, loop_iterations)
         .map_err(accounting_error)?;
-    let sql_bytes = substitutions.replace(&sql.bytes);
+    if !schedule::selected(&command.conditions, loops, original_sqlite)? {
+        accounting
+            .lock()
+            .expect("record accounting poisoned")
+            .record(execution, ExecutionOutcome::Skipped)
+            .map_err(accounting_error)?;
+        return Ok(());
+    }
+    let sql_bytes = schedule::replace_loops(substitutions.replace(&command.sql.bytes), loops)?;
     if mode.output_result || mode.debug {
         append_output_preamble(output, token, &sql_bytes);
     }
     let text = transport_sql(&sql_bytes).map_err(|error| {
-        let _ = accounting.record(execution, ExecutionOutcome::Failed);
+        let _ = accounting
+            .lock()
+            .expect("record accounting poisoned")
+            .record(execution, ExecutionOutcome::Failed);
         at(token, &format!("{error}; SQL {}", escaped(&sql_bytes)))
     })?;
-    let result = connections
-        .entry(connection_name)
-        .or_insert_with(|| database.connect())
+    let result = sessions
+        .connection(&connection_name)?
         .query(text)
         .map_err(|error| {
-            let _ = accounting.record(execution, ExecutionOutcome::Failed);
+            let _ = accounting
+                .lock()
+                .expect("record accounting poisoned")
+                .record(execution, ExecutionOutcome::Failed);
             at(token, &format!("{error}; SQL {}", escaped(&sql_bytes)))
         })?;
     let logical_types: Vec<_> = result
@@ -1355,7 +2039,10 @@ fn execute_query(
         })
         .collect();
     let actual_values = convert_output_result(&result, original_sqlite).map_err(|error| {
-        let _ = accounting.record(execution, ExecutionOutcome::Failed);
+        let _ = accounting
+            .lock()
+            .expect("record accounting poisoned")
+            .record(execution, ExecutionOutcome::Failed);
         at(token, &error)
     })?;
     if mode.output_result {
@@ -1370,11 +2057,13 @@ fn execute_query(
         output.push(output_hash(&hash_values));
         output.push(OUTPUT_SEPARATOR.into());
         accounting
+            .lock()
+            .expect("record accounting poisoned")
             .record(execution, ExecutionOutcome::Passed)
             .map_err(accounting_error)?;
         return Ok(());
     }
-    let checked = oracle.check_query(
+    let checked = oracle.lock().expect("oracle poisoned").check_query(
         ActualResult {
             columns: &columns,
             row_count: result.rows.len(),
@@ -1392,11 +2081,15 @@ fn execute_query(
     );
     if let Err(error) = checked {
         accounting
+            .lock()
+            .expect("record accounting poisoned")
             .record(execution, ExecutionOutcome::Failed)
             .map_err(accounting_error)?;
         return Err(at(token, &format!("{error}; SQL {}", escaped(&sql_bytes))));
     }
     accounting
+        .lock()
+        .expect("record accounting poisoned")
         .record(execution, ExecutionOutcome::Passed)
         .map_err(accounting_error)
 }

@@ -85,6 +85,106 @@ fn invalid_utf8_transport_limitation_and_skip_are_reported_honestly() -> duckdb_
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn loop_foreach_conditions_continue_and_odd_bounds_match_pinned_runner() -> duckdb_rust::Result<()>
+{
+    let root = root();
+    let path = root.path().join("test/loops.test");
+    std::fs::write(
+        &path,
+        "loop i -1 2\n\n\
+         onlyif i>=0&&i<=1\n\
+         query I\nSELECT {i}\n----\n{i}\n\n\
+         onlyif i=0\n\
+         continue\n\n\
+         query I\nSELECT 99\n----\n99\n\n\
+         endloop\n\n\
+         loop odd 3 1\n\n\
+         query I\nSELECT {odd}\n----\n3\n\n\
+         endloop\n\n\
+         foreach left,right 10,20 30,40\n\n\
+         query II\nSELECT {left}, {right}\n----\n{left}\t{right}\n\n\
+         endloop\n",
+    )?;
+    let report = runner::run_file_report(&Database::memory()?, &path)?;
+    assert!(matches!(report.status, runner::FileStatus::Skipped(_)));
+    assert_eq!(
+        (report.declarations, report.passed, report.skipped),
+        (4, 7, 1)
+    );
+    Ok(())
+}
+
+#[test]
+fn ambient_environment_is_not_an_implicit_substitution() -> duckdb_rust::Result<()> {
+    let root = root();
+    let path = root.path().join("test/environment.test");
+    std::fs::write(&path, "query T\nSELECT '{HOME}'\n----\n{HOME}\n")?;
+    let report = runner::run_file_report(&Database::memory()?, &path)?;
+    assert_eq!((report.passed, report.skipped), (1, 0));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn named_sessions_reconnect_restart_load_and_named_database_are_isolated() -> duckdb_rust::Result<()>
+{
+    let root = root();
+    let path = root.path().join("test/lifecycle.test");
+    std::fs::write(
+        &path,
+        "load {TEST_DIR}/case.duckdb\n\n\
+         statement ok writer\nCREATE TABLE t(i INTEGER); INSERT INTO t VALUES (1)\n\n\
+         statement ok reader\nBEGIN\n\n\
+         query I reader\nSELECT count(*) FROM t\n----\n1\n\n\
+         statement ok writer\nINSERT INTO t VALUES (2)\n\n\
+         reconnect\n\n\
+         query I reader\nSELECT count(*) FROM t\n----\n1\n\n\
+         query I\nSELECT count(*) FROM t\n----\n2\n\n\
+         statement ok pending\nBEGIN; INSERT INTO t VALUES (99)\n\n\
+         restart\n\n\
+         query I\nSELECT count(*) FROM t\n----\n2\n\n\
+         statement ok aux:c1\nCREATE TABLE isolated(i INTEGER); INSERT INTO isolated VALUES (7)\n\n\
+         statement error\nSELECT * FROM isolated\n----\n<REGEX>:.*does not exist.*\n\n\
+         query I aux:c2\nSELECT i FROM isolated\n----\n7\n\n\
+         load {TEST_DIR}/case.duckdb readwrite\n\n\
+         statement error\nSELECT * FROM t\n----\n<REGEX>:.*does not exist.*\n",
+    )?;
+    let report = runner::run_file_report(&Database::memory()?, &path)?;
+    assert_eq!(report.status, runner::FileStatus::Passed);
+    assert_eq!(report.passed, 12);
+
+    let memory = root.path().join("test/memory_restart.test");
+    std::fs::write(
+        &memory,
+        "statement ok\nCREATE TABLE gone(i INTEGER)\n\nrestart\n\nstatement error\nSELECT * FROM gone\n----\n<REGEX>:.*does not exist.*\n",
+    )?;
+    assert_eq!(
+        runner::run_file_report(&Database::memory()?, &memory)?.passed,
+        2
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn concurrent_loop_uses_distinct_connections_and_joins_all_iterations() -> duckdb_rust::Result<()> {
+    let root = root();
+    let path = root.path().join("test/concurrent.test");
+    std::fs::write(
+        &path,
+        "concurrentloop threadid 0 4\n\n\
+         query II\nSELECT {threadid}, sum(i) FROM range(100000) values(i)\n----\n{threadid}\t4999950000\n\n\
+         endloop\n\n\
+         query I\nSELECT 42\n----\n42\n",
+    )?;
+    let report = runner::run_file_report(&Database::memory()?, &path)?;
+    assert_eq!(report.status, runner::FileStatus::Passed);
+    assert_eq!((report.declarations, report.passed), (2, 5));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn mode_skip_suppresses_all_non_mode_directives_and_debug_output_is_observable()
 -> duckdb_rust::Result<()> {
     let root = root();

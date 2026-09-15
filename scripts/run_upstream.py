@@ -50,8 +50,10 @@ class RustEngine:
         if remaining <= 0: raise TimeoutError("file deadline exceeded")
         # Count only requests that are actually handed to the worker. SQL attempts
         # exclude runner transport controls such as restart and reconnect.
-        self.worker_requests += 1
+        nested = [item for stream in request.get("streams", []) for item in stream]
+        self.worker_requests += 1 + len(nested)
         self.sql_requests += request.get("operation") in ("query", "statement")
+        self.sql_requests += sum(item.get("operation") in ("query", "statement") for item in nested)
         self.process.stdin.write(json.dumps(request) + "\n"); self.process.stdin.flush()
         if not self.events.select(timeout=remaining): raise TimeoutError("file deadline exceeded")
         line = self.process.stdout.readline()

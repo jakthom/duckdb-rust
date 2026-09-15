@@ -79,19 +79,19 @@ impl<'a> QueryExpectation<'a> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(crate) trait Re2Matcher {
+pub(crate) trait Re2Matcher: Sync {
     /// Compile with RE2 UTF-8 syntax, `dot_nl=true`, then perform `FullMatch`.
     /// Invalid patterns must return `Err`, never a non-match.
     fn full_match(&self, pattern: &[u8], value: &[u8]) -> Result<bool, String>;
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(crate) trait ExpectedSubstitutions {
+pub(crate) trait ExpectedSubstitutions: Sync {
     fn replace(&self, input: &[u8]) -> Vec<u8>;
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-pub(crate) trait ExpectedFileResolver {
+pub(crate) trait ExpectedFileResolver: Sync {
     fn load(&self, path: &[u8], column_names: &[&str]) -> Result<ResolvedExpected, String>;
 }
 

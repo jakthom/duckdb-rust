@@ -96,6 +96,11 @@ reconnect
 query I reader
 SELECT count(*) FROM t
 ----
+1
+
+query I
+SELECT count(*) FROM t
+----
 2
 
 restart
@@ -116,7 +121,7 @@ SELECT * FROM t
 ----
 does not exist
 """))
-                self.assertEqual((runner.passed, runner.skipped), (9, 0))
+                self.assertEqual((runner.passed, runner.skipped), (10, 0))
                 result = engine.request({"operation": "load", "path": str(Path(scratch).parent / "unowned.duckdb")})
                 self.assertTrue(result.get("unsupported"))
             finally:

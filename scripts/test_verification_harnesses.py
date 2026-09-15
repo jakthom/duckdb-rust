@@ -132,7 +132,7 @@ class LogicTests(unittest.TestCase):
             self.assertEqual(runner.passed, 0)
 
     def test_unknown_directives_and_malformed_loops_fail(self):
-        for source in ["require parquet\n", "mode skip\n", "concurrentloop i 0 3\n", "halt\nstatement ok\nSELECT 1\n"]:
+        for source in ["require parquet\n", "mode skip\n", "halt\nstatement ok\nSELECT 1\n"]:
             with self.assertRaises(Unsupported):
                 Runner(RecordingEngine()).run(parse(source))
         with self.assertRaises(ValueError):
