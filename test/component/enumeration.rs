@@ -195,6 +195,43 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
             ]
         );
 
+        // The callback receives child vectors before reading their first row.
+        // A VARCHAR -> ENUM child is fallible, but valid rows must still form
+        // one source-shaped physical batch for both evaluator adapters.
+        c.execute("CREATE TABLE strings(k VARCHAR); INSERT INTO strings VALUES ('z'),('a')")?;
+        let cast_sql = "SELECT enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR FROM strings";
+        let cast_expected = vec![
+            vec![Value::Varchar("[z, a]".into())],
+            vec![Value::Varchar("[z, a]".into())],
+        ];
+        assert_eq!(c.query(cast_sql)?.rows, cast_expected);
+        assert_eq!(
+            c.execute_prepared(&c.prepare(cast_sql)?, &[])?.rows,
+            cast_expected
+        );
+
+        // Child vectors are evaluated in source order: the bad first value is
+        // observed before the later valid one. A selected CASE subset does not
+        // evaluate the unselected bad cast and keeps its own batch boundary.
+        c.execute("CREATE TABLE cast_order(k VARCHAR); INSERT INTO cast_order VALUES ('bad'),('z'),('z'),('a')")?;
+        assert!(
+            c.query("SELECT enum_range_boundary(k::ENUM('z','a'),NULL) FROM cast_order")
+                .is_err()
+        );
+        let selected_cast_sql = "SELECT CASE WHEN k='z' THEN enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR ELSE 'skip' END FROM cast_order";
+        let selected_cast_expected = vec![
+            vec![Value::Varchar("skip".into())],
+            vec![Value::Varchar("[z, a]".into())],
+            vec![Value::Varchar("[z, a]".into())],
+            vec![Value::Varchar("skip".into())],
+        ];
+        assert_eq!(c.query(selected_cast_sql)?.rows, selected_cast_expected);
+        assert_eq!(
+            c.execute_prepared(&c.prepare(selected_cast_sql)?, &[])?
+                .rows,
+            selected_cast_expected
+        );
+
         let prepared = c.prepare(sql)?;
         assert_eq!(
             ranges(

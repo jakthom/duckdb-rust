@@ -26,9 +26,11 @@ pub fn evaluate_expression_rows<T: ExpressionEvaluator + ?Sized>(
 }
 
 /// Materialize source-defined physical-batch subexpressions before preserving
-/// ordinary row evaluation for their enclosing tree. Replacing only pure,
-/// total batch-dependent nodes keeps lazy branches and fallible/effectful
-/// parents in row order without reducing a vector callback to scalar calls.
+/// ordinary row evaluation for their enclosing tree. A physical-batch callback
+/// owns the evaluation boundary of its arguments: it receives each child as a
+/// complete vector, in source argument order, before reading its row zero.
+/// Its enclosing tree still uses ordinary row evaluation, which keeps lazy
+/// branches and fallible/effectful parents in row order.
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn evaluate_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
@@ -82,12 +84,7 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
         ExprKind::Scalar(function, _) if function.uses_physical_batch()
     );
     if physical {
-        if !expression.is_pure_and_total() {
-            return Err(Error::Internal(
-                "physical-batch scalar expression is not pure and total".into(),
-            ));
-        }
-        let output = evaluate_columns(expression, input, context)?;
+        let output = evaluate_physical_scalar(evaluator, expression, input, context)?;
         let column = columns.len();
         columns.push(output);
         expression.kind = ExprKind::Column(column);
@@ -142,6 +139,38 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
         }
     }
     Ok(found)
+}
+
+/// Evaluate a physical-batch scalar's children through the selected evaluator
+/// rather than through the total-only column evaluator. This intentionally
+/// allows a valid fallible child (for example VARCHAR -> ENUM) while retaining
+/// its vector error order. CASE/COALESCE children retain their own selected
+/// subsets through `evaluate_batch`.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn evaluate_physical_scalar<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Vector> {
+    let ExprKind::Scalar(function, arguments) = &expression.kind else {
+        unreachable!("caller selected physical scalar")
+    };
+    let columns = arguments
+        .iter()
+        .map(|argument| evaluator.evaluate_batch(argument, input, context))
+        .collect::<Result<Vec<_>>>()?;
+    let arguments = DataChunk::new(columns, input.len())?;
+    let output = function
+        .evaluate_batch(&arguments, context.query())?
+        .ok_or_else(|| Error::Internal("physical-batch scalar lacks a batch callback".into()))?;
+    if output.data_type() != &expression.data_type || output.len() != input.len() {
+        return Err(Error::Internal(
+            "physical-batch scalar differs from its bound type or cardinality".into(),
+        ));
+    }
+    context.query().check()?;
+    Ok(output)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
