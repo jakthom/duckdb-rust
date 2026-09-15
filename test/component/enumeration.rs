@@ -296,6 +296,18 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
         }
         let binary_wrapper = "SELECT pow((CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(a,NULL)::VARCHAR) END)+0,length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null";
         assert_eq!(c.query(binary_wrapper)?.rows, vec![vec![Value::Null]]);
+        c.execute("CREATE TABLE try_values(v VARCHAR,k ENUM('z','a')); INSERT INTO try_values VALUES ('bad','z'),('2','a')")?;
+        assert_eq!(
+            c.query("SELECT pow(TRY_CAST(v AS DOUBLE),length(enum_range_boundary(k,NULL)::VARCHAR)) FROM try_values")?.rows,
+            vec![vec![Value::Null], vec![Value::Double(64.0)]]
+        );
+        assert_eq!(
+            c.query(
+                "SELECT pow(length(typeof(enum_range_boundary(k,NULL))),2) FROM predicate_boundary"
+            )?
+            .rows,
+            vec![vec![Value::Double(81.0)], vec![Value::Double(81.0)]]
+        );
         let n = "(CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(a,NULL)::VARCHAR) END)";
         for wrapped in [
             format!("{n}+0"),

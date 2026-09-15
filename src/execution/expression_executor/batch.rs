@@ -411,7 +411,10 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     {
         let (column, provenance) =
             evaluate_child_with_semantic_provenance(evaluator, &arguments[0], input, context)?;
-        if let Some(value) = column.constant_value() {
+        if let Some(value) = column.constant_value()
+            && !function.effects().volatile
+            && !function.effects().external_access
+        {
             let value = function.evaluate_with_provenance(
                 std::slice::from_ref(value),
                 std::slice::from_ref(&provenance),
@@ -437,12 +440,13 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     }
     if let ExprKind::Operator(function, arguments) = &expression.kind
         && arguments.len() == 1
-        && !function.effects().volatile
-        && !function.effects().external_access
     {
         let (column, _) =
             evaluate_child_with_semantic_provenance(evaluator, &arguments[0], input, context)?;
-        if let Some(value) = column.constant_value() {
+        if let Some(value) = column.constant_value()
+            && !function.effects().volatile
+            && !function.effects().external_access
+        {
             return Ok((
                 Vector::constant(
                     expression.data_type.clone(),
@@ -452,6 +456,16 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
                 ArgumentProvenance::Constant,
             ));
         }
+        return Ok((
+            Vector::flat(
+                expression.data_type.clone(),
+                column
+                    .values()
+                    .map(|value| function.apply(std::slice::from_ref(value), context.query()))
+                    .collect::<Result<Vec<_>>>()?,
+            )?,
+            ArgumentProvenance::Unknown,
+        ));
     }
     if matches!(expression.kind, ExprKind::Case(..)) {
         return evaluate_case_with_semantic_provenance(evaluator, expression, input, context);
