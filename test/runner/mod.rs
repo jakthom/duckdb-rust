@@ -104,7 +104,7 @@ impl Re2Matcher for RustRe2Matcher {
     fn full_match(&self, pattern: &[u8], value: &[u8]) -> std::result::Result<bool, String> {
         let pattern = std::str::from_utf8(pattern)
             .map_err(|_| "RE2 pattern is not valid UTF-8".to_string())?;
-        let pattern = re2_ascii_perl_classes(pattern);
+        let pattern = translate_re2_pattern(pattern)?;
         // Anchoring the expression implements RE2 FullMatch. Both engines use
         // a linear-time automaton and reject look-around and backreferences.
         let expression = format!(r"\A(?:{pattern})\z");
@@ -120,23 +120,27 @@ impl Re2Matcher for RustRe2Matcher {
     }
 }
 
-/// Rust regexes make the Perl classes Unicode-aware by default, while RE2's
-/// generated `perl_groups.cc` defines them over ASCII ranges. Expand those
-/// escapes into Unicode character classes with the exact RE2 ranges; unlike
-/// disabling Unicode globally, this preserves rune semantics for `.` and
-/// quantifiers. Nested classes are supported by the Rust regex syntax, so the
-/// same expansion is valid both inside and outside bracket expressions.
+/// Translate the small part of Rust's regex dialect that differs from RE2.
+/// RE2's generated `perl_groups.cc` defines Perl classes over ASCII ranges,
+/// while Rust makes them Unicode-aware by default. RE2 also treats `[`, `&`
+/// and `~` as ordinary class runes instead of nested-class/set operators.
+/// Keeping Unicode mode enabled preserves RE2 rune semantics for `.` and
+/// quantifiers; only the differing constructs are rewritten here.
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn re2_ascii_perl_classes(pattern: &str) -> String {
+fn translate_re2_pattern(pattern: &str) -> std::result::Result<String, String> {
     let mut output = String::with_capacity(pattern.len());
-    let mut characters = pattern.chars().peekable();
-    let mut in_class = false;
-    while let Some(character) = characters.next() {
+    let mut cursor = 0;
+    while cursor < pattern.len() {
+        let character = next_character(pattern, cursor);
         if character == '\\' {
-            let Some(escaped) = characters.next() else {
-                output.push(character);
+            output.push(character);
+            cursor += character.len_utf8();
+            if cursor == pattern.len() {
                 break;
-            };
+            }
+            let escaped = next_character(pattern, cursor);
+            output.pop();
+            cursor += escaped.len_utf8();
             match escaped {
                 'd' => output.push_str("[0-9]"),
                 'D' => output.push_str("[^0-9]"),
@@ -145,7 +149,7 @@ fn re2_ascii_perl_classes(pattern: &str) -> String {
                 'w' => output.push_str("[0-9A-Z_a-z]"),
                 'W' => output.push_str("[^0-9A-Z_a-z]"),
                 // RE2's Perl word boundaries use the ASCII `\w` definition.
-                'b' | 'B' if !in_class => {
+                'b' | 'B' => {
                     output.push_str("(?-u:\\");
                     output.push(escaped);
                     output.push(')');
@@ -158,13 +162,205 @@ fn re2_ascii_perl_classes(pattern: &str) -> String {
             continue;
         }
         if character == '[' {
-            in_class = true;
-        } else if character == ']' && in_class {
-            in_class = false;
+            let (class, consumed) = translate_re2_class(&pattern[cursor..])?;
+            output.push_str(&class);
+            cursor += consumed;
+            continue;
         }
         output.push(character);
+        cursor += character.len_utf8();
     }
-    output
+    Ok(output)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn translate_re2_class(input: &str) -> std::result::Result<(String, usize), String> {
+    debug_assert!(input.starts_with('['));
+    let mut output = String::from("[");
+    let mut cursor = 1;
+    if input[cursor..].starts_with('^') {
+        output.push('^');
+        cursor += 1;
+    }
+    let mut first = true;
+    loop {
+        if cursor == input.len() {
+            return Err("unclosed RE2 character class".to_string());
+        }
+        if input[cursor..].starts_with(']') && !first {
+            output.push(']');
+            return Ok((output, cursor + 1));
+        }
+        first = false;
+
+        if let Some(consumed) = re2_posix_class_len(&input[cursor..]) {
+            output.push_str(&input[cursor..cursor + consumed]);
+            cursor += consumed;
+            continue;
+        }
+        if let Some(consumed) = re2_unicode_class_len(&input[cursor..])? {
+            output.push_str(&input[cursor..cursor + consumed]);
+            cursor += consumed;
+            continue;
+        }
+        if let Some((class, consumed)) = re2_perl_class(&input[cursor..]) {
+            output.push_str(class);
+            cursor += consumed;
+            continue;
+        }
+
+        let (low, consumed) = parse_re2_class_character(&input[cursor..])?;
+        cursor += consumed;
+        if input[cursor..].starts_with('-')
+            && input.len() > cursor + 1
+            && !input[cursor + 1..].starts_with(']')
+        {
+            cursor += 1;
+            let (high, consumed) = parse_re2_class_character(&input[cursor..])?;
+            cursor += consumed;
+            if high < low {
+                return Err(format!(
+                    "invalid RE2 character class range U+{:04X}-U+{:04X}",
+                    low as u32, high as u32
+                ));
+            }
+            push_class_rune(&mut output, low);
+            output.push('-');
+            push_class_rune(&mut output, high);
+        } else {
+            push_class_rune(&mut output, low);
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn re2_posix_class_len(input: &str) -> Option<usize> {
+    input.strip_prefix("[:")?.find(":]").map(|end| 2 + end + 2)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn re2_unicode_class_len(input: &str) -> std::result::Result<Option<usize>, String> {
+    let Some(rest) = input
+        .strip_prefix("\\p")
+        .or_else(|| input.strip_prefix("\\P"))
+    else {
+        return Ok(None);
+    };
+    let Some(first) = rest.chars().next() else {
+        return Err("incomplete RE2 Unicode character class".to_string());
+    };
+    if first != '{' {
+        return Ok(Some(2 + first.len_utf8()));
+    }
+    let Some(end) = rest.find('}') else {
+        return Err("unclosed RE2 Unicode character class".to_string());
+    };
+    Ok(Some(2 + end + 1))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn re2_perl_class(input: &str) -> Option<(&'static str, usize)> {
+    let class = match input.as_bytes().get(1).copied()? {
+        b'd' => "[0-9]",
+        b'D' => "[^0-9]",
+        b's' => r"[\x09-\x0A\x0C-\x0D\x20]",
+        b'S' => r"[^\x09-\x0A\x0C-\x0D\x20]",
+        b'w' => "[0-9A-Z_a-z]",
+        b'W' => "[^0-9A-Z_a-z]",
+        _ => return None,
+    };
+    input.starts_with('\\').then_some((class, 2))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_re2_class_character(input: &str) -> std::result::Result<(char, usize), String> {
+    let Some(character) = input.chars().next() else {
+        return Err("missing RE2 character class rune".to_string());
+    };
+    if character != '\\' {
+        return Ok((character, character.len_utf8()));
+    }
+    let Some(escaped) = input[1..].chars().next() else {
+        return Err("trailing backslash in RE2 character class".to_string());
+    };
+    let escaped_len = escaped.len_utf8();
+    if escaped.is_ascii() && !escaped.is_ascii_alphanumeric() {
+        return Ok((escaped, 1 + escaped_len));
+    }
+    match escaped {
+        '0'..='7' => parse_re2_octal_escape(input, escaped),
+        'x' => parse_re2_hex_escape(input),
+        'n' => Ok(('\n', 2)),
+        'r' => Ok(('\r', 2)),
+        't' => Ok(('\t', 2)),
+        'a' => Ok(('\u{0007}', 2)),
+        'f' => Ok(('\u{000C}', 2)),
+        'v' => Ok(('\u{000B}', 2)),
+        _ => Err(format!("invalid RE2 character class escape \\{escaped}")),
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_re2_octal_escape(input: &str, first: char) -> std::result::Result<(char, usize), String> {
+    let mut value = first.to_digit(8).expect("octal digit");
+    let mut consumed = 2;
+    let mut digits = 1;
+    for character in input[2..].chars().take(2) {
+        let Some(digit) = character.to_digit(8) else {
+            break;
+        };
+        value = value * 8 + digit;
+        consumed += character.len_utf8();
+        digits += 1;
+    }
+    if first != '0' && digits == 1 {
+        return Err(format!("invalid RE2 octal escape \\{first}"));
+    }
+    char::from_u32(value)
+        .map(|character| (character, consumed))
+        .ok_or_else(|| format!("invalid RE2 octal escape value {value:o}"))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_re2_hex_escape(input: &str) -> std::result::Result<(char, usize), String> {
+    let rest = &input[2..];
+    let (digits, consumed) = if let Some(braced) = rest.strip_prefix('{') {
+        let Some(end) = braced.find('}') else {
+            return Err("unclosed RE2 hexadecimal escape".to_string());
+        };
+        if end == 0 {
+            return Err("empty RE2 hexadecimal escape".to_string());
+        }
+        (&braced[..end], 3 + end + 1)
+    } else {
+        if rest.len() < 2 || !rest.is_char_boundary(2) {
+            return Err("short RE2 hexadecimal escape".to_string());
+        }
+        (&rest[..2], 4)
+    };
+    if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!("invalid RE2 hexadecimal escape {digits}"));
+    }
+    let value = u32::from_str_radix(digits, 16)
+        .map_err(|_| format!("invalid RE2 hexadecimal escape {digits}"))?;
+    char::from_u32(value)
+        .map(|character| (character, consumed))
+        .ok_or_else(|| format!("invalid RE2 hexadecimal escape value {value:X}"))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn push_class_rune(output: &mut String, character: char) {
+    use std::fmt::Write;
+
+    write!(output, "\\x{{{:X}}}", character as u32).expect("writing to a String cannot fail");
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn next_character(input: &str, cursor: usize) -> char {
+    input[cursor..]
+        .chars()
+        .next()
+        .expect("cursor must point inside input")
 }
 
 static SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -1307,6 +1503,52 @@ mod tests {
                 .full_match("café".as_bytes(), "café".as_bytes())
                 .unwrap()
         );
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn regex_character_classes_use_re2_union_and_range_rules() {
+        let matcher = RustRe2Matcher;
+        for (pattern, matching, non_matching) in [
+            ("[a&&b]", vec!["a", "&", "b"], vec!["c"]),
+            ("[a~~b]", vec!["a", "~", "b"], vec!["c"]),
+            ("[--a]", vec!["-", "0", "a"], vec!["b"]),
+            ("[0-9--4]", vec!["-", "/", "0", "9"], vec!["a"]),
+            ("[a[b]", vec!["a", "[", "b"], vec!["c"]),
+            ("[[]", vec!["["], vec!["]"]),
+            ("[]a]", vec!["]", "a"], vec!["["]),
+            ("[-a]", vec!["-", "a"], vec!["b"]),
+            ("[a-]", vec!["a", "-"], vec!["b"]),
+            ("[a-z]", vec!["a", "m", "z"], vec!["A"]),
+            ("[[:alpha:]]", vec!["A", "z"], vec!["0"]),
+            (r"[\w]", vec!["A", "_", "9"], vec!["é"]),
+            (r"[\141-\143]", vec!["a", "b", "c"], vec!["d"]),
+            (r"[\x{E9}]", vec!["é"], vec!["e"]),
+        ] {
+            for value in matching {
+                assert!(
+                    matcher
+                        .full_match(pattern.as_bytes(), value.as_bytes())
+                        .unwrap(),
+                    "{pattern:?} must match {value:?}"
+                );
+            }
+            for value in non_matching {
+                assert!(
+                    !matcher
+                        .full_match(pattern.as_bytes(), value.as_bytes())
+                        .unwrap(),
+                    "{pattern:?} must not match {value:?}"
+                );
+            }
+        }
+
+        for pattern in ["[a--b]", r"[a-\d]", r"[\b]"] {
+            assert!(
+                matcher.full_match(pattern.as_bytes(), b"a").is_err(),
+                "invalid RE2 pattern {pattern:?} must fail closed"
+            );
+        }
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

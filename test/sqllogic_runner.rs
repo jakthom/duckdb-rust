@@ -254,6 +254,46 @@ fn re2_adapter_preserves_utf8_runes_and_ascii_perl_classes() -> duckdb_rust::Res
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn re2_adapter_uses_union_only_character_classes() -> duckdb_rust::Result<()> {
+    let root = root();
+    let passing = root.path().join("test/re2_character_classes.test");
+    std::fs::write(
+        &passing,
+        "query T\nSELECT 'a'\n----\n<REGEX>:[a&&b]\n\n\
+         query T\nSELECT '&'\n----\n<REGEX>:[a&&b]\n\n\
+         query T\nSELECT 'c'\n----\n<!REGEX>:[a&&b]\n\n\
+         query T\nSELECT '~'\n----\n<REGEX>:[a~~b]\n\n\
+         query T\nSELECT '0'\n----\n<REGEX>:[--a]\n\n\
+         query T\nSELECT '/'\n----\n<REGEX>:[0-9--4]\n\n\
+         query T\nSELECT '['\n----\n<REGEX>:[a[b]\n\n\
+         query T\nSELECT ']'\n----\n<REGEX>:[]a]\n\n\
+         query T\nSELECT 'A'\n----\n<REGEX>:[[:alpha:]]\n\n\
+         query T\nSELECT 'é'\n----\n<!REGEX>:[\\w]\n",
+    )?;
+    let report = runner::run_file_report(&Database::memory()?, &passing)?;
+    assert_eq!(report.status, runner::FileStatus::Passed);
+    assert_eq!(report.passed, 10);
+
+    for (name, value, expected) in [
+        ("negative_literal_operator", "a", "<!REGEX>:[a&&b]"),
+        ("positive_empty_intersection", "c", "<REGEX>:[a&&b]"),
+        ("invalid_descending_range", "a", "<!REGEX>:[a--b]"),
+    ] {
+        let path = root.path().join(format!("test/{name}.test"));
+        std::fs::write(
+            &path,
+            format!("query T\nSELECT '{value}'\n----\n{expected}\n"),
+        )?;
+        assert!(
+            runner::run_file_report(&Database::memory()?, &path).is_err(),
+            "{name} must reject the divergent expectation"
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn cli_emits_file_report_generated_output() -> duckdb_rust::Result<()> {
     let root = root();
     let path = root.path().join("test/cli_output.test");
