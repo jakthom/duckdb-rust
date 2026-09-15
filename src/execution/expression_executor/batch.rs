@@ -59,7 +59,8 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
     columns: &mut Vec<Vector>,
 ) -> Result<bool> {
     if matches!(expression.kind, ExprKind::Case(..)) && expression.uses_physical_batch() {
-        let output = evaluate_case_with_physical_batches(evaluator, expression, input, context)?;
+        let (output, _) =
+            evaluate_case_with_semantic_provenance(evaluator, expression, input, context)?;
         let column = columns.len();
         columns.push(output);
         expression.kind = ExprKind::Column(column);
@@ -259,6 +260,7 @@ pub(crate) fn evaluate_selected_with_physical_batches<T: ExpressionEvaluator + ?
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[allow(dead_code)]
 fn evaluate_case_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
