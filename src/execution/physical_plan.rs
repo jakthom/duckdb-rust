@@ -525,11 +525,13 @@ impl PhysicalOperator for Operator {
                 }
             }
             Node::Projection(input, expressions) => {
-                // One root has no inter-column evaluations to reorder. The
-                // selected batch evaluator already promises logical row order,
-                // first errors and effects for a potentially fallible root.
-                let batch_safe =
-                    expressions.len() == 1 || expressions.iter().all(BoundExpr::is_pure_and_total);
+                // One root has no inter-column evaluations to reorder. Pure,
+                // total roots can all run by column. A source-defined physical
+                // vector callback must likewise retain its batch boundary; an
+                // enclosing adapter may still preserve row order internally.
+                let batch_safe = expressions.len() == 1
+                    || expressions.iter().any(BoundExpr::uses_physical_batch)
+                    || expressions.iter().all(BoundExpr::is_pure_and_total);
                 let expressions = expressions
                     .iter()
                     .map(PreparedExpression::new)

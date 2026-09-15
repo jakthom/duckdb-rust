@@ -85,6 +85,9 @@ impl ScalarFunction for EnumFunction {
         // materializes its labels.
         true
     }
+    fn uses_physical_batch(&self) -> bool {
+        self.name == "enum_range_boundary"
+    }
     fn evaluate_batch(
         &self,
         arguments: &DataChunk,

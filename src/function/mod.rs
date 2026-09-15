@@ -319,6 +319,13 @@ pub trait ScalarFunction: Debug + Send + Sync {
     fn is_total(&self, _arguments: &[Option<&Value>]) -> bool {
         false
     }
+    /// Whether this function's result depends on the physical input-vector
+    /// boundary rather than only on one logical row. Such adapters must also
+    /// be pure, eager and total after binding. Executors retain that boundary
+    /// even when an enclosing expression requires ordinary row evaluation.
+    fn uses_physical_batch(&self) -> bool {
+        false
+    }
     fn evaluate(&self, arguments: &[Value], context: &QueryContext) -> Result<Value>;
     /// Optional physical-batch callback for pure, eager and total bound
     /// functions. Arguments have already been evaluated in source order and

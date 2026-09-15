@@ -723,6 +723,11 @@ impl ExpressionEvaluator for ScalarEvaluator {
             context.query().check()?;
             return Ok(output);
         }
+        if let Some(output) =
+            batch::evaluate_with_physical_batches(self, expression, input, context)?
+        {
+            return Ok(output);
+        }
         evaluate_expression_rows(self, expression, input, context)
     }
 }

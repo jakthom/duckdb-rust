@@ -25,6 +25,239 @@ pub fn evaluate_expression_rows<T: ExpressionEvaluator + ?Sized>(
     result_column(expression.data_type.clone(), values, context.query())
 }
 
+/// Materialize source-defined physical-batch subexpressions before preserving
+/// ordinary row evaluation for their enclosing tree. Replacing only pure,
+/// total batch-dependent nodes keeps lazy branches and fallible/effectful
+/// parents in row order without reducing a vector callback to scalar calls.
+pub(super) fn evaluate_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Option<Vector>> {
+    if input.is_empty() {
+        return Ok(None);
+    }
+    let mut rewritten = expression.clone();
+    let mut columns = input.columns().to_vec();
+    if !materialize_physical_batches(evaluator, &mut rewritten, input, context, &mut columns)? {
+        return Ok(None);
+    }
+    let input = DataChunk::new(columns, input.len())?;
+    evaluate_expression_rows(evaluator, &rewritten, &input, context).map(Some)
+}
+
+fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &mut BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+    columns: &mut Vec<Vector>,
+) -> Result<bool> {
+    if matches!(expression.kind, ExprKind::Case(..)) && expression.uses_physical_batch() {
+        let output = evaluate_case_with_physical_batches(evaluator, expression, input, context)?;
+        let column = columns.len();
+        columns.push(output);
+        expression.kind = ExprKind::Column(column);
+        return Ok(true);
+    }
+    if let ExprKind::Scalar(function, _) = &expression.kind
+        && matches!(
+            function.argument_evaluation(),
+            ArgumentEvaluation::FirstNonNull
+        )
+        && expression.uses_physical_batch()
+    {
+        let output =
+            evaluate_first_non_null_with_physical_batches(evaluator, expression, input, context)?;
+        let column = columns.len();
+        columns.push(output);
+        expression.kind = ExprKind::Column(column);
+        return Ok(true);
+    }
+    let physical = matches!(
+        &expression.kind,
+        ExprKind::Scalar(function, _) if function.uses_physical_batch()
+    );
+    if physical {
+        if !expression.is_pure_and_total() {
+            return Err(Error::Internal(
+                "physical-batch scalar expression is not pure and total".into(),
+            ));
+        }
+        let output = evaluate_columns(expression, input, context)?;
+        let column = columns.len();
+        columns.push(output);
+        expression.kind = ExprKind::Column(column);
+        return Ok(true);
+    }
+
+    let mut found = false;
+    let mut visit = |child: &mut BoundExpr| -> Result<()> {
+        found |= materialize_physical_batches(evaluator, child, input, context, columns)?;
+        Ok(())
+    };
+    match &mut expression.kind {
+        ExprKind::Literal(_)
+        | ExprKind::Parameter(_)
+        | ExprKind::Column(_)
+        | ExprKind::OuterColumn { .. }
+        | ExprKind::Subquery(_) => {}
+        ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => visit(inner)?,
+        ExprKind::Binary(_, left, right, _) => {
+            visit(left)?;
+            visit(right)?;
+        }
+        ExprKind::Operator(_, arguments) => {
+            for argument in arguments {
+                visit(argument)?;
+            }
+        }
+        ExprKind::Scalar(function, arguments) => {
+            if !matches!(function.argument_evaluation(), ArgumentEvaluation::TypeOnly) {
+                for argument in arguments {
+                    visit(argument)?;
+                }
+            }
+        }
+        ExprKind::Case(branches, otherwise) => {
+            for (condition, value) in branches {
+                visit(condition)?;
+                visit(value)?;
+            }
+            visit(otherwise)?;
+        }
+        ExprKind::Between(value, lower, upper, ..) => {
+            visit(value)?;
+            visit(lower)?;
+            visit(upper)?;
+        }
+        ExprKind::InList(value, list, ..) => {
+            visit(value)?;
+            for candidate in list {
+                visit(candidate)?;
+            }
+        }
+    }
+    Ok(found)
+}
+
+fn evaluate_selected_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Vector> {
+    if let Some(output) = evaluate_with_physical_batches(evaluator, expression, input, context)? {
+        Ok(output)
+    } else {
+        evaluate_expression_rows(evaluator, expression, input, context)
+    }
+}
+
+fn evaluate_case_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Vector> {
+    let ExprKind::Case(branches, otherwise) = &expression.kind else {
+        unreachable!("caller selected CASE")
+    };
+    let mut active = (0..input.len()).collect::<Vec<_>>();
+    let mut values = vec![None; input.len()];
+    for (condition, value) in branches {
+        if active.is_empty() {
+            break;
+        }
+        let selected = input.select(&active)?;
+        let conditions =
+            evaluate_selected_with_physical_batches(evaluator, condition, &selected, context)?;
+        let mut matched = Vec::new();
+        let mut remaining = Vec::new();
+        for (offset, &index) in active.iter().enumerate() {
+            if conditions
+                .get(offset)
+                .expect("validated CASE condition")
+                .as_bool()?
+                == Some(true)
+            {
+                matched.push(index);
+            } else {
+                remaining.push(index);
+            }
+        }
+        if !matched.is_empty() {
+            let selected = input.select(&matched)?;
+            let results =
+                evaluate_selected_with_physical_batches(evaluator, value, &selected, context)?;
+            for (offset, &index) in matched.iter().enumerate() {
+                values[index] = results.get(offset).cloned();
+            }
+        }
+        active = remaining;
+    }
+    if !active.is_empty() {
+        let selected = input.select(&active)?;
+        let results =
+            evaluate_selected_with_physical_batches(evaluator, otherwise, &selected, context)?;
+        for (offset, &index) in active.iter().enumerate() {
+            values[index] = results.get(offset).cloned();
+        }
+    }
+    let output = Vector::flat(
+        expression.data_type.clone(),
+        values
+            .into_iter()
+            .map(|value| value.expect("every CASE row selected one branch"))
+            .collect(),
+    )?;
+    context
+        .query()
+        .types()
+        .bind(&expression.data_type)?
+        .validate_vector(&output, context.query())?;
+    Ok(output)
+}
+
+fn evaluate_first_non_null_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Vector> {
+    let ExprKind::Scalar(_, arguments) = &expression.kind else {
+        unreachable!("caller selected scalar")
+    };
+    let mut active = (0..input.len()).collect::<Vec<_>>();
+    let mut values = vec![Value::Null; input.len()];
+    for argument in arguments {
+        if active.is_empty() {
+            break;
+        }
+        let selected = input.select(&active)?;
+        let results =
+            evaluate_selected_with_physical_batches(evaluator, argument, &selected, context)?;
+        let mut remaining = Vec::new();
+        for (offset, &index) in active.iter().enumerate() {
+            let value = results.get(offset).expect("validated scalar argument");
+            if value.is_null() {
+                remaining.push(index);
+            } else {
+                values[index] = value.clone();
+            }
+        }
+        active = remaining;
+    }
+    let output = Vector::flat(expression.data_type.clone(), values)?;
+    context
+        .query()
+        .types()
+        .bind(&expression.data_type)?
+        .validate_vector(&output, context.query())?;
+    Ok(output)
+}
+
 /// Evaluates total scalar trees by columns, using retained type and operator
 /// adapters. Potential errors, lazy branches, effects and relational stages
 /// keep scalar row order. ScalarEvaluator remains independently selectable.
@@ -103,6 +336,10 @@ impl ExpressionEvaluator for BatchedEvaluator {
         if input.len() > 1 && expression.is_pure_and_total() {
             evaluate_columns(expression, input, context)
         } else {
+            if let Some(output) = evaluate_with_physical_batches(self, expression, input, context)?
+            {
+                return Ok(output);
+            }
             if input.len() > 1
                 && let Some(output) = dictionary_expression(expression, input, context)?
             {

@@ -96,7 +96,7 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
         Arc::new(BatchedEvaluator),
     ] {
         let db = DatabaseBuilder::new()
-            .expressions(expressions)
+            .expressions(expressions.clone())
             .batch_size(2)
             .build()?;
         let mut c = db.connect();
@@ -123,6 +123,78 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
         };
         assert_eq!(ranges(c.query(sql)?.rows.into_iter().collect()), expected);
 
+        let nested_sql = "SELECT enum_range_boundary(k,NULL)::VARCHAR,length(enum_range_boundary(k,NULL)::VARCHAR),enum_range_boundary(k,NULL)::VARCHAR='[z, a]',CASE WHEN k='z' THEN enum_range_boundary(k,NULL)::VARCHAR ELSE 'skip' END FROM t";
+        let nested = vec![
+            vec![
+                Value::Varchar("[z, a]".into()),
+                Value::Integer(6),
+                Value::Boolean(true),
+                Value::Varchar("[z, a]".into()),
+            ],
+            vec![
+                Value::Varchar("[z, a]".into()),
+                Value::Integer(6),
+                Value::Boolean(true),
+                Value::Varchar("skip".into()),
+            ],
+            vec![
+                Value::Varchar("[a]".into()),
+                Value::Integer(3),
+                Value::Boolean(false),
+                Value::Varchar("skip".into()),
+            ],
+            vec![
+                Value::Varchar("[a]".into()),
+                Value::Integer(3),
+                Value::Boolean(false),
+                // CASE evaluates its value over the selected z rows, so the
+                // branch's physical row zero is z rather than batch row zero a.
+                Value::Varchar("[z, a]".into()),
+            ],
+        ];
+        assert_eq!(c.query(nested_sql)?.rows, nested);
+        assert_eq!(
+            c.execute_prepared(&c.prepare(nested_sql)?, &[])?.rows,
+            nested
+        );
+        assert_eq!(
+            c.query("SELECT enum_range_boundary(k,NULL)::VARCHAR,CASE WHEN false THEN CAST('bad' AS INTEGER)::VARCHAR ELSE k::VARCHAR END FROM t")?.rows,
+            vec![
+                vec![Value::Varchar("[z, a]".into()), Value::Varchar("z".into())],
+                vec![Value::Varchar("[z, a]".into()), Value::Varchar("a".into())],
+                vec![Value::Varchar("[a]".into()), Value::Varchar("a".into())],
+                vec![Value::Varchar("[a]".into()), Value::Varchar("z".into())],
+            ]
+        );
+        assert_eq!(
+            c.query("SELECT CASE WHEN true THEN enum_range_boundary(k,NULL)::VARCHAR ELSE CAST('bad' AS INTEGER)::VARCHAR END FROM t")?.rows,
+            vec![
+                vec![Value::Varchar("[z, a]".into())],
+                vec![Value::Varchar("[z, a]".into())],
+                vec![Value::Varchar("[a]".into())],
+                vec![Value::Varchar("[a]".into())],
+            ]
+        );
+        assert_eq!(
+            c.query("SELECT COALESCE(CASE WHEN k='z' THEN enum_range_boundary(k,NULL)::VARCHAR END,'skip') FROM t")?.rows,
+            vec![
+                vec![Value::Varchar("[z, a]".into())],
+                vec![Value::Varchar("skip".into())],
+                vec![Value::Varchar("skip".into())],
+                vec![Value::Varchar("[z, a]".into())],
+            ]
+        );
+        assert_eq!(
+            c.query(
+                "SELECT k::VARCHAR FROM t WHERE enum_range_boundary(k,NULL)::VARCHAR='[z, a]'"
+            )?
+            .rows,
+            vec![
+                vec![Value::Varchar("z".into())],
+                vec![Value::Varchar("a".into())],
+            ]
+        );
+
         let prepared = c.prepare(sql)?;
         assert_eq!(
             ranges(
@@ -140,6 +212,27 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
                 Value::Varchar("[z]".into()),
                 Value::Varchar("[]".into()),
             ]]
+        );
+
+        let expressions = if expressions.name() == "scalar-expression" {
+            Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>
+        } else {
+            Arc::new(BatchedEvaluator)
+        };
+        let db = DatabaseBuilder::new()
+            .expressions(expressions)
+            .batch_size(4)
+            .build()?;
+        let mut c = db.connect();
+        c.execute("CREATE TABLE t(k ENUM('z','a')); INSERT INTO t VALUES ('z'),('a'),('a'),('z')")?;
+        assert_eq!(
+            c.query("SELECT enum_range_boundary(k,NULL)::VARCHAR,CASE WHEN k='z' THEN enum_range_boundary(k,NULL)::VARCHAR ELSE 'skip' END FROM t")?.rows,
+            vec![
+                vec![Value::Varchar("[z, a]".into()), Value::Varchar("[z, a]".into())],
+                vec![Value::Varchar("[z, a]".into()), Value::Varchar("skip".into())],
+                vec![Value::Varchar("[z, a]".into()), Value::Varchar("skip".into())],
+                vec![Value::Varchar("[z, a]".into()), Value::Varchar("[z, a]".into())],
+            ]
         );
     }
     Ok(())

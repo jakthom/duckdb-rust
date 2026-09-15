@@ -154,6 +154,21 @@ impl BoundExpr {
             _ => false,
         }
     }
+    /// Whether this scalar tree contains a source adapter whose result is
+    /// defined over a physical vector rather than one logical row. Execution
+    /// must preserve that vector boundary even when an enclosing adapter is
+    /// conservatively not known to be total.
+    pub fn uses_physical_batch(&self) -> bool {
+        if matches!(
+            &self.kind,
+            ExprKind::Scalar(function, _) if function.uses_physical_batch()
+        ) {
+            return true;
+        }
+        let mut found = false;
+        self.visit_children(&mut |child| found |= child.uses_physical_batch());
+        found
+    }
     /// Visit immediate scalar children without copying them. Relational inputs
     /// of a subquery have their own row scope and are not scalar children.
     pub fn visit_children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
