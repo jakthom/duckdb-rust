@@ -125,6 +125,7 @@ where
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_stoi(value: &str) -> Result<i32> {
     let value = value.trim_start();
     let bytes = value.as_bytes();
@@ -394,6 +395,7 @@ pub(crate) fn replace_loops(mut input: Vec<u8>, loops: &[LoopFrame]) -> Result<V
     Ok(input)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn replace_all(input: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<u8> {
     if needle.is_empty() {
         return input.to_vec();
@@ -412,6 +414,7 @@ fn replace_all(input: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<u8> {
     result
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn shuffled_indexes(count: usize) -> Vec<usize> {
     let state = std::collections::hash_map::RandomState::new();
     let mut random = state.build_hasher();
@@ -425,6 +428,7 @@ fn shuffled_indexes(count: usize) -> Vec<usize> {
     indexes
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Shuffle and launch every iteration with a distinct connection owner. The
 /// pinned runner joins every spawned sibling and reports failures afterwards.
 /// Callers can share its opportunistic stop flag, but this scheduler never
@@ -461,6 +465,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn half_open_loops_conditions_and_tuple_substitution_match_source() -> Result<()> {
         assert_eq!(
@@ -523,6 +528,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn concurrent_scheduler_joins_every_sibling_after_failure() {
         let entered = AtomicUsize::new(0);

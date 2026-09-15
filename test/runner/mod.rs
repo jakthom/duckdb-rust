@@ -1273,6 +1273,7 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn loop_conditions(
     parser: &mut SqlLogicParser,
     mut token: Token,
@@ -1294,6 +1295,7 @@ fn loop_conditions(
     Ok((conditions, token))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[allow(clippy::too_many_arguments)]
 fn capture_loop(
     parser: &mut SqlLogicParser,
@@ -1418,6 +1420,7 @@ fn capture_loop(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn concurrent_supported(command: &LoopCommand) -> Result<()> {
     match command {
         LoopCommand::Statement(statement) => {
@@ -1465,6 +1468,7 @@ fn concurrent_supported(command: &LoopCommand) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[allow(clippy::too_many_arguments)]
 fn execute_loop(
     command: &ParsedLoop,
@@ -1567,6 +1571,7 @@ fn execute_loop(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[allow(clippy::too_many_arguments)]
 fn execute_loop_body(
     body: &[LoopCommand],
@@ -1673,6 +1678,7 @@ fn execute_loop_body(
     Ok(false)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn execute_loop_load(
     sessions: &mut Sessions,
     substitutions: &Substitutions,
@@ -1729,6 +1735,7 @@ fn execute_statement(
     )
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_statement(
     parser: &mut SqlLogicParser,
     accounting: &Mutex<RecordAccounting>,
@@ -1775,6 +1782,7 @@ fn parse_statement(
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[allow(clippy::too_many_arguments)]
 fn execute_parsed_statement(
     sessions: &mut Sessions,
@@ -1907,6 +1915,7 @@ fn execute_query(
     )
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_query(
     parser: &mut SqlLogicParser,
     accounting: &Mutex<RecordAccounting>,
@@ -1941,6 +1950,7 @@ fn parse_query(
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[allow(clippy::too_many_arguments)]
 fn execute_parsed_query(
     sessions: &mut Sessions,
@@ -2672,6 +2682,7 @@ mod tests {
         assert_eq!(substitutions.replace(b"${NAME}/{NAME}"), b"value/value");
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn default_directive_state_does_not_admit_ambient_environment() {
         let state = default_directive_state();

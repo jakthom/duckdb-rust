@@ -295,6 +295,7 @@ impl Session {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn shuffled_indexes(count: usize) -> Vec<usize> {
     let state = std::collections::hash_map::RandomState::new();
     let mut random = state.build_hasher();
@@ -308,6 +309,7 @@ fn shuffled_indexes(count: usize) -> Vec<usize> {
     indexes
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn run_concurrent_request(
     connection: &mut Connection,
     request: ConcurrentRequest,
@@ -371,6 +373,7 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn request(value: serde_json::Value) -> Request {
         serde_json::from_value(value).unwrap()
     }
@@ -447,6 +450,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn reconnect_preserves_named_sessions_and_restart_resets_memory() -> Result<()> {
         let mut session = Session {
@@ -527,6 +531,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn concurrent_stream_failure_short_circuits_later_commands() -> Result<()> {
         let mut session = Session {

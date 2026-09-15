@@ -114,6 +114,7 @@ fn loop_foreach_conditions_continue_and_odd_bounds_match_pinned_runner() -> duck
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn loop_variables_do_not_rewrite_literal_expected_values() -> duckdb_rust::Result<()> {
     let root = root();
@@ -126,6 +127,7 @@ fn loop_variables_do_not_rewrite_literal_expected_values() -> duckdb_rust::Resul
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn ambient_environment_is_not_an_implicit_substitution() -> duckdb_rust::Result<()> {
     let root = root();

@@ -1,6 +1,7 @@
 //! Public Database/Connection lifecycle Gate P candidate.
 use duckdb_rust::{Database, Error, Result};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn scalar(result: duckdb_rust::QueryResult) -> Result<i128> {
     result
         .rows
@@ -11,6 +12,7 @@ fn scalar(result: duckdb_rust::QueryResult) -> Result<i128> {
         .as_i128()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn main() -> Result<()> {
     let db = Database::memory()?;
     let mut survivor = db.connect();
