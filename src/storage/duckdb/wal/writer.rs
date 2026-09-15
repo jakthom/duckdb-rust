@@ -279,15 +279,15 @@ impl LogSession for Session {
                     output.push(named_type(14, name, next.storage_version)?)?;
                 }
                 TransactionChange::CreateSchema(name) | TransactionChange::DropSchema(name) => {
-                    let mut record =
-                        record(if matches!(change, TransactionChange::CreateSchema(_)) {
+                    output.push(schema(
+                        if matches!(change, TransactionChange::CreateSchema(_)) {
                             3
                         } else {
                             4
-                        });
-                    record.field(101);
-                    record.string(name)?;
-                    output.push(record)?;
+                        },
+                        name,
+                        next.storage_version,
+                    )?)?;
                 }
                 TransactionChange::CreateTable(definition) => {
                     for column in &definition.columns {
@@ -572,6 +572,24 @@ fn named_type(kind: u64, name: &TypeName, version: Option<u64>) -> Result<Encode
         e.string(&name.schema)?;
         e.field(102);
         e.string(&name.name)?;
+    }
+    Ok(e)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn schema(kind: u64, name: &str, version: Option<u64>) -> Result<Encoder> {
+    if name.is_empty() {
+        return Err(invalid("empty schema name"));
+    }
+    let mut e = record(kind);
+    if version.is_some_and(|version| version >= 69) {
+        e.field(102);
+        e.property(100, 1);
+        e.string(name)?;
+        e.end();
+    } else {
+        e.field(101);
+        e.string(name)?;
     }
     Ok(e)
 }
@@ -885,6 +903,29 @@ mod type_tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn schema_wal_names_switch_at_storage_69() -> Result<()> {
+        for (version, expected) in [
+            (68, vec![100, 0, 3, 101, 0, 3, b'a', b'p', b'p', 255, 255]),
+            (
+                69,
+                vec![
+                    100, 0, 3, 102, 0, 100, 0, 1, 3, b'a', b'p', b'p', 255, 255, 255, 255,
+                ],
+            ),
+        ] {
+            for kind in [3, 4] {
+                let mut encoded = schema(kind, "app", Some(version))?;
+                encoded.end();
+                let mut expected = expected.clone();
+                expected[2] = kind as u8;
+                assert_eq!(encoded.0, expected, "kind {kind} v{version}");
+            }
+        }
+        assert!(schema(3, "", Some(69)).is_err());
+        Ok(())
     }
 }
 

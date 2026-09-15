@@ -98,8 +98,7 @@ impl RecordState {
                 Some(Change::DropTable(table))
             }
             3 | 4 => {
-                reader.field(101)?;
-                let schema = reader.string()?;
+                let schema = schema_name(reader)?;
                 Some(if kind == 3 {
                     Change::CreateSchema(schema)
                 } else {
@@ -289,6 +288,40 @@ fn type_name(reader: &mut Reader) -> Result<TypeName> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn schema_name(reader: &mut Reader) -> Result<String> {
+    let legacy = if reader.optional(101)? {
+        Some(reader.string()?)
+    } else {
+        None
+    };
+    let qualified = if reader.optional(102)? {
+        reader.field(100)?;
+        if reader.length()? != 1 {
+            return Err(Error::Unsupported(
+                "WAL nested or incomplete schema qualification".into(),
+            ));
+        }
+        let name = reader.string()?;
+        reader.end()?;
+        Some(name)
+    } else {
+        None
+    };
+    if let (Some(old), Some(new)) = (&legacy, &qualified)
+        && old != new
+    {
+        return Err(corrupt("WAL legacy and qualified schemas disagree"));
+    }
+    let name = qualified
+        .or(legacy)
+        .ok_or_else(|| corrupt("missing WAL schema identity"))?;
+    if name.is_empty() {
+        return Err(corrupt("empty WAL schema identity"));
+    }
+    Ok(name)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn row_id(value: &Value) -> Result<RowId> {
     match value {
         Value::Integer(id) => {
@@ -413,6 +446,22 @@ mod tests {
         Ok(output.0)
     }
 
+    fn schema_record(kind: u64, version: u64) -> Result<Vec<u8>> {
+        let mut output = Encoder::default();
+        output.property(100, kind);
+        if version < 69 {
+            output.field(101);
+            output.string("app")?;
+        } else {
+            output.field(102);
+            output.property(100, 1);
+            output.string("app")?;
+            output.end();
+        }
+        output.end();
+        Ok(output.0)
+    }
+
     fn read_record(
         state: &mut RecordState,
         bytes: Vec<u8>,
@@ -471,6 +520,37 @@ mod tests {
             }
             let mut state = RecordState::new(&CatalogFixture { types: vec![] }, version)?;
             assert!(read_record(&mut state, drop_type_record(version)?, &query).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn schema_wal_records_decode_release_and_development_contracts() -> Result<()> {
+        let query = QueryContext::background();
+        for version in [68, 69] {
+            for (kind, expected) in [
+                (3, Change::CreateSchema("app".into())),
+                (4, Change::DropSchema("app".into())),
+            ] {
+                let mut state = RecordState::new(&CatalogFixture { types: vec![] }, version)?;
+                let recovered = read_record(&mut state, schema_record(kind, version)?, &query)?;
+                match expected {
+                    Change::CreateSchema(expected) => assert!(matches!(
+                        recovered,
+                        Some(Change::CreateSchema(actual)) if actual == expected
+                    )),
+                    Change::DropSchema(expected) => assert!(matches!(
+                        recovered,
+                        Some(Change::DropSchema(actual)) if actual == expected
+                    )),
+                    _ => unreachable!(),
+                }
+                let record = schema_record(kind, version)?;
+                for end in 0..record.len() {
+                    let mut state = RecordState::new(&CatalogFixture { types: vec![] }, version)?;
+                    assert!(read_record(&mut state, record[..end].to_vec(), &query).is_err());
+                }
+            }
         }
         Ok(())
     }
