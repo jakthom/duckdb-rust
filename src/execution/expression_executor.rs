@@ -668,6 +668,33 @@ impl ExpressionEvaluator for ScalarEvaluator {
         };
         checked_evaluated(value, &expression.data_type, constant.get())
     }
+    fn evaluate_batch(
+        &self,
+        expression: &BoundExpr,
+        input: &crate::common::vector::DataChunk,
+        context: &dyn EvaluationContext,
+    ) -> Result<crate::common::vector::Vector> {
+        if !input.is_empty()
+            && expression.is_pure_and_total()
+            && let ExprKind::Scalar(function, arguments) = &expression.kind
+        {
+            let columns = arguments
+                .iter()
+                .map(|argument| self.evaluate_batch(argument, input, context))
+                .collect::<Result<Vec<_>>>()?;
+            let arguments = crate::common::vector::DataChunk::new(columns, input.len())?;
+            if let Some(output) = function.evaluate_batch(&arguments, context.query())? {
+                if output.data_type() != &expression.data_type || output.len() != input.len() {
+                    return Err(Error::Internal(
+                        "scalar batch differs from its bound type or cardinality".into(),
+                    ));
+                }
+                context.query().check()?;
+                return Ok(output);
+            }
+        }
+        evaluate_expression_rows(self, expression, input, context)
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

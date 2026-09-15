@@ -18,7 +18,10 @@ pub mod window;
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
 use crate::{
-    common::{DataType, Error, Result, Value, vector::DataChunk},
+    common::{
+        DataType, Error, Result, Value,
+        vector::{DataChunk, Vector},
+    },
     parallel::QueryContext,
 };
 
@@ -309,7 +312,25 @@ pub trait ScalarFunction: Debug + Send + Sync {
         arguments: &[DataType],
         types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<DataType>;
+    /// True only when valid values of the already-bound argument types cannot
+    /// produce a data-dependent error. Constant metadata may refine that
+    /// decision, but absence of a constant is not permission to speculate.
+    /// The default keeps scalar callbacks in source row order.
+    fn is_total(&self, _arguments: &[Option<&Value>]) -> bool {
+        false
+    }
     fn evaluate(&self, arguments: &[Value], context: &QueryContext) -> Result<Value>;
+    /// Optional physical-batch callback for pure, eager and total bound
+    /// functions. Arguments have already been evaluated in source order and
+    /// retain their physical vector boundaries. `None` preserves ordinary
+    /// row-wise scalar evaluation over those values.
+    fn evaluate_batch(
+        &self,
+        _arguments: &DataChunk,
+        _context: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        Ok(None)
+    }
     /// Execute with owned metadata for arguments already evaluated in ordinary
     /// child order. This does not authorize reevaluation, eager lazy branches,
     /// suppressed errors, or a lookup outside the retained selected adapter.

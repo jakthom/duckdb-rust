@@ -328,6 +328,38 @@ fn evaluate_columns(
             let columns = arguments.iter().map(eval).collect::<Result<_>>()?;
             function.apply_batch(&DataChunk::new(columns, input.len())?, context.query())?
         }
+        ExprKind::Scalar(function, arguments) => {
+            let columns = arguments.iter().map(eval).collect::<Result<Vec<_>>>()?;
+            let provenance = columns
+                .iter()
+                .map(|column| {
+                    if column.constant_value().is_some() {
+                        ArgumentProvenance::Constant
+                    } else {
+                        ArgumentProvenance::Unknown
+                    }
+                })
+                .collect::<Vec<_>>();
+            let arguments = DataChunk::new(columns, input.len())?;
+            if let Some(output) = function.evaluate_batch(&arguments, context.query())? {
+                output
+            } else {
+                let mut row = Vec::with_capacity(arguments.columns().len());
+                let mut values = Vec::with_capacity(input.len());
+                for index in 0..input.len() {
+                    if index % 1024 == 0 {
+                        context.query().check()?;
+                    }
+                    arguments.read_row(index, &mut row)?;
+                    values.push(function.evaluate_with_provenance(
+                        &row,
+                        &provenance,
+                        context.query(),
+                    )?);
+                }
+                Vector::flat(expression.data_type.clone(), values)?
+            }
+        }
         ExprKind::Cast(inner, cast, false) => cast.apply_batch(&eval(inner)?, context.query())?,
         ExprKind::Unary(op, inner) => {
             let inner = eval(inner)?;

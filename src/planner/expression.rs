@@ -135,6 +135,22 @@ impl BoundExpr {
                             .collect::<Vec<_>>(),
                     )
             }
+            ExprKind::Scalar(function, arguments) => {
+                let effects = function.effects();
+                !effects.volatile
+                    && !effects.external_access
+                    && matches!(
+                        function.argument_evaluation(),
+                        crate::function::ArgumentEvaluation::Eager
+                    )
+                    && arguments.iter().all(Self::is_pure_and_total)
+                    && function.is_total(
+                        &arguments
+                            .iter()
+                            .map(Self::constant_value)
+                            .collect::<Vec<_>>(),
+                    )
+            }
             _ => false,
         }
     }
