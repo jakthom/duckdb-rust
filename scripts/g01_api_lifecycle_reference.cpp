@@ -3,7 +3,7 @@
 #include <stdexcept>
 using namespace duckdb;
 static void ok(unique_ptr<QueryResult> result) { if (result->HasError()) throw std::runtime_error(result->GetError()); }
-static int value(Connection &connection, const std::string &sql) { auto result = connection.Query(sql); ok(std::move(result)); return connection.Query(sql)->GetValue(0, 0).GetValue<int>(); }
+static int value(Connection &connection, const std::string &sql) { auto result = connection.Query(sql); if (result->HasError()) throw std::runtime_error(result->GetError()); return result->GetValue(0, 0).GetValue<int>(); }
 int main() {
  try {
   DuckDB db(nullptr); Connection survivor(db); ok(survivor.Query("CREATE TABLE t(i INTEGER);")); ok(survivor.Query("INSERT INTO t VALUES (1);"));

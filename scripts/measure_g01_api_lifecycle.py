@@ -5,30 +5,38 @@ from pathlib import Path
 PINS={"development":"99063af2bd7092aff02e14184a20e24699d34d71","release":"d8cdaa33fda8df955cc76ef58a280f68f4cd43fa"}
 METRICS=("wall_ns","cpu_ns","max_rss_bytes","block_input","block_output")
 MARKER="G01_API_LIFECYCLE_PASS 3"
+ROOT=Path(__file__).resolve().parents[1]
 
 def digest(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def manifest(path):
+    data=json.loads(Path(path).read_text())
+    required={"schema","id","source_ids","rust_test","operations","samples","warmups","metrics"}
+    if set(data)!=required or data["schema"]!=1 or data["samples"]!=9 or data["warmups"]!=3 or data["metrics"]!=[*METRICS,"throughput"] or data["source_ids"]!={"development":"test/api/test_api.cpp:73:1","release":"test/api/test_api.cpp:70:1"} or data["rust_test"]!="transactional_ddl_constraints_and_abandonment": raise ValueError("malformed or changed lifecycle manifest")
+    return {"path":str(Path(path).resolve()),"sha256":digest(path),"data":data}
 def require(root,label):
     if subprocess.check_output(["git","rev-parse","HEAD"],cwd=root,text=True).strip()!=PINS[label]: raise ValueError("wrong "+label+" source identity")
     if subprocess.check_output(["git","status","--porcelain"],cwd=root,text=True): raise ValueError("dirty "+label+" source")
     build=root/"build"/({"development":"engine-walkthrough","release":"rewrite-reference"}[label])
     cache=build/"CMakeCache.txt"; library=build/"src/libduckdb.dylib"
-    if not cache.is_file() or "CMAKE_BUILD_TYPE:STRING=Release" not in cache.read_text() or not library.is_file(): raise ValueError("missing release build/library for "+label)
-    return build,library
+    text=cache.read_text() if cache.is_file() else ""
+    if "CMAKE_BUILD_TYPE:STRING=Release" not in text or f"CMAKE_HOME_DIRECTORY:INTERNAL={root}" not in text or not library.is_file(): raise ValueError("wrong CMake source/build/library for "+label)
+    return build,library,{"cache_sha256":digest(cache),"compiler_lines":[line for line in text.splitlines() if "CMAKE_CXX_COMPILER" in line]}
 def compile_reference(root,label,out):
-    build,library=require(root,label); source=Path(__file__).with_name("g01_api_lifecycle_reference.cpp")
+    build,library,cache=require(root,label); source=Path(__file__).with_name("g01_api_lifecycle_reference.cpp")
     command=["c++","-O3","-DNDEBUG","-std=c++17","-I",str(root/"src/include"),str(source),"-L",str(library.parent),"-lduckdb","-Wl,-rpath,"+str(library.parent),"-o",str(out)]
     result=subprocess.run(command,text=True,capture_output=True)
     if result.returncode: raise RuntimeError("C++ compile failed: "+result.stderr)
-    return {"command":command,"source_sha256":digest(source),"library_sha256":digest(library),"binary_sha256":digest(out)}
+    return {"command":command,"source_sha256":digest(source),"library_sha256":digest(library),"binary_sha256":digest(out),"build":str(build),**cache}
 def timed(command):
     if platform.system()!="Darwin": raise RuntimeError("requires macOS /usr/bin/time -l")
     start=time.perf_counter_ns(); run=subprocess.run(["/usr/bin/time","-l",*map(str,command)],text=True,capture_output=True); wall=time.perf_counter_ns()-start
-    if run.returncode or run.stdout.strip()!=MARKER: raise RuntimeError("candidate failed: "+run.stderr+run.stdout)
+    raw={"command":[str(x) for x in command],"returncode":run.returncode,"stdout":run.stdout,"stderr":run.stderr,"wall_ns":wall}
+    if run.returncode or run.stdout.strip()!=MARKER: raise RuntimeError(json.dumps(raw))
     text=run.stderr; import re
     usage=re.search(r"(?m)^\s*([0-9.]+)\s+real\s+([0-9.]+)\s+user\s+([0-9.]+)\s+sys\s*$",text)
     labels={"max_rss_bytes":"maximum resident set size","block_input":"block input operations","block_output":"block output operations"}
     if not usage: raise RuntimeError("missing CPU time")
-    sample={"command":[str(x) for x in command],"stdout":run.stdout,"stderr":text,"wall_ns":wall,"cpu_ns":int((float(usage.group(2))+float(usage.group(3)))*1e9)}
+    sample={**raw,"cpu_ns":int((float(usage.group(2))+float(usage.group(3)))*1e9)}
     for key,label in labels.items():
         match=re.search(r"(?m)^\s*(\d+)\s+"+re.escape(label)+r"\s*$",text)
         if not match: raise RuntimeError("missing "+key)
@@ -44,15 +52,15 @@ def gate(cpp, rust):
     base={metric:min(cmed["release"][metric],cmed["development"][metric]) for metric in METRICS}
     ratios={key:{metric:(1 if base[metric]==value[metric]==0 else float("inf") if base[metric]==0 else value[metric]/base[metric]) for metric in METRICS} for key,value in rmed.items()}
     throughput={key:1/rmed[key]["wall_ns"] for key in rmed}; cpp_throughput=max(1/cmed[key]["wall_ns"] for key in cmed); passed=all(v<=1 for row in ratios.values() for v in row.values()) and all(v>=cpp_throughput for v in throughput.values())
-    return {"cpp_fastest":base,"rust":rmed,"ratios":ratios,"throughput":throughput,"passed":passed}
+    return {"cpp_fastest":base,"rust":rmed,"ratios":ratios,"cpp_throughput":{key:1/cmed[key]["wall_ns"] for key in cmed},"best_cpp_throughput":cpp_throughput,"throughput":throughput,"passed":passed,"at_parity_or_better_performance":passed}
 def main():
-    p=argparse.ArgumentParser(); p.add_argument("--development-root",type=Path,required=True); p.add_argument("--release-root",type=Path,required=True); p.add_argument("--output-dir",type=Path,required=True); p.add_argument("--run",action="store_true"); a=p.parse_args()
+    p=argparse.ArgumentParser(); p.add_argument("--development-root",type=Path,required=True); p.add_argument("--release-root",type=Path,required=True); p.add_argument("--manifest",type=Path,required=True); p.add_argument("--output-dir",type=Path,required=True); p.add_argument("--run",action="store_true"); a=p.parse_args()
     if a.output_dir.exists(): raise ValueError("output exists")
-    a.output_dir.mkdir(parents=True); refs={}
+    a.output_dir.mkdir(parents=True); spec=manifest(a.manifest); refs={}
     for label,root in (("development",a.development_root),("release",a.release_root)): refs[label]=compile_reference(root,label,a.output_dir/(label+"-reference"))
     rust=["cargo","build","--release","--no-default-features","--bin","g01-api-lifecycle"]; build=subprocess.run(rust,text=True,capture_output=True)
     if build.returncode: raise RuntimeError(build.stderr)
-    candidate=Path("target/release/g01-api-lifecycle"); identity={"rust_build":rust,"rust_binary_sha256":digest(candidate),"references":refs}
+    candidate=ROOT/"target/release/g01-api-lifecycle"; identity={"manifest":spec,"rust_build":rust,"rust_build_stdout":build.stdout,"rust_build_stderr":build.stderr,"rust_binary_sha256":digest(candidate),"candidate_source_sha256":digest(ROOT/"benchmark/g01_api_lifecycle.rs"),"cargo_toml_sha256":digest(ROOT/"Cargo.toml"),"references":refs}
     if not a.run: print(json.dumps({"prepared":True,**identity},sort_keys=True)); return
     require_quiet_host()
     for _ in range(3):
