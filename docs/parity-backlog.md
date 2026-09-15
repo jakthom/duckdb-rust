@@ -1,7 +1,8 @@
-# DuckDB functional parity: agent handoff backlog
+# DuckDB parity: measured baseline and implementation plan
 
-Audited 2026-09-10 against Rust `20c8214216e6e1b59c80e9b5fcffcdee4ab9e232`
-plus the local verification-runner changes. This is the maintained work map;
+Measured 2026-09-15 against engine source at
+`c2fdae761d0f24c8628437901c27f0ae22b1d6b2`, with G01 measurement-only tooling
+changes identified in the reports. This is the single maintained work plan;
 update the relevant entry when behavior changes instead of adding another
 checkpoint/progress report. Source and tests take precedence over this snapshot.
 
@@ -23,28 +24,173 @@ copying C++ classes or algorithms. The rewrite's
 Alternative OLTP, graph, AI and non-DuckDB formats are separate expansion goals;
 they should not silently enlarge this parity backlog.
 
-Evaluation used the actual statement/query/table binders, type and function
-registrations, catalog/default representation, optimizer, scheduler, storage and
-WAL implementations, Cargo targets, public interfaces, upstream source inventory,
-and historical findings. It did not rerun the entire upstream population, external
-clients, platform matrix, or performance campaigns. Missing behavior identified
-in source is distinguished below from incomplete coverage of implemented behavior.
+The G01 measurement slice runs both complete SQL-suffixed source populations,
+inventories source declarations and installed reference configurations, enumerates
+the available compiled native registry, and exercises existing independent
+compatibility and benchmark probes. This is a comprehensive accounting of what
+the current tooling can and cannot assess, **not a full engine-parity score**.
+First blockers hide later assertions; the harness still lacks important upstream
+semantics. No external client/platform population is claimed as executed.
 
-The retained [source manifest](../test/upstream/duckdb/manifest.json) inventories
-15,646 assets, 5,638 SQLLogicTest files, 1,506 native declarations, 561 Python
-declarations, 132 Swift declarations, and 1,160 benchmark workloads. These are
-source counts, not compiled/parameterized/platform instance counts. The most
-recent full-upstream result found in the removed historical summaries was
-487 passing files and 20,811 passing records at engine `27d190b`; successful
-records include prefixes of failed files. That is about 8.6% of the inventoried
-SQL files, **not 8.6% functional completion**, and is not current-source evidence.
-Later scoped improvements cannot be added to that number without a fresh run.
+### Measured population
 
-The local chunk sweep passed six stages after the runner was added: format,
-check, Clippy, ordinary tests, exhaustive recovery, and six maintained Kani
-harnesses. Its 311.5-second run is a local regression result, not upstream parity.
-The sweep's default Cargo feature selection does not cover every feature,
-ignored test, doctest, external harness or platform. G01/G24 own those obligations.
+| Source inventory | Release v1.5.5 | Development pin |
+| --- | ---: | ---: |
+| Tracked source assets | 14,601 | 15,646 |
+| SQL-suffixed candidate assets | 4,835 | 5,638 |
+| SQL candidates under C++ core discovery roots | 4,834 | 5,637 |
+| Native test declarations | 610 | 1,506 |
+| Python test declarations | 308 | 561 |
+| Swift test declarations | 132 | 132 |
+| Benchmark declarations | 980 | 1,160 |
+| Test configuration files | 42 | 65 |
+| CI workflow files | 39 | 31 |
+| External-extension reference/config files | 23 | 23 |
+
+These are source declarations/files, not executed assertions, generated instances
+or supported-feature counts. The suffix inventory includes the binary fixture
+`data/parquet-testing/orders_small_parquet.test`; it is not a SQL program. Keep
+that inventory correction visible rather than silently changing a campaign's
+denominator. C++ `test/sqlite/test_sqllogictest.cpp` discovers `test/`,
+`third_party/sqllogictest/test/` and configured loaded-extension test roots, not
+repository-wide suffixes. All 4,834 eligible release source paths occur in the
+compiled registry; no core source paths are missing. The retained
+[manifest](../test/upstream/duckdb/manifest.json) remains
+the development archive identity; it is not an assertion of runnable eligibility.
+
+The installed release Catch registry lists **5,502 unique names: 4,834 SQL file
+names and 668 other registrations**, including hidden tests. Listing is not
+execution. The development native runner is absent (`BUILD_UNITTESTS=OFF`), so
+its compiled/generated population is explicitly unmeasured. Rust has 46 Cargo
+targets and 782 textual `#[test]` declarations across the workspace, not 782
+mapped upstream tests. Neither count measures native/API invariant coverage.
+
+Both pinned CLI/library identities are checked. Release has core_functions,
+JSON and Parquet available; development lacks JSON. Neither installed reference
+has ICU/TPCH/TPCDS available. Extension autoinstall/autoload is disabled. The
+captured build configurations differ (release C++ `-O3`, development `-O1`);
+results describe those exact builds and the local macOS arm64 host, not a full
+configuration/platform matrix. Runtime function catalogs are inventoried for each
+reference build; no Rust overload-completion percentage is inferred from them.
+
+Raw, revision-specific evidence lives under ignored `target/g01-20260915/`:
+`inventory-complete/inventory.json`, `sql/accounting-final.json`,
+`compatibility/summary.json` and `performance/*-fastest.json`.
+Source/binary/harness hashes and exact commands belong in those reports. Historical
+pass counts and the superseded milestone baseline have been removed from this plan;
+they must not be added to fresh scoped results.
+
+### SQL outcomes and their limits
+
+The complete first passes used a 10-second per-file deadline and four workers
+per pin. Only their 12 development / 11 release timeouts were retried at 60 seconds.
+The table uses the retry outcome for those IDs, excludes the one binary fixture,
+and preserves both original campaigns. The effective result is not a second full
+60-second campaign. No oracle assertions were weakened.
+
+| Effective first-blocker outcome | Release | Development |
+| --- | ---: | ---: |
+| Entire file passed under current harness | 221 | 528 |
+| Engine explicitly unsupported | 2,633 | 1,491 |
+| Assertion/error mismatch, attribution requires triage | 722 | 2,009 |
+| Harness directive/oracle unsupported | 1,249 | 1,597 |
+| Harness text/grammar parse barrier | 1 | 2 |
+| Still timed out at 60 seconds | 5 | 7 |
+| No SQL records: two empty/comment files | 2 | 2 |
+| Control-only storage lifecycle file: not scored as SQL pass | 1 | 1 |
+| Total core candidate files | 4,834 | 5,637 |
+
+The original 10-second runs passed 218 release / 526 development files; retries
+added 3 / 2. Effective passing record executions are **13,912 / 22,389** and
+include successful prefixes of failed files and loop repetitions. They are not
+whole-file passes or unique assertions. The retained reports' SQL-attempt and
+unreached-loop totals are not trustworthy enough to aggregate; final accounting
+marks them unknown. Current runner counters distinguish SQL from control requests.
+No crash was observed; zero observed crashes is not a crash-safety proof.
+
+The largest first blockers include release `PRAGMA enable_verification` (1,906
+files), development `require parquet` (431), `require json` (189), and the
+unrecognized `profiling_renderer_settings` setting (135). `require` itself is a
+harness barrier here, not proof that every dependent query fails in Rust. The
+release and development pass counts have different populations, controls and
+semantics; comparing them as a release regression rate is invalid.
+
+The audit found unsupported `require`, `mode`, `include`, `unzip`, concurrent
+loops, environment/tag/sleep/continue directives, loop-variable conditions and
+external expected-file oracles. There is no declared fixture staging into the
+worker's scratch-only filesystem. Numeric comparison is a conservative subset of
+DuckDB's conversion/tolerance rules; Python regex is not full RE2 compatibility.
+The development invalid-UTF-8 parser file and both pins' invisible-space file
+cannot be represented faithfully by the current text parser. These must be fixed
+before first-blocker counts can reliably rank the remaining engine families.
+
+### Independent compatibility measurements
+
+These probes exercise selected already-implemented families, not the full upstream
+population. Their overlapping cases must not be summed into a global score.
+
+| Existing probe | Release | Development |
+| --- | --- | --- |
+| Numeric SQL | 719/1,091 | 1,090/1,091; remaining IEEE-setting diagnostic mismatch |
+| BIGNUM SQL | 39/45 | 45/45 |
+| BIT SQL | 60/77 | 77/77 |
+| BLOB/UUID/base64 SQL | 134/136 | 136/136 |
+| Anonymous ENUM SQL | 28/29 | 28/29 |
+| Temporal-minimum exact comparisons | 20/32 (29/32 outcome categories) | 23/32 (32/32 outcome categories) |
+| Broad supported-subset native campaign | 39 checkpoints of the script passed | Stops after 10 at a HUGEINT JSON-format comparison; later checks unexecuted |
+| Named ENUM and current-timestamp native handoffs | Passed selected bidirectional cases | Passed selected bidirectional cases |
+
+Numeric and ENUM native persistence each pass six selected paths per pin;
+BIGNUM/BIT/binary-scalar each pass three per pin. Typed-value codec checks pass
+157/157, VARIANT WAL reference-reader checks 5/5, and the selected VARIANT
+checkpoint SQL probes 49/49. These do not establish all codec/version support.
+
+Two important classifications from focused follow-up:
+
+- **Confirmed engine mismatch:** for two ENUM rows, `enum_range_boundary(k, NULL)`
+  returns `[z,a]`, then `[a]` in Rust, versus `[z,a]` for both rows in both pins.
+  This is a G03.3 function semantic bug, separate from the completed named-type lifecycle.
+- **Harness mismatch, not a demonstrated decode bug:** the defaults fixture's
+  HUGEINT value agrees, but Rust's JSON CLI emits a number and development's CLI
+  emits a string. Fix typed comparison before blaming native decoding.
+
+Release FUNCTION-default WAL recovery retains an upstream C++ internal replay
+failure; development default handoffs pass. ALTER and settings-session probe
+failures include C++/corpus expectation differences needing isolated contract
+review. Release-only numeric/type divergences remain visible and do not override
+the development contract. Raw reports record exact commands and source identities.
+
+### Performance baseline
+
+All **34 existing microbenchmarks** ran sequentially against both pinned builds,
+with three warmups and 21 paired alternating-order samples. Tracing was disabled;
+Rust used release/no-default-features. No SQL campaign or other build ran alongside
+timed sampling. Each workload selects the faster C++ median and gates **both**
+Rust campaign medians at `Rust/C++ <= 1.0`; speedups do not offset slowdowns.
+
+| Manifest | Meets faster-reference gate | Fails gate |
+| --- | ---: | ---: |
+| Native scan/DDL/recursion | 4/12 | 8 |
+| Numeric | 1/8 | 7 |
+| Relational | 3/10 | 7 |
+| Grouping | 0/3 | 3 |
+| Ordering | 1/1 | 0 |
+| Total | 9/34 | 25 |
+
+Largest observed Rust/faster-C++ ratio ranges across the two Rust medians:
+ADD COLUMN **258.8–268.6×**, decimal total-cents aggregation **39.4–40.3×**,
+ordinary aggregation **16.3–17.9×**, decimal filtering **13.7–14.7×**. These are
+fresh performance failures, not claims about their cause or a cross-revision
+regression. Investigate against pinned source without changing default evaluation
+demand or checked numeric semantics merely to improve the numbers.
+
+The timed harness checks row counts and sums (and DDL effects), not an exhaustive
+typed-value oracle. Scope is serial embedded, primarily in-memory execution;
+setup/initial preparation/startup are untimed. The 1,160 development benchmark
+declarations, cold/warm file I/O, CPU, peak memory, durable commits/recovery,
+concurrency and client/API timings remain unmapped/unmeasured. **Performance parity
+fails even this small measured subset.** No percentage of overall performance
+completion is inferred from 9/34.
 
 ## What already exists
 
@@ -127,17 +273,197 @@ subtask of a large predecessor before beginning design or a usable increment.
 | G23 | Extension runtime and required extension capabilities | G10/G19/G21/G22 |
 | G24 | Clients, shell, distribution and full acceptance | Integrate all relevant groups |
 
-Practical opening wave: run G01's inventory work alongside G09's retained-default
-integration, G03/G04/G05 family completion, and G10's catalog identity prerequisite.
-G02 can close independent syntax gaps. Start G17 and G19 contract design early.
-Next integrate G07/G08/G11/G12/G14/G15, then resource execution and external data,
-then complete public clients/extensions. G24 regression accounting runs throughout;
-it is not a final attempt to discover all compatibility requirements at once.
+## Parallel execution order and model budget
+
+Port the pinned C++ behavior and unchanged tests; do not redesign a subsystem merely
+because its implementation language changes. Preserve the existing Rust interfaces
+unless the source contract demonstrates that they cannot express required behavior.
+G09's closed-default slice, the named-ENUM lifecycle and the LIST/ARRAY set slice
+are existing foundations, not new assignments.
+
+Use one integration lead and at most three active implementation workers in this
+environment. Every worker has a separate worktree and one owned chunk. The lead owns
+shared enum/registry/plan/catalog interfaces and integration; leaf owners do not
+independently edit them. A completion verifier takes a worker slot. Integrate and
+verify one stable final tree at a time; no source edits during its full sweep.
+
+| Wave | Parallel lanes | Dependency / handoff |
+| --- | --- | --- |
+| A — remove measurement blind spots | G01.2a parser/accounting; G01.2b fixture resolver; G01.2d oracle | Separate new parser, fixture and oracle modules; one owner integrates `sqllogic.py`. Agree record/result interfaces first. |
+| B — finish measurement contracts | G01.2c concurrent runner; G01.1b native/configuration registry; G01.3a API/client mapping with G23.1 external pins | Runner requires A. Registry/mapping can begin during A when a slot is free; no engine source ownership overlap. |
+| C — remeasure and deliver bounded core slices | G01.4 campaign owner; G10.4 verification/settings controls; one G03/G04/G05/G06 or G02/G07/G08 family owner | Settings block 1,906 release files at `enable_verification` alone. Port observable verification behavior; do not accept-and-ignore the PRAGMA to inflate passes. Rerun both populations after integration and select exact newly exposed source-case manifests. |
+| D — state and native consumers | G10 catalog object slice; G14 transaction lifecycle; G12/G13 native codec slice | Integrator serializes shared catalog/transaction/wire changes. G11/G15 follow the specific identity/conflict contracts they need. |
+| E — execution and external sources | G17 byte/buffer contracts; G19 table-function contracts; G16 statistics/optimizer | Agree value/scan/resource interfaces first; then independent operator/CSV/JSON/Parquet owners. G18 waits for the required resource/state contracts. |
+| F — public ecosystem | G22 ABI/Arrow; G21/G23 filesystem/extension capabilities; G24 client/shell packaging | G01 inventories exact external pins before implementation; APIs/clients run against the Rust artifact, never installed C++ DuckDB. |
+
+These are dependency waves, not a requirement to finish an entire group before
+starting a dependent slice. G24 accounting runs throughout. Performance campaigns
+run serially on a quiet host, outside builds, SQL campaigns and verification sweeps.
+
+Model recommendations below are risk/cost judgments, **not measured model bake-off
+results**. Prices are standard API USD per million input/output tokens, checked
+2026-09-15; they do not estimate Codex subscription charges or total task cost.
+Cached input, tool time, retries and context size change the bill.
+
+| Code | Model | Input / output | Assignment rationale |
+| --- | --- | --- | --- |
+| L | `gpt-5.6-luna` | $0.20 / $1.20 | Mechanical inventories and report reconciliation with deterministic checks; not semantic engine ports. |
+| T | `gpt-5.6-terra` | $2 / $12 | Default for bounded, source-explicit ports with strong reference tests. |
+| S | `gpt-5.6-sol` | $4 / $20 | Cross-module binding, ownership and execution semantics where a cheap incorrect design creates rework. |
+| A | `gpt-6-astra` | $10 / $50 | Reserve for especially difficult conflict, fault-publication, scheduling and foreign-handle state machines. |
+
+Pricing/capability sources: [model comparison](https://developers.openai.com/api/docs/models/compare),
+[Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna),
+[Astra](https://developers.openai.com/api/docs/models/gpt-6-astra).
+Sol pricing is currently promotional. Recheck prices when dispatching future waves.
+Start L/T at medium reasoning and S/A at high; escalate only a concrete unresolved
+contract/counterexample, not every task in the group. The mandated completion
+verifier remains **Terra, low**, regardless of the implementation model.
+
+### Minimal validation contract
+
+During editing, use `cargo check` plus the named affected Rust test filter and the
+smallest unchanged upstream case set that exercises the change. For Python harness
+edits, run the relevant `scripts/test_*.py` unit tests, including intentionally wrong
+results and incomplete selections that must fail. No benchmark or full sweep per edit.
+
+Before assigning an engine chunk, freeze its exact source/test manifest, inputs,
+required configurations and expected outcomes. A large Gxx.n item is a queue of
+bounded source families: split it into Gxx.n.a/b/etc before assigning multiple workers.
+The parent is not complete until every child population is covered. The table below
+states the **smallest functional evidence**, not permission to reduce the assigned
+population to one happy-path smoke test. New behavior must pass all assigned cases,
+the relevant negative/NULL/boundary cases and its actual public consumers. Record
+release divergences independently; development is authoritative.
+
+Every chunk also gets exactly the repository-required completion workflow:
+delegate `python3 scripts/verify_chunk.py` to the configured verifier on the final
+integrated tree. All ordinary stages must pass, and Kani must run and be reported
+honestly under its exploratory policy. No full-sweep shortcuts are implied below.
+If interfaces or Rust files change, include `cargo dev coverage` and
+`cargo dev trace check --workspace --all-targets` as required by AGENTS.md.
+
+### Dispatch matrix: scope, ownership, model and functional evidence
+
+Paths in the goal's Sources paragraph and [architecture map](architecture.md)
+define its ownership area. New adapters live beside that subsystem; shared files
+remain with the integration lead. `SQL` below means unchanged tests from **both**
+pins plus exact types/errors, not just result row counts. `native exchange` means
+C++→Rust and Rust→C++→Rust, including continued mutation/reopen.
+
+| Chunk(s) | Model | Owned responsibility | Smallest functional validation |
+| --- | --- | --- | --- |
+| G01.1a | L | Source/client/extension manifest reconciliation in inventory tooling | Exact pin/hash, unique IDs, known declaration fixtures and explicit absent populations. Current source inventory exists; do not recount it manually. |
+| G01.1b | T | Compiled/generated/config/platform enumeration | Compare source IDs with an actual compiled registry; enumerate hidden/parameterized cases; missing runner/config cannot produce success. |
+| G01.2a | S | Byte-preserving parser and record accounting | Invalid-UTF-8 and invisible-space upstream files; failed attempt, loop-tail, skipped and zero-selection unit tests. |
+| G01.2b | T | Source-rooted fixture/include/require/mode adapter | Upstream include/unzip/expected-file cases; missing fixture, traversal, hash and ineligible-config tests; scratch isolation. |
+| G01.2c | S | Concurrent loop/session/restart runner | Pinned parallelism case with deterministic barriers; named-session isolation, cancellation, crash and restart failure tests. |
+| G01.2d | S | Numeric/RE2/hash/sort/error oracle | C++ oracle agreement and deliberately perturbed values/types/order/errors that must fail. Never accept engine Unsupported as an expected SQL error. |
+| G01.3a | T | Native/API/client assertion mapping | Trace each selected source assertion to a Rust public-contract test, including destruction/failure; unique mapping and unmapped-count checks. |
+| G01.3b | S | Foreign-client test adapters | Test actually loads Rust-built library; wrong symbol/layout/ownership mutation fails. Depends on the corresponding G22 interface. |
+| G01.4 | T | Dual-pin campaigns and regression accounting | All selected IDs have one outcome; retain first runs/retries, immutable provenance and old-pass losses; no skipped/unknown counted as passed. |
+| G02.1 | T | Parser syntax family | SQL parser acceptance/rejection plus parse→bind→execute for each new form. |
+| G02.2 | S | Name/scope resolution | SQL ambiguity, alias/star/correlation matrix and prepared rebinding. |
+| G02.3 | S | Binding contexts and SQL preparation | Literal/parameter/typed-constant overload matrix, repeated execution and invalidation. |
+| G02.4 | T | Diagnostic categories/spans | Exact error assertions with malformed UTF-8, location and unsupported-vs-rejection controls. |
+| G03.1 | S | Cast-family matrix | SQL source/target/boundary matrix through constants, columns and parameters. |
+| G03.2 | T | Numeric overload/function family | Existing `numeric_*` component tests plus source-enumerated SQL signatures/NULL/overflow cases. |
+| G03.3 | T | Binary/UUID/ENUM/BIT family edges | Scalar and batch SQL plus native exchange for changed value representation. |
+| G03.4 | S | Context/IEEE/mixed-family behavior | Prepared-setting changes, lazy errors and nested/group/index key regressions. |
+| G04.1 | T | Temporal physical/text boundaries | `temporal_*` boundary tests plus exact native payloads and reference casts. |
+| G04.2 | T | Calendar/format/current function family | Constant/column/NULL/error SQL and transaction-stable clock tests where applicable. |
+| G04.3 | S | Named-zone/ICU adapter | Provisioned pinned ICU build; DST fold/gap and timezone-setting SQL, explicit absent-build failure. |
+| G04.4 | S | Temporal consumer integration | Prepared/default/group/index tests and checkpoint/WAL exchange for changed types. |
+| G05.1 | T | One nested accessor/constructor family | `component::nested` tests and SQL child NULL/type/shape/error matrix. Preserve already implemented slices. |
+| G05.2 | S | Lambda binding/capture and higher-order family | Nested capture/shadowing, transform/filter/reduce SQL and scalar/batch agreement. |
+| G05.3 | S | Nested relational/mutation consumers | UNNEST/lateral/prepared/nested-update SQL, rollback and mixed-width literals. |
+| G05.4 | S | Core GEOMETRY/type constructors | Pinned WKB/CRS/type SQL, invalid payloads and exact native metadata; not opaque bytes alone. |
+| G05.5 | S | Nested native codecs | Mixed-child/tag/IEEE-bit exchange, version rejection and unchanged-file failures. |
+| G06.1 | T | One text/encoding function family | SQL Unicode/NUL/empty/invalid-byte/NULL cases and batch boundaries. |
+| G06.2 | S | Regex/collation integration | SQL options/errors and same comparison semantics across sort/group/join/index. |
+| G06.3 | T | One utility/volatile function family | Source signatures plus seed/stability/effect-demand tests across statements. |
+| G06.4 | T | Function metadata | Enumerated aliases/overloads/parameters match callable behavior and binder diagnostics. |
+| G07.1 | S | One join/correlation form | SQL empty/NULL/cardinality/outer-row cases plus prepared and nested execution. |
+| G07.2 | S | Recursive/materialized CTE form | SQL recurrence/multiple-reference/type tests plus cancellation/nontermination guard. |
+| G07.3 | T | Relational modifiers/set alignment | SQL name/type/order alignment with aliases, empty and duplicate rows. |
+| G07.4 | S | PIVOT/UNPIVOT/sampling | SQL discovered schemas/NULLs and deterministic seeded sampling cases. |
+| G08.1 | T | One aggregate family | SQL empty/all-NULL/mixed-domain/overflow cases and batch partition equivalence. |
+| G08.2 | S | Aggregate modifiers | ORDER/DISTINCT/FILTER/grouping-mask combinations, error/effect demand. |
+| G08.3 | S | Window frame/function family | Peer/tie/NULL/dynamic-bound/exclusion SQL and invalid bounds. |
+| G08.4 | S | Aggregate/window state adapters | Same result across batch/parallel/spill boundaries; cancellation/cleanup. |
+| G09.1–G09.4 | — | Closed-default slice already implemented | Preserve `stored_*`, default-demand and independent native-default gates; route new consumers to G04/G10/G11. No repeat implementation budget. |
+| G10.1 | S | Remaining identity/scope/dependency integration | Existing catalog-identity tests plus temp scope, rename/drop/cascade and prepared lifetime histories. |
+| G10.2 | S | One catalog object family | CREATE/use/replace/drop, dependencies, rollback and native exchange. Named ENUM already exists. |
+| G10.3 | S | Multi-catalog attachment/routing | Qualified cross-catalog SQL, read-only and forbidden multi-database writes, shutdown/reopen. |
+| G10.4 | T | One metadata/settings family | SQL catalog reflects actual objects; scope/RESET/locking and prepared-setting tests. |
+| G11.1 | S | One DML form | Changed rows/RETURNING metadata, multirow failure atomicity, prepared execution. |
+| G11.2 | S | One constraint/generated-column family | NULL/self-reference/multirow failures, dependency DDL and rollback/reopen. |
+| G11.3 | S | One schema-evolution form | Old/new snapshots, dependent defaults/indexes, reference error timing and native exchange. |
+| G11.4 | T | DML lifecycle integration tests | Deterministic concurrent histories and bidirectional WAL/checkpoint cases for new forms. |
+| G12.1 | S | One version/object metadata codec | Read/create/rewrite/upgrade matrix; metadata and unchanged-file rejection tests. |
+| G12.2 | T | One compression codec/type/version slice | Independent compressed fixtures, decode/encode exchange and malformed boundaries. |
+| G12.3 | S | Selective/large storage adapter | Partial reads return exact rows with measured block I/O and bounded allocation. |
+| G12.4 | T | Native exchange campaign | Cross-producer mixed types/deleted IDs/corruption/version cases, continued writes. |
+| G13.1 | S | One WAL record/version family | FLUSH/abort boundaries and exact state after independent replay. |
+| G13.2 | S | Checkpoint/recovery maintenance | Concurrent/manual/automatic histories, sidecars and repeated recovery. |
+| G13.3 | A | Failure/publication state machine | Short-write/sync/rename/process-kill histories; acknowledged commits survive, unknown outcome stays explicit. |
+| G13.4 | T | Cross-engine recovery handoffs | Alternate WAL/recovery/checkpoint owners then continue writing on both pins. |
+| G14.1 | A | Visibility/conflict domains | Pinned overlapping/disjoint row and catalog histories with exact allowed conflicts. |
+| G14.2 | S | Statement/transaction error lifecycle | Bind/execute/commit/cancel failures, autocommit and prepared reuse transitions. |
+| G14.3 | S | Database/connection ownership | Repeated opens, locks, active results, close/reopen and foreign-handle lifetime. |
+| G14.4 | T | Deterministic history tests | Replay source-mapped read/write/DDL/index/checkpoint schedules, reject incorrect histories. |
+| G15.1 | S | Index DDL/catalog integration | CREATE/drop/composite/expression index SQL, dependency/rollback/native reopen. |
+| G15.2 | S | Incremental maintenance | Insert/update/delete/rollback plus NULL/NaN/nested-key uniqueness and old snapshots. |
+| G15.3 | S | Range/gather access | SQL residual/effect correctness plus instrumented row/block selectivity. |
+| G15.4 | T | Native ART interoperability | C++ visibility/use/mutation and Rust reread; corrupt-index rejection. |
+| G16.1 | T | Statistics lifecycle | ANALYZE/invalidation SQL and measured cardinality fixtures. |
+| G16.2 | S | One optimizer transformation | Optimizer on/off differential corpus with volatile/lazy-error counterexamples. |
+| G16.3 | S | Physical cost/algorithm selection | Correct alternative plans under same inputs/resources plus targeted quiet-host timings. |
+| G16.4 | T | EXPLAIN/profiling contracts | Exact required plan/metric fields, settings and executed-row accounting. |
+| G17.1 | S | Byte ownership/reservations | Fault-injected allocation and nested/vector/operator peak-byte budgets; no leaked reservations. |
+| G17.2 | S | Buffer manager | Pin/evict/dirty/read failure tests plus I/O counts and transaction lifetime. |
+| G17.3 | S | One external operator | Dataset exceeding budget, exact in-memory/spill equivalence and cleanup on failure/stop. |
+| G17.4 | T | Resource acceptance fixtures | Low-memory/disk-full/concurrent cases with peak bytes/I/O and explicit unsupported limits. |
+| G18.1 | A | Scheduler/pipeline state machine | Deterministic exactly-once/barrier/dependency tests, one/many threads and cancellation races. |
+| G18.2 | S | One parallel operator | Batch/partition equivalence, snapshots and mutation atomicity at thread counts 1 and >1. |
+| G18.3 | S | Pending/backpressure API | Real WAITING/progress/cancel/close transitions, blocked source and early destruction. |
+| G18.4 | T | Scheduler histories | Forced blocking, resource pressure, multiple connections and race/stress cases. |
+| G19.1 | S | Table-function binding/lifetime | Independent test source binds schema/options, scans, fails and frees through public API. |
+| G19.2 | S | Pushdown/source capabilities | Residual/projection identity tests, actual scanned rows/bytes and cancellation. |
+| G19.3 | S | Multi-file source adapter | Glob/list/schema-union/partition/filename SQL and reopen/missing-file cases. |
+| G19.4 | T | One core table-function family | Source signatures/output schema plus NULL/empty/correlated SQL. |
+| G20.1 | T | Bounded CSV reader/writer slice | Unchanged CSV boundary/quote/NULL/error cases and independent read/write exchange. |
+| G20.2 | S | Bounded JSON function/reader slice | Missing vs JSON-null vs SQL-NULL, path/number/nested/schema cases and malformed input. |
+| G20.3 | S | Bounded Parquet encoding/type slice | Independently produced pages/files both ways, nested/decimal/time metadata and corruption. |
+| G20.4 | S | COPY/finalization lifecycle | Partition/multi-file exact outputs, failed-write cleanup and import/export exchange. |
+| G21.1 | S | Filesystem capability adapter | Short/range reads, globs, cancellation/locks and non-idempotent failure replay tests. |
+| G21.2 | S | Secret/access-policy lifecycle | Provider scope/redaction/persistence tests, forbidden access and cleanup. |
+| G21.3 | S | Encryption format/lifecycle | Independent encrypted DB/WAL/temp exchange, wrong-key/authentication/torn-write tests. Use audited primitives, not new cryptography. |
+| G21.4 | T | One remote filesystem integration | Controlled server credentials/redirect/range/retry cases and actual transferred bytes. |
+| G22.1 | S | Bounded C v1 symbol/handle family | Compile/link unchanged C test against Rust library; ABI, free/borrow/error tests. |
+| G22.2 | A | C v2 handle/wait state machine | Native C/C++ consumer WAITING/CHUNK/FINISHED/CANCELLED and invalid/destructed-owner cases. |
+| G22.3 | S | Relation/appender/registration adapter | Foreign caller buffering/flush/rollback/early-destroy and nested-value tests. |
+| G22.4 | S | Arrow ownership/type slice | Independent Arrow consumer, offsets/dictionary/nested NULLs and exactly-once release callbacks. |
+| G22.5 | S | ADBC driver slice | Pinned driver tests for metadata/parameters/transactions/streams/errors with Rust provenance. |
+| G23.1 | L | Extension pin/ABI manifest | Resolve configured immutable refs; classify missing refs and ABI coupling, never silently omit. |
+| G23.2 | S | Loader lifecycle | Independent compatible extension, bad signature/version/platform, repeat load and retained callbacks. |
+| G23.3 | T | One built-in extension adapter | Its unchanged SQL/API cases under static/loadable required configs; missing dependency is not a pass. |
+| G23.4 | S | One pinned external capability | Exact extension suite/remote fixture against Rust; port internal-C++-coupled capability explicitly. |
+| G24.1 | S | One client adapter | Pinned conversions/relation/threading/lifetime tests loading newly built Rust artifact. |
+| G24.2 | T | One shell behavior family | Process-level args/stdout/stderr/exit/interrupt tests; terminal fixture for interactive behavior. |
+| G24.3 | T | One build/platform package | Clean install, exported symbols and provenance smoke on actual target OS/architecture. |
+| G24.4 | T | Integrated correctness accounting | All mapped IDs/configs, prior-pass regression diff, faults/fuzz/ignored/zero-test accounting. |
+| G24.5 | T | Performance acceptance campaign | Correct paired samples vs both pins, faster-reference <=1.0 per workload, then CPU/memory/I/O/scale dimensions. |
 
 ## G01 — Reliable parity inventory and harnesses
 
-**Current:** source assets are retained and a Python runner drives the Rust API;
-native/client mappings and complete harness semantics remain open.
+**Current measurement slice:** both source populations and the available compiled
+registry are inventoried; full SQL first-blocker campaigns, bounded timeout retries,
+18 existing compatibility-probe invocations and all 34 existing latency workloads
+have fresh evidence above. New tools retain exact identities and reject incomplete
+or duplicate report selections. This closes the requested current-state measurement
+snapshot, **not G01's full exit**: faithful harness semantics, generated/configuration
+instances and native/client assertion mappings remain open and have assigned chunks.
 
 - **G01.1 Inventory the acceptance population.** Enumerate both pins' SQL files,
   native registrations, generated/parameterized cases, slow tests, configurations,
@@ -159,6 +485,41 @@ native/client mappings and complete harness semantics remain open.
 cannot count unsupported expected-error records or omitted work as success.
 Sources: `scripts/{run_upstream,sqllogic,upstream_suite}.py`, `test/runner/`,
 [testing specifications](../specs/testing/README.md).
+
+Reproduce the inventory with
+`python3 scripts/parity_inventory.py --output-dir target/<new-inventory>`.
+Run each full SQL pin with
+`python3 scripts/run_upstream.py --target development --timeout 10 --jobs 4 --report target/<new-report>.json`
+(repeat with `--target release`); use `--retry-timeouts-from <prior-report>` and
+`--timeout 60` for the recorded retry policy. `--path-list` selects exact IDs and
+rejects unknown paths. `scripts/summarize_upstream.py --help` describes immutable
+first-pass/retry reconciliation. Keep the suffix-fixture exclusion explicit until
+source discovery is fully integrated into the runner; do not edit the pinned inputs.
+The compatibility command list is in its raw `summary.json`. For each
+`benchmark/*_workloads.json`, run `scripts/compare_native.py --target <pin>
+--iterations 21 --workloads <manifest> --report <new-report>` serially for both pins,
+then `scripts/fastest_reference.py` on that pair. Always choose fresh output paths.
+
+### First source-bound follow-ups
+
+The dispatch matrix supplies the rest of the portfolio. These smaller children
+are directly motivated by the measured baseline and can be assigned without
+inventing a new feature scope. G01.2a/b/d are the first three parallel workers;
+the following independent children enter as slots and shared contracts permit.
+
+| Child | Model / owner | Minimal functional gate |
+| --- | --- | --- |
+| G01.2d.1 — typed native-probe comparison | T; `scripts/verify_reference.py` comparison helper/tests, coordinate oracle owner | HUGEINT number/string representation compares by declared type; changed value, NULL and VARCHAR numeric text still fail. Rerun development probe to expose its next genuine boundary. |
+| G03.3a — ENUM range boundary | T; `src/function/enumeration.rs`, enumeration component/reference cases | Port both pins' constant/column/NULL endpoint behavior; `enum_reference.py` SQL 29/29 per pin plus existing native paths, scalar/batch and prepared coverage. |
+| G10.4a — verification/settings controls | S; settings owner with binder integration lead | Source-map `enable_verification`, profiling and force-external settings before implementation; assert the promised setting changes execution/verification behavior. Rerun affected unchanged files, not merely their first PRAGMA. |
+| G11.3a — ADD COLUMN execution cost | S; ALTER/default-demand owner, no concurrent G09/G11 shared edits | Preserve stored/default demand, rollback/holes and native exchange tests; profile source-matched ADD and rerun its full 12-case native manifest against both pins. |
+| G16.3a — aggregation/numeric execution cost | S; aggregation/expression owner, coordinate G03 casts | Preserve checked arithmetic/NULL/error and scalar/batch semantics; rerun numeric+grouping manifests with all per-workload <=1.0 gates. Split by identified source algorithm after diagnosis. |
+
+No engine behavior was changed by this measurement slice. Tooling uses focused
+Python regression tests (wrong results, identity/selection errors, retries, fixture
+eligibility and record accounting). The final integrated tree also requires the
+delegated chunk sweep; its outcome is reported in the handoff, not inferred from
+these upstream measurements.
 
 ## G02 — Parsing, binding, namespaces and diagnostics
 
@@ -821,8 +1182,8 @@ platform and performance parity have not been demonstrated.
 - **G24.5 Separate performance acceptance.** Measure planning, execution, cold/warm
   storage, durable commits/recovery, concurrency, APIs, clients, CPU, memory and I/O.
   Use equivalent correct workloads and the faster of the two pinned references;
-  the existing <=1.0 ratio rule remains binding. Thirty-four historically passing
-  microbenchmarks do not establish general performance parity.
+  the existing <=1.0 ratio rule remains binding. The current 34-case baseline passes
+  only nine cases under that gate and does not establish general performance parity.
 
 **Exit:** every required population is accounted for and passing under the acceptance
 policy. Publish functional, file/API/extension compatibility and performance results
@@ -846,8 +1207,14 @@ Completion: satisfy this group's exit criteria and the per-chunk contract above.
 
 ## Documentation maintenance
 
-This backlog replaces the historical parity/progress/checkpoint summaries removed
-in the same cleanup. Their last pre-cleanup tracked version is recoverable at
+This is the only active implementation plan. The superseded
+`specs/value-expression-milestone.md` was removed in this measurement chunk; its
+prior contents remain recoverable at `c2fdae7`. The stale opening-wave assignments
+and historical measurement baseline in this file have been replaced in place.
+README files and normative component requirements have not been removed.
+
+Earlier historical parity/progress/checkpoint summaries were already removed.
+Their last pre-cleanup tracked version is recoverable at
 `20c8214`, including `docs/value-expression-progress.md`, `docs/testing-parity.md`
 and family reports. Use `git show 20c8214:docs/<old-name>.md` for a specific historical
 question; do not automatically reload that history into every agent context.

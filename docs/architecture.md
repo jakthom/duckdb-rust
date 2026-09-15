@@ -60,7 +60,8 @@ ordinal-bound reads/mutations and stable identity resolution for DDL. Physical s
 open repeats validation for callers of the public physical boundary, and alternative
 frontends obtain handles through `Connection::resolve_table`. The pure search-path
 model retains user spelling, duplicates and DuckDB's implicit temporary/default/system
-lookup order, but session-setting integration remains open.
+lookup order. The bounded session setting now resolves tables within the current
+catalog; attachment routing and general temporary/system object scope remain open.
 
 Native persistence already has selected versioned scalar/nested checkpoint and
 WAL paths, physical row-ID/deletion-mask handling, compatible local locks and
@@ -98,7 +99,7 @@ startup limitation.
 
 ## Finding the right evidence
 
-Use `test/component/` for feature contracts, `test/contracts/` for shared interfaces,
+Use `test/component/` for feature contracts, `test/contracts.rs` for shared interfaces,
 `test/compatibility/` and `test/data/` for native files, and `scripts/` for independent
 reference/harness checks. `test/upstream/duckdb/manifest.json` inventories upstream
 inputs; it is not a passing-test report. `specs/components/` describes the C++

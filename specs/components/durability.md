@@ -113,7 +113,7 @@ recovery/checkpoint publication. Unknown version metadata still rejects newer
 types recursively. SQL equality
 is not sufficient: equal numeric values with different tags, widths or floating
 bits are not interchangeable durable payloads. Remaining codec/default limits
-are not a reduced target for the value-and-expression milestone.
+do not reduce the target in the maintained [parity backlog](../../docs/parity-backlog.md).
 
 Strict physical layout validation must compare floating-point bits recursively,
 not just in top-level columns. It must accept identical nested NaN payloads and
