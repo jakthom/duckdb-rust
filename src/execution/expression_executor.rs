@@ -211,28 +211,22 @@ fn select_physical_conjunction<T: ExpressionEvaluator + ?Sized>(
     let ExprKind::Binary(operator @ (BinaryOp::And | BinaryOp::Or), left, right, _) =
         &expression.kind
     else {
-        return select_boolean(
-            &evaluate_selected_with_physical_batches(evaluator, expression, input, context)?,
-            input.len(),
-            context.query(),
-        );
+        unreachable!("conjunction dispatcher accepted a non-Boolean expression")
     };
-    let left = evaluate_selected_with_physical_batches(evaluator, left, input, context)?;
+    let left_selected = select_predicate_with_physical_batches(evaluator, left, input, context)?;
     let mut selected = Vec::with_capacity(input.len());
     let mut active = Vec::with_capacity(input.len());
+    let mut left_offset = 0;
     for index in 0..input.len() {
-        let value = left
-            .get(index)
-            .expect("validated predicate vector")
-            .as_bool()?;
+        let left_matches = left_selected.get(left_offset) == Some(&index);
+        if left_matches {
+            left_offset += 1;
+        }
         match *operator {
-            BinaryOp::And => {
-                if value == Some(true) {
-                    active.push(index);
-                }
-            }
-            BinaryOp::Or if value == Some(true) => selected.push(index),
+            BinaryOp::And if left_matches => active.push(index),
+            BinaryOp::Or if left_matches => selected.push(index),
             BinaryOp::Or => active.push(index),
+            BinaryOp::And => {}
             _ => unreachable!("conjunction dispatcher accepted a non-Boolean operator"),
         }
     }
@@ -240,19 +234,38 @@ fn select_physical_conjunction<T: ExpressionEvaluator + ?Sized>(
         return Ok(selected);
     }
     let active_input = input.select(&active)?;
-    let right = evaluate_selected_with_physical_batches(evaluator, right, &active_input, context)?;
-    for (offset, &index) in active.iter().enumerate() {
-        if right
-            .get(offset)
-            .expect("validated selected predicate vector")
-            .as_bool()?
-            == Some(true)
-        {
-            selected.push(index);
-        }
+    let right_selected =
+        select_predicate_with_physical_batches(evaluator, right, &active_input, context)?;
+    for offset in right_selected {
+        selected.push(*active.get(offset).ok_or_else(|| {
+            Error::Internal("selected predicate offset outside active input".into())
+        })?);
     }
     selected.sort_unstable();
     Ok(selected)
+}
+
+/// Recurse through predicate Boolean nodes so a nested AND/OR retains its
+/// selected input before a physical descendant is demanded. Other predicates
+/// use the physical-aware value evaluator and then expose their true offsets.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn select_predicate_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &crate::common::vector::DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Vec<usize>> {
+    if matches!(
+        expression.kind,
+        ExprKind::Binary(BinaryOp::And | BinaryOp::Or, ..)
+    ) {
+        return select_physical_conjunction(evaluator, expression, input, context);
+    }
+    select_boolean(
+        &evaluate_selected_with_physical_batches(evaluator, expression, input, context)?,
+        input.len(),
+        context.query(),
+    )
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

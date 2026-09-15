@@ -216,6 +216,15 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
             c.query("SELECT i FROM predicate_boundary WHERE i=1 OR enum_range_boundary(k,NULL)::VARCHAR='[z, a]'")?.rows,
             vec![vec![Value::Integer(1)]]
         );
+        c.execute("CREATE TABLE predicate_lazy(i INTEGER,k VARCHAR); INSERT INTO predicate_lazy VALUES (1,'enum_bad'),(2,'enum_bad')")?;
+        assert_eq!(
+            c.query("SELECT i FROM predicate_lazy WHERE i=1 OR (i=2 OR enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR='[z, a]')")?.rows,
+            vec![vec![Value::Integer(1)], vec![Value::Integer(2)]]
+        );
+        assert_eq!(
+            c.query("SELECT i FROM predicate_lazy WHERE (i=100 AND enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR='[z, a]') OR i=1")?.rows,
+            vec![vec![Value::Integer(1)]]
+        );
 
         // A generic parent retains child source order even when its later
         // child is a physical-batch callback. In particular, it must not
