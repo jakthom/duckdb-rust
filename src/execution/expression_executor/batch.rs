@@ -433,13 +433,17 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     // NULLIF's expanded CASE is commonly wrapped in a combination cast. Keep
     // the selected CASE vector and its runtime encoding across that wrapper
     // instead of sending the whole cast tree through generic materialization.
-    if let ExprKind::Cast(inner, cast, false) = &expression.kind {
+    if let ExprKind::Cast(inner, cast, try_cast) = &expression.kind {
         let (column, _) =
             evaluate_child_with_semantic_provenance(evaluator, inner, input, context)?;
         let column = if let Some(value) = column.constant_value() {
             Vector::constant(
                 expression.data_type.clone(),
-                cast.apply(value, context.query())?,
+                if *try_cast {
+                    cast.apply_try(value, context.query())?
+                } else {
+                    cast.apply(value, context.query())?
+                },
                 input.len(),
             )?
         } else {
@@ -453,6 +457,39 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
                 ArgumentProvenance::Unknown
             },
         ));
+    }
+    if let ExprKind::Scalar(function, arguments) = &expression.kind
+        && arguments.len() == 1
+    {
+        let (column, provenance) =
+            evaluate_child_with_semantic_provenance(evaluator, &arguments[0], input, context)?;
+        if let Some(value) = column.constant_value() {
+            let value = function.evaluate_with_provenance(
+                std::slice::from_ref(value),
+                std::slice::from_ref(&provenance),
+                context.query(),
+            )?;
+            return Ok((
+                Vector::constant(expression.data_type.clone(), value, input.len())?,
+                ArgumentProvenance::Constant,
+            ));
+        }
+    }
+    if let ExprKind::Operator(function, arguments) = &expression.kind
+        && arguments.len() == 1
+    {
+        let (column, _) =
+            evaluate_child_with_semantic_provenance(evaluator, &arguments[0], input, context)?;
+        if let Some(value) = column.constant_value() {
+            return Ok((
+                Vector::constant(
+                    expression.data_type.clone(),
+                    function.apply(std::slice::from_ref(value), context.query())?,
+                    input.len(),
+                )?,
+                ArgumentProvenance::Constant,
+            ));
+        }
     }
     if matches!(expression.kind, ExprKind::Case(..)) {
         return evaluate_case_with_semantic_provenance(evaluator, expression, input, context);
