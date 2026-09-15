@@ -29,6 +29,13 @@ class RunUpstreamTests(unittest.TestCase):
         self.assertFalse(report["sql_selection_passed"])
         self.assertEqual(report["failure_classes"], {"engine_unsupported": 1})
 
+    def test_retry_selection_uses_only_prior_timeouts(self):
+        sql = [{"id": "a", "path": "a.test"}, {"id": "b", "path": "b.test"}]
+        with tempfile.TemporaryDirectory() as d:
+            report = Path(d) / "prior.json"
+            report.write_text('{"populations":{"development":{"results":[{"path":"b.test","failure_class":"timeout"}]}}}')
+            self.assertEqual(selected_entries(sql, [], None, report, "development"), [sql[1]])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -127,8 +127,12 @@ def archive_population(target, temporary):
     return temporary / "tree", manifest, {"kind": "git_archive", "revision": revision, "archive_sha256": digest(archive), "source_path": str(source), "source_tree_sha256": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()}
 
 
-def selected_entries(sql, prefixes, path_list):
+def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):
     allowed = None if not path_list else {x.strip() for x in path_list.read_text().splitlines() if x.strip() and not x.startswith("#")}
+    if retry_report:
+        prior = json.loads(retry_report.read_text())["populations"][target]
+        retries = {r["path"] for r in prior["results"] if r.get("failure_class") == "timeout"}
+        allowed = retries if allowed is None else allowed & retries
     selected = [e for e in sql if (not prefixes or any(e["path"].startswith(p) for p in prefixes)) and (allowed is None or e["path"] in allowed)]
     if not selected: raise ValueError("selection contains no upstream SQL files")
     return selected
@@ -139,6 +143,7 @@ def main():
     parser.add_argument("--report", type=Path, required=True); parser.add_argument("--target", choices=("development", "release", "both"), default="both")
     parser.add_argument("--timeout", type=float, default=10); parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--path-prefix", action="append", default=[]); parser.add_argument("--path-list", type=Path)
+    parser.add_argument("--retry-timeouts-from", type=Path, help="select only timeouts from an earlier campaign report")
     args = parser.parse_args(); journal = args.report.with_suffix(args.report.suffix + "l")
     if args.report.exists() or journal.exists(): raise FileExistsError("choose a new report path; retain earlier failures")
     if args.timeout <= 0 or not 1 <= args.jobs <= 8: raise ValueError("positive timeout and 1..8 workers required")
@@ -154,7 +159,7 @@ def main():
         progress.write(json.dumps({"event": "started", "metadata": report}) + "\n"); progress.flush()
         for target in targets:
             with tempfile.TemporaryDirectory(prefix=f"ddb-upstream-{target}-") as directory:
-                source, manifest, identity = archive_population(target, Path(directory)); sql = [e for e in manifest["tests"] if e["kind"] == "sqllogictest"]; selected = selected_entries(sql, args.path_prefix, args.path_list)
+                source, manifest, identity = archive_population(target, Path(directory)); sql = [e for e in manifest["tests"] if e["kind"] == "sqllogictest"]; selected = selected_entries(sql, args.path_prefix, args.path_list, args.retry_timeouts_from, target)
                 population = {"identity": identity, "inventory": manifest["counts"], "sql_files_total": len(sql), "selected": selected, "sql_files_selected": len(selected), "results": [], "unported": [e for e in manifest["tests"] if e["kind"] != "sqllogictest"], "obligations": {scope: "unverified" for scope in REQUIRED_SCOPES}}
                 with ThreadPoolExecutor(max_workers=args.jobs) as pool:
                     for outcome in pool.map(lambda e: run_case(binary, source, e, args.timeout), selected):
