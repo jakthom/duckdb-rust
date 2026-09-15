@@ -3,7 +3,7 @@ use duckdb_rust::{
     common::{Row, vector::DataChunk},
     execution::{
         ExecutionContext, Executor, MaterializingExecutor, PullExecutor, StreamControl,
-        expression_executor::ScalarEvaluator,
+        expression_executor::{BatchedEvaluator, ScalarEvaluator},
         physical_plan::{DeliveryMode, NativePhysicalPlanner, PhysicalOperator, PhysicalPlanner},
         stream::{self, BatchStream, Stream},
     },
@@ -195,6 +195,34 @@ impl ScalarFunction for CountCalls {
         self.0.fetch_add(1, Ordering::Relaxed);
         Ok(arguments[0].clone())
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn physical_wrappers_do_not_coalesce_or_repeat_volatile_children() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator)
+            as Arc<dyn duckdb_rust::execution::expression_executor::ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut functions = FunctionRegistry::builtins();
+        functions.register_scalar(Arc::new(CountCalls(calls.clone())))?;
+        let mut c = DatabaseBuilder::new()
+            .functions(functions)
+            .expressions(expressions)
+            .batch_size(2)
+            .build()?
+            .connect();
+        c.execute(
+            "CREATE TABLE t(i INTEGER,k ENUM('z','a')); INSERT INTO t VALUES (1,'z'),(2,'a')",
+        )?;
+        c.query("SELECT abs(count_calls(1))+length(enum_range_boundary(k,NULL)::VARCHAR) FROM t")?;
+        assert_eq!(calls.swap(0, Ordering::Relaxed), 2);
+        c.query("SELECT abs(count_calls(i))+length(enum_range_boundary(k,NULL)::VARCHAR) FROM t")?;
+        assert_eq!(calls.swap(0, Ordering::Relaxed), 2);
+    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
