@@ -142,6 +142,24 @@ fn translate_re2_pattern(pattern: &str) -> std::result::Result<String, String> {
             output.pop();
             cursor += escaped.len_utf8();
             match escaped {
+                // RE2's `\C` consumes one byte even in UTF-8 mode. Keep the
+                // surrounding expression Unicode-aware and disable it only
+                // for this atom.
+                'C' => output.push_str("(?-u:.)"),
+                // In RE2, an unterminated `\Q` quote extends to end of input.
+                // Render each quoted rune as a hex literal so Rust cannot
+                // reinterpret metacharacters, class syntax or free-spacing.
+                'Q' => {
+                    while cursor < pattern.len() {
+                        if pattern[cursor..].starts_with("\\E") {
+                            cursor += 2;
+                            break;
+                        }
+                        let quoted = next_character(pattern, cursor);
+                        push_regex_rune(&mut output, quoted as u32);
+                        cursor += quoted.len_utf8();
+                    }
+                }
                 'd' => output.push_str("[0-9]"),
                 'D' => output.push_str("[^0-9]"),
                 's' => output.push_str(r"[\x09-\x0A\x0C-\x0D\x20]"),
@@ -221,12 +239,10 @@ fn translate_re2_class(input: &str) -> std::result::Result<(String, usize), Stri
             if high < low {
                 return Err(format!(
                     "invalid RE2 character class range U+{:04X}-U+{:04X}",
-                    low as u32, high as u32
+                    low, high
                 ));
             }
-            push_class_rune(&mut output, low);
-            output.push('-');
-            push_class_rune(&mut output, high);
+            push_class_range(&mut output, low, high);
         } else {
             push_class_rune(&mut output, low);
         }
@@ -273,35 +289,35 @@ fn re2_perl_class(input: &str) -> Option<(&'static str, usize)> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn parse_re2_class_character(input: &str) -> std::result::Result<(char, usize), String> {
+fn parse_re2_class_character(input: &str) -> std::result::Result<(u32, usize), String> {
     let Some(character) = input.chars().next() else {
         return Err("missing RE2 character class rune".to_string());
     };
     if character != '\\' {
-        return Ok((character, character.len_utf8()));
+        return Ok((character as u32, character.len_utf8()));
     }
     let Some(escaped) = input[1..].chars().next() else {
         return Err("trailing backslash in RE2 character class".to_string());
     };
     let escaped_len = escaped.len_utf8();
     if escaped.is_ascii() && !escaped.is_ascii_alphanumeric() {
-        return Ok((escaped, 1 + escaped_len));
+        return Ok((escaped as u32, 1 + escaped_len));
     }
     match escaped {
         '0'..='7' => parse_re2_octal_escape(input, escaped),
         'x' => parse_re2_hex_escape(input),
-        'n' => Ok(('\n', 2)),
-        'r' => Ok(('\r', 2)),
-        't' => Ok(('\t', 2)),
-        'a' => Ok(('\u{0007}', 2)),
-        'f' => Ok(('\u{000C}', 2)),
-        'v' => Ok(('\u{000B}', 2)),
+        'n' => Ok(('\n' as u32, 2)),
+        'r' => Ok(('\r' as u32, 2)),
+        't' => Ok(('\t' as u32, 2)),
+        'a' => Ok((0x07, 2)),
+        'f' => Ok((0x0C, 2)),
+        'v' => Ok((0x0B, 2)),
         _ => Err(format!("invalid RE2 character class escape \\{escaped}")),
     }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn parse_re2_octal_escape(input: &str, first: char) -> std::result::Result<(char, usize), String> {
+fn parse_re2_octal_escape(input: &str, first: char) -> std::result::Result<(u32, usize), String> {
     let mut value = first.to_digit(8).expect("octal digit");
     let mut consumed = 2;
     let mut digits = 1;
@@ -316,13 +332,11 @@ fn parse_re2_octal_escape(input: &str, first: char) -> std::result::Result<(char
     if first != '0' && digits == 1 {
         return Err(format!("invalid RE2 octal escape \\{first}"));
     }
-    char::from_u32(value)
-        .map(|character| (character, consumed))
-        .ok_or_else(|| format!("invalid RE2 octal escape value {value:o}"))
+    Ok((value, consumed))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn parse_re2_hex_escape(input: &str) -> std::result::Result<(char, usize), String> {
+fn parse_re2_hex_escape(input: &str) -> std::result::Result<(u32, usize), String> {
     let rest = &input[2..];
     let (digits, consumed) = if let Some(braced) = rest.strip_prefix('{') {
         let Some(end) = braced.find('}') else {
@@ -343,16 +357,56 @@ fn parse_re2_hex_escape(input: &str) -> std::result::Result<(char, usize), Strin
     }
     let value = u32::from_str_radix(digits, 16)
         .map_err(|_| format!("invalid RE2 hexadecimal escape {digits}"))?;
-    char::from_u32(value)
-        .map(|character| (character, consumed))
-        .ok_or_else(|| format!("invalid RE2 hexadecimal escape value {value:X}"))
+    if value > 0x10_FFFF {
+        return Err(format!("invalid RE2 hexadecimal escape value {value:X}"));
+    }
+    Ok((value, consumed))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn push_class_rune(output: &mut String, character: char) {
+fn push_class_rune(output: &mut String, rune: u32) {
+    if (0xD800..=0xDFFF).contains(&rune) {
+        push_empty_class(output);
+    } else {
+        push_regex_rune(output, rune);
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn push_class_range(output: &mut String, low: u32, high: u32) {
+    if high < 0xD800 || low > 0xDFFF {
+        push_regex_rune(output, low);
+        output.push('-');
+        push_regex_rune(output, high);
+    } else if low >= 0xD800 && high <= 0xDFFF {
+        push_empty_class(output);
+    } else {
+        if low < 0xD800 {
+            push_regex_rune(output, low);
+            output.push('-');
+            push_regex_rune(output, 0xD7FF);
+        }
+        if high > 0xDFFF {
+            push_regex_rune(output, 0xE000);
+            output.push('-');
+            push_regex_rune(output, high);
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn push_empty_class(output: &mut String) {
+    // Rust supports nested class intersection. This expression is the empty
+    // scalar set, which represents RE2 surrogate runes that cannot occur in a
+    // valid UTF-8 input without turning the overall class into a parse error.
+    output.push_str(r"[\x{0}&&[^\x{0}]]");
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn push_regex_rune(output: &mut String, rune: u32) {
     use std::fmt::Write;
 
-    write!(output, "\\x{{{:X}}}", character as u32).expect("writing to a String cannot fail");
+    write!(output, "\\x{{{rune:X}}}").expect("writing to a String cannot fail");
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -1549,6 +1603,53 @@ mod tests {
                 "invalid RE2 pattern {pattern:?} must fail closed"
             );
         }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn regex_byte_atoms_quotes_and_surrogate_classes_match_re2() {
+        let matcher = RustRe2Matcher;
+
+        assert!(!matcher.full_match(br"\C", "é".as_bytes()).unwrap());
+        assert!(matcher.full_match(br"\C\C", "é".as_bytes()).unwrap());
+        assert!(matcher.full_match(br"\C", b"a").unwrap());
+        assert!(matcher.full_match(br"\C", b"\n").unwrap());
+
+        for (pattern, value) in [
+            (r"\Q.*[x](a)\E", ".*[x](a)"),
+            (r"\Q[a&&b]\E", "[a&&b]"),
+            (r"\Q\\E", "\\"),
+            (r"\Qabc[", "abc["),
+            (r"(?i)\QABC\E", "abc"),
+        ] {
+            assert!(
+                matcher
+                    .full_match(pattern.as_bytes(), value.as_bytes())
+                    .unwrap(),
+                "{pattern:?} must quote {value:?}"
+            );
+        }
+        assert!(matcher.full_match(br"\E", b"").is_err());
+
+        for pattern in [r"[\x{D800}]", r"[\x{D800}-\x{DFFF}]"] {
+            assert!(
+                !matcher.full_match(pattern.as_bytes(), b"a").unwrap(),
+                "surrogate-only class {pattern:?} must be empty"
+            );
+        }
+        assert!(matcher.full_match(br"[^\x{D800}-\x{DFFF}]", b"a").unwrap());
+        assert!(matcher.full_match(br"[a\x{D800}]", b"a").unwrap());
+        assert!(
+            matcher
+                .full_match(br"[\x{D7FF}-\x{E000}]", "\u{D7FF}".as_bytes())
+                .unwrap()
+        );
+        assert!(
+            matcher
+                .full_match(br"[\x{D7FF}-\x{E000}]", "\u{E000}".as_bytes())
+                .unwrap()
+        );
+        assert!(matcher.full_match(br"[\x{110000}]", b"a").is_err());
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

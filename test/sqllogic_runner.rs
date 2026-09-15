@@ -294,6 +294,42 @@ fn re2_adapter_uses_union_only_character_classes() -> duckdb_rust::Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn re2_adapter_supports_byte_atoms_quotes_and_surrogate_classes() -> duckdb_rust::Result<()> {
+    let root = root();
+    let passing = root.path().join("test/re2_remaining_syntax.test");
+    std::fs::write(
+        &passing,
+        "query T\nSELECT 'é'\n----\n<!REGEX>:\\C\n\n\
+         query T\nSELECT 'é'\n----\n<REGEX>:\\C\\C\n\n\
+         query T\nSELECT '.*[x](a)'\n----\n<REGEX>:\\Q.*[x](a)\\E\n\n\
+         query T\nSELECT '[a&&b]'\n----\n<REGEX>:\\Q[a&&b]\\E\n\n\
+         query T\nSELECT '\\'\n----\n<REGEX>:\\Q\\\\E\n\n\
+         query T\nSELECT 'abc['\n----\n<REGEX>:\\Qabc[\n\n\
+         query T\nSELECT 'a'\n----\n<!REGEX>:[\\x{D800}-\\x{DFFF}]\n\n\
+         query T\nSELECT 'a'\n----\n<REGEX>:[^\\x{D800}-\\x{DFFF}]\n",
+    )?;
+    let report = runner::run_file_report(&Database::memory()?, &passing)?;
+    assert_eq!(report.status, runner::FileStatus::Passed);
+    assert_eq!(report.passed, 8);
+
+    for (name, expected) in [
+        ("positive_one_byte", "<REGEX>:\\C"),
+        ("negative_two_bytes", "<!REGEX>:\\C\\C"),
+        ("negative_quoted_literal", "<!REGEX>:\\Qé\\E"),
+        ("positive_surrogate", "<REGEX>:[\\x{D800}]"),
+    ] {
+        let path = root.path().join(format!("test/{name}.test"));
+        std::fs::write(&path, format!("query T\nSELECT 'é'\n----\n{expected}\n"))?;
+        assert!(
+            runner::run_file_report(&Database::memory()?, &path).is_err(),
+            "{name} must reject the divergent expectation"
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn cli_emits_file_report_generated_output() -> duckdb_rust::Result<()> {
     let root = root();
     let path = root.path().join("test/cli_output.test");
