@@ -509,7 +509,6 @@ fn evaluate_case_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     };
     let mut active = (0..input.len()).collect::<Vec<_>>();
     let mut values = vec![Value::Null; input.len()];
-    let mut constant = true;
     for (condition, value) in branches {
         if active.is_empty() {
             break;
@@ -536,7 +535,6 @@ fn evaluate_case_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
             if matched.len() == input.len() {
                 return Ok((results, provenance));
             }
-            constant &= provenance == ArgumentProvenance::Constant;
             for (offset, &index) in matched.iter().enumerate() {
                 values[index] = results.get(offset).expect("validated CASE result").clone();
             }
@@ -550,7 +548,6 @@ fn evaluate_case_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
         if active.len() == input.len() {
             return Ok((results, provenance));
         }
-        constant &= provenance == ArgumentProvenance::Constant;
         for (offset, &index) in active.iter().enumerate() {
             values[index] = results
                 .get(offset)
@@ -559,21 +556,6 @@ fn evaluate_case_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
         }
     }
     let output = Vector::flat(expression.data_type.clone(), values)?;
-    if constant {
-        context
-            .query()
-            .types()
-            .bind(&expression.data_type)?
-            .validate_vector(&output, context.query())?;
-        return Ok((
-            Vector::constant(
-                expression.data_type.clone(),
-                output.get(0).expect("nonempty CASE input").clone(),
-                input.len(),
-            )?,
-            ArgumentProvenance::Constant,
-        ));
-    }
     Ok((output, ArgumentProvenance::Unknown))
 }
 

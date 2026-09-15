@@ -298,6 +298,21 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
         let mixed = "SELECT pow(CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR) END,length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_mixed";
         let error = c.query(mixed).unwrap_err();
         assert!(error.to_string().contains("enum_bad"), "{error}");
+        let mixed_values = "SELECT pow(CASE WHEN i=1 THEN 2 ELSE 3 END,length(enum_range_boundary(k,NULL)::VARCHAR)) FROM predicate_boundary";
+        assert_eq!(
+            c.query(mixed_values)?.rows,
+            vec![vec![Value::Double(64.0)], vec![Value::Double(729.0)]]
+        );
+        assert_eq!(
+            c.execute_prepared(&c.prepare(mixed_values)?, &[])?.rows,
+            vec![vec![Value::Double(64.0)], vec![Value::Double(729.0)]]
+        );
+        let mixed_null =
+            "SELECT pow(CASE WHEN i=1 THEN NULL::DOUBLE ELSE 3 END,2) FROM predicate_boundary";
+        assert_eq!(
+            c.query(mixed_null)?.rows,
+            vec![vec![Value::Null], vec![Value::Double(9.0)]]
+        );
         c.execute("CREATE TABLE sibling_success(v VARCHAR,k VARCHAR); INSERT INTO sibling_success VALUES ('1','z'),('2','a')")?;
         assert_eq!(
             c.query("SELECT CAST(v AS INTEGER) + length(enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR) FROM sibling_success")?.rows,
