@@ -16,7 +16,7 @@ PINS = {
     "release": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
 }
 ROOTS = ("test/api/", "test/py/", "tools/cpp/tests/", "tools/swift/duckdb-swift/Tests/")
-ASSERTION = re.compile(r"\b(?:REQUIRE|CHECK|ASSERT)_(?:NO_FAIL|FAIL|THROWS(?:_AS)?|NOTHROW)\b|\b(?:REQUIRE|CHECK|ASSERT)\s*\(|\bassert\s+|\bself\.assert[A-Z]\w*\s*\(|\bXCTAssert\w*\s*\(")
+ASSERTION = re.compile(r"\b(?:REQUIRE|CHECK|ASSERT)(?:_[A-Z]+)*\s*\(|\bassert\s+|\bself\.assert[A-Z]\w*\s*\(|\bXCTAssert\w*\s*\(")
 TEST = re.compile(r"\b(?:TEST_CASE|TEST_CASE_METHOD)\s*\(")
 RUST_TEST = re.compile(r"#\[test\][\s\S]{0,240}?\bfn\s+([A-Za-z0-9_]+)\s*\(")
 
@@ -68,7 +68,11 @@ def rust_tests(root):
             name = match.group(1)
             if name in found:
                 raise ValueError(f"duplicate Rust test function name: {name}")
-            found[name] = path.relative_to(root).as_posix()
+            end = text.find("#[test]", match.end())
+            body = text[match.start(): None if end == -1 else end]
+            found[name] = {"path": path.relative_to(root).as_posix(),
+                           "uses_public_api": "Database::" in body and ".connect(" in body
+                                              and (".query(" in body or ".execute(" in body or ".prepare(" in body)}
     return found
 
 
@@ -92,18 +96,26 @@ def main():
     ids = {label: {entry["id"]: entry for entry in values} for label, values in sources.items()}
     seen_source, seen_rust, resolved = set(), set(), []
     for entry in mapping.get("entries", []):
-        label, source_id, rust_test = entry["pin"], entry["source_id"], entry["rust_test"]
-        key = (label, source_id)
-        if label not in ids or source_id not in ids[label]:
-            raise ValueError(f"unknown mapped source assertion: {key}")
-        if key in seen_source:
-            raise ValueError(f"duplicate source mapping: {key}")
+        rust_test = entry["rust_test"]
+        if set(entry) < {"source_ids", "rust_test", "invariant_category", "public_api_evidence"}:
+            raise ValueError("mapping lacks source IDs, category, or public API evidence")
+        if set(entry["source_ids"]) != set(PINS):
+            raise ValueError("mapping must name exactly one source assertion for each pin")
+        for label, source_id in entry["source_ids"].items():
+            key = (label, source_id)
+            if source_id not in ids[label]:
+                raise ValueError(f"unknown mapped source assertion: {key}")
+            if key in seen_source:
+                raise ValueError(f"duplicate source mapping: {key}")
+            seen_source.add(key)
         if rust_test not in rust:
             raise ValueError(f"unknown Rust public-contract test: {rust_test}")
         if rust_test in seen_rust:
             raise ValueError(f"duplicate Rust test mapping: {rust_test}")
-        seen_source.add(key); seen_rust.add(rust_test)
-        resolved.append({**entry, "rust_path": rust[rust_test]})
+        if not rust[rust_test]["uses_public_api"]:
+            raise ValueError(f"Rust test does not demonstrate public Database/Connection API: {rust_test}")
+        seen_rust.add(rust_test)
+        resolved.append({**entry, "rust_path": rust[rust_test]["path"]})
     if mapping.get("expected_mapped") != len(resolved):
         raise ValueError("mapped count differs from manifest")
     unmapped = {label: len(values) - sum(pin == label for pin, _ in seen_source)
@@ -112,7 +124,7 @@ def main():
         raise ValueError(f"unmapped count differs from manifest: {unmapped}")
     args.output_dir.mkdir(parents=True)
     report = {"schema": 1, "pins": PINS, "selection_roots": ROOTS,
-              "assertion_counts": {key: len(value) for key, value in sources.items()},
+              "selected_assertion_counts": {key: len(value) for key, value in sources.items()},
               "mapped_count": len(resolved), "unmapped_counts": unmapped,
               "mappings": resolved, "status": "inventoried_not_adapter_validated",
               "gate_p": {"status": "open", "reason": "no comparable C++ inventory operation; no timing claimed"}}
