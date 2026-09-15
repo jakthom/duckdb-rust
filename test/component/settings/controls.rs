@@ -101,14 +101,59 @@ fn profiling_emits_measured_output_and_rejects_unimplemented_renderers() -> Resu
         connection.query("SELECT 42")?;
         assert_eq!(std::fs::read_to_string(&output)?, before);
 
-        connection.execute("RESET profiling_output; SET profiling_mode='all'")?;
+        let mode_output = directory.path().join(format!("mode-profile-{index}.txt"));
+        connection.execute(&format!(
+            "SET profiling_output='{}'; SET profiling_mode='all'",
+            mode_output.display()
+        ))?;
         assert_eq!(
             connection
                 .query("SELECT current_setting('profiling_mode')")?
                 .rows[0][0],
             Value::Varchar("standard".into())
         );
-        connection.execute("RESET profiling_mode")?;
+        // Both pins couple profiling_mode to enable_profiling. Development
+        // normalizes detailed/all to standard; release retains detailed mode,
+        // so only the shared effective renderer is asserted here.
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('enable_profiling')")?
+                .rows[0][0],
+            Value::Varchar("query_tree".into())
+        );
+        connection.query("SELECT 314")?;
+        let enabled_profile = std::fs::read_to_string(&mode_output)?;
+        connection.execute("PRAGMA disable_profiling")?;
+        let disabled_profile = std::fs::read_to_string(&mode_output)?;
+        connection.query("SELECT 159")?;
+        assert_eq!(std::fs::read_to_string(&mode_output)?, disabled_profile);
+        assert_eq!(disabled_profile, enabled_profile);
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('enable_profiling')")?
+                .rows[0][0],
+            Value::Null
+        );
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('profiling_mode')")?
+                .rows[0][0],
+            Value::Null
+        );
+        connection.execute("RESET enable_profiling")?;
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('enable_profiling')")?
+                .rows[0][0],
+            Value::Null
+        );
+        connection.execute("RESET profiling_mode; RESET profiling_output")?;
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('enable_profiling')")?
+                .rows[0][0],
+            Value::Null
+        );
 
         connection.execute("SET enable_profiling='html'")?;
         assert!(matches!(

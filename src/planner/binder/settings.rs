@@ -43,6 +43,18 @@ impl State<'_, '_> {
                 })
             })
             .transpose()?;
+        // DuckDB's profiling settings are callbacks over one client-config
+        // state. RESET enable_profiling therefore disables profiling instead
+        // of uncovering an earlier profiling_mode compatibility value.
+        let value = if expression.is_none()
+            && matches!(
+                name.to_ascii_lowercase().as_str(),
+                "enable_profiling" | "enable_profile"
+            ) {
+            Some(Value::Null)
+        } else {
+            value
+        };
         self.setting_value(name, scope, value, definition)
     }
 

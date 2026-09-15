@@ -134,6 +134,29 @@ impl ConfigurationSession for LockedSession {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn update(values: &mut SettingValues, change: &SettingChange) {
+    if change.name() == "profiling_mode" {
+        // DuckDB implements these callbacks over one ClientConfig: changing
+        // the mode enables profiling, while resetting it clears that shared
+        // state. Keep the compatibility entries coherent without exposing a
+        // stale renderer from a previous transition.
+        match change.value() {
+            Some(Value::Varchar(_)) => {
+                if matches!(values.get("enable_profiling"), Some(Value::Null)) {
+                    values.remove("enable_profiling");
+                }
+            }
+            None => {
+                values.insert("enable_profiling".into(), Value::Null);
+            }
+            Some(Value::Null) => {}
+            Some(_) => unreachable!("validated profiling_mode value"),
+        }
+    } else if change.name() == "enable_profiling"
+        && matches!(change.value(), Some(Value::Varchar(_)))
+        && matches!(values.get("profiling_mode"), Some(Value::Null))
+    {
+        values.remove("profiling_mode");
+    }
     if let Some(value) = change.value() {
         values.insert(change.name().into(), value.clone());
     } else {

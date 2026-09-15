@@ -34,7 +34,7 @@ impl ScalarFunction for CurrentSetting {
                 "Key name for current_setting must not be empty".into(),
             ));
         }
-        let value = query.settings().get(&name, query)?.clone();
+        let value = query.settings().current_value(&name, query)?;
         let data_type = query
             .settings()
             .registry()

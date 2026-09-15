@@ -363,31 +363,69 @@ impl SettingsSnapshot {
         )
     }
 
-    pub(in crate::main) fn profiling_format(&self, query: &QueryContext) -> Result<Option<&str>> {
-        // An explicit NULL is the state installed by PRAGMA disable_profiling.
-        // Without that override the deprecated profiling_mode setting still
-        // enables the default renderer, matching both pinned callback paths.
-        let format = self
-            .session
-            .get("enable_profiling")
-            .unwrap_or(&self.registry.entry("enable_profiling")?.definition.default);
-        match format {
-            Value::Null => Ok(None),
-            Value::Varchar(value) => Ok(Some(value.as_str())),
+    /// The upstream profiling settings are callbacks over one client-config
+    /// state, rather than independent stored values. In particular,
+    /// `profiling_mode` enables the profiler and makes `enable_profiling`
+    /// observable as the default `query_tree` renderer. An explicit NULL from
+    /// `PRAGMA disable_profiling` remains a disabling override.
+    pub(crate) fn current_value(&self, name: &str, query: &QueryContext) -> Result<Value> {
+        match name.to_ascii_lowercase().as_str() {
+            "enable_profiling" | "enable_profile" => return self.effective_enable_profiling(query),
+            // disable_profiling and RESET enable_profiling both reset the
+            // upstream shared client-config state, so the independently
+            // stored compatibility value is no longer observable.
+            "profiling_mode" if self.enable_profiling_is_explicitly_disabled() => {
+                return Ok(Value::Null);
+            }
+            _ => {}
+        }
+        Ok(self.get(name, query)?.clone())
+    }
+
+    fn enable_profiling_overridden(&self) -> bool {
+        self.session.contains_key("enable_profiling")
+            || self.global.contains_key("enable_profiling")
+    }
+
+    fn enable_profiling_is_explicitly_disabled(&self) -> bool {
+        self.enable_profiling_overridden()
+            && matches!(self.get_unchecked("enable_profiling"), Some(Value::Null))
+    }
+
+    fn get_unchecked(&self, name: &str) -> Option<&Value> {
+        self.session.get(name).or_else(|| self.global.get(name))
+    }
+
+    fn effective_enable_profiling(&self, query: &QueryContext) -> Result<Value> {
+        if self.enable_profiling_overridden() {
+            return Ok(self.get("enable_profiling", query)?.clone());
+        }
+        match self.get("profiling_mode", query)? {
+            Value::Varchar(_) => Ok(Value::Varchar("query_tree".into())),
+            Value::Null => Ok(Value::Null),
             _ => Err(Error::Internal(
-                "invalid enable_profiling setting type".into(),
+                "invalid profiling_mode setting type".into(),
             )),
         }
-        .and_then(|format| match format {
-            Some(format) => Ok(Some(format)),
-            None => match self.get("profiling_mode", query)? {
-                Value::Varchar(_) => Ok(Some("query_tree")),
+    }
+
+    pub(in crate::main) fn profiling_format(&self, query: &QueryContext) -> Result<Option<&str>> {
+        if self.enable_profiling_overridden() {
+            return match self.get("enable_profiling", query)? {
                 Value::Null => Ok(None),
+                Value::Varchar(value) => Ok(Some(value.as_str())),
                 _ => Err(Error::Internal(
-                    "invalid profiling_mode setting type".into(),
+                    "invalid enable_profiling setting type".into(),
                 )),
-            },
-        })
+            };
+        }
+        match self.get("profiling_mode", query)? {
+            Value::Varchar(_) => Ok(Some("query_tree")),
+            Value::Null => Ok(None),
+            _ => Err(Error::Internal(
+                "invalid profiling_mode setting type".into(),
+            )),
+        }
     }
 
     pub(in crate::main) fn emit_profile(
