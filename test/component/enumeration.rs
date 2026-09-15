@@ -195,6 +195,28 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
             ]
         );
 
+        // Predicate mode keeps AND/OR demand-selected while preserving the
+        // physical vector that enum_range_boundary reads. In particular, the
+        // OR right side sees both rows here rather than a scalar row at a time.
+        c.execute("CREATE TABLE predicate_boundary(i INTEGER,k ENUM('z','a')); INSERT INTO predicate_boundary VALUES (1,'z'),(2,'a')")?;
+        let or_sql = "SELECT i FROM predicate_boundary WHERE i=100 OR enum_range_boundary(k,NULL)::VARCHAR='[z, a]'";
+        assert_eq!(
+            c.query(or_sql)?.rows,
+            vec![vec![Value::Integer(1)], vec![Value::Integer(2)]]
+        );
+        assert_eq!(
+            c.execute_prepared(&c.prepare(or_sql)?, &[])?.rows,
+            vec![vec![Value::Integer(1)], vec![Value::Integer(2)]]
+        );
+        assert_eq!(
+            c.query("SELECT i FROM predicate_boundary WHERE i=1 AND enum_range_boundary(k,NULL)::VARCHAR='[z, a]'")?.rows,
+            vec![vec![Value::Integer(1)]]
+        );
+        assert_eq!(
+            c.query("SELECT i FROM predicate_boundary WHERE i=1 OR enum_range_boundary(k,NULL)::VARCHAR='[z, a]'")?.rows,
+            vec![vec![Value::Integer(1)]]
+        );
+
         // A generic parent retains child source order even when its later
         // child is a physical-batch callback. In particular, it must not
         // hoist the ENUM cast and hide the earlier INTEGER cast error.

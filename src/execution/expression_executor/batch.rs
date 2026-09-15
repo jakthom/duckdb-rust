@@ -231,7 +231,7 @@ fn evaluate_physical_scalar<T: ExpressionEvaluator + ?Sized>(
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn evaluate_selected_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
+pub(crate) fn evaluate_selected_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
     input: &DataChunk,

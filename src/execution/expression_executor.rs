@@ -10,8 +10,8 @@ use crate::{
         expression::{BinaryOp, SubqueryKind, UnaryOp},
     },
 };
-pub(crate) use batch::select_boolean;
 pub use batch::{BatchedEvaluator, evaluate_expression_rows};
+pub(crate) use batch::{evaluate_selected_with_physical_batches, select_boolean};
 pub(crate) use provenance::{BatchContext, result_column};
 
 /// An evaluated value and its encoding in the actual current execution scope.
@@ -181,6 +181,9 @@ fn select_conjunction_rows<T: ExpressionEvaluator + ?Sized>(
         parent: context,
         input,
     };
+    if expression.uses_physical_batch() {
+        return select_physical_conjunction(evaluator, expression, input, &context).map(Some);
+    }
     let mut row = Vec::with_capacity(input.columns().len());
     let mut selected = Vec::with_capacity(input.len());
     for index in 0..input.len() {
@@ -192,6 +195,64 @@ fn select_conjunction_rows<T: ExpressionEvaluator + ?Sized>(
     }
     context.query().check()?;
     Ok(Some(selected))
+}
+
+/// Predicate mode retains Boolean short-circuiting, but a physical-batch
+/// descendant still receives the selected input vector it observes in DuckDB.
+/// Evaluate each Boolean side only for the rows that demand it, in source
+/// order, then map the selected offsets back to the original input.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn select_physical_conjunction<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &crate::common::vector::DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Vec<usize>> {
+    let ExprKind::Binary(operator @ (BinaryOp::And | BinaryOp::Or), left, right, _) =
+        &expression.kind
+    else {
+        return select_boolean(
+            &evaluate_selected_with_physical_batches(evaluator, expression, input, context)?,
+            input.len(),
+            context.query(),
+        );
+    };
+    let left = evaluate_selected_with_physical_batches(evaluator, left, input, context)?;
+    let mut selected = Vec::with_capacity(input.len());
+    let mut active = Vec::with_capacity(input.len());
+    for index in 0..input.len() {
+        let value = left
+            .get(index)
+            .expect("validated predicate vector")
+            .as_bool()?;
+        match *operator {
+            BinaryOp::And => {
+                if value == Some(true) {
+                    active.push(index);
+                }
+            }
+            BinaryOp::Or if value == Some(true) => selected.push(index),
+            BinaryOp::Or => active.push(index),
+            _ => unreachable!("conjunction dispatcher accepted a non-Boolean operator"),
+        }
+    }
+    if active.is_empty() {
+        return Ok(selected);
+    }
+    let active_input = input.select(&active)?;
+    let right = evaluate_selected_with_physical_batches(evaluator, right, &active_input, context)?;
+    for (offset, &index) in active.iter().enumerate() {
+        if right
+            .get(offset)
+            .expect("validated selected predicate vector")
+            .as_bool()?
+            == Some(true)
+        {
+            selected.push(index);
+        }
+    }
+    selected.sort_unstable();
+    Ok(selected)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
