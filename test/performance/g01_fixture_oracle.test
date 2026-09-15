@@ -1,0 +1,29 @@
+# G01.2b/d common-pin fixture and oracle workload.
+
+unzip test/data/floating-text-production/development-float.json.gz
+
+query II rowsort
+SELECT 42 AS answer, 'needle' AS text
+----
+<FILE>:test/performance/g01_expected.csv
+
+query I
+SELECT 'line
+two'
+----
+<REGEX>:line.*two
+
+query I
+SELECT 'absent'
+----
+<!REGEX>:.*needle.*
+
+query I nosort stable_hash
+SELECT 7
+----
+ignored
+
+query I nosort stable_hash
+SELECT 7
+----
+also ignored

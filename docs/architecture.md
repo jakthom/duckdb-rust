@@ -38,6 +38,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 | Filesystem | [local publication and locks](../src/storage/filesystem.rs) | No general remote routing, secret manager or encrypted storage |
 | Settings | [registry/providers](../src/main/settings/mod.rs), [built-ins](../src/main/settings/builtin.rs) | Four built-in definitions: ordering, NULL ordering, IEEE floating operations and session search path |
 | Scheduling/resources | [InlineScheduler/QueryContext](../src/parallel/mod.rs) | Synchronous task execution and row limits; no byte allocator/buffer pool/spill |
+| SQLLogic parity harness | [integrated runner](../test/runner/mod.rs), [byte parser/accounting](../test/runner/parser.rs), [fixtures/directives](../test/runner/fixtures.rs), [typed oracle](../test/runner/oracle.rs) | Source-rooted serial sessions and DuckDB-style result/error controls exist; loop/foreach concurrency and load/restart/reconnect lifecycles remain in G01.2c |
 | Public consumers | [Rust connection/result](../src/main/connection.rs), [small CLI](../tools/shell/main.rs) | DuckDB C APIs, language clients, Arrow/ADBC and binary extensions incomplete |
 
 ## State and failure boundaries
@@ -100,10 +101,13 @@ startup limitation.
 ## Finding the right evidence
 
 Use `test/component/` for feature contracts, `test/contracts.rs` for shared interfaces,
+`test/runner/` and `test/sqllogic_runner.rs` for SQLLogic harness contracts,
 `test/compatibility/` and `test/data/` for native files, and `scripts/` for independent
-reference/harness checks. `test/upstream/duckdb/manifest.json` inventories upstream
-inputs; it is not a passing-test report. `specs/components/` describes the C++
-source and required behavior, not automatically implemented Rust counterparts.
+reference/harness checks. `scripts/measure_sqllogic_performance.py` applies the
+dual-pin process-level Gate P for runner changes. `test/upstream/duckdb/manifest.json`
+inventories upstream inputs; it is not a passing-test report. `specs/components/`
+describes the C++ source and required behavior, not automatically implemented Rust
+counterparts.
 
 Run targeted checks during edits and the [chunk sweep](../scripts/verify_chunk.py)
 at explicit completion boundaries. Full upstream, API, configuration, platform and

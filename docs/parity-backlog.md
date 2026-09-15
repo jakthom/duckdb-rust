@@ -60,10 +60,12 @@ the development archive identity; it is not an assertion of runnable eligibility
 
 The installed release Catch registry lists **5,502 unique names: 4,834 SQL file
 names and 668 other registrations**, including hidden tests. Listing is not
-execution. The development native runner is absent (`BUILD_UNITTESTS=OFF`), so
-its compiled/generated population is explicitly unmeasured. Rust has 46 Cargo
-targets and 782 textual `#[test]` declarations across the workspace, not 782
-mapped upstream tests. Neither count measures native/API invariant coverage.
+execution. The development native runner was absent from the measured installed
+build (`BUILD_UNITTESTS=OFF`), so its compiled/generated population remains
+unmeasured. A separate out-of-tree Release runner was built later for the bounded
+G01 Wave A functional/performance workloads only; it does not close G01.1b. Rust
+has 46 Cargo targets and 782 textual `#[test]` declarations across the workspace,
+not 782 mapped upstream tests. Neither count measures native/API invariant coverage.
 
 Both pinned CLI/library identities are checked. Release has core_functions,
 JSON and Parquet available; development lacks JSON. Neither installed reference
@@ -76,6 +78,8 @@ reference build; no Rust overload-completion percentage is inferred from them.
 Raw, revision-specific evidence lives under ignored `target/g01-20260915/`:
 `inventory-complete/inventory.json`, `sql/accounting-final.json`,
 `compatibility/summary.json` and `performance/*-fastest.json`.
+The G01 Wave A paired runner evidence is under ignored
+`target/g01-wave-a-20260915/performance/acceptance-1.json`.
 Source/binary/harness hashes and exact commands belong in those reports. Historical
 pass counts and the superseded milestone baseline have been removed from this plan;
 they must not be added to fresh scoped results.
@@ -115,14 +119,30 @@ harness barrier here, not proof that every dependent query fails in Rust. The
 release and development pass counts have different populations, controls and
 semantics; comparing them as a release regression rate is invalid.
 
-The audit found unsupported `require`, `mode`, `include`, `unzip`, concurrent
-loops, environment/tag/sleep/continue directives, loop-variable conditions and
-external expected-file oracles. There is no declared fixture staging into the
-worker's scratch-only filesystem. Numeric comparison is a conservative subset of
-DuckDB's conversion/tolerance rules; Python regex is not full RE2 compatibility.
-The development invalid-UTF-8 parser file and both pins' invisible-space file
-cannot be represented faithfully by the current text parser. These must be fixed
-before first-blocker counts can reliably rank the remaining engine families.
+G01 Wave A now implements G01.2a, G01.2b and G01.2d in the Rust runner: a
+byte-preserving parser with explicit declaration/attempt/pass/skip/fail/unreached
+accounting; source-rooted includes, bounded fixture staging and gzip extraction;
+`require`, mode, environment, tag and sleep controls; and the typed numeric,
+sort/hash/label, external-file, full-match regex and error oracle. Skips are not
+reported as passes, and unsupported/internal/verification engine errors cannot
+satisfy expected SQL errors. The development invalid-UTF-8 location case reaches
+the engine diagnostic boundary and passes all four records; both pins' invisible-
+space inputs are preserved and parsed in byte-level regression tests.
+
+The focused integrated targets pass 82 runner/corpus tests, including deliberate
+wrong-value, wrong-hash, invalid-regex, fixture-escape and skip false-green cases.
+Both pinned native runners and the Rust production runner pass the two declared
+Wave A SQLLogic workloads. On nine paired samples after three warmups, Rust was
+0.300x the faster pinned wall-time median and at most 0.289x its peak RSS; measured
+CPU and block I/O were independently no worse. Gate P therefore records
+**at-parity or better performance: pass** for each of G01.2a/b/d. These bounded
+workloads do not change the older 4,834/5,637-file campaign counts above.
+
+Wave B still owns loop/foreach scheduling, loop-variable conditions, concurrent
+execution, load/restart/reconnect session lifecycles (G01.2c), compiled/configured
+registry enumeration (G01.1b), and native/API/client assertion mapping (G01.3a).
+Until those land and G01.4 reruns both complete populations, remaining first-
+blocker counts cannot reliably rank all engine families.
 
 ### Independent compatibility measurements
 

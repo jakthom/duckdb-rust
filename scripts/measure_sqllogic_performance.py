@@ -9,6 +9,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import platform
 import statistics
@@ -137,9 +138,20 @@ def validate_manifest(path, test_root):
 
 
 def active_peers(check_output=subprocess.check_output):
-    output = check_output(["ps", "-axo", "pid=,command="], text=True)
+    output = check_output(["ps", "-axo", "pid=,ppid=,command="], text=True)
     needles = ("cargo ", "rustc", "cmake", "ninja", "unittest", "sqllogictest")
-    return [line.strip() for line in output.splitlines() if any(needle in line.lower() for needle in needles)]
+    processes = {}
+    for line in output.splitlines():
+        parts = line.strip().split(maxsplit=2)
+        if len(parts) == 3:
+            processes[int(parts[0])] = (int(parts[1]), parts[2])
+    ancestors = {os.getpid()}
+    parent = os.getppid()
+    while parent in processes and parent not in ancestors:
+        ancestors.add(parent)
+        parent = processes[parent][0]
+    return [command for pid, (_, command) in processes.items()
+            if pid not in ancestors and any(needle in command.lower() for needle in needles)]
 
 
 def median(entries, metric):

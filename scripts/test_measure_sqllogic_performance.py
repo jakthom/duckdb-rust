@@ -76,6 +76,19 @@ class PerformanceGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             measure.parse_time("0.01 real 0.00 user 0.01 sys\n")
 
+    def test_quiet_host_ignores_measurement_process_and_its_shell(self):
+        processes = (
+            "10 20 python measure.py --release-cpp unittest --rust sqllogictest\n"
+            "20 1 shell python measure.py --release-cpp unittest\n"
+            "30 1 cargo build --release\n"
+        )
+        with patch.object(measure.os, "getpid", return_value=10), \
+             patch.object(measure.os, "getppid", return_value=20):
+            self.assertEqual(
+                measure.active_peers(check_output=lambda *args, **kwargs: processes),
+                ["cargo build --release"],
+            )
+
     def test_identity_failure_and_overwrite_rejected(self):
         with patch.object(measure, "require_checkout", side_effect=ValueError("wrong pin")):
             with self.assertRaises(ValueError):

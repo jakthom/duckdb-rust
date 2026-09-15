@@ -34,6 +34,7 @@ pub(crate) struct IncludeSite {
     pub line: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for SourceLocation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.source.display(), self.line)
@@ -50,6 +51,7 @@ pub(crate) struct SourceLine {
     pub ending: LineEnding,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SourceLine {
     /// Exact bytes before the LF terminator. For CRLF this includes the CR.
     pub fn raw(&self) -> &[u8] {
@@ -123,6 +125,7 @@ pub(crate) enum TokenKind {
     Include,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TokenKind {
     pub fn is_single_line(self) -> bool {
         matches!(
@@ -186,12 +189,14 @@ pub(crate) struct ParseError {
     pub message: String,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.location, self.message)
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::error::Error for ParseError {}
 
 /// A source-faithful cursor over one SQLLogicTest source.
@@ -210,6 +215,7 @@ pub(crate) struct SqlLogicParser {
     current_include: Option<Box<SqlLogicParser>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SqlLogicParser {
     pub fn from_bytes(source: impl AsRef<Path>, input: impl AsRef<[u8]>) -> Self {
         Self::from_shared_bytes(source, Arc::from(input.as_ref()))
@@ -495,6 +501,7 @@ impl SqlLogicParser {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn split_source_lines(
     source: Arc<PathBuf>,
     input: Arc<[u8]>,
@@ -543,10 +550,12 @@ fn split_source_lines(
     result
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn empty_or_comment(line: &SourceLine) -> bool {
     line.is_empty() || line.is_comment()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn trivia_kind(line: &SourceLine) -> TriviaKind {
     if line.is_empty() {
         TriviaKind::Blank
@@ -560,6 +569,7 @@ fn trivia_kind(line: &SourceLine) -> TriviaKind {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn split_ascii_whitespace(line: &[u8]) -> Vec<&[u8]> {
     let mut result = Vec::new();
     let mut start = None;
@@ -578,6 +588,7 @@ fn split_ascii_whitespace(line: &[u8]) -> Vec<&[u8]> {
     result
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn command_to_token(command: &[u8]) -> Option<TokenKind> {
     Some(match command {
         b"skipif" => TokenKind::SkipIf,
@@ -609,6 +620,7 @@ fn command_to_token(command: &[u8]) -> Option<TokenKind> {
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn escaped_bytes(bytes: &[u8]) -> String {
     bytes
         .iter()
@@ -673,6 +685,7 @@ pub(crate) struct RecordAccounting {
     declarations: Vec<DeclarationState>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RecordAccounting {
     pub fn declare(&mut self, location: SourceLocation) -> DeclarationId {
         let id = DeclarationId(self.declarations.len());
@@ -773,6 +786,7 @@ pub(crate) const PARSER_BENCHMARK_RECORDS: usize = 4_096;
 pub(crate) const PARSER_BENCHMARK_BYTES: usize = 366_470;
 pub(crate) const PARSER_BENCHMARK_CHECKSUM: u64 = 17_431_774_223_484_805_419;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Construct the deterministic Gate-P workload. Each record has one directive,
 /// two SQL lines, a separator, and two expected lines. The returned bytes can
 /// be given unchanged to either pinned C++ SQLLogicParser.
@@ -789,6 +803,7 @@ pub(crate) fn build_parser_benchmark_workload(records: usize) -> Vec<u8> {
     input
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Parse and checksum the deterministic Gate-P workload. FNV-1a is updated with
 /// each field's eight-byte little-endian length followed by its bytes, in this
 /// order: directive kind byte, parameters, SQL, and normalized expected lines.
@@ -828,6 +843,7 @@ pub(crate) fn digest_parser_benchmark_workload(
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn checksum_field(checksum: &mut u64, field: &[u8]) {
     for byte in (field.len() as u64).to_le_bytes().iter().chain(field) {
         *checksum ^= u64::from(*byte);
@@ -840,10 +856,12 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn parser(source: &str, bytes: &[u8]) -> SqlLogicParser {
         SqlLogicParser::from_bytes(source, bytes)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn pinned_file(checkout: &str, relative: &str) -> (String, Vec<u8>) {
         let path = PathBuf::from("..").join(checkout).join(relative);
         let bytes = std::fs::read(&path).unwrap_or_else(|error| {
@@ -855,6 +873,7 @@ mod tests {
         (path.display().to_string(), bytes)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn development_invalid_utf8_is_engine_sql_with_exact_location() {
         let (path, bytes) = pinned_file(
@@ -910,6 +929,7 @@ mod tests {
         assert!(parser.next_statement().unwrap().is_none());
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn both_pins_preserve_invisible_space_bytes_and_syntax_difference() {
         let (development_path, development) =
@@ -935,11 +955,13 @@ mod tests {
                     saw_foreach = true;
                     assert_eq!(start.location.line, expected_foreach_line);
                     assert_eq!(token.parameters[0], b"unicode_space");
-                    assert!(token
-                        .parameters
-                        .iter()
-                        .skip(1)
-                        .any(|value| value == b"\xE2\x80\x80"));
+                    assert!(
+                        token
+                            .parameters
+                            .iter()
+                            .skip(1)
+                            .any(|value| value == b"\xE2\x80\x80")
+                    );
                 }
                 if token.kind == TokenKind::Query {
                     parser.next_line();
@@ -959,6 +981,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn crlf_and_interior_cr_follow_cpp_normalization_but_raw_lines_survive() {
         let bytes = b"query\tI\r\nSEL\rECT 42\r\n----\r\n42\r\n\r\n";
@@ -975,6 +998,7 @@ mod tests {
         assert_eq!(parser.raw_input(), bytes);
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn comments_headers_blank_lines_and_expected_comments_remain_distinct() {
         let mut parser = parser(
@@ -998,6 +1022,7 @@ mod tests {
         assert_eq!(expected[0].normalized(), b"# value, not trivia");
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn tabs_are_token_separators_but_whitespace_only_lines_are_sql() {
         let mut parser = parser("tabs.test", b"query\tI\trowsort\n \t\n----\nvalue\n");
@@ -1011,6 +1036,7 @@ mod tests {
         assert_eq!(parser.extract_statement().bytes, b" \t");
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn exact_separator_and_single_line_classification_match_cpp() {
         let mut parser = parser("separator.test", b"set x y\n\nquery I\nSELECT 1\n ----\n");
@@ -1027,6 +1053,7 @@ mod tests {
         assert_eq!(parser.extract_statement().bytes, b"SELECT 1\n ----");
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn empty_sql_and_error_sections_are_distinguished() {
         let mut empty = parser("empty.test", b"statement ok\n\n");
@@ -1059,6 +1086,7 @@ mod tests {
         assert_eq!(error.location.line, 4);
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn include_hook_preserves_context_and_resumes_parent() {
         let mut parser = parser(
@@ -1090,6 +1118,7 @@ mod tests {
         assert_eq!(parent.location.line, 3);
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn malformed_directive_is_harness_error_even_when_bytes_are_not_utf8() {
         let mut parser = parser("bad.test", b"bog\xFFus arg\n");
@@ -1100,6 +1129,7 @@ mod tests {
         assert!(error.message.contains("\\xff"));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn accounting_records_failure_skip_unreached_and_loop_source_identity() {
         let location = SourceLocation {
@@ -1143,6 +1173,7 @@ mod tests {
         assert_eq!(accounting.snapshot().failed, 1);
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn zero_selection_and_pending_work_are_not_reported_as_success() {
         let accounting = RecordAccounting::default();
@@ -1159,6 +1190,7 @@ mod tests {
         assert_eq!(accounting.snapshot().executed, 0);
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn deterministic_benchmark_reports_exact_bytes_records_and_checksum() {
         let input = build_parser_benchmark_workload(PARSER_BENCHMARK_RECORDS);
@@ -1171,6 +1203,7 @@ mod tests {
         assert_eq!(first.checksum, PARSER_BENCHMARK_CHECKSUM);
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn owned_source_constructor_keeps_the_same_byte_contract() {
         let bytes = b"query I\nSELECT 1\n----\n1\n".to_vec();

@@ -16,9 +16,9 @@ const FILE: &[u8] = b"<FILE>:";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SortMode {
-    NoSort,
-    RowSort,
-    ValueSort,
+    None,
+    Rows,
+    Values,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -63,13 +63,14 @@ pub(crate) struct QueryExpectation<'a> {
     pub original_sqlite_test: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> QueryExpectation<'a> {
     pub fn lines(expected_column_count: usize, values: &'a [&'a [u8]]) -> Self {
         Self {
             expected_column_count,
             values: ExpectedValues::Lines(values),
-            sort: SortMode::NoSort,
-            fallback_sort: SortMode::NoSort,
+            sort: SortMode::None,
+            fallback_sort: SortMode::None,
             label: None,
             hash_threshold: 0,
             original_sqlite_test: false,
@@ -77,16 +78,19 @@ impl<'a> QueryExpectation<'a> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) trait Re2Matcher {
     /// Compile with RE2 UTF-8 syntax, `dot_nl=true`, then perform `FullMatch`.
     /// Invalid patterns must return `Err`, never a non-match.
     fn full_match(&self, pattern: &[u8], value: &[u8]) -> Result<bool, String>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) trait ExpectedSubstitutions {
     fn replace(&self, input: &[u8]) -> Vec<u8>;
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) trait ExpectedFileResolver {
     fn load(&self, path: &[u8], column_names: &[&str]) -> Result<ResolvedExpected, String>;
 }
@@ -105,6 +109,7 @@ pub(crate) struct SourceRootFileResolver {
     root: PathBuf,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SourceRootFileResolver {
     pub fn new(root: &Path) -> Result<Self, String> {
         let root = root
@@ -154,6 +159,7 @@ impl SourceRootFileResolver {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpectedFileResolver for SourceRootFileResolver {
     fn load(&self, path: &[u8], column_names: &[&str]) -> Result<ResolvedExpected, String> {
         let path = self.resolve(path)?;
@@ -270,12 +276,14 @@ pub(crate) enum OracleError {
     },
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for OracleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{self:?}")
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::error::Error for OracleError {}
 
 pub(crate) struct Oracle<'a> {
@@ -285,12 +293,14 @@ pub(crate) struct Oracle<'a> {
     labels: BTreeMap<String, String>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> Default for Oracle<'a> {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> Oracle<'a> {
     pub fn new() -> Self {
         Self {
@@ -432,7 +442,7 @@ impl<'a> Oracle<'a> {
 
         match self.compare_all(actual, &actual_values, &expected_values) {
             Ok(()) => Ok(()),
-            Err(_first_error) if expectation.fallback_sort != SortMode::NoSort => {
+            Err(_first_error) if expectation.fallback_sort != SortMode::None => {
                 sort_values(
                     expectation.fallback_sort,
                     &mut actual_values,
@@ -454,16 +464,16 @@ impl<'a> Oracle<'a> {
         actual: StatementResult<'_>,
         expected: ExpectedStatement<'_>,
     ) -> Result<(), OracleError> {
-        if let StatementResult::Error(error) = actual {
-            if matches!(
+        if let StatementResult::Error(error) = actual
+            && matches!(
                 error.kind,
                 ErrorKind::Unsupported | ErrorKind::Internal | ErrorKind::Verification
-            ) {
-                return Err(OracleError::UnexpectedStatementError {
-                    kind: error.kind,
-                    message: error.message.to_vec(),
-                });
-            }
+            )
+        {
+            return Err(OracleError::UnexpectedStatementError {
+                kind: error.kind,
+                message: error.message.to_vec(),
+            });
         }
         match (expected, actual) {
             (ExpectedStatement::Success, StatementResult::Success)
@@ -561,10 +571,10 @@ impl<'a> Oracle<'a> {
         if actual == expected {
             return Ok(true);
         }
-        if let Some(substitutions) = self.substitutions {
-            if actual == substitutions.replace(expected) {
-                return Ok(true);
-            }
+        if let Some(substitutions) = self.substitutions
+            && actual == substitutions.replace(expected)
+        {
+            return Ok(true);
         }
         if expected.starts_with(REGEX) || expected.starts_with(NOT_REGEX) {
             return self.matches_regex(actual, expected);
@@ -581,18 +591,18 @@ impl<'a> Oracle<'a> {
     }
 
     fn compare_error(&self, actual: ActualError<'_>, expected: &[u8]) -> Result<(), OracleError> {
-        if contains(&actual.message, expected) {
+        if contains(actual.message, expected) {
             return Ok(());
         }
-        if let Some(substitutions) = self.substitutions {
-            if contains(actual.message, &substitutions.replace(expected)) {
-                return Ok(());
-            }
+        if let Some(substitutions) = self.substitutions
+            && contains(actual.message, &substitutions.replace(expected))
+        {
+            return Ok(());
         }
-        if expected.starts_with(REGEX) || expected.starts_with(NOT_REGEX) {
-            if self.matches_regex(actual.rendered, expected)? {
-                return Ok(());
-            }
+        if (expected.starts_with(REGEX) || expected.starts_with(NOT_REGEX))
+            && self.matches_regex(actual.rendered, expected)?
+        {
+            return Ok(());
         }
         Err(OracleError::ErrorMessageMismatch {
             expected: expected.to_vec(),
@@ -613,6 +623,7 @@ impl<'a> Oracle<'a> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Deterministic timing payload for Gate P. Both implementations can convert,
 /// sort, and MD5 the same result `iterations` times; the returned checksum keeps
 /// the work observable without adding I/O to the timed region.
@@ -636,6 +647,7 @@ pub(crate) fn oracle_benchmark_checksum(
     Ok(checksum)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_actual(actual: ActualResult<'_>) -> Result<(), OracleError> {
     let expected = actual
         .row_count
@@ -652,6 +664,7 @@ fn validate_actual(actual: ActualResult<'_>) -> Result<(), OracleError> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn convert_result(actual: ActualResult<'_>, sqlite: bool) -> Result<Vec<Vec<u8>>, OracleError> {
     actual
         .cells
@@ -667,6 +680,7 @@ fn convert_result(actual: ActualResult<'_>, sqlite: bool) -> Result<Vec<Vec<u8>>
         .collect()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn convert_cell(
     cell: ActualCell<'_>,
     logical_type: &str,
@@ -702,6 +716,7 @@ fn convert_cell(
     Ok(result)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sqlite_integer_render(bytes: &[u8], logical_type: &str) -> Result<Vec<u8>, OracleError> {
     let kind = NumericKind::from_logical_type(logical_type)
         .ok_or_else(|| OracleError::Conversion(format!("not a numeric type: {logical_type}")))?;
@@ -755,6 +770,7 @@ enum NumericKind {
     Bignum,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl NumericKind {
     fn from_logical_type(logical_type: &str) -> Option<Self> {
         let base = base_type(logical_type);
@@ -781,6 +797,7 @@ impl NumericKind {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn compare_numeric(kind: NumericKind, left: &[u8], right: &[u8]) -> bool {
     if left == b"NULL" || right == b"NULL" {
         return left == b"NULL" && right == b"NULL";
@@ -807,6 +824,7 @@ fn compare_numeric(kind: NumericKind, left: &[u8], right: &[u8]) -> bool {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_signed(bytes: &[u8], bits: u32) -> Option<i128> {
     let value = normalize_decimal(bytes, 0)?.parse::<i128>().ok()?;
     let (minimum, maximum) = if bits == 128 {
@@ -817,6 +835,7 @@ fn parse_signed(bytes: &[u8], bits: u32) -> Option<i128> {
     (minimum..=maximum).contains(&value).then_some(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_unsigned(bytes: &[u8], bits: u32) -> Option<u128> {
     let normalized = normalize_decimal(bytes, 0)?;
     if normalized.starts_with('-') {
@@ -831,6 +850,7 @@ fn parse_unsigned(bytes: &[u8], bits: u32) -> Option<u128> {
     (value <= maximum).then_some(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_decimal(bytes: &[u8], precision: u32, scale: u32) -> Option<String> {
     let value = normalize_decimal(bytes, scale)?;
     let digits = value
@@ -841,6 +861,7 @@ fn parse_decimal(bytes: &[u8], precision: u32, scale: u32) -> Option<String> {
     (digits.max(1) <= precision as usize).then_some(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_float_value(bytes: &[u8], single: bool) -> Option<f64> {
     let value = parse_float(bytes, single)?;
     if single {
@@ -850,10 +871,12 @@ fn parse_float_value(bytes: &[u8], single: bool) -> Option<f64> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn float_equal(left: f64, right: f64) -> bool {
     left == right || (left.is_nan() && right.is_nan())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_float(bytes: &[u8], single: bool) -> Option<f64> {
     let text = std::str::from_utf8(bytes).ok()?.trim();
     if single {
@@ -863,6 +886,7 @@ fn parse_float(bytes: &[u8], single: bool) -> Option<f64> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Normalize and round a decimal string to `scale` places. DuckDB casts from
 /// VARCHAR before comparing numeric values, so representational differences
 /// such as `1`, `1.0`, and `1e0` compare through the declared native type.
@@ -956,6 +980,7 @@ fn normalize_decimal(bytes: &[u8], scale: u32) -> Option<String> {
     Some(result)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn normalize_free_decimal(bytes: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(bytes).ok()?.trim();
     let (mantissa, exponent) = match text.find(['e', 'E']) {
@@ -976,6 +1001,7 @@ fn normalize_free_decimal(bytes: &[u8]) -> Option<String> {
     Some(normalized)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn increment_decimal_digits(digits: &mut Vec<u8>) {
     for digit in digits.iter_mut().rev() {
         if *digit < b'9' {
@@ -987,6 +1013,7 @@ fn increment_decimal_digits(digits: &mut Vec<u8>) {
     digits.insert(0, b'1');
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn decimal_parameters(logical_type: &str) -> Option<(u32, u32)> {
     let start = logical_type.find('(')? + 1;
     let end = logical_type[start..].find(')')? + start;
@@ -994,6 +1021,7 @@ fn decimal_parameters(logical_type: &str) -> Option<(u32, u32)> {
     Some((precision.trim().parse().ok()?, scale.trim().parse().ok()?))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn base_type(logical_type: &str) -> String {
     logical_type
         .split(['(', '<', '['])
@@ -1003,6 +1031,7 @@ fn base_type(logical_type: &str) -> String {
         .to_ascii_uppercase()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_bool(bytes: &[u8]) -> Option<bool> {
     if bytes == b"1" || bytes.eq_ignore_ascii_case(b"true") {
         Some(true)
@@ -1013,15 +1042,16 @@ fn parse_bool(bytes: &[u8]) -> Option<bool> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sort_values(mode: SortMode, values: &mut [Vec<u8>], columns: usize) -> Result<(), OracleError> {
     match mode {
-        SortMode::NoSort => Ok(()),
-        SortMode::ValueSort => {
+        SortMode::None => Ok(()),
+        SortMode::Values => {
             values.sort();
             Ok(())
         }
-        SortMode::RowSort => {
-            if columns == 0 || values.len() % columns != 0 {
+        SortMode::Rows => {
+            if columns == 0 || !values.len().is_multiple_of(columns) {
                 return Err(OracleError::ExpectedShape(format!(
                     "cannot row-sort {} values into {columns} columns",
                     values.len()
@@ -1039,6 +1069,7 @@ fn sort_values(mode: SortMode, values: &mut [Vec<u8>], columns: usize) -> Result
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn result_hash(values: &[Vec<u8>]) -> String {
     let mut md5 = Md5::new();
     for value in values {
@@ -1048,6 +1079,7 @@ fn result_hash(values: &[Vec<u8>]) -> String {
     format!("{} values hashing to {}", values.len(), md5.finish_hex())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn result_is_hash(value: &[u8]) -> bool {
     let digits = value
         .iter()
@@ -1066,6 +1098,7 @@ fn result_is_hash(value: &[u8]) -> bool {
         .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     needle.is_empty()
         || haystack
@@ -1073,6 +1106,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
             .any(|window| window == needle)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn remove_all(value: &mut Vec<u8>, needle: &[u8]) {
     while let Some(index) = value
         .windows(needle.len())
@@ -1082,6 +1116,7 @@ fn remove_all(value: &mut Vec<u8>, needle: &[u8]) {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_pipe_csv(input: &[u8]) -> Result<Vec<Vec<Vec<u8>>>, String> {
     let mut rows = Vec::new();
     let mut row = Vec::new();
@@ -1134,6 +1169,7 @@ struct Md5 {
     pending: Vec<u8>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Md5 {
     fn new() -> Self {
         Self {
@@ -1282,6 +1318,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn query<'a>(
         columns: &'a [ActualColumn<'a>],
         cells: &'a [ActualCell<'a>],
@@ -1294,10 +1331,12 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn expected<'a>(columns: usize, lines: &'a [&'a [u8]]) -> QueryExpectation<'a> {
         QueryExpectation::lines(columns, lines)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn pinned_conversion_null_boolean_empty_and_nul() {
         let columns = [
@@ -1330,6 +1369,7 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn signature_is_column_count_not_type_assertion() {
         let columns = [ActualColumn {
@@ -1350,6 +1390,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn wrong_value_and_logical_type_mutations_fail() {
         let numeric_columns = [ActualColumn {
@@ -1376,6 +1417,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn numeric_cast_equality_and_boundaries() {
         let cases: &[(&str, &[u8], &[u8], bool)] = &[
@@ -1411,6 +1453,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn original_sqlite_numeric_conversion_uses_bigint_rendering() {
         let columns = [
@@ -1440,6 +1483,7 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn huge_signed_unsigned_and_decimal_values_are_exact() {
         let columns = [
@@ -1481,6 +1525,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn cardinality_and_order_mutations_fail() {
         let columns = [
@@ -1505,7 +1550,7 @@ mod tests {
             Err(OracleError::ValueMismatch { .. })
         ));
         let mut rowsorted = expected(2, ordered);
-        rowsorted.sort = SortMode::RowSort;
+        rowsorted.sort = SortMode::Rows;
         Oracle::new()
             .check_query(query(&columns, &cells, 2), rowsorted)
             .unwrap();
@@ -1522,6 +1567,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn multicolumn_valuesort_intentionally_drops_pairing_but_rowsort_does_not() {
         let columns = [
@@ -1542,20 +1588,21 @@ mod tests {
         ];
         let flattened_sorted: &[&[u8]] = &[b"1", b"2", b"a", b"b"];
         let mut value_sorted = expected(2, flattened_sorted);
-        value_sorted.sort = SortMode::ValueSort;
+        value_sorted.sort = SortMode::Values;
         Oracle::new()
             .check_query(query(&columns, &cells, 2), value_sorted)
             .unwrap();
 
         let paired_rows: &[&[u8]] = &[b"a\t1", b"b\t2"];
         let mut row_sorted = expected(2, paired_rows);
-        row_sorted.sort = SortMode::RowSort;
+        row_sorted.sort = SortMode::Rows;
         assert!(matches!(
             Oracle::new().check_query(query(&columns, &cells, 2), row_sorted),
             Err(OracleError::ValueMismatch { .. })
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn pinned_md5_wire_format_and_hash_mutation() {
         assert_eq!(
@@ -1588,6 +1635,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn threshold_labels_and_reset_match_pinned_state_machine() {
         let columns = [ActualColumn {
@@ -1632,6 +1680,7 @@ mod tests {
 
     struct StubRe2;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Re2Matcher for StubRe2 {
         fn full_match(&self, pattern: &[u8], value: &[u8]) -> Result<bool, String> {
             match pattern {
@@ -1643,6 +1692,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn regex_requires_re2_and_supports_positive_negative_fullmatch_and_dot_nl() {
         let columns = [ActualColumn {
@@ -1689,6 +1739,7 @@ mod tests {
 
     struct ReplaceRoot;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl ExpectedSubstitutions for ReplaceRoot {
         fn replace(&self, input: &[u8]) -> Vec<u8> {
             if input == b"{EXPECTED}" {
@@ -1703,6 +1754,7 @@ mod tests {
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn temp_directory() -> PathBuf {
         let suffix = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
@@ -1713,6 +1765,7 @@ mod tests {
         path
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn external_expected_file_is_source_rooted_and_pipe_csv_aware() {
         let root = temp_directory();
@@ -1753,6 +1806,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn external_expected_file_rejects_traversal_and_missing_file() {
         let root = temp_directory();
@@ -1772,6 +1826,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn statement_error_matching_order_and_mutations() {
         Oracle::new()
@@ -1839,6 +1894,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn unsupported_internal_and_verification_errors_are_never_expected() {
         for kind in [
@@ -1864,6 +1920,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn benchmark_checksum_is_deterministic_and_sensitive() {
         let columns = [ActualColumn {
@@ -1872,17 +1929,13 @@ mod tests {
         }];
         let cells = [ActualCell::Text("2"), ActualCell::Text("1")];
         let actual = query(&columns, &cells, 2);
-        let first = oracle_benchmark_checksum(actual, SortMode::RowSort, false, 8).unwrap();
-        let second = oracle_benchmark_checksum(actual, SortMode::RowSort, false, 8).unwrap();
+        let first = oracle_benchmark_checksum(actual, SortMode::Rows, false, 8).unwrap();
+        let second = oracle_benchmark_checksum(actual, SortMode::Rows, false, 8).unwrap();
         assert_eq!(first, second);
         let changed_cells = [ActualCell::Text("3"), ActualCell::Text("1")];
-        let changed = oracle_benchmark_checksum(
-            query(&columns, &changed_cells, 2),
-            SortMode::RowSort,
-            false,
-            8,
-        )
-        .unwrap();
+        let changed =
+            oracle_benchmark_checksum(query(&columns, &changed_cells, 2), SortMode::Rows, false, 8)
+                .unwrap();
         assert_ne!(first, changed);
     }
 }

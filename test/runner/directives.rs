@@ -14,12 +14,14 @@ pub(crate) struct SourceLocation {
     pub line: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Display for SourceLocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}", self.source, self.line)
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// The small parser-facing contract. `arguments` must already have the C++
 /// parser's whitespace tokenization; quoted explanations remain individual
 /// tokens and are joined only where the source does so.
@@ -81,6 +83,7 @@ pub(crate) struct DirectiveState {
     pub mode: Mode,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DirectiveState {
     pub(crate) fn mark_test_command(&mut self) {
         self.test_command_seen = true;
@@ -294,6 +297,7 @@ mod tests {
         key: String,
         args: Vec<String>,
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Header {
         fn new(key: &str, args: &[&str]) -> Self {
             Self {
@@ -306,6 +310,7 @@ mod tests {
             }
         }
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl DirectiveHeader for Header {
         fn location(&self) -> &SourceLocation {
             &self.loc
@@ -318,6 +323,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn require_env_skip_is_never_a_pass() {
         let mut state = DirectiveState::default();
@@ -328,6 +334,7 @@ mod tests {
             }
         );
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn required_missing_capability_fails_but_optional_skips() {
         let mut state = DirectiveState::default();
@@ -341,6 +348,7 @@ mod tests {
             DirectiveAction::Fail { .. }
         ));
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn development_mode_and_continue_rules_are_explicit() {
         let mut state = DirectiveState::default();
@@ -357,6 +365,7 @@ mod tests {
             DirectiveAction::SetMode(Mode { skip_depth: 0, .. })
         ));
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn tags_and_configured_environment_have_source_dispositions() {
         let mut state = DirectiveState::default();

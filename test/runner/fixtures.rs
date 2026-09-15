@@ -39,6 +39,7 @@ pub(crate) struct FixtureResolver {
     max_gzip_bytes: u64,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FixtureResolver {
     pub(crate) fn new(
         source_root: impl AsRef<Path>,
@@ -261,9 +262,11 @@ impl FixtureResolver {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn create_new(path: &Path) -> Result<File, FixtureError> {
     Ok(OpenOptions::new().write(true).create_new(true).open(path)?)
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn fingerprint(mut input: impl Read) -> Result<FixtureFingerprint, FixtureError> {
     let mut hasher = Hasher::new();
     let mut bytes = 0;
@@ -281,6 +284,7 @@ fn fingerprint(mut input: impl Read) -> Result<FixtureFingerprint, FixtureError>
         crc32: hasher.finalize(),
     })
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn copy_bounded(
     mut input: impl Read,
     mut output: impl Write,
@@ -320,6 +324,7 @@ mod tests {
     use super::*;
     use flate2::{Compression, write::GzEncoder};
     use tempfile::TempDir;
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn roots() -> (TempDir, FixtureResolver) {
         let temp = TempDir::new().unwrap();
         let source = temp.path().join("source");
@@ -327,6 +332,7 @@ mod tests {
         fs::create_dir(&source).unwrap();
         (temp, FixtureResolver::new(&source, &scratch).unwrap())
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn include_is_source_rooted_cycle_checked_and_located() {
         let (temp, mut r) = roots();
@@ -357,12 +363,14 @@ mod tests {
             Err(FixtureError::Located { .. })
         ));
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn traversal_and_missing_expected_are_rejected() {
         let (_temp, r) = roots();
         assert!(r.expected_file("../secret").is_err());
         assert!(r.expected_file("missing.csv").is_err());
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[cfg(unix)]
     #[test]
     fn symlink_fixture_escape_and_include_depth_are_rejected() {
@@ -388,6 +396,7 @@ mod tests {
             Err(FixtureError::Located { .. })
         ));
     }
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn gzip_is_staged_with_checksum_and_bound() {
         let (temp, r) = roots();

@@ -23,6 +23,7 @@ pub(crate) struct FixtureBench {
     checksum: Hasher,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FixtureBench {
     pub(crate) fn start() -> Self {
         Self {
@@ -54,6 +55,7 @@ impl FixtureBench {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn checksum_distinguishes_wrong_disposition() {
         let mut pass = FixtureBench::start();

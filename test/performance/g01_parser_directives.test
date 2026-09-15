@@ -1,0 +1,31 @@
+# G01.2a/b source-matched parser and control workload.
+
+hash-threshold 1000
+
+require 64bit
+
+hash-threshold 999
+
+require notwindows
+
+hash-threshold 998
+
+require notmusl
+
+hash-threshold 997
+
+require noforcestorage
+
+hash-threshold 996
+
+require nothreadsan
+
+hash-threshold 995
+
+require strinline
+
+query I
+SELECT 42
+----
+42
+

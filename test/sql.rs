@@ -59,7 +59,8 @@ fn sql_harness_rejects_wrong_results_errors_and_unavailable_capabilities() -> du
         "query I named\nSELECT 1\n----\n",
         "statement error named\nSELECT 1\n",
         "statement error named\nSELECT missing\n----\nnot the actual error\n",
-        "query I nosort unimplemented_label\nSELECT 1\n----\n1\n",
+        "query I nosort conflicting_label\nSELECT 1\n----\n1\n\n\
+         query I nosort conflicting_label\nSELECT 2\n----\n2\n",
     ] {
         assert!(run_source(&database, source).is_err(), "{source}");
     }
