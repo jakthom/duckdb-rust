@@ -18,7 +18,7 @@ PINS = {
     "release": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
 }
 METRICS = ("wall_ns", "cpu_ns", "max_rss_bytes", "block_input", "block_output")
-MARKER = "G01_API_LIFECYCLE_PASS 3"
+MARKER = "G01_API_LIFECYCLE_PASS 4"
 ROOT = Path(__file__).resolve().parents[1]
 
 

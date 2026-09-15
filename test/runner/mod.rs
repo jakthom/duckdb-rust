@@ -1215,7 +1215,6 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                     &mut fixtures,
                     &mut active_sources,
                     &accounting,
-                    &mut sessions,
                     &token,
                     allow_missing_error,
                     original_sqlite,
@@ -1302,7 +1301,6 @@ fn capture_loop(
     fixtures: &mut FixtureResolver,
     active_sources: &mut Vec<PathBuf>,
     accounting: &Mutex<RecordAccounting>,
-    sessions: &mut Sessions,
     header: &Token,
     allow_missing_error: bool,
     original_sqlite: bool,
@@ -1316,25 +1314,10 @@ fn capture_loop(
         header.kind,
         TokenKind::ConcurrentLoop | TokenKind::ConcurrentForeach
     );
-    let definition = schedule::parse_loop_with(&arguments, concurrent, foreach, |specification| {
-        let (connection, name) = specification
-            .split_once(':')
-            .map_or(("", specification), |(connection, name)| (connection, name));
-        let name = name.replace('\'', "''");
-        let result = sessions
-            .connection(connection)?
-            .query(&format!("SELECT unnest(getvariable('{name}')::VARCHAR[])"))?;
-        Ok(result
-            .rows
-            .iter()
-            .map(|row| {
-                row.first()
-                    .map(Value::to_string)
-                    .unwrap_or_else(|| "NULL".into())
-            })
-            .collect())
-    })
-    .map_err(|error| at(header, &error.to_string()))?;
+    // Pinned LoopCommand retains foreach tokens while parsing, then expands
+    // `<variable:...>` in ExecuteInternal against the session at execution.
+    let definition = schedule::parse_loop_deferred(&arguments, concurrent, foreach)
+        .map_err(|error| at(header, &error.to_string()))?;
     let mut body = Vec::new();
     loop {
         let Some(start) = parser.next_statement().map_err(parse_error)? else {
@@ -1372,7 +1355,6 @@ fn capture_loop(
                     fixtures,
                     active_sources,
                     accounting,
-                    sessions,
                     &token,
                     allow_missing_error,
                     original_sqlite,
@@ -1483,6 +1465,24 @@ fn execute_loop(
     outer_loops: &[LoopFrame],
     finished: Option<&AtomicBool>,
 ) -> Result<usize> {
+    let values = schedule::loop_values(&command.definition, |specification| {
+        let (connection, name) = specification
+            .split_once(':')
+            .map_or(("", specification), |(connection, name)| (connection, name));
+        let name = name.replace('\'', "''");
+        let result = sessions
+            .connection(connection)?
+            .query(&format!("SELECT unnest(getvariable('{name}')::VARCHAR[])"))?;
+        Ok(result
+            .rows
+            .iter()
+            .map(|row| {
+                row.first()
+                    .map(Value::to_string)
+                    .unwrap_or_else(|| "NULL".into())
+            })
+            .collect())
+    })?;
     if command.definition.concurrent {
         for body in &command.body {
             concurrent_supported(body)?;
@@ -1490,7 +1490,7 @@ fn execute_loop(
         let database = sessions.database().clone();
         let scratch = sessions.scratch().to_path_buf();
         let concurrent_finished = AtomicBool::new(false);
-        let outcomes = schedule::run_concurrent(command.definition.values.len(), |ordinal| {
+        let outcomes = schedule::run_concurrent(values.len(), |ordinal| {
             if concurrent_finished.load(Ordering::Acquire) {
                 return Ok((0, Vec::new()));
             }
@@ -1498,7 +1498,7 @@ fn execute_loop(
             let mut loops = outer_loops.to_vec();
             loops.push(LoopFrame {
                 name: command.definition.name.clone(),
-                value: command.definition.values[ordinal].clone(),
+                value: values[ordinal].clone(),
                 ordinal,
                 concurrent: true,
             });
@@ -1542,7 +1542,7 @@ fn execute_loop(
         Ok(generated)
     } else {
         let mut generated = 0;
-        for (ordinal, value) in command.definition.values.iter().enumerate() {
+        for (ordinal, value) in values.iter().enumerate() {
             let mut loops = outer_loops.to_vec();
             loops.push(LoopFrame {
                 name: command.definition.name.clone(),

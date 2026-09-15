@@ -275,6 +275,13 @@ fn transactional_ddl_constraints_and_abandonment() -> Result<()> {
         c.query("SELECT count(*) FROM t")?.rows,
         vec![integers(&[1])]
     );
+    // Matches test/api/test_api.cpp: the connection owns an open transaction
+    // containing DDL, so destroying it must roll that DDL back as well.
+    {
+        let mut abandoned = db.connect();
+        abandoned.execute("BEGIN; CREATE TABLE test(i INTEGER)")?;
+    }
+    c.execute("CREATE TABLE test(i INTEGER)")?;
     Ok(())
 }
 

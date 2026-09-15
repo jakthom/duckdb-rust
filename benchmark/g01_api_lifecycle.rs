@@ -27,10 +27,15 @@ fn main() -> Result<()> {
     if survivor.query("SELECT * FROM rolled_back").is_ok() {
         return Err(Error::Execution("dropped transaction retained DDL".into()));
     }
+    {
+        let mut short_lived = db.connect();
+        short_lived.execute("BEGIN; CREATE TABLE test(i INTEGER)")?;
+    }
+    survivor.execute("CREATE TABLE test(i INTEGER)")?;
     survivor.execute("CREATE TABLE after_drop(i INTEGER); INSERT INTO after_drop VALUES (7)")?;
     if scalar(survivor.query("SELECT i FROM after_drop")?)? != 7 {
         return Err(Error::Execution("surviving connection unusable".into()));
     }
-    println!("G01_API_LIFECYCLE_PASS 3");
+    println!("G01_API_LIFECYCLE_PASS 4");
     Ok(())
 }

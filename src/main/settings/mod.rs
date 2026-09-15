@@ -287,6 +287,17 @@ impl SettingsSnapshot {
     pub fn registry(&self) -> &Arc<SettingRegistry> {
         &self.registry
     }
+    pub(in crate::main) fn overrides(&self) -> Vec<(SettingScope, String, Value)> {
+        self.global
+            .iter()
+            .map(|(name, value)| (SettingScope::Global, name.clone(), value.clone()))
+            .chain(
+                self.session
+                    .iter()
+                    .map(|(name, value)| (SettingScope::Session, name.clone(), value.clone())),
+            )
+            .collect()
+    }
     pub fn get(&self, name: &str, query: &QueryContext) -> Result<&Value> {
         query.check()?;
         let entry = self.registry.entry(name)?;

@@ -102,7 +102,11 @@ impl Sessions {
     pub(crate) fn restart(&mut self) -> Result<()> {
         // Dropping connections rolls back active transactions. This is required
         // by shutdown_running_transaction_updates.test before the reopen.
-        self.open(self.path.clone(), self.read_only, false)
+        // Pinned RestartCommand also restores the main connection's client
+        // configuration and catalog search path after reopening the database.
+        let settings = self.connection("")?.settings_snapshot()?;
+        self.open(self.path.clone(), self.read_only, false)?;
+        self.connection("")?.restore_settings(&settings)
     }
 
     fn open(&mut self, path: Option<PathBuf>, read_only: bool, fresh: bool) -> Result<()> {
@@ -140,16 +144,17 @@ impl Sessions {
 
         self.connections.clear();
         self.database = None;
-        if fresh && !read_only {
-            if let Some(path) = &path {
-                for suffix in ["", ".wal", ".wal.checkpoint"] {
-                    let mut file = path.as_os_str().to_os_string();
-                    file.push(suffix);
-                    if let Err(error) = std::fs::remove_file(&file)
-                        && error.kind() != std::io::ErrorKind::NotFound
-                    {
-                        return Err(error.into());
-                    }
+        if fresh
+            && !read_only
+            && let Some(path) = &path
+        {
+            for suffix in ["", ".wal", ".wal.checkpoint"] {
+                let mut file = path.as_os_str().to_os_string();
+                file.push(suffix);
+                if let Err(error) = std::fs::remove_file(&file)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    return Err(error.into());
                 }
             }
         }
@@ -166,6 +171,59 @@ impl Sessions {
         self.database = Some(database);
         self.path = path;
         self.read_only = read_only;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use duckdb_rust::Value;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn restart_restores_main_session_and_database_settings() -> Result<()> {
+        let scratch = tempfile::tempdir()?;
+        let database = Database::memory()?;
+        let mut sessions = Sessions::new(&database, scratch.path());
+        sessions.connection("")?.execute(
+            "CREATE SCHEMA analytics;
+             SET search_path='analytics';
+             SET SESSION default_order='DESC';
+             SET GLOBAL default_null_order='FIRST'",
+        )?;
+
+        sessions.restart()?;
+        assert_eq!(
+            sessions
+                .connection("")?
+                .query(
+                    "SELECT current_setting('search_path'),
+                            current_setting('default_order'),
+                            current_setting('default_null_order')"
+                )?
+                .rows,
+            vec![vec![
+                Value::Varchar("analytics".into()),
+                Value::Varchar("DESC".into()),
+                Value::Varchar("NULLS_FIRST".into()),
+            ]]
+        );
+        assert_eq!(
+            sessions
+                .connection("new_named")?
+                .query(
+                    "SELECT current_setting('search_path'),
+                            current_setting('default_order'),
+                            current_setting('default_null_order')"
+                )?
+                .rows,
+            vec![vec![
+                Value::Varchar(String::new()),
+                Value::Varchar("ASCENDING".into()),
+                Value::Varchar("NULLS_FIRST".into()),
+            ]]
+        );
         Ok(())
     }
 }

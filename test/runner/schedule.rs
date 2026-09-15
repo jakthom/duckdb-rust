@@ -13,7 +13,35 @@ const MAX_LOOP_ITERATIONS: usize = 100_000;
 pub(crate) struct LoopDefinition {
     pub name: String,
     pub values: Vec<String>,
+    /// Raw `foreach` tokens.  DuckDB retains these while parsing and expands
+    /// them from the executing session in `LoopCommand::ExecuteInternal`.
+    pub foreach_tokens: Option<Vec<String>>,
     pub concurrent: bool,
+}
+
+/// Parse a loop header without consulting a session.  In particular, do not
+/// resolve `<variable:...>` here: capture happens before the loop executes,
+/// while DuckDB resolves those values at each execution.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn parse_loop_deferred(
+    arguments: &[String],
+    concurrent: bool,
+    foreach: bool,
+) -> Result<LoopDefinition> {
+    if foreach {
+        if arguments.len() < 2 {
+            return Err(Error::Execution(
+                "expected foreach ITERATOR VALUE [VALUE ...]".into(),
+            ));
+        }
+        return Ok(LoopDefinition {
+            name: arguments[0].clone(),
+            values: Vec::new(),
+            foreach_tokens: Some(arguments[1..].to_vec()),
+            concurrent,
+        });
+    }
+    parse_loop_with(arguments, concurrent, false, |_| unreachable!())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,6 +119,7 @@ where
         Ok(LoopDefinition {
             name: arguments[0].clone(),
             values,
+            foreach_tokens: None,
             concurrent,
         })
     } else {
@@ -120,9 +149,32 @@ where
         Ok(LoopDefinition {
             name: arguments[0].clone(),
             values,
+            foreach_tokens: None,
             concurrent,
         })
     }
+}
+
+/// Materialize a captured foreach definition at execution time.  The caller
+/// supplies the active session's `<variable:...>` lookup.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn loop_values<F>(definition: &LoopDefinition, mut variable: F) -> Result<Vec<String>>
+where
+    F: FnMut(&str) -> Result<Vec<String>>,
+{
+    let Some(tokens) = &definition.foreach_tokens else {
+        return Ok(definition.values.clone());
+    };
+    let mut values = Vec::new();
+    for token in tokens {
+        expand_foreach_token(token, &mut values, &mut variable)?;
+    }
+    if values.is_empty() {
+        return Err(Error::Unsupported(
+            "foreach expansion produced no iterations".into(),
+        ));
+    }
+    Ok(values)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -343,13 +395,13 @@ pub(crate) fn selected(
                     Comparison::Equal => frame.value == *value,
                     Comparison::NotEqual => frame.value != *value,
                     comparison => {
-                        let left: i64 = frame.value.parse().map_err(|_| {
+                        let left = parse_stoll(&frame.value).map_err(|_| {
                             Error::Execution(format!(
                                 "loop value {:?} is not a signed 64-bit number",
                                 frame.value
                             ))
                         })?;
-                        let right: i64 = value.parse().map_err(|_| {
+                        let right = parse_stoll(value).map_err(|_| {
                             Error::Execution(format!(
                                 "loop condition value {value:?} is not a signed 64-bit number"
                             ))
@@ -373,6 +425,25 @@ pub(crate) fn selected(
         }
     }
     Ok(true)
+}
+
+/// `std::stoll` accepts leading whitespace, an optional sign, and a numeric
+/// prefix; it rejects an absent prefix and values outside signed 64-bit range.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_stoll(value: &str) -> Result<i64> {
+    let value = value.trim_start_matches(|character: char| character.is_ascii_whitespace());
+    let bytes = value.as_bytes();
+    let mut end = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let first_digit = end;
+    while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+    }
+    if end == first_digit {
+        return Err(Error::Execution("missing signed integer prefix".into()));
+    }
+    value[..end]
+        .parse()
+        .map_err(|_| Error::Execution("signed integer prefix is outside i64 range".into()))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -491,6 +562,24 @@ mod tests {
             parse_condition("i!=1", false, false)?,
             Condition::Loop { iterator, .. } if iterator == "i!"
         ));
+        let numeric = [parse_condition("i>+11tail", false, false)?];
+        let numeric_frame = [LoopFrame {
+            name: "i".into(),
+            value: " \t12suffix".into(),
+            ordinal: 0,
+            concurrent: false,
+        }];
+        assert!(selected(&numeric, &numeric_frame, false)?);
+        let overflow = [LoopFrame {
+            value: "9223372036854775808".into(),
+            ..numeric_frame[0].clone()
+        }];
+        assert!(selected(&numeric, &overflow, false).is_err());
+        let non_numeric = [LoopFrame {
+            value: "tail".into(),
+            ..numeric_frame[0].clone()
+        }];
+        assert!(selected(&numeric, &non_numeric, false).is_err());
         let collections = parse_loop_with(
             &[
                 "kind".into(),

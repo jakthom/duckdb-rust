@@ -181,6 +181,17 @@ class Runner:
             text = text.replace("{" + key + "}", str(value))
         return text
 
+    @staticmethod
+    def stoll(value):
+        """Match std::stoll's base-10 prefix, sign, whitespace and i64 range."""
+        match = re.match(r"[ \t\n\r\f\v]*[+-]?\d+", str(value))
+        if match is None:
+            raise ValueError(f"not a std::stoll number: {value!r}")
+        result = int(match.group())
+        if not -(2**63) <= result < 2**63:
+            raise ValueError(f"std::stoll value is outside signed 64-bit range: {value!r}")
+        return result
+
     def condition(self, expression, variables, only_if):
         """Evaluate pinned loop-variable/system onlyif and skipif expressions."""
         # The pinned parser lowercases the condition token and does not apply
@@ -213,11 +224,9 @@ class Runner:
                     holds = not holds
             else:
                 try:
-                    lhs_number, rhs_number = int(left), int(right)
+                    lhs_number, rhs_number = self.stoll(left), self.stoll(right)
                 except ValueError as error:
                     raise ValueError(f"non-numeric loop condition {term}") from error
-                if not -(2**63) <= lhs_number < 2**63 or not -(2**63) <= rhs_number < 2**63:
-                    raise ValueError(f"loop condition is outside std::stoll range: {term}")
                 holds = {"<": lhs_number < rhs_number, "<=": lhs_number <= rhs_number,
                          ">": lhs_number > rhs_number, ">=": lhs_number >= rhs_number}[operator]
             outcomes.append(holds)

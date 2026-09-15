@@ -157,6 +157,35 @@ endloop
             Runner(ConcurrentEngine()).run(parse(
                 "loop i 0 1\nonlyif i!=0\nstatement ok\nSELECT 1\n\nendloop\n"))
 
+    def test_relational_conditions_follow_stoll_prefix_and_i64_rules(self):
+        runner = Runner(ConcurrentEngine())
+        self.assertTrue(runner.condition("i>+11tail", {"i": " \t12suffix"}, True))
+        for value in ("tail", "9223372036854775808"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                runner.condition("i>0", {"i": value}, True)
+
+    def test_nested_foreach_variable_is_not_looked_up_before_execution(self):
+        class VariableEngine:
+            def __init__(self):
+                self.defined = False
+
+            def request(self, request):
+                if request["operation"] == "foreach":
+                    if not self.defined:
+                        return {"ok": False, "message": "variable not defined"}
+                    return {"ok": True, "values": ["alpha"]}
+                if "SET VARIABLE choices" in request.get("sql", ""):
+                    self.defined = True
+                return {"ok": True}
+
+        engine = VariableEngine()
+        Runner(engine).run(parse(
+            "loop outer 0 1\n"
+            "statement ok\nSET VARIABLE choices = ['alpha']\n\n"
+            "foreach choice <variable:choices>\n"
+            "statement ok\nSELECT '{choice}'\n\nendloop\n\nendloop\n"))
+        self.assertTrue(engine.defined)
+
     def test_foreach_collections_removal_tuple_and_variable(self):
         engine = ConcurrentEngine()
         engine.request = lambda request: (

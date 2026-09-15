@@ -35,6 +35,32 @@ pub struct Connection {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Connection {
+    /// Capture global publications and this connection's session overrides.
+    /// The snapshot contains configuration only; it owns no transaction or
+    /// catalog state.
+    pub fn settings_snapshot(&self) -> Result<settings::SettingsSnapshot> {
+        Ok(self.context()?.settings().clone())
+    }
+    /// Restore a captured configuration onto an idle connection. Values are
+    /// rebound through this database's registry before publication so a
+    /// snapshot cannot bypass the destination configuration contract.
+    pub fn restore_settings(&mut self, snapshot: &settings::SettingsSnapshot) -> Result<()> {
+        if !matches!(self.session, Session::Idle) {
+            return Err(Error::Transaction(
+                "restoring settings requires an idle connection".into(),
+            ));
+        }
+        let context = self.context()?;
+        for (scope, name, value) in snapshot.overrides() {
+            let change =
+                context
+                    .settings()
+                    .registry()
+                    .bind(&name, Some(scope), Some(value), &context)?;
+            self.configuration.apply(&change, &context)?;
+        }
+        Ok(())
+    }
     /// Checkpoint committed state while other connections retain their owned
     /// snapshots. An explicit or failed transaction on this connection must be
     /// completed first; this operation never commits its uncommitted changes.

@@ -176,7 +176,9 @@ impl Session {
                 return Ok(json!({"ok":true}));
             }
             "restart" => {
+                let settings = self.connection("")?.settings_snapshot()?;
                 self.open(self.path.clone(), self.read_only, false)?;
+                self.connection("")?.restore_settings(&settings)?;
                 return Ok(json!({"ok":true}));
             }
             "reconnect" => {
@@ -496,7 +498,27 @@ mod tests {
                 .is_err()
         );
 
+        session.run(request(json!({
+            "operation":"statement",
+            "sql":"CREATE SCHEMA analytics; SET search_path='analytics'; SET SESSION default_order='DESC'; SET GLOBAL default_null_order='FIRST'"
+        })))?;
+
         session.run(request(json!({"operation":"restart"})))?;
+        assert_eq!(
+            session.run(request(json!({
+                "operation":"query",
+                "sql":"SELECT current_setting('search_path'), current_setting('default_order'), current_setting('default_null_order')"
+            })))?["rows"],
+            json!([["analytics", "DESC", "NULLS_FIRST"]])
+        );
+        assert_eq!(
+            session.run(request(json!({
+                "operation":"query",
+                "connection":"settings_reader",
+                "sql":"SELECT current_setting('search_path'), current_setting('default_order'), current_setting('default_null_order')"
+            })))?["rows"],
+            json!([["(empty)", "ASCENDING", "NULLS_FIRST"]])
+        );
         assert!(
             session
                 .run(request(

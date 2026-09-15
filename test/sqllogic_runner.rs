@@ -129,6 +129,61 @@ fn loop_variables_do_not_rewrite_literal_expected_values() -> duckdb_rust::Resul
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn nested_foreach_variable_lookup_fails_at_execution_when_engine_lacks_variable_functions()
+-> duckdb_rust::Result<()> {
+    let root = root();
+    let path = root.path().join("test/deferred-foreach.test");
+    // Capture accepts the nested token. This engine lacks the
+    // `unnest(getvariable(...))` surface, so the adapter must fail only when
+    // the nested LoopCommand executes.
+    std::fs::write(
+        &path,
+        "loop outer 0 1\n\n\
+         foreach choice <variable:choices>\n\n\
+         query T\nSELECT '{choice}'\n----\nalpha\n\n\
+         endloop\n\nendloop\n",
+    )?;
+    let error = runner::run_file_report(&Database::memory()?, &path).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.contains("unnest") || message.contains("getvariable"),
+        "{error}"
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn relational_loop_conditions_accept_stoll_prefixes_and_reject_bad_i64() -> duckdb_rust::Result<()>
+{
+    let root = root();
+    let accepted = root.path().join("test/stoll-prefix.test");
+    std::fs::write(
+        &accepted,
+        "foreach i 12tail\n\n\
+         onlyif i>+11tail\n\
+         statement ok\nSELECT 1\n\nendloop\n",
+    )?;
+    assert_eq!(
+        runner::run_file_report(&Database::memory()?, &accepted)?.passed,
+        1
+    );
+    for (name, value) in [
+        ("stoll-empty", "tail"),
+        ("stoll-overflow", "9223372036854775808"),
+    ] {
+        let path = root.path().join(format!("test/{name}.test"));
+        std::fs::write(
+            &path,
+            format!("foreach i {value}\n\nonlyif i>0\nstatement ok\nSELECT 1\n\nendloop\n"),
+        )?;
+        assert!(runner::run_file_report(&Database::memory()?, &path).is_err());
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn ambient_environment_is_not_an_implicit_substitution() -> duckdb_rust::Result<()> {
     let root = root();
     let path = root.path().join("test/environment.test");

@@ -10,8 +10,10 @@ int main() {
   { Connection short_lived(db); ok(short_lived.Query("BEGIN; UPDATE t SET i=2; CREATE TABLE rolled_back(i INTEGER);")); }
   if (value(survivor, "SELECT i FROM t") != 1) throw std::runtime_error("dropped transaction committed");
   auto missing = survivor.Query("SELECT * FROM rolled_back"); if (!missing->HasError()) throw std::runtime_error("dropped transaction retained DDL");
+  { Connection short_lived(db); ok(short_lived.Query("BEGIN; CREATE TABLE test(i INTEGER);")); }
+  ok(survivor.Query("CREATE TABLE test(i INTEGER);"));
   ok(survivor.Query("CREATE TABLE after_drop(i INTEGER); INSERT INTO after_drop VALUES (7);"));
   if (value(survivor, "SELECT i FROM after_drop") != 7) throw std::runtime_error("surviving connection unusable");
-  std::cout << "G01_API_LIFECYCLE_PASS 3\n";
+  std::cout << "G01_API_LIFECYCLE_PASS 4\n";
  } catch (std::exception &error) { std::cerr << error.what() << "\n"; return 1; }
 }
