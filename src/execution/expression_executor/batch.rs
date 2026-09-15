@@ -434,9 +434,15 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
         return evaluate_case_with_semantic_provenance(evaluator, expression, input, context);
     }
     if expression.uses_physical_batch() {
+        let column =
+            evaluate_selected_with_physical_batches(evaluator, expression, input, context)?;
         return Ok((
-            evaluate_selected_with_physical_batches(evaluator, expression, input, context)?,
-            ArgumentProvenance::Unknown,
+            column.clone(),
+            if column.constant_value().is_some() {
+                ArgumentProvenance::Constant
+            } else {
+                ArgumentProvenance::Unknown
+            },
         ));
     }
     let batch_context = BatchContext {
@@ -503,6 +509,9 @@ fn evaluate_case_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
             let selected = input.select(&matched)?;
             let (results, provenance) =
                 evaluate_child_with_semantic_provenance(evaluator, value, &selected, context)?;
+            if matched.len() == input.len() {
+                return Ok((results, provenance));
+            }
             constant &= provenance == ArgumentProvenance::Constant;
             for (offset, &index) in matched.iter().enumerate() {
                 values[index] = results.get(offset).expect("validated CASE result").clone();
@@ -514,6 +523,9 @@ fn evaluate_case_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
         let selected = input.select(&active)?;
         let (results, provenance) =
             evaluate_child_with_semantic_provenance(evaluator, otherwise, &selected, context)?;
+        if active.len() == input.len() {
+            return Ok((results, provenance));
+        }
         constant &= provenance == ArgumentProvenance::Constant;
         for (offset, &index) in active.iter().enumerate() {
             values[index] = results
