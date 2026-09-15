@@ -37,10 +37,81 @@ impl State<'_, '_> {
         };
         let value = expression
             .map(|expression| -> Result<Value> {
-                let value = match expression {
+                Ok(match expression {
                     ast::Expr::Identifier(id) => Value::Varchar(id.value.clone()),
                     _ => constant.literal(expression)?,
-                };
+                })
+            })
+            .transpose()?;
+        self.setting_value(name, scope, value, definition)
+    }
+
+    pub(super) fn pragma(
+        &self,
+        name: &ast::ObjectName,
+        value: Option<&ast::ValueWithSpan>,
+    ) -> Result<BoundStatement> {
+        let [part] = name.0.as_slice() else {
+            return Err(Error::Bind("pragma names must be unqualified".into()));
+        };
+        let name = part
+            .as_ident()
+            .ok_or_else(|| unsupported("pragma name expression"))?
+            .value
+            .to_ascii_lowercase();
+        let literal = value
+            .map(|value| self.literal(&ast::Expr::Value(value.clone())))
+            .transpose()?;
+        let (setting, value) = match (name.as_str(), literal) {
+            ("enable_verification", None) => ("enable_verification", Some(Value::Boolean(true))),
+            ("disable_verification", None) => ("enable_verification", Some(Value::Boolean(false))),
+            ("enable_profiling" | "enable_profile", None) => (
+                "enable_profiling",
+                Some(Value::Varchar("query_tree".into())),
+            ),
+            ("enable_profiling" | "enable_profile", Some(value)) => {
+                ("enable_profiling", Some(value))
+            }
+            ("disable_profiling" | "disable_profile", None) => {
+                ("enable_profiling", Some(Value::Null))
+            }
+            ("profiling_output" | "profile_output", Some(value)) => {
+                ("profiling_output", Some(value))
+            }
+            ("profiling_mode", Some(value)) => ("profiling_mode", Some(value)),
+            ("debug_force_external", Some(value)) => ("debug_force_external", Some(value)),
+            (
+                "enable_verification"
+                | "disable_verification"
+                | "disable_profiling"
+                | "disable_profile",
+                Some(_),
+            )
+            | ("profiling_output" | "profile_output" | "profiling_mode", None) => {
+                return Err(Error::Parse(format!(
+                    "pragma {name} does not accept this argument form"
+                )));
+            }
+            _ => return Err(unsupported(format!("PRAGMA {name}"))),
+        };
+        let definition = self
+            .context
+            .query
+            .settings()
+            .registry()
+            .definition(setting)?;
+        self.setting_value(setting, Some(SettingScope::Session), value, definition)
+    }
+
+    fn setting_value(
+        &self,
+        name: &str,
+        scope: Option<SettingScope>,
+        value: Option<Value>,
+        definition: &crate::main::settings::SettingDefinition,
+    ) -> Result<BoundStatement> {
+        let value = value
+            .map(|value| -> Result<Value> {
                 let cast = BoundExpr::literal(value).cast(
                     definition.data_type.clone(),
                     CastMode::Explicit,
@@ -65,6 +136,7 @@ impl State<'_, '_> {
                 Ok(value)
             })
             .transpose()?;
+        let registry = self.context.query.settings().registry();
         let change = registry.bind(name, scope, value, self.context.query)?;
         if change.name() == "search_path"
             && let Some(value) = change.value()
