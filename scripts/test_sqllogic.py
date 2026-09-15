@@ -160,7 +160,7 @@ endloop
     def test_relational_conditions_follow_stoll_prefix_and_i64_rules(self):
         runner = Runner(ConcurrentEngine())
         self.assertTrue(runner.condition("i>+11tail", {"i": " \t12suffix"}, True))
-        for value in ("tail", "9223372036854775808"):
+        for value in ("tail", "١٢tail", "１２tail", "9223372036854775808"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 runner.condition("i>0", {"i": value}, True)
 

@@ -184,7 +184,7 @@ class Runner:
     @staticmethod
     def stoll(value):
         """Match std::stoll's base-10 prefix, sign, whitespace and i64 range."""
-        match = re.match(r"[ \t\n\r\f\v]*[+-]?\d+", str(value))
+        match = re.match(r"[ \t\n\r\f\v]*[+-]?[0-9]+", str(value))
         if match is None:
             raise ValueError(f"not a std::stoll number: {value!r}")
         result = int(match.group())
