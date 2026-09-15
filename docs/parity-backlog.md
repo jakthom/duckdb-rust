@@ -272,10 +272,16 @@ native values from both producer directions. Rust intentionally rejects a sequen
 or shallow zipped expansion above 16,777,216 logical children before allocation;
 the pinned implementation has no
 equivalent fixed ceiling. The shared multi-family `contains` name, higher-order/lambda
-functions and the broader nested catalog remain open. Stable LIST/ARRAY sort and
-grade-up aliases honor explicit or session-default order/NULL order, selected child
-comparison, named argument reordering, ARRAY-to-LIST results and bounded cancellation
-through scalar/batched execution. Retained native constructors
+functions and the broader nested catalog remain open. LIST/ARRAY `has_any`, `has_all`
+and `intersect` families now include the pinned array aliases and `&&`, `@>`, `<@`
+operators, common-child coercion, outer/child NULL behavior and duplicate removal.
+Intersection retains the pinned shorter-side hash/probe ordering and a representative
+from the left input rather than promising stable left order. Contextual keys propagate
+through nested children and preserve physical INTERVAL components; representation-
+sensitive VARIANT membership remains explicitly unsupported. Stable LIST/ARRAY sort
+and grade-up aliases honor explicit or session-default order/NULL order, selected
+child comparison, named argument reordering, ARRAY-to-LIST results and bounded
+cancellation through scalar/batched execution. Retained native constructors
 qualified as `main.list_value` now resolve through the same bounded built-in lookup
 as ordinary `main`-qualified calls. Core GEOMETRY is present in the pinned C++ type
 enum and absent from Rust's built-in DataType enum; it is not solely a
