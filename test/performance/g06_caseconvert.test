@@ -12,3 +12,10 @@ query I
 SELECT sum(length(lower(value))) + sum(length(upper(value))) + sum(length(lcase(value))) + sum(length(ucase(value))) + length(lower('İ')) FROM g06_caseconvert
 ----
 1000001
+
+# These code points gained simple mappings after the pins' Unicode 15.1 table.
+# Exact pinning leaves them unchanged through both canonical names and aliases.
+query TTTT
+SELECT upper('ƛɤᲉꟋ𐵐𖺼'), lower('ƛɤᲉꟋ𐵐𖺼'), ucase('ƛɤᲉꟋ𐵐𖺼'), lcase('ƛɤᲉꟋ𐵐𖺼')
+----
+ƛɤᲉꟋ𐵐𖺼	ƛɤᲉꟋ𐵐𖺼	ƛɤᲉꟋ𐵐𖺼	ƛɤᲉꟋ𐵐𖺼
