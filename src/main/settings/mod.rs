@@ -371,12 +371,23 @@ impl SettingsSnapshot {
     pub(crate) fn current_value(&self, name: &str, query: &QueryContext) -> Result<Value> {
         match name.to_ascii_lowercase().as_str() {
             "enable_profiling" | "enable_profile" => return self.effective_enable_profiling(query),
+            // Both pinned implementations expose profiling_mode from the
+            // shared profiler state. Enabling a renderer therefore makes the
+            // effective mode observable as standard even though no separate
+            // profiling_mode value was written. An explicit disable must
+            // continue to hide that compatibility value.
+            "profiling_mode" if self.enable_profiling_overridden() => {
+                return match self.get("enable_profiling", query)? {
+                    Value::Null => Ok(Value::Null),
+                    Value::Varchar(_) => Ok(Value::Varchar("standard".into())),
+                    _ => Err(Error::Internal(
+                        "invalid enable_profiling setting type".into(),
+                    )),
+                };
+            }
             // disable_profiling and RESET enable_profiling both reset the
             // upstream shared client-config state, so the independently
             // stored compatibility value is no longer observable.
-            "profiling_mode" if self.enable_profiling_is_explicitly_disabled() => {
-                return Ok(Value::Null);
-            }
             _ => {}
         }
         Ok(self.get(name, query)?.clone())
@@ -385,15 +396,6 @@ impl SettingsSnapshot {
     fn enable_profiling_overridden(&self) -> bool {
         self.session.contains_key("enable_profiling")
             || self.global.contains_key("enable_profiling")
-    }
-
-    fn enable_profiling_is_explicitly_disabled(&self) -> bool {
-        self.enable_profiling_overridden()
-            && matches!(self.get_unchecked("enable_profiling"), Some(Value::Null))
-    }
-
-    fn get_unchecked(&self, name: &str) -> Option<&Value> {
-        self.session.get(name).or_else(|| self.global.get(name))
     }
 
     fn effective_enable_profiling(&self, query: &QueryContext) -> Result<Value> {

@@ -66,6 +66,15 @@ fn profiling_emits_measured_output_and_rejects_unimplemented_renderers() -> Resu
             "SET profiling_output='{}'; PRAGMA enable_profiling='json'",
             output.display()
         ))?;
+        // enable_profiling and its alias change the same client profiler
+        // state as profiling_mode. Both pinned versions report its effective
+        // mode as standard after direct renderer enablement.
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('profiling_mode')")?
+                .rows[0][0],
+            Value::Varchar("standard".into())
+        );
         assert_eq!(connection.query("SELECT * FROM range(3)")?.rows.len(), 3);
         let profile: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&output)?).unwrap();
@@ -96,6 +105,14 @@ fn profiling_emits_measured_output_and_rejects_unimplemented_renderers() -> Resu
         let recovered_profile: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&failed_output)?).unwrap();
         assert_eq!(recovered_profile["rows_returned"], 1);
+
+        connection.execute("SET enable_profile='no_output'")?;
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('profiling_mode')")?
+                .rows[0][0],
+            Value::Varchar("standard".into())
+        );
 
         connection.execute("RESET enable_profiling")?;
         connection.query("SELECT 42")?;
@@ -151,6 +168,27 @@ fn profiling_emits_measured_output_and_rejects_unimplemented_renderers() -> Resu
         assert_eq!(
             connection
                 .query("SELECT current_setting('enable_profiling')")?
+                .rows[0][0],
+            Value::Null
+        );
+
+        connection.execute("PRAGMA enable_profile")?;
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('profiling_mode')")?
+                .rows[0][0],
+            Value::Varchar("standard".into())
+        );
+        connection.execute("RESET profiling_mode")?;
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('enable_profiling')")?
+                .rows[0][0],
+            Value::Null
+        );
+        assert_eq!(
+            connection
+                .query("SELECT current_setting('profiling_mode')")?
                 .rows[0][0],
             Value::Null
         );
