@@ -90,6 +90,63 @@ fn enums_flow_through_selected_casts_functions_vectors_and_nested_children() -> 
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let db = DatabaseBuilder::new()
+            .expressions(expressions)
+            .batch_size(2)
+            .build()?;
+        let mut c = db.connect();
+        c.execute("CREATE TABLE t(k ENUM('z','a')); INSERT INTO t VALUES ('z'),('a'),('a'),('z')")?;
+
+        // The pinned function reads vector row zero. Each two-row physical
+        // batch therefore references one range: [z,a], [z,a], [a], [a].
+        let expected = [
+            ["[z, a]", "[z]"],
+            ["[z, a]", "[z]"],
+            ["[a]", "[z, a]"],
+            ["[a]", "[z, a]"],
+        ];
+        let sql =
+            "SELECT enum_range_boundary(k,NULL),enum_range_boundary(NULL::ENUM('z','a'),k) FROM t";
+        let ranges = |rows: Vec<Vec<Value>>| {
+            rows.into_iter()
+                .map(|row| {
+                    row.into_iter()
+                        .map(|value| value.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ranges(c.query(sql)?.rows.into_iter().collect()), expected);
+
+        let prepared = c.prepare(sql)?;
+        assert_eq!(
+            ranges(
+                c.execute_prepared(&prepared, &[])?
+                    .rows
+                    .into_iter()
+                    .collect()
+            ),
+            expected
+        );
+        assert_eq!(
+            c.query("SELECT enum_range_boundary('a'::ENUM('z','a'),NULL)::VARCHAR,enum_range_boundary(NULL,'z'::ENUM('z','a'))::VARCHAR,enum_range_boundary('a'::ENUM('z','a'),'z'::ENUM('z','a'))::VARCHAR")?.rows,
+            vec![vec![
+                Value::Varchar("[a]".into()),
+                Value::Varchar("[z]".into()),
+                Value::Varchar("[]".into()),
+            ]]
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn enum_dictionaries_survive_relational_mutations_rollback_and_native_reopen() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let mut composition = 0;

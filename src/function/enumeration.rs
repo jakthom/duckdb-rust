@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use super::{FunctionRegistry, ScalarBindArguments, ScalarFunction};
 use crate::{
-    common::{DataType, EnumType, Error, NestedPayload, NestedType, NestedValue, Result, Value},
+    common::{
+        DataType, EnumType, Error, NestedPayload, NestedType, NestedValue, Result, Value,
+        vector::{DataChunk, Vector},
+    },
     parallel::QueryContext,
 };
 
@@ -75,6 +78,37 @@ impl ScalarFunction for EnumFunction {
             "enum_range" | "enum_range_boundary" => NestedType::List(DataType::Varchar).data_type(),
             _ => DataType::Varchar,
         })
+    }
+    fn is_total(&self, _arguments: &[Option<&Value>]) -> bool {
+        // Binding has already fixed one valid dictionary and every valid ENUM
+        // value is an ordinal in that dictionary. The remaining work only
+        // materializes its labels.
+        true
+    }
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        if self.name != "enum_range_boundary" {
+            return Ok(None);
+        }
+        if arguments.columns().len() != 2 || arguments.is_empty() {
+            return Err(Error::Internal(
+                "ENUM boundary batch differs from binding".into(),
+            ));
+        }
+        // DuckDB reads row zero of both vectors and references the resulting
+        // list for the complete physical batch. In particular, a column is
+        // not evaluated per row here.
+        let mut boundary = Vec::with_capacity(2);
+        arguments.read_row(0, &mut boundary)?;
+        let value = self.evaluate(&boundary, query)?;
+        Ok(Some(Vector::constant(
+            NestedType::List(DataType::Varchar).data_type(),
+            value,
+            arguments.len(),
+        )?))
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
