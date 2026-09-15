@@ -674,24 +674,54 @@ impl ExpressionEvaluator for ScalarEvaluator {
         input: &crate::common::vector::DataChunk,
         context: &dyn EvaluationContext,
     ) -> Result<crate::common::vector::Vector> {
-        if !input.is_empty()
-            && expression.is_pure_and_total()
-            && let ExprKind::Scalar(function, arguments) = &expression.kind
-        {
-            let columns = arguments
-                .iter()
-                .map(|argument| self.evaluate_batch(argument, input, context))
-                .collect::<Result<Vec<_>>>()?;
-            let arguments = crate::common::vector::DataChunk::new(columns, input.len())?;
-            if let Some(output) = function.evaluate_batch(&arguments, context.query())? {
-                if output.data_type() != &expression.data_type || output.len() != input.len() {
-                    return Err(Error::Internal(
-                        "scalar batch differs from its bound type or cardinality".into(),
-                    ));
+        let output = if !input.is_empty() && expression.is_pure_and_total() {
+            match &expression.kind {
+                ExprKind::Literal(value) | ExprKind::Parameter(value) => {
+                    Some(crate::common::vector::Vector::constant(
+                        expression.data_type.clone(),
+                        value.clone(),
+                        input.len(),
+                    )?)
                 }
-                context.query().check()?;
-                return Ok(output);
+                ExprKind::Column(index) => {
+                    Some(
+                        input.columns().get(*index).cloned().ok_or_else(|| {
+                            Error::Internal("expression column outside batch".into())
+                        })?,
+                    )
+                }
+                ExprKind::OuterColumn { depth, column } => {
+                    Some(crate::common::vector::Vector::constant(
+                        expression.data_type.clone(),
+                        context.outer_column(*depth, *column)?,
+                        input.len(),
+                    )?)
+                }
+                ExprKind::Cast(inner, cast, false) => Some(cast.apply_batch(
+                    &self.evaluate_batch(inner, input, context)?,
+                    context.query(),
+                )?),
+                ExprKind::Scalar(function, arguments) => {
+                    let columns = arguments
+                        .iter()
+                        .map(|argument| self.evaluate_batch(argument, input, context))
+                        .collect::<Result<Vec<_>>>()?;
+                    let arguments = crate::common::vector::DataChunk::new(columns, input.len())?;
+                    function.evaluate_batch(&arguments, context.query())?
+                }
+                _ => None,
             }
+        } else {
+            None
+        };
+        if let Some(output) = output {
+            if output.data_type() != &expression.data_type || output.len() != input.len() {
+                return Err(Error::Internal(
+                    "scalar batch differs from its bound type or cardinality".into(),
+                ));
+            }
+            context.query().check()?;
+            return Ok(output);
         }
         evaluate_expression_rows(self, expression, input, context)
     }
