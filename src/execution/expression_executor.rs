@@ -249,7 +249,7 @@ fn select_physical_conjunction<T: ExpressionEvaluator + ?Sized>(
 /// selected input before a physical descendant is demanded. Other predicates
 /// use the physical-aware value evaluator and then expose their true offsets.
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn select_predicate_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
+pub(crate) fn select_predicate_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
     input: &crate::common::vector::DataChunk,

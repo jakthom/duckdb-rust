@@ -135,6 +135,29 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
                         materialize_source_child(evaluator, argument, input, context, columns)?;
                     }
                     found = true;
+                } else if contains_physical_batch
+                    && matches!(
+                        function.argument_evaluation(),
+                        ArgumentEvaluation::NullOnConstant
+                    )
+                {
+                    // A constant NULL stops this function before subsequent
+                    // arguments are demanded. Only materialize the reachable
+                    // source prefix; otherwise a later physical callback
+                    // could turn a deliberately suppressed error into one.
+                    let reachable = arguments
+                        .iter()
+                        .position(constant_null_expression)
+                        .unwrap_or(arguments.len());
+                    if arguments[..reachable]
+                        .iter()
+                        .any(BoundExpr::uses_physical_batch)
+                    {
+                        for argument in &mut arguments[..reachable] {
+                            materialize_source_child(evaluator, argument, input, context, columns)?;
+                        }
+                        found = true;
+                    }
                 } else {
                     for argument in arguments {
                         visit(argument)?;
@@ -177,6 +200,14 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
         }
     }
     Ok(found)
+}
+
+fn constant_null_expression(expression: &BoundExpr) -> bool {
+    match &expression.kind {
+        ExprKind::Literal(Value::Null) | ExprKind::Parameter(Value::Null) => true,
+        ExprKind::Cast(inner, ..) => constant_null_expression(inner),
+        _ => false,
+    }
 }
 
 /// A generic parent with a physical-batch descendant evaluates its immediate
@@ -261,18 +292,16 @@ fn evaluate_case_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
             break;
         }
         let selected = input.select(&active)?;
-        let conditions =
-            evaluate_selected_with_physical_batches(evaluator, condition, &selected, context)?;
-        let mut matched = Vec::new();
+        let condition_selected = super::select_predicate_with_physical_batches(
+            evaluator, condition, &selected, context,
+        )?;
+        let mut matched = Vec::with_capacity(condition_selected.len());
         let mut remaining = Vec::new();
+        let mut selected_offset = 0;
         for (offset, &index) in active.iter().enumerate() {
-            if conditions
-                .get(offset)
-                .expect("validated CASE condition")
-                .as_bool()?
-                == Some(true)
-            {
+            if condition_selected.get(selected_offset) == Some(&offset) {
                 matched.push(index);
+                selected_offset += 1;
             } else {
                 remaining.push(index);
             }

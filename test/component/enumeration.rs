@@ -225,6 +225,13 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
             c.query("SELECT i FROM predicate_lazy WHERE (i=100 AND enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR='[z, a]') OR i=1")?.rows,
             vec![vec![Value::Integer(1)]]
         );
+        let case_sql = "SELECT CASE WHEN i=100 AND enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR='[z, a]' THEN 1 ELSE 0 END FROM predicate_lazy";
+        let case_expected = vec![vec![Value::Integer(0)], vec![Value::Integer(0)]];
+        assert_eq!(c.query(case_sql)?.rows, case_expected);
+        assert_eq!(
+            c.execute_prepared(&c.prepare(case_sql)?, &[])?.rows,
+            case_expected
+        );
 
         // A generic parent retains child source order even when its later
         // child is a physical-batch callback. In particular, it must not
@@ -236,6 +243,20 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
         assert!(
             physical_first.to_string().contains("enum_bad"),
             "{physical_first}"
+        );
+        let null_on_constant = "SELECT pow(v::DOUBLE,length(enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR)) FROM sibling_order";
+        let left_first = c.query(null_on_constant).unwrap_err();
+        assert!(left_first.to_string().contains("left_bad"), "{left_first}");
+        let prepared = c.prepare(null_on_constant)?;
+        let left_first = c.execute_prepared(&prepared, &[]).unwrap_err();
+        assert!(left_first.to_string().contains("left_bad"), "{left_first}");
+        let null_short_circuit = "SELECT pow(NULL::DOUBLE,length(enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR)) FROM sibling_order";
+        let null_expected = vec![vec![Value::Null], vec![Value::Null]];
+        assert_eq!(c.query(null_short_circuit)?.rows, null_expected);
+        assert_eq!(
+            c.execute_prepared(&c.prepare(null_short_circuit)?, &[])?
+                .rows,
+            null_expected
         );
         c.execute("CREATE TABLE sibling_success(v VARCHAR,k VARCHAR); INSERT INTO sibling_success VALUES ('1','z'),('2','a')")?;
         assert_eq!(
