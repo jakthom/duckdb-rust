@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from compiled_registry import enumerate_registry, source_parameterizations
+from compiled_registry import _configured_extension_roots, enumerate_registry, source_matrix_definitions, source_parameterizations
 from parity_inventory import native_registry, source_inventory
 
 
@@ -70,11 +70,16 @@ class InventoryTests(unittest.TestCase):
             (root / "third_party/sqllogictest/test").mkdir(parents=True)
             (root / "test/sql/a.test").write_text("SELECT 1")
             (root / "third_party/sqllogictest/test/b.test").write_text("SELECT 1")
+            (root / "test/sqlite").mkdir(parents=True)
+            (root / "test/sqlite/test_sqllogictest.cpp").write_text("// discovery")
             binary = root / "build/test/unittest"
             binary.parent.mkdir(parents=True)
             binary.write_bytes(b"fake")
             (root / "build/CMakeCache.txt").write_text(
                 f"CMAKE_HOME_DIRECTORY:INTERNAL={root.resolve()}\nCMAKE_BUILD_TYPE:STRING=Release\n")
+            loader = root / "build/codegen/src/generated_extension_loader.cpp"
+            loader.parent.mkdir(parents=True)
+            loader.write_text("vector<string> ExtensionHelper::LoadedExtensionTestPaths(){ vector<string> VEC = {}; }")
             command = [str(binary), "*", "--list-tests"]
             listing = "name\tgroup\ntest/sql/a.test\t[sql]\nthird_party/sqllogictest/test/b.test\t[.][sqlitelogic]\nNative\t[native]\n"
             with patch("compiled_registry.subprocess.run",
@@ -100,6 +105,10 @@ class InventoryTests(unittest.TestCase):
             with patch("compiled_registry.subprocess.run",
                        return_value=subprocess.CompletedProcess(command, 0, duplicate, "")):
                 self.assertEqual(enumerate_registry(root, binary, root)["status"], "setup_failure")
+            duplicate_name = "name\tgroup\ntest/sql/a.test\t[sql]\ntest/sql/a.test\t[other]\n"
+            with patch("compiled_registry.subprocess.run",
+                       return_value=subprocess.CompletedProcess(command, 0, duplicate_name, "")):
+                self.assertEqual(enumerate_registry(root, binary, root)["status"], "setup_failure")
             missing = "name\tgroup\nNative\t[native]\n"
             with patch("compiled_registry.subprocess.run",
                        return_value=subprocess.CompletedProcess(command, 0, missing, "")):
@@ -114,6 +123,37 @@ class InventoryTests(unittest.TestCase):
             result = source_parameterizations(root)
             self.assertEqual(result["counts"], {"generator": 1, "section": 1, "template": 1})
             self.assertIn("not exposed", result["runtime_instances"])
+
+    def test_source_matrix_definitions_reject_missing_ci_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "test/configs").mkdir(parents=True)
+            (root / "test/configs/a.json").write_text('{"force_storage": "true"}')
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/ci.yml").write_text(
+                "runs-on: ubuntu-latest\nrun: unittest --test-config test/configs/a.json\n")
+            (root / "extension/json/test/sql").mkdir(parents=True)
+            result = source_matrix_definitions(root)
+            self.assertEqual(result["counts"], {"ci_platform": 1, "ci_test_config_invocation": 1,
+                                                 "extension_test_root": 1, "test_config": 1})
+            (root / ".github/workflows/ci.yml").write_text(
+                "run: unittest --test-config test/configs/missing.json\n")
+            with self.assertRaisesRegex(ValueError, "missing test configuration"):
+                source_matrix_definitions(root)
+            (root / "test/configs/a.json").write_text("not json")
+            with self.assertRaisesRegex(ValueError, "malformed test configuration"):
+                source_matrix_definitions(root)
+
+    def test_configured_extension_roots_reject_duplicate_or_absent_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            loader = root / "build/codegen/src/generated_extension_loader.cpp"
+            loader.parent.mkdir(parents=True)
+            loader.write_text(
+                'LoadedExtensionTestPaths(){ vector<string> VEC = {"/missing", "/missing"}; }')
+            provenance = {"generated_extension_loader": str(loader)}
+            with self.assertRaisesRegex(ValueError, "duplicate configured"):
+                _configured_extension_roots(root, provenance)
 
 
 if __name__ == "__main__":

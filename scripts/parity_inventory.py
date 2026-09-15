@@ -9,7 +9,7 @@ import re
 import subprocess
 
 from check_references import build_identity
-from compiled_registry import enumerate_registry, source_parameterizations
+from compiled_registry import enumerate_registry, source_matrix_definitions, source_parameterizations
 from reference_version import ROOT, TARGETS, require_checkout
 from upstream_suite import declarations, digest
 
@@ -109,6 +109,7 @@ def main():
             require_checkout(configuration.source, target)
             entry["source"] = source_inventory(configuration.source)
             entry["source"]["parameterized_generated"] = source_parameterizations(configuration.source)
+            entry["source"]["matrix_definitions"] = source_matrix_definitions(configuration.source)
             entry["build"] = build_identity(target)
             runner = getattr(args, f"{target}_runner")
             entry["compiled_registry"] = native_registry(configuration, directory, runner)

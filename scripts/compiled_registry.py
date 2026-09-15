@@ -1,5 +1,6 @@
 """Source-match and enumerate the Catch registry emitted by a DuckDB test runner."""
 from collections import Counter
+import json
 from pathlib import Path
 import platform
 import re
@@ -34,6 +35,47 @@ def source_parameterizations(source):
             "runtime_instances": "not exposed by Catch --list-tests; source declarations are not instance counts"}
 
 
+def source_matrix_definitions(source):
+    """Enumerate source configuration, platform and extension-root definitions, not runs."""
+    definitions = []
+    config_root = source / "test/configs"
+    for path in sorted(config_root.glob("*.json")):
+        try:
+            value = json.loads(path.read_text())
+        except json.JSONDecodeError as error:
+            raise ValueError(f"malformed test configuration {path.relative_to(source)}: {error}") from error
+        if not isinstance(value, dict):
+            raise ValueError(f"test configuration must be an object: {path.relative_to(source)}")
+        definitions.append({"id": f"config:{path.relative_to(source)}", "kind": "test_config",
+                            "path": str(path.relative_to(source)), "keys": sorted(value)})
+    workflow_root = source / ".github/workflows"
+    for path in sorted(workflow_root.glob("*.y*ml")):
+        text = path.read_text()
+        for line_number, line in enumerate(text.splitlines(), 1):
+            config = re.search(r"--test-config\s+(test/configs/[A-Za-z0-9_.-]+\.json)", line)
+            if config:
+                config_path = config.group(1)
+                if not (source / config_path).is_file():
+                    raise ValueError(f"CI references missing test configuration {config_path}")
+                definitions.append({"id": f"ci-config:{path.relative_to(source)}:{line_number}",
+                                    "kind": "ci_test_config_invocation", "path": str(path.relative_to(source)),
+                                    "line": line_number, "config": config_path})
+            runner = re.search(r"^\s*runs-on:\s*(.+?)\s*$", line)
+            if runner:
+                definitions.append({"id": f"ci-platform:{path.relative_to(source)}:{line_number}",
+                                    "kind": "ci_platform", "path": str(path.relative_to(source)),
+                                    "line": line_number, "expression": runner.group(1)})
+    for path in sorted((source / "extension").glob("*/test/sql")):
+        if path.is_dir():
+            definitions.append({"id": f"extension-root:{path.relative_to(source)}", "kind": "extension_test_root",
+                                "path": str(path.relative_to(source))})
+    ids = [entry["id"] for entry in definitions]
+    if len(ids) != len(set(ids)):
+        raise ValueError("duplicate source matrix definition IDs")
+    return {"definitions": definitions, "counts": dict(sorted(Counter(d["kind"] for d in definitions).items())),
+            "scope": "Pinned source definitions and CI declarations; they are not compiled or executed matrix instances."}
+
+
 def _cache_identity(source, binary):
     cache = binary.parents[1] / "CMakeCache.txt"
     if not cache.is_file():
@@ -48,8 +90,14 @@ def _cache_identity(source, binary):
     settings = {line.split("=", 1)[0]: line.split("=", 1)[1] for line in text.splitlines()
                 if "=" in line and line.split("=", 1)[0].split(":", 1)[0].startswith(
                     ("BUILD_", "ENABLE_", "DISABLE_", "DUCKDB_", "EXTENSION_", "CMAKE_OSX"))}
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
+    generated_loader = binary.parents[1] / "codegen/src/generated_extension_loader.cpp"
+    if not generated_loader.is_file():
+        raise ValueError("compiled registry requires generated extension loader provenance")
     return {"runner": str(binary.resolve()), "runner_sha256": digest(binary), "cmake_cache": str(cache),
             "cmake_cache_sha256": digest(cache), "cmake_source": str(source.resolve()),
+            "source_revision": revision, "source_discovery_sha256": digest(source / "test/sqlite/test_sqllogictest.cpp"),
+            "generated_extension_loader": str(generated_loader), "generated_extension_loader_sha256": digest(generated_loader),
             "build_type": build_type.group(1), "settings": settings,
             "platform": platform.system(), "machine": platform.machine()}
 
@@ -69,10 +117,33 @@ def _parse_listing(stdout):
             raise ValueError(f"incomplete Catch registry line: {line!r}")
         cases.append({"id": f"{name}\t{tags}", "name": name, "tags": tags,
                       "hidden": "[.]" in tags, "sql": name.endswith(SQL_SUFFIXES)})
-    ids = [case["id"] for case in cases]
-    if not cases or len(ids) != len(set(ids)):
-        raise ValueError("empty or duplicate Catch registry IDs")
+    ids, names = [case["id"] for case in cases], [case["name"] for case in cases]
+    if not cases or len(ids) != len(set(ids)) or len(names) != len(set(names)):
+        raise ValueError("empty, duplicate Catch registry IDs, or duplicate Catch test names")
     return cases
+
+
+def _configured_extension_roots(source, provenance):
+    text = Path(provenance["generated_extension_loader"]).read_text()
+    match = re.search(r"LoadedExtensionTestPaths\s*\(\)\s*\{.*?vector<string>\s+VEC\s*=\s*\{(.*?)\};",
+                      text, re.DOTALL)
+    if match is None:
+        raise ValueError("generated extension loader has no parseable LoadedExtensionTestPaths body")
+    roots = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"', match.group(1))
+    if len(roots) != len(set(roots)):
+        raise ValueError("duplicate configured loaded-extension test roots")
+    entries = []
+    for root in roots:
+        resolved = Path(root).resolve()
+        entry = {"id": f"configured-extension-root:{root}", "path": root,
+                 "exists": resolved.is_dir(), "source_relative": None}
+        if resolved.is_relative_to(Path(source).resolve()):
+            entry["source_relative"] = str(resolved.relative_to(source))
+        entries.append(entry)
+    if any(not entry["exists"] for entry in entries):
+        raise ValueError("configured loaded-extension test root is absent")
+    return {"roots": entries, "count": len(entries),
+            "scope": "Actual CMake-generated loader roots for this one compiled runner configuration."}
 
 
 def enumerate_registry(source, binary, output_dir):
@@ -86,6 +157,7 @@ def enumerate_registry(source, binary, output_dir):
     stderr = output_dir / "compiled-registry.stderr"
     try:
         provenance = _cache_identity(Path(source), binary)
+        configured_extensions = _configured_extension_roots(source, provenance)
         result = subprocess.run(command, cwd=source, text=True, capture_output=True, timeout=60)
         output.write_text(result.stdout)
         stderr.write_text(result.stderr)
@@ -104,7 +176,8 @@ def enumerate_registry(source, binary, output_dir):
             raise ValueError("compiled SQL registry does not account for pinned source IDs: "
                              f"unknown={len(unknown)} missing={len(missing)}")
         return {"status": "enumerated_not_executed", "command": command, "exit_code": result.returncode,
-                "provenance": provenance, "cases": cases, "names": len(cases), "unique_ids": len(set(c["id"] for c in cases)),
+                "provenance": provenance, "configured_extension_roots": configured_extensions,
+                "cases": cases, "names": len(cases), "unique_ids": len(set(c["id"] for c in cases)),
                 "hidden_cases": sum(c["hidden"] for c in cases), "sql_file_cases": len(listed_sql),
                 "native_cases": len(cases) - len(listed_sql), "source_sql_not_registered": missing,
                 "registry_sql_not_in_source": unknown, "output": str(output), "output_sha256": digest(output)}
