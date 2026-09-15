@@ -76,6 +76,7 @@ fn unicode_case_conversion_aliases_nulls_nuls_batches_and_prepared_execution() -
 }
 
 #[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn case_conversion_uses_duckdb_pinned_unicode_15_1_tables() -> Result<()> {
     assert_eq!(utf8proc::unicode_version(), "15.1.0");
 

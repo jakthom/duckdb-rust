@@ -29,6 +29,7 @@ pub fn evaluate_expression_rows<T: ExpressionEvaluator + ?Sized>(
 /// ordinary row evaluation for their enclosing tree. Replacing only pure,
 /// total batch-dependent nodes keeps lazy branches and fallible/effectful
 /// parents in row order without reducing a vector callback to scalar calls.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn evaluate_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
@@ -47,6 +48,7 @@ pub(super) fn evaluate_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluate_expression_rows(evaluator, &rewritten, &input, context).map(Some)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &mut BoundExpr,
@@ -142,6 +144,7 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
     Ok(found)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn evaluate_selected_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
@@ -155,6 +158,7 @@ fn evaluate_selected_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn evaluate_case_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
@@ -220,6 +224,7 @@ fn evaluate_case_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     Ok(output)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn evaluate_first_non_null_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
