@@ -38,6 +38,11 @@ def source_inventory(source):
             "core_roots": core_roots,
             "core_candidates": core_sql,
             "core_candidate_count": len(core_sql),
+            "source_suffix_classification": {
+                "normal": sum(p.endswith(".test") for p in core_sql),
+                "slow": sum(p.endswith(".test_slow") for p in core_sql),
+                "coverage": sum(p.endswith(".test_coverage") for p in core_sql),
+            },
             "outside_core_roots": [p for p in sql_paths if p not in core_set],
             "extension_roots": "conditional on configured/loaded extension test registrations",
         },

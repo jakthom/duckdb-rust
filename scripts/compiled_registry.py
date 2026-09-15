@@ -179,6 +179,8 @@ def enumerate_registry(source, binary, output_dir):
                 "provenance": provenance, "configured_extension_roots": configured_extensions,
                 "cases": cases, "names": len(cases), "unique_ids": len(set(c["id"] for c in cases)),
                 "hidden_cases": sum(c["hidden"] for c in cases), "sql_file_cases": len(listed_sql),
+                "slow_sql_file_cases": sum(c["sql"] and c["name"].endswith(".test_slow") for c in cases),
+                "coverage_sql_file_cases": sum(c["sql"] and c["name"].endswith(".test_coverage") for c in cases),
                 "native_cases": len(cases) - len(listed_sql), "source_sql_not_registered": missing,
                 "registry_sql_not_in_source": unknown, "output": str(output), "output_sha256": digest(output)}
     except Exception as error:

@@ -88,6 +88,8 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(result["status"], "enumerated_not_executed")
             self.assertEqual(result["hidden_cases"], 1)
             self.assertEqual(result["sql_file_cases"], 2)
+            self.assertEqual(result["slow_sql_file_cases"], 0)
+            self.assertEqual(result["coverage_sql_file_cases"], 0)
             self.assertEqual(run.call_args.args[0], command)
 
     def test_registry_rejects_false_green_duplicate_or_missing_source_id(self):
