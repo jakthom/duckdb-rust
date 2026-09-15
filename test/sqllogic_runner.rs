@@ -275,6 +275,17 @@ fn cli_emits_file_report_generated_output() -> duckdb_rust::Result<()> {
         stdout.contains("0 records passed; 0 skipped; 1 generated"),
         "{stdout}"
     );
+
+    let ordinary = root.path().join("test/cli_pass.test");
+    std::fs::write(&ordinary, "query I\nSELECT 1\n----\n1\n")?;
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_sqllogictest"))
+        .arg(&ordinary)
+        .output()?;
+    assert!(result.status.success());
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(stdout.contains("PASS "), "{stdout}");
+    assert!(stdout.contains("1 records passed; 0 skipped\n"), "{stdout}");
+    assert!(!stdout.contains("generated"), "{stdout}");
     Ok(())
 }
 

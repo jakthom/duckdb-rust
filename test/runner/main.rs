@@ -51,6 +51,12 @@ fn main() -> std::process::ExitCode {
             }
         }
     }
-    println!("{passed} records passed; {skipped} skipped; {generated} generated");
+    if generated == 0 {
+        // Keep the ordinary machine-readable verdict stable for Gate P and
+        // other callers. Generated output gets an explicit third field below.
+        println!("{passed} records passed; {skipped} skipped");
+    } else {
+        println!("{passed} records passed; {skipped} skipped; {generated} generated");
+    }
     std::process::ExitCode::SUCCESS
 }
