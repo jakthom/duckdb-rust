@@ -48,6 +48,7 @@ class RunUpstreamTests(unittest.TestCase):
             source.mkdir(); (source / "fail.test").write_text("statement ok\nFAIL\n\nstatement ok\nTAIL\n")
             (source / "loop.test").write_text("loop x 0 2\nstatement ok\nOK\n\nendloop\n")
             (source / "restart.test").write_text("restart\nstatement ok\nOK\n")
+            (source / "empty.test").write_text("# only a comment\n")
             worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin:\n r=json.loads(line); ok='FAIL' not in r.get('sql',''); print(json.dumps({'ok':ok,'message':'failure'}),flush=True)\n")
             worker.chmod(worker.stat().st_mode | stat.S_IXUSR)
             failed = run_case(worker, source, {"id":"f","path":"fail.test"}, 2)
@@ -56,6 +57,8 @@ class RunUpstreamTests(unittest.TestCase):
             self.assertIsNone(loop["unreached_source_records"])
             restarted = run_case(worker, source, {"id":"r","path":"restart.test"}, 2)
             self.assertEqual((restarted["attempted_records"], restarted["worker_requests"]), (1, 2))
+            empty = run_case(worker, source, {"id":"e","path":"empty.test"}, 2)
+            self.assertEqual(empty["failure_class"], "no_sql_records")
 
 
 if __name__ == "__main__":

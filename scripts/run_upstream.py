@@ -94,8 +94,12 @@ def run_case(binary, source, entry, timeout):
             runner = sqllogic.Runner(engine, {"{TEST_DIR}": scratch, "__TEST_DIR__": scratch, "{WORKING_DIRECTORY}": scratch,
                 "__WORKING_DIRECTORY__": scratch, "{TEST_NAME}": entry["path"], "{BASE_TEST_NAME}": entry["path"].replace("/", "_"), "__SOURCE_DIR__": str(source)})
             runner.run(records)
-            result["status"] = "passed" if runner.passed and not runner.skipped else "incomplete"
-            if result["status"] != "passed": result["failure_class"] = "conditional_skip"
+            if result["source_sql_records"] == 0:
+                result.update(status="incomplete", failure_class="controls_only" if records else "no_sql_records")
+            elif runner.passed and not runner.skipped:
+                result["status"] = "passed"
+            else:
+                result.update(status="incomplete", failure_class="conditional_skip")
         except Exception as error:
             result.update(status="failed", failure_class=failure_class(error, engine and engine.engine_unsupported_seen, phase), reason=str(error)[:2000])
         finally:
