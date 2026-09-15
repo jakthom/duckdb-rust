@@ -44,11 +44,14 @@ class RustEngine:
         self.process = subprocess.Popen([str(binary)], cwd=directory, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=self.errors, text=True, bufsize=1)
         self.events = selectors.DefaultSelector(); self.events.register(self.process.stdout, selectors.EVENT_READ)
-        self.deadline = deadline; self.engine_unsupported_seen = False; self.requests = 0
+        self.deadline = deadline; self.engine_unsupported_seen = False; self.worker_requests = 0; self.sql_requests = 0
     def request(self, request):
-        self.requests += 1
         remaining = self.deadline - time.monotonic()
         if remaining <= 0: raise TimeoutError("file deadline exceeded")
+        # Count only requests that are actually handed to the worker. SQL attempts
+        # exclude runner transport controls such as restart and reconnect.
+        self.worker_requests += 1
+        self.sql_requests += request.get("operation") in ("query", "statement")
         self.process.stdin.write(json.dumps(request) + "\n"); self.process.stdin.flush()
         if not self.events.select(timeout=remaining): raise TimeoutError("file deadline exceeded")
         line = self.process.stdout.readline()
@@ -97,7 +100,8 @@ def run_case(binary, source, entry, timeout):
             result.update(status="failed", failure_class=failure_class(error, engine and engine.engine_unsupported_seen, phase), reason=str(error)[:2000])
         finally:
             if runner:
-                result.update(evidence(records, runner.line), passed_records=runner.passed, skipped_records=runner.skipped, attempted_records=engine.requests)
+                result.update(evidence(records, runner.line), passed_records=runner.passed, skipped_records=runner.skipped,
+                              attempted_records=engine.sql_requests, worker_requests=engine.worker_requests)
             if engine: engine.close()
     if "source_sql_records" in result:
         repeated = any(r.words[0] in ("loop", "foreach", "concurrentloop", "concurrentforeach") for r in records)
@@ -129,6 +133,9 @@ def archive_population(target, temporary):
 
 def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):
     allowed = None if not path_list else {x.strip() for x in path_list.read_text().splitlines() if x.strip() and not x.startswith("#")}
+    if allowed is not None:
+        unknown = allowed - {e["path"] for e in sql}
+        if unknown: raise ValueError(f"path list contains unknown upstream paths: {sorted(unknown)[:5]}")
     if retry_report:
         prior = json.loads(retry_report.read_text())["populations"][target]
         retries = {r["path"] for r in prior["results"] if r.get("failure_class") == "timeout"}

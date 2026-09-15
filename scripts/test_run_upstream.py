@@ -2,9 +2,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+import stat
 
 import sqllogic
-from run_upstream import failure_class, selected_entries, summarize
+from run_upstream import failure_class, run_case, selected_entries, summarize
 
 
 class RunUpstreamTests(unittest.TestCase):
@@ -35,6 +36,26 @@ class RunUpstreamTests(unittest.TestCase):
             report = Path(d) / "prior.json"
             report.write_text('{"populations":{"development":{"results":[{"path":"b.test","failure_class":"timeout"}]}}}')
             self.assertEqual(selected_entries(sql, [], None, report, "development"), [sql[1]])
+
+    def test_path_list_rejects_unknown_ids(self):
+        with tempfile.TemporaryDirectory() as d:
+            paths = Path(d) / "retry.txt"; paths.write_text("missing.test\n")
+            with self.assertRaises(ValueError): selected_entries([{"id": "a", "path": "a.test"}], [], paths)
+
+    def test_run_case_counts_sent_sql_and_source_reach_honestly(self):
+        with tempfile.TemporaryDirectory() as d:
+            source, worker = Path(d) / "source", Path(d) / "worker"
+            source.mkdir(); (source / "fail.test").write_text("statement ok\nFAIL\n\nstatement ok\nTAIL\n")
+            (source / "loop.test").write_text("loop x 0 2\nstatement ok\nOK\n\nendloop\n")
+            (source / "restart.test").write_text("restart\nstatement ok\nOK\n")
+            worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin:\n r=json.loads(line); ok='FAIL' not in r.get('sql',''); print(json.dumps({'ok':ok,'message':'failure'}),flush=True)\n")
+            worker.chmod(worker.stat().st_mode | stat.S_IXUSR)
+            failed = run_case(worker, source, {"id":"f","path":"fail.test"}, 2)
+            self.assertEqual((failed["attempted_records"], failed["worker_requests"], failed["unreached_source_records"]), (1, 1, 1))
+            loop = run_case(worker, source, {"id":"l","path":"loop.test"}, 2)
+            self.assertIsNone(loop["unreached_source_records"])
+            restarted = run_case(worker, source, {"id":"r","path":"restart.test"}, 2)
+            self.assertEqual((restarted["attempted_records"], restarted["worker_requests"]), (1, 2))
 
 
 if __name__ == "__main__":
