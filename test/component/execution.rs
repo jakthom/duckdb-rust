@@ -42,6 +42,71 @@ fn ints(values: &[i128]) -> Row {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn distinct_on_preserves_pinned_target_and_order_semantics() -> Result<()> {
+    for batch_size in [1, 3, 64] {
+        let mut c = DatabaseBuilder::new()
+            .batch_size(batch_size)
+            .build()?
+            .connect();
+        c.execute(
+            "CREATE TABLE d(k INTEGER, v INTEGER, rank INTEGER); \
+             INSERT INTO d VALUES (1,10,2),(1,20,1),(2,30,2),(2,NULL,1),(NULL,40,2),(NULL,50,1)",
+        )?;
+        // Target aliases, duplicate targets, NULL equality, and ORDER BY all
+        // determine which original row survives.
+        assert_eq!(
+            c.query("SELECT DISTINCT ON (key, key) k AS key, v FROM d ORDER BY rank")?
+                .rows,
+            vec![
+                ints(&[1, 20]),
+                vec![Value::Integer(2), Value::Null],
+                vec![Value::Null, Value::Integer(50)]
+            ]
+        );
+        // The ORDER BY and DISTINCT ON target may be absent from the visible
+        // projection; both remain hidden until the final projection trim.
+        assert_eq!(
+            c.query("SELECT DISTINCT ON (k) v FROM d ORDER BY rank")?
+                .rows,
+            vec![ints(&[20]), vec![Value::Null], ints(&[50])]
+        );
+        assert!(
+            c.query("SELECT DISTINCT ON (k) k, v FROM d WHERE false")
+                .unwrap()
+                .rows
+                .is_empty()
+        );
+        assert_eq!(
+            c.query(
+                "SELECT * FROM (SELECT DISTINCT ON (k) k, v FROM d ORDER BY k, v DESC) q ORDER BY k"
+            )?
+            .rows,
+            vec![
+                ints(&[1, 20]),
+                ints(&[2, 30]),
+                vec![Value::Null, Value::Integer(50)]
+            ]
+        );
+        let prepared = c.prepare("SELECT DISTINCT ON (k) k, v FROM d ORDER BY k, rank")?;
+        let mut rows = Vec::new();
+        c.execute_prepared_batches(&prepared, &Vec::new(), |_, batch| {
+            rows.extend(batch.rows());
+            Ok(StreamControl::Continue)
+        })?;
+        assert_eq!(
+            rows,
+            vec![
+                ints(&[1, 20]),
+                vec![Value::Integer(2), Value::Null],
+                vec![Value::Null, Value::Integer(50)]
+            ]
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn executors() -> Vec<Arc<dyn Executor>> {
     vec![Arc::new(PullExecutor), Arc::new(MaterializingExecutor)]
 }

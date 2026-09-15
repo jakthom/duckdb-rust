@@ -401,6 +401,19 @@ impl LogicalPlan {
                 input.validate_at(scope, level + 1)?;
                 types(&input.schema)
             }
+            PlanNode::DistinctOn {
+                input,
+                targets,
+                order,
+            } => {
+                input.validate_at(scope, level + 1)?;
+                let input_types = types(&input.schema);
+                expressions(targets, &input_types)?;
+                for key in order {
+                    key.expression.validate_at(&input_types, level + 1, scope)?;
+                }
+                input_types
+            }
             PlanNode::SetOperation { left, right, .. } => {
                 left.validate_at(scope, level + 1)?;
                 right.validate_at(scope, level + 1)?;

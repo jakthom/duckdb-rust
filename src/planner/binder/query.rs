@@ -238,10 +238,11 @@ impl State<'_, '_> {
         {
             return Err(unsupported("SELECT modifiers"));
         }
-        let distinct = match &select.distinct {
-            None => false,
-            Some(ast::Distinct::Distinct) => true,
-            _ => return Err(unsupported("DISTINCT ON")),
+        let (distinct, distinct_on) = match &select.distinct {
+            None => (false, None),
+            Some(ast::Distinct::Distinct) => (true, None),
+            Some(ast::Distinct::On(targets)) => (false, Some(targets.as_slice())),
+            _ => return Err(unsupported("SELECT DISTINCT modifier")),
         };
         let mut input = LogicalPlan {
             schema: vec![],
@@ -381,6 +382,35 @@ impl State<'_, '_> {
             .map(|(item, e)| Field::new(&item.name, e.data_type.clone()))
             .collect();
         let visible = fields.len();
+        // DuckDB binds DISTINCT ON targets as ORDER BY-style references.  Keep
+        // unprojected source expressions in the projection as hidden columns so
+        // the physical node evaluates them after the projection, just as it
+        // does for an unprojected ORDER BY expression.
+        let mut distinct_targets = Vec::new();
+        if let Some(targets) = distinct_on {
+            for target in targets {
+                let projected = if let Some(index) = ordinal(target, visible)? {
+                    Some(index)
+                } else if let ast::Expr::Identifier(name) = target {
+                    resolve(&fields[..visible], std::slice::from_ref(&name.value)).ok()
+                } else {
+                    items
+                        .iter()
+                        .position(|selected| selected.expression == *target)
+                };
+                let index = if let Some(index) = projected {
+                    index
+                } else {
+                    let expr = self.expr(target, &projection_scope, grouping.as_ref())?;
+                    fields.push(Field::new(target.to_string(), expr.data_type.clone()));
+                    expressions.push(expr);
+                    fields.len() - 1
+                };
+                if !distinct_targets.contains(&index) {
+                    distinct_targets.push(index);
+                }
+            }
+        }
         let having = select
             .having
             .as_ref()
@@ -517,7 +547,21 @@ impl State<'_, '_> {
                 node: PlanNode::Distinct(Box::new(plan)),
             };
         }
-        if !bound_order.is_empty() {
+        if !distinct_targets.is_empty() {
+            let targets = distinct_targets
+                .into_iter()
+                .map(|index| BoundExpr::column(index, plan.schema[index].data_type.clone()))
+                .collect();
+            plan = LogicalPlan {
+                schema: plan.schema.clone(),
+                node: PlanNode::DistinctOn {
+                    input: Box::new(plan),
+                    targets,
+                    order: bound_order.clone(),
+                },
+            };
+        }
+        if !bound_order.is_empty() && distinct_on.is_none() {
             plan = LogicalPlan {
                 schema: plan.schema.clone(),
                 node: PlanNode::Sort {

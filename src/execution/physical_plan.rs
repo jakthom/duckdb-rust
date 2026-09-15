@@ -182,6 +182,12 @@ enum Node {
     },
     Limit(Arc<dyn PhysicalOperator>, Option<usize>, usize),
     Distinct(Arc<dyn PhysicalOperator>),
+    DistinctOn {
+        input: Arc<dyn PhysicalOperator>,
+        targets: Vec<BoundExpr>,
+        order: Vec<OrderExpr>,
+        algorithm: Arc<dyn SortAlgorithm>,
+    },
     SetOperation {
         left: Arc<dyn PhysicalOperator>,
         right: Arc<dyn PhysicalOperator>,
@@ -311,6 +317,16 @@ impl PhysicalPlanner for NativePhysicalPlanner {
                 offset,
             } => Node::Limit(self.plan(input)?, *limit, *offset),
             PlanNode::Distinct(input) => Node::Distinct(self.plan(input)?),
+            PlanNode::DistinctOn {
+                input,
+                targets,
+                order,
+            } => Node::DistinctOn {
+                input: self.plan(input)?,
+                targets: targets.clone(),
+                order: order.clone(),
+                algorithm: self.sorting.clone(),
+            },
             PlanNode::SetOperation {
                 left,
                 right,
@@ -593,6 +609,27 @@ impl PhysicalOperator for Operator {
                     Ok(None)
                 })
             }
+            Node::DistinctOn {
+                input,
+                targets,
+                order,
+                algorithm,
+            } => stream::deferred(schema, context, move || {
+                let mut input = stream::open(input.as_ref(), context)?;
+                let rows = if order.is_empty() {
+                    let mut rows = Vec::new();
+                    while let Some(batch) = input.next(context.query.batch_size())? {
+                        context
+                            .query
+                            .check_rows(rows.len().saturating_add(batch.len()))?;
+                        rows.extend(batch.rows());
+                    }
+                    rows
+                } else {
+                    algorithm.sort(input.as_mut(), order, context)?
+                };
+                distinct_on(rows, targets, context)
+            }),
             Node::SetOperation {
                 left,
                 right,
@@ -685,4 +722,35 @@ fn distinct(
     } else {
         batch.select(&selected).map(Some)
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn distinct_on(
+    rows: Vec<Row>,
+    targets: &[BoundExpr],
+    context: &ExecutionContext<'_>,
+) -> Result<Vec<Row>> {
+    let types = targets
+        .iter()
+        .map(|target| context.query.types().bind(&target.data_type))
+        .collect::<Result<Vec<_>>>()?;
+    let targets = targets
+        .iter()
+        .map(PreparedExpression::new)
+        .collect::<Vec<_>>();
+    let mut seen = HashSet::new();
+    let mut output = Vec::new();
+    for row in rows {
+        context.query.check()?;
+        let mut key = Vec::new();
+        for (target, data_type) in targets.iter().zip(&types) {
+            let value = target.evaluate(&row, context)?;
+            data_type.append_key(&value, &mut key, context.query)?;
+        }
+        if seen.insert(key) {
+            context.query.check_rows(output.len().saturating_add(1))?;
+            output.push(row);
+        }
+    }
+    Ok(output)
 }

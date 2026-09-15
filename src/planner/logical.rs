@@ -50,7 +50,8 @@ impl LogicalPlan {
             | PlanNode::Window { input, .. }
             | PlanNode::Sort { input, .. }
             | PlanNode::Limit { input, .. }
-            | PlanNode::Distinct(input) => visit(input),
+            | PlanNode::Distinct(input)
+            | PlanNode::DistinctOn { input, .. } => visit(input),
             PlanNode::Join { left, right, .. }
             | PlanNode::SetOperation { left, right, .. }
             | PlanNode::Recursive {
@@ -104,6 +105,14 @@ impl LogicalPlan {
                 }
             }
             PlanNode::Sort { order, .. } => {
+                for key in order {
+                    visit(&key.expression);
+                }
+            }
+            PlanNode::DistinctOn { targets, order, .. } => {
+                for target in targets {
+                    visit(target);
+                }
                 for key in order {
                     visit(&key.expression);
                 }
@@ -190,6 +199,21 @@ impl LogicalPlan {
                     })
                     .collect::<Result<_>>()?,
             },
+            PlanNode::DistinctOn {
+                input,
+                targets,
+                order,
+            } => PlanNode::DistinctOn {
+                input,
+                targets: targets.into_iter().map(&mut map).collect::<Result<_>>()?,
+                order: order
+                    .into_iter()
+                    .map(|mut order| {
+                        order.expression = map(order.expression)?;
+                        Ok(order)
+                    })
+                    .collect::<Result<_>>()?,
+            },
             node @ (PlanNode::Scan(_)
             | PlanNode::RecursiveInput(_)
             | PlanNode::Recursive { .. }
@@ -246,6 +270,15 @@ impl LogicalPlan {
                 offset,
             },
             PlanNode::Distinct(input) => PlanNode::Distinct(Box::new(map(*input)?)),
+            PlanNode::DistinctOn {
+                input,
+                targets,
+                order,
+            } => PlanNode::DistinctOn {
+                input: Box::new(map(*input)?),
+                targets,
+                order,
+            },
             PlanNode::SetOperation {
                 left,
                 right,
@@ -375,6 +408,13 @@ pub enum PlanNode {
         offset: usize,
     },
     Distinct(Box<LogicalPlan>),
+    /// DISTINCT ON chooses the first row for each target key after applying
+    /// its query ORDER BY (or input order when none was supplied).
+    DistinctOn {
+        input: Box<LogicalPlan>,
+        targets: Vec<BoundExpr>,
+        order: Vec<OrderExpr>,
+    },
     SetOperation {
         kind: SetOperation,
         left: Box<LogicalPlan>,
