@@ -1,0 +1,11 @@
+# G04.2a source-shaped STRUCT calendar-construction workload.
+# Both pins implement the overload in
+# extension/core_functions/scalar/date/make_date.cpp.
+
+statement ok
+CREATE TABLE calendar_parts AS SELECT {'year':2024::BIGINT,'month':((i%12)+1)::BIGINT,'day':((i%27)+1)::BIGINT} AS p FROM range(100000) t(i)
+
+query II
+SELECT count(make_date(p)), sum(length(make_date(p)::VARCHAR)) FROM calendar_parts
+----
+100000	1000000

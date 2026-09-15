@@ -1,0 +1,13 @@
+# G03.3a source-shaped ENUM range-boundary workload.
+# Both pins implement the family in
+# extension/core_functions/scalar/enum/enum_functions.cpp.
+
+statement ok
+CREATE TABLE enum_boundary AS SELECT CASE WHEN i%2=0 THEN 'z' ELSE 'a' END::ENUM('z','a') AS k FROM range(50000) t(i)
+
+hash-threshold 1
+
+query TT
+SELECT enum_range_boundary(k,NULL), enum_range_boundary(NULL::ENUM('z','a'),k) FROM enum_boundary
+----
+100000 values hashing to 518d5f8bf394b5b55dfe849a8d31469c
