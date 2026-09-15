@@ -120,75 +120,465 @@ impl Re2Matcher for RustRe2Matcher {
     }
 }
 
-/// Translate the small part of Rust's regex dialect that differs from RE2.
-/// RE2's generated `perl_groups.cc` defines Perl classes over ASCII ranges,
-/// while Rust makes them Unicode-aware by default. RE2 also treats `[`, `&`
-/// and `~` as ordinary class runes instead of nested-class/set operators.
-/// Keeping Unicode mode enabled preserves RE2 rune semantics for `.` and
-/// quantifiers; only the differing constructs are rewritten here.
+/// Validate and translate the pinned RE2 dialect before Rust compilation.
+/// This follows `parse.cc`'s main parse loop, `ParsePerlFlags`,
+/// `MaybeParseRepetition`, `ParseEscape`, and `ParseCharClass`: only RE2's
+/// i/m/s/U flags, group forms, escape inventory, property names and repeat
+/// limits enter the generated expression. Literal/runic constructs are then
+/// rewritten where Rust has different meanings. Unicode mode stays enabled so
+/// `.`, classes and quantifiers retain RE2's UTF-8 codepoint semantics.
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn translate_re2_pattern(pattern: &str) -> std::result::Result<String, String> {
     let mut output = String::with_capacity(pattern.len());
     let mut cursor = 0;
+    let mut groups = vec![Re2GroupState::default()];
     while cursor < pattern.len() {
         let character = next_character(pattern, cursor);
-        if character == '\\' {
-            output.push(character);
-            cursor += character.len_utf8();
-            if cursor == pattern.len() {
-                break;
-            }
-            let escaped = next_character(pattern, cursor);
-            output.pop();
-            cursor += escaped.len_utf8();
-            match escaped {
-                // RE2's `\C` consumes one byte even in UTF-8 mode. Keep the
-                // surrounding expression Unicode-aware and disable it only
-                // for this atom.
-                'C' => output.push_str("(?-u:.)"),
-                // In RE2, an unterminated `\Q` quote extends to end of input.
-                // Render each quoted rune as a hex literal so Rust cannot
-                // reinterpret metacharacters, class syntax or free-spacing.
-                'Q' => {
-                    while cursor < pattern.len() {
-                        if pattern[cursor..].starts_with("\\E") {
-                            cursor += 2;
-                            break;
+        match character {
+            '\\' => {
+                let escape = &pattern[cursor..];
+                let Some(escaped) = escape[1..].chars().next() else {
+                    return Err("trailing backslash in RE2 pattern".to_string());
+                };
+                match escaped {
+                    // RE2's `\C` consumes one byte even in UTF-8 mode. Keep the
+                    // surrounding expression Unicode-aware and disable it only
+                    // for this atom.
+                    'C' => {
+                        begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                        output.push_str("(?s-u:.)");
+                        cursor += 2;
+                        record_re2_atom(&mut groups, 1);
+                    }
+                    // In RE2, an unterminated `\Q` quote extends to end of input.
+                    // Render each quoted rune as a hex literal so Rust cannot
+                    // reinterpret metacharacters, class syntax or free-spacing.
+                    'Q' => {
+                        cursor += 2;
+                        while cursor < pattern.len() {
+                            if pattern[cursor..].starts_with("\\E") {
+                                cursor += 2;
+                                break;
+                            }
+                            let quoted = next_character(pattern, cursor);
+                            begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                            push_regex_rune(&mut output, quoted as u32);
+                            cursor += quoted.len_utf8();
+                            record_re2_atom(&mut groups, 1);
                         }
-                        let quoted = next_character(pattern, cursor);
-                        push_regex_rune(&mut output, quoted as u32);
-                        cursor += quoted.len_utf8();
+                    }
+                    'd' | 'D' | 's' | 'S' | 'w' | 'W' => {
+                        let (class, consumed) = re2_perl_class(escape).expect("known Perl class");
+                        begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                        output.push_str(class);
+                        cursor += consumed;
+                        record_re2_atom(&mut groups, 1);
+                    }
+                    // RE2's Perl word boundaries use the ASCII `\w` definition.
+                    'b' | 'B' => {
+                        begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                        output.push_str("(?-u:\\");
+                        output.push(escaped);
+                        output.push(')');
+                        cursor += 2;
+                        record_re2_atom(&mut groups, 1);
+                    }
+                    'A' | 'z' => {
+                        begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                        output.push('\\');
+                        output.push(escaped);
+                        cursor += 2;
+                        record_re2_atom(&mut groups, 1);
+                    }
+                    'p' | 'P' => {
+                        let (class, consumed) = parse_re2_unicode_class(escape)?
+                            .expect("Unicode class prefix was checked");
+                        begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                        output.push_str(&class);
+                        cursor += consumed;
+                        record_re2_atom(&mut groups, 1);
+                    }
+                    _ => {
+                        let (rune, consumed) = parse_re2_escape(escape)?;
+                        begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                        // RE2 accepts surrogate escape atoms, but they cannot
+                        // match a valid UTF-8 input. Use the same empty scalar
+                        // set as surrogate-only bracket expressions.
+                        push_class_rune(&mut output, rune);
+                        cursor += consumed;
+                        record_re2_atom(&mut groups, 1);
                     }
                 }
-                'd' => output.push_str("[0-9]"),
-                'D' => output.push_str("[^0-9]"),
-                's' => output.push_str(r"[\x09-\x0A\x0C-\x0D\x20]"),
-                'S' => output.push_str(r"[^\x09-\x0A\x0C-\x0D\x20]"),
-                'w' => output.push_str("[0-9A-Z_a-z]"),
-                'W' => output.push_str("[^0-9A-Z_a-z]"),
-                // RE2's Perl word boundaries use the ASCII `\w` definition.
-                'b' | 'B' => {
-                    output.push_str("(?-u:\\");
-                    output.push(escaped);
-                    output.push(')');
-                }
-                _ => {
-                    output.push(character);
-                    output.push(escaped);
+            }
+            '[' => {
+                let (class, consumed) = translate_re2_class(&pattern[cursor..])?;
+                begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                output.push_str(&class);
+                cursor += consumed;
+                record_re2_atom(&mut groups, 1);
+            }
+            '(' if pattern[cursor..].starts_with("(?") => {
+                let perl = parse_re2_perl_group(&pattern[cursor..])?;
+                cursor += perl.consumed;
+                if perl.opens_group {
+                    let parent = groups.last_mut().expect("root group");
+                    begin_re2_atom(&mut output, parent);
+                    let source_non_greedy =
+                        perl.flags.non_greedy.unwrap_or(parent.source_non_greedy);
+                    let output_start = output.len();
+                    output.push_str(&perl.output);
+                    groups.push(Re2GroupState {
+                        source_non_greedy,
+                        rust_non_greedy: source_non_greedy,
+                        output_start,
+                        ..Re2GroupState::default()
+                    });
+                } else {
+                    let group = groups.last_mut().expect("root group");
+                    group.pending_flags.push_str(&perl.output);
+                    if let Some(non_greedy) = perl.flags.non_greedy {
+                        group.source_non_greedy = non_greedy;
+                    }
+                    group.last_was_repeat = false;
                 }
             }
-            continue;
+            '(' => {
+                let parent = groups.last_mut().expect("root group");
+                begin_re2_atom(&mut output, parent);
+                let source_non_greedy = parent.source_non_greedy;
+                let output_start = output.len();
+                output.push('(');
+                cursor += 1;
+                groups.push(Re2GroupState {
+                    source_non_greedy,
+                    rust_non_greedy: source_non_greedy,
+                    output_start,
+                    ..Re2GroupState::default()
+                });
+            }
+            ')' => {
+                if groups.len() == 1 {
+                    return Err("unexpected closing parenthesis in RE2 pattern".to_string());
+                }
+                flush_re2_flags(&mut output, groups.last_mut().expect("nested group"));
+                output.push(')');
+                cursor += 1;
+                let group = groups.pop().expect("non-root group");
+                groups.last_mut().expect("root group").last_atom_start = group.output_start;
+                record_re2_atom(&mut groups, group.max_repeat.max(1));
+            }
+            '|' => {
+                flush_re2_flags(&mut output, groups.last_mut().expect("root group"));
+                output.push('|');
+                cursor += 1;
+                let group = groups.last_mut().expect("root group");
+                group.last_atom = None;
+                group.last_was_repeat = false;
+            }
+            '*' | '+' | '?' => {
+                let group = groups.last_mut().expect("root group");
+                if group.last_atom.is_none() {
+                    return Err(format!("RE2 repetition {character} has no argument"));
+                }
+                if group.last_was_repeat {
+                    return Err(format!("invalid repeated RE2 operator {character}"));
+                }
+                group.wrap_quantified_atom(&mut output);
+                output.push(character);
+                cursor += 1;
+                let source_inverted = pattern[cursor..].starts_with('?');
+                if source_inverted {
+                    cursor += 1;
+                }
+                let source_non_greedy = group.source_non_greedy ^ source_inverted;
+                if source_non_greedy != group.rust_non_greedy {
+                    output.push('?');
+                }
+                group.last_was_repeat = true;
+                flush_re2_flags(&mut output, group);
+            }
+            '{' => {
+                if let Some(repetition) = parse_re2_repetition(&pattern[cursor..]) {
+                    let group = groups.last_mut().expect("root group");
+                    let Some(atom_repeat) = group.last_atom else {
+                        return Err("RE2 counted repetition has no argument".to_string());
+                    };
+                    if group.last_was_repeat {
+                        return Err("invalid repeated RE2 counted repetition".to_string());
+                    }
+                    group.wrap_quantified_atom(&mut output);
+                    if repetition.min > 1000 || repetition.max.is_some_and(|max| max > 1000) {
+                        return Err("RE2 repetition count exceeds 1000".to_string());
+                    }
+                    if repetition.max.is_some_and(|max| max < repetition.min) {
+                        return Err("RE2 repetition maximum is less than minimum".to_string());
+                    }
+                    let multiplier = repetition.max.unwrap_or(repetition.min).max(1);
+                    let nested = atom_repeat.saturating_mul(multiplier);
+                    if nested > 1000 {
+                        return Err("nested RE2 repetition count exceeds 1000".to_string());
+                    }
+                    output.push_str(&pattern[cursor..cursor + repetition.consumed]);
+                    cursor += repetition.consumed;
+                    let source_inverted = pattern[cursor..].starts_with('?');
+                    if source_inverted {
+                        cursor += 1;
+                    }
+                    let source_non_greedy = group.source_non_greedy ^ source_inverted;
+                    if source_non_greedy != group.rust_non_greedy {
+                        output.push('?');
+                    }
+                    group.last_atom = Some(nested);
+                    group.max_repeat = group.max_repeat.max(nested);
+                    group.last_was_repeat = true;
+                    flush_re2_flags(&mut output, group);
+                } else {
+                    begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                    push_regex_rune(&mut output, character as u32);
+                    cursor += 1;
+                    record_re2_atom(&mut groups, 1);
+                }
+            }
+            '.' | '^' | '$' => {
+                begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                output.push(character);
+                cursor += 1;
+                record_re2_atom(&mut groups, 1);
+            }
+            _ => {
+                begin_re2_atom(&mut output, groups.last_mut().expect("root group"));
+                push_regex_rune(&mut output, character as u32);
+                cursor += character.len_utf8();
+                record_re2_atom(&mut groups, 1);
+            }
         }
-        if character == '[' {
-            let (class, consumed) = translate_re2_class(&pattern[cursor..])?;
-            output.push_str(&class);
-            cursor += consumed;
-            continue;
-        }
-        output.push(character);
-        cursor += character.len_utf8();
     }
+    if groups.len() != 1 {
+        return Err("unclosed parenthesis in RE2 pattern".to_string());
+    }
+    flush_re2_flags(&mut output, groups.last_mut().expect("root group"));
     Ok(output)
+}
+
+#[derive(Default)]
+struct Re2GroupState {
+    max_repeat: u32,
+    last_atom: Option<u32>,
+    last_was_repeat: bool,
+    source_non_greedy: bool,
+    rust_non_greedy: bool,
+    pending_flags: String,
+    output_start: usize,
+    last_atom_start: usize,
+    atom_quantified: bool,
+}
+
+struct Re2PerlGroup {
+    output: String,
+    consumed: usize,
+    opens_group: bool,
+    flags: Re2FlagChanges,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Re2FlagChanges {
+    insensitive: Option<bool>,
+    multi_line: Option<bool>,
+    dot_matches_new_line: Option<bool>,
+    non_greedy: Option<bool>,
+}
+
+struct Re2Repetition {
+    min: u32,
+    max: Option<u32>,
+    consumed: usize,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn record_re2_atom(groups: &mut [Re2GroupState], repeat: u32) {
+    let group = groups.last_mut().expect("root group");
+    group.max_repeat = group.max_repeat.max(repeat);
+    group.last_atom = Some(repeat);
+    group.last_was_repeat = false;
+    group.atom_quantified = false;
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Re2GroupState {
+    fn wrap_quantified_atom(&mut self, output: &mut String) {
+        if self.atom_quantified && !self.last_was_repeat {
+            output.insert_str(self.last_atom_start, "(?:");
+            output.push(')');
+        }
+        self.atom_quantified = true;
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn flush_re2_flags(output: &mut String, group: &mut Re2GroupState) {
+    output.push_str(&group.pending_flags);
+    group.pending_flags.clear();
+    group.rust_non_greedy = group.source_non_greedy;
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn begin_re2_atom(output: &mut String, group: &mut Re2GroupState) {
+    flush_re2_flags(output, group);
+    group.last_atom_start = output.len();
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_re2_perl_group(input: &str) -> std::result::Result<Re2PerlGroup, String> {
+    debug_assert!(input.starts_with("(?"));
+    if let Some(named) = input.strip_prefix("(?P<") {
+        let Some(end) = named.find('>') else {
+            return Err("unclosed RE2 named capture".to_string());
+        };
+        let name = &named[..end];
+        if !is_valid_re2_capture_name(name) {
+            return Err(format!("invalid RE2 capture name {name:?}"));
+        }
+        return Ok(Re2PerlGroup {
+            // Capture names do not affect boolean FullMatch. Erasing the name
+            // preserves RE2 names that Rust rejects, such as digit-leading
+            // names, without admitting Rust's extra named-group spellings.
+            output: "(?:".to_string(),
+            consumed: 4 + end + 1,
+            opens_group: true,
+            flags: Re2FlagChanges::default(),
+        });
+    }
+
+    let mut cursor = 2;
+    let mut negated = false;
+    let mut saw_flags = false;
+    let mut flags = Re2FlagChanges::default();
+    loop {
+        let Some(flag) = input[cursor..].chars().next() else {
+            return Err("incomplete RE2 Perl group".to_string());
+        };
+        cursor += flag.len_utf8();
+        match flag {
+            'i' | 'm' | 's' | 'U' => {
+                saw_flags = true;
+                let setting = Some(!negated);
+                match flag {
+                    'i' => flags.insensitive = setting,
+                    'm' => flags.multi_line = setting,
+                    's' => flags.dot_matches_new_line = setting,
+                    'U' => flags.non_greedy = setting,
+                    _ => unreachable!(),
+                }
+            }
+            '-' if !negated => {
+                negated = true;
+                saw_flags = false;
+            }
+            ':' | ')' if !negated || saw_flags => {
+                let opens_group = flag == ':';
+                return Ok(Re2PerlGroup {
+                    output: render_re2_flags(flags, opens_group),
+                    consumed: cursor,
+                    opens_group,
+                    flags,
+                });
+            }
+            _ => {
+                return Err(format!(
+                    "invalid RE2 Perl group near {:?}",
+                    &input[..cursor]
+                ));
+            }
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn render_re2_flags(flags: Re2FlagChanges, opens_group: bool) -> String {
+    let mut enabled = String::new();
+    let mut disabled = String::new();
+    for (flag, setting) in [
+        ('i', flags.insensitive),
+        ('m', flags.multi_line),
+        ('s', flags.dot_matches_new_line),
+        ('U', flags.non_greedy),
+    ] {
+        match setting {
+            Some(true) => enabled.push(flag),
+            Some(false) => disabled.push(flag),
+            None => {}
+        }
+    }
+    if enabled.is_empty() && disabled.is_empty() {
+        return if opens_group { "(?:" } else { "" }.to_string();
+    }
+    let mut output = String::from("(?");
+    output.push_str(&enabled);
+    if !disabled.is_empty() {
+        output.push('-');
+        output.push_str(&disabled);
+    }
+    output.push(if opens_group { ':' } else { ')' });
+    output
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn is_valid_re2_capture_name(name: &str) -> bool {
+    static CAPTURE_NAME: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+    !name.is_empty()
+        && CAPTURE_NAME
+            .get_or_init(|| {
+                regex::Regex::new(
+                    r"\A[\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}]+\z",
+                )
+                .expect("static RE2 capture-name class")
+            })
+            .is_match(name)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_re2_repetition(input: &str) -> Option<Re2Repetition> {
+    let rest = input.strip_prefix('{')?;
+    let (min, mut cursor) = parse_re2_decimal(rest)?;
+    let mut max = Some(min);
+    if rest[cursor..].starts_with(',') {
+        cursor += 1;
+        if rest[cursor..].starts_with('}') {
+            max = None;
+        } else {
+            let (parsed, consumed) = parse_re2_decimal(&rest[cursor..])?;
+            max = Some(parsed);
+            cursor += consumed;
+        }
+    }
+    if !rest[cursor..].starts_with('}') {
+        return None;
+    }
+    Some(Re2Repetition {
+        min,
+        max,
+        consumed: 1 + cursor + 1,
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_re2_decimal(input: &str) -> Option<(u32, usize)> {
+    let bytes = input.as_bytes();
+    let first = *bytes.first()?;
+    if !first.is_ascii_digit() || (first == b'0' && bytes.get(1).is_some_and(u8::is_ascii_digit)) {
+        return None;
+    }
+    let mut value = 0_u32;
+    let mut cursor = 0;
+    while let Some(byte) = bytes.get(cursor).copied().filter(u8::is_ascii_digit) {
+        if value >= 100_000_000 {
+            return None;
+        }
+        value = value * 10 + u32::from(byte - b'0');
+        cursor += 1;
+    }
+    Some((value, cursor))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -211,13 +601,13 @@ fn translate_re2_class(input: &str) -> std::result::Result<(String, usize), Stri
         }
         first = false;
 
-        if let Some(consumed) = re2_posix_class_len(&input[cursor..]) {
-            output.push_str(&input[cursor..cursor + consumed]);
+        if let Some((class, consumed)) = parse_re2_posix_class(&input[cursor..])? {
+            output.push_str(class);
             cursor += consumed;
             continue;
         }
-        if let Some(consumed) = re2_unicode_class_len(&input[cursor..])? {
-            output.push_str(&input[cursor..cursor + consumed]);
+        if let Some((class, consumed)) = parse_re2_unicode_class(&input[cursor..])? {
+            output.push_str(&class);
             cursor += consumed;
             continue;
         }
@@ -250,29 +640,68 @@ fn translate_re2_class(input: &str) -> std::result::Result<(String, usize), Stri
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn re2_posix_class_len(input: &str) -> Option<usize> {
-    input.strip_prefix("[:")?.find(":]").map(|end| 2 + end + 2)
+fn parse_re2_posix_class(input: &str) -> std::result::Result<Option<(&str, usize)>, String> {
+    let Some(rest) = input.strip_prefix("[:") else {
+        return Ok(None);
+    };
+    let Some(end) = rest.find(":]") else {
+        // ParseCCName returns kParseNothing, so the opening `[` is an
+        // ordinary class rune when no POSIX terminator exists.
+        return Ok(None);
+    };
+    let name = &rest[..end];
+    let base = name.strip_prefix('^').unwrap_or(name);
+    const POSIX_NAMES: &[&str] = &[
+        "alnum", "alpha", "ascii", "blank", "cntrl", "digit", "graph", "lower", "print", "punct",
+        "space", "upper", "word", "xdigit",
+    ];
+    if name.is_empty() || !POSIX_NAMES.contains(&base) {
+        return Err(format!("invalid RE2 POSIX character class {name:?}"));
+    }
+    let consumed = 2 + end + 2;
+    Ok(Some((&input[..consumed], consumed)))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn re2_unicode_class_len(input: &str) -> std::result::Result<Option<usize>, String> {
-    let Some(rest) = input
-        .strip_prefix("\\p")
-        .or_else(|| input.strip_prefix("\\P"))
-    else {
+fn parse_re2_unicode_class(input: &str) -> std::result::Result<Option<(String, usize)>, String> {
+    let Some(kind) = input.as_bytes().get(1).copied() else {
         return Ok(None);
     };
+    if !input.starts_with('\\') || !matches!(kind, b'p' | b'P') {
+        return Ok(None);
+    }
+    let rest = &input[2..];
     let Some(first) = rest.chars().next() else {
         return Err("incomplete RE2 Unicode character class".to_string());
     };
-    if first != '{' {
-        return Ok(Some(2 + first.len_utf8()));
-    }
-    let Some(end) = rest.find('}') else {
-        return Err("unclosed RE2 Unicode character class".to_string());
+    let (mut name, consumed) = if first == '{' {
+        let Some(end) = rest.find('}') else {
+            return Err("unclosed RE2 Unicode character class".to_string());
+        };
+        (&rest[1..end], 2 + end + 1)
+    } else {
+        (&rest[..first.len_utf8()], 2 + first.len_utf8())
     };
-    Ok(Some(2 + end + 1))
+    let mut negated = kind == b'P';
+    if let Some(without_caret) = name.strip_prefix('^') {
+        name = without_caret;
+        negated = !negated;
+    }
+    if name.is_empty()
+        || !RE2_UNICODE_GROUP_NAMES
+            .split('|')
+            .any(|group| group == name)
+    {
+        return Err(format!("invalid RE2 Unicode character class {name:?}"));
+    }
+    Ok(Some((
+        format!("\\{}{{{name}}}", if negated { 'P' } else { 'p' }),
+        consumed,
+    )))
 }
+
+// Exact `UGroup` names from both pinned `re2/unicode_groups.cc` files.
+const RE2_UNICODE_GROUP_NAMES: &str = "Adlam|Ahom|Anatolian_Hieroglyphs|Arabic|Armenian|Avestan|Balinese|Bamum|Bassa_Vah|Batak|Bengali|Bhaiksuki|Bopomofo|Brahmi|Braille|Buginese|Buhid|C|Canadian_Aboriginal|Carian|Caucasian_Albanian|Cc|Cf|Chakma|Cham|Cherokee|Chorasmian|Co|Common|Coptic|Cs|Cuneiform|Cypriot|Cypro_Minoan|Cyrillic|Deseret|Devanagari|Dives_Akuru|Dogra|Duployan|Egyptian_Hieroglyphs|Elbasan|Elymaic|Ethiopic|Georgian|Glagolitic|Gothic|Grantha|Greek|Gujarati|Gunjala_Gondi|Gurmukhi|Han|Hangul|Hanifi_Rohingya|Hanunoo|Hatran|Hebrew|Hiragana|Imperial_Aramaic|Inherited|Inscriptional_Pahlavi|Inscriptional_Parthian|Javanese|Kaithi|Kannada|Katakana|Kawi|Kayah_Li|Kharoshthi|Khitan_Small_Script|Khmer|Khojki|Khudawadi|L|Lao|Latin|Lepcha|Limbu|Linear_A|Linear_B|Lisu|Ll|Lm|Lo|Lt|Lu|Lycian|Lydian|M|Mahajani|Makasar|Malayalam|Mandaic|Manichaean|Marchen|Masaram_Gondi|Mc|Me|Medefaidrin|Meetei_Mayek|Mende_Kikakui|Meroitic_Cursive|Meroitic_Hieroglyphs|Miao|Mn|Modi|Mongolian|Mro|Multani|Myanmar|N|Nabataean|Nag_Mundari|Nandinagari|Nd|New_Tai_Lue|Newa|Nko|Nl|No|Nushu|Nyiakeng_Puachue_Hmong|Ogham|Ol_Chiki|Old_Hungarian|Old_Italic|Old_North_Arabian|Old_Permic|Old_Persian|Old_Sogdian|Old_South_Arabian|Old_Turkic|Old_Uyghur|Oriya|Osage|Osmanya|P|Pahawh_Hmong|Palmyrene|Pau_Cin_Hau|Pc|Pd|Pe|Pf|Phags_Pa|Phoenician|Pi|Po|Ps|Psalter_Pahlavi|Rejang|Runic|S|Samaritan|Saurashtra|Sc|Sharada|Shavian|Siddham|SignWriting|Sinhala|Sk|Sm|So|Sogdian|Sora_Sompeng|Soyombo|Sundanese|Syloti_Nagri|Syriac|Tagalog|Tagbanwa|Tai_Le|Tai_Tham|Tai_Viet|Takri|Tamil|Tangsa|Tangut|Telugu|Thaana|Thai|Tibetan|Tifinagh|Tirhuta|Toto|Ugaritic|Vai|Vithkuqi|Wancho|Warang_Citi|Yezidi|Yi|Z|Zanabazar_Square|Zl|Zp|Zs";
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn re2_perl_class(input: &str) -> Option<(&'static str, usize)> {
@@ -314,6 +743,11 @@ fn parse_re2_class_character(input: &str) -> std::result::Result<(u32, usize), S
         'v' => Ok((0x0B, 2)),
         _ => Err(format!("invalid RE2 character class escape \\{escaped}")),
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn parse_re2_escape(input: &str) -> std::result::Result<(u32, usize), String> {
+    parse_re2_class_character(input).map_err(|error| error.replace(" character class", ""))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -1637,6 +2071,7 @@ mod tests {
                 "surrogate-only class {pattern:?} must be empty"
             );
         }
+        assert!(!matcher.full_match(br"\x{D800}", b"a").unwrap());
         assert!(matcher.full_match(br"[^\x{D800}-\x{DFFF}]", b"a").unwrap());
         assert!(matcher.full_match(br"[a\x{D800}]", b"a").unwrap());
         assert!(
@@ -1650,6 +2085,97 @@ mod tests {
                 .unwrap()
         );
         assert!(matcher.full_match(br"[\x{110000}]", b"a").is_err());
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn regex_grammar_accepts_only_pinned_re2_constructs() {
+        let matcher = RustRe2Matcher;
+        for (pattern, value) in [
+            (r"(?i:a)", "A"),
+            (r"(?m:^a$)", "a"),
+            (r"(?s:.)", "\n"),
+            (r"(?U:a+)", "a"),
+            (r"(?im-sU:a)", "A"),
+            (r"(?ii:a)", "A"),
+            (r"(?i-i:a)", "a"),
+            (r"a(?i)+", "aaa"),
+            (r"a*(?i)+", "aaa"),
+            (r"(?)a", "a"),
+            (r"(a)", "a"),
+            (r"(?:a)", "a"),
+            (r"(?P<name>a)", "a"),
+            (r"(?P<1>a)", "a"),
+            (r"(?P<é>a)", "a"),
+            ("(?P<\u{301}>a)", "a"),
+            (r"\141", "a"),
+            (r"\0", "\0"),
+            (r"\a\f\t\n\r\v", "\u{7}\u{c}\t\n\r\u{b}"),
+            (r"\x61", "a"),
+            (r"\x{E9}", "é"),
+            (r"\<\>", "<>"),
+            (r"\B", ""),
+            (r"\Aa\z", "a"),
+            (r"^a$", "a"),
+            (r"a\b{start}", "a{start}"),
+            (r"\pL", "é"),
+            (r"\p{Latin}", "é"),
+            (r"\p{^Latin}", "α"),
+            (r"\P{^Latin}", "é"),
+            (r"[[:alpha:]]", "A"),
+            (r"a{01}", "a{01}"),
+            (r"a{,2}", "a{,2}"),
+            (r"a{1000000000}", "a{1000000000}"),
+        ] {
+            assert!(
+                matcher
+                    .full_match(pattern.as_bytes(), value.as_bytes())
+                    .unwrap(),
+                "valid RE2 pattern {pattern:?} must match {value:?}"
+            );
+        }
+        assert!(matcher.full_match(br"(?-s:\C)", b"\n").unwrap());
+        let thousand_as = "a".repeat(1000);
+        assert!(
+            matcher
+                .full_match(br"a{1000}", thousand_as.as_bytes())
+                .unwrap()
+        );
+        assert!(
+            matcher
+                .full_match(br"(a{10}){100}", thousand_as.as_bytes())
+                .unwrap()
+        );
+
+        for pattern in [
+            r"(?x)a",
+            r"(?u)a",
+            r"(?R)a",
+            r"(?x:a)",
+            r"\p{Alphabetic}",
+            r"[\p{Alphabetic}]",
+            r"[[:Alphabetic:]]",
+            r"\u0061",
+            r"\U00000061",
+            r"[\u0061]",
+            r"(?<name>a)",
+            r"(?'name'a)",
+            r"(?P<>a)",
+            r"(?P<.>a)",
+            "(?P<💩>a)",
+            r"a{1001}",
+            r"a{1,1001}",
+            r"(a{11}){91}",
+            r"a++",
+            r"a{2}*",
+            r"\1",
+            r"\k<name>",
+        ] {
+            assert!(
+                matcher.full_match(pattern.as_bytes(), b"a").is_err(),
+                "Rust-only or invalid RE2 pattern {pattern:?} must fail closed"
+            );
+        }
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

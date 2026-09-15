@@ -308,23 +308,86 @@ fn re2_adapter_supports_byte_atoms_quotes_and_surrogate_classes() -> duckdb_rust
          query T\nSELECT '\\'\n----\n<REGEX>:\\Q\\\\E\n\n\
          query T\nSELECT 'abc['\n----\n<REGEX>:\\Qabc[\n\n\
          query T\nSELECT 'a'\n----\n<!REGEX>:[\\x{D800}-\\x{DFFF}]\n\n\
+         query T\nSELECT 'a'\n----\n<!REGEX>:\\x{D800}\n\n\
          query T\nSELECT 'a'\n----\n<REGEX>:[^\\x{D800}-\\x{DFFF}]\n",
     )?;
     let report = runner::run_file_report(&Database::memory()?, &passing)?;
     assert_eq!(report.status, runner::FileStatus::Passed);
-    assert_eq!(report.passed, 8);
+    assert_eq!(report.passed, 9);
 
     for (name, expected) in [
         ("positive_one_byte", "<REGEX>:\\C"),
         ("negative_two_bytes", "<!REGEX>:\\C\\C"),
         ("negative_quoted_literal", "<!REGEX>:\\Qé\\E"),
         ("positive_surrogate", "<REGEX>:[\\x{D800}]"),
+        ("positive_surrogate_atom", "<REGEX>:\\x{D800}"),
     ] {
         let path = root.path().join(format!("test/{name}.test"));
         std::fs::write(&path, format!("query T\nSELECT 'é'\n----\n{expected}\n"))?;
         assert!(
             runner::run_file_report(&Database::memory()?, &path).is_err(),
             "{name} must reject the divergent expectation"
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn re2_adapter_validates_the_pinned_grammar_before_rust_compilation() -> duckdb_rust::Result<()> {
+    let root = root();
+    let passing = root.path().join("test/re2_grammar.test");
+    std::fs::write(
+        &passing,
+        "query T\nSELECT 'A'\n----\n<REGEX>:(?i:a)\n\n\
+         query T\nSELECT 'a'\n----\n<REGEX>:(?P<1>a)\n\n\
+         query T\nSELECT 'a'\n----\n<REGEX>:\\141\n\n\
+         query T\nSELECT '<>'\n----\n<REGEX>:\\<\\>\n\n\
+         query T\nSELECT 'a{start}'\n----\n<REGEX>:a\\b{start}\n\n\
+         query T\nSELECT 'a{01}'\n----\n<REGEX>:a{01}\n\n\
+         query T\nSELECT 'a{,2}'\n----\n<REGEX>:a{,2}\n\n\
+         query T\nSELECT 'α'\n----\n<REGEX>:\\p{^Latin}\n\n\
+         query T\nSELECT 'é'\n----\n<REGEX>:\\P{^Latin}\n\n\
+         query T\nSELECT 'A'\n----\n<REGEX>:[[:alpha:]]\n\n\
+         query T\nSELECT 'a'\n----\n<!REGEX>:\\p{^Latin}\n\n\
+         query T\nSELECT 'é'\n----\n<!REGEX>:\\141\n",
+    )?;
+    let report = runner::run_file_report(&Database::memory()?, &passing)?;
+    assert_eq!(report.status, runner::FileStatus::Passed);
+    assert_eq!(report.passed, 12);
+
+    for (index, pattern) in [
+        "(?x)a",
+        "(?x:a)",
+        "(?u)a",
+        "(?R)a",
+        "\\p{Alphabetic}",
+        "[\\p{Alphabetic}]",
+        "[[:Alphabetic:]]",
+        "\\u0061",
+        "\\U00000061",
+        "[\\u0061]",
+        "(?<name>a)",
+        "(?'name'a)",
+        "a{1001}",
+        "a{1,1001}",
+        "(a{11}){91}",
+        "a++",
+        "a{2}*",
+        "\\1",
+        "\\k<name>",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = root.path().join(format!("test/invalid_re2_{index}.test"));
+        std::fs::write(
+            &path,
+            format!("query T\nSELECT 'a'\n----\n<!REGEX>:{pattern}\n"),
+        )?;
+        assert!(
+            runner::run_file_report(&Database::memory()?, &path).is_err(),
+            "invalid RE2 pattern {pattern:?} must not become a negative-regex pass"
         );
     }
     Ok(())
