@@ -486,14 +486,35 @@ fn make_date_struct(argument: &Value) -> Option<Result<Date>> {
             .map(Value::as_i128)
             .collect::<Result<Vec<_>>>()
             .and_then(|fields| {
-                make_date(values).map_err(|_| {
+                // `FromDateCast<int64_t>` in both pinned make_date.cpp files
+                // first applies checked INT64 -> INT32 casts to *each* field.
+                // Do not turn those cast failures into a calendar error.
+                let fields = fields
+                    .into_iter()
+                    .map(make_date_struct_int32)
+                    .collect::<Result<Vec<_>>>()?;
+                let date_error = || {
                     Error::Conversion(format!(
                         "Date out of range: {}-{}-{}",
                         fields[0], fields[1], fields[2]
                     ))
-                })
+                };
+                let month = u8::try_from(fields[1]).map_err(|_| date_error())?;
+                let day = u8::try_from(fields[2]).map_err(|_| date_error())?;
+                Date::from_ymd(fields[0], month, day).map_err(|_| date_error())
             }),
     )
+}
+
+/// The STRUCT overload has BIGINT children but its pinned implementation calls
+/// `Cast::Operation<int64_t, int32_t>` before calendar validation.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn make_date_struct_int32(value: i128) -> Result<i32> {
+    i32::try_from(value).map_err(|_| {
+        Error::InvalidInput(format!(
+            "Type INT64 with value {value} can't be cast because the value is out of range for the destination type INT32"
+        ))
+    })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -91,6 +91,50 @@ fn make_date_struct_matches_pinned_calendar_overload_for_constants_columns_nulls
 
 #[test]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn make_date_struct_checks_each_bigint_child_before_calendar_validation() -> Result<()> {
+    // Both pinned `FromDateCast<int64_t>` implementations checked-cast every
+    // child to INT32, then use TryFromDate for the calendar-specific error.
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut connection = DatabaseBuilder::new()
+            .batch_size(2)
+            .expressions(expressions)
+            .build()?
+            .connect();
+        for field in ["year", "month", "day"] {
+            for value in [i128::from(i32::MIN), i128::from(i32::MAX)] {
+                let year = if field == "year" { value } else { 2024 };
+                let month = if field == "month" { value } else { 1 };
+                let day = if field == "day" { value } else { 1 };
+                let sql = format!(
+                    "SELECT make_date({{'year':{year}::BIGINT,'month':{month}::BIGINT,'day':{day}::BIGINT}})"
+                );
+                assert!(
+                    matches!(connection.query(&sql), Err(Error::Conversion(message)) if message == format!("Date out of range: {year}-{month}-{day}")),
+                    "INT32 boundary must reach calendar validation: {sql}"
+                );
+            }
+            for value in [i128::from(i32::MIN) - 1, i128::from(i32::MAX) + 1] {
+                let year = if field == "year" { value } else { 2024 };
+                let month = if field == "month" { value } else { 1 };
+                let day = if field == "day" { value } else { 1 };
+                let sql = format!(
+                    "SELECT make_date({{'year':{year}::BIGINT,'month':{month}::BIGINT,'day':{day}::BIGINT}})"
+                );
+                assert!(
+                    matches!(connection.query(&sql), Err(Error::InvalidInput(message)) if message == format!("Type INT64 with value {value} can't be cast because the value is out of range for the destination type INT32")),
+                    "BIGINT overflow must retain the checked-cast error: {sql}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn calendar_extracts_match_iso_boundaries_bce_aliases_and_domains() -> Result<()> {
     for expressions in [
         Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
