@@ -179,10 +179,10 @@ join-all/opportunistic-stop behavior, named database/connection identity, and
 distinct load/restart/reconnect lifecycles. Restart preserves the implemented
 global and main-session configuration, including `search_path`. Its source-matched local
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
-zero skips). Its refreshed three-warmup, nine-sample Gate P campaign records a
-58.751583 ms Rust wall median versus 39.710750 ms for the faster C++ pin, or
-1.479488x; invocation throughput is 0.676x and fails by the same wall-time
-comparison. Rust CPU is 1.000x and RSS 0.415x the faster C++ medians, and block
+zero skips). Its final-tree three-warmup, nine-sample Gate P campaign records a
+56.513500 ms Rust wall median versus 40.077125 ms for the faster C++ pin, or
+1.410119x; invocation throughput is 0.709x and fails by the same wall-time
+comparison. Rust CPU is 0.667x and RSS 0.419x the faster C++ medians, and block
 I/O is equal. Thus **at-parity or better performance:
 fail** for G01.2c. A focused split attributes the wall deficit to file-backed
 commit/lifecycle work rather than concurrent-loop scheduling; the exact engine
@@ -220,8 +220,11 @@ checkpoint SQL probes 49/49. These do not establish all codec/version support.
 Two important classifications from focused follow-up:
 
 - **Repaired G03.3a engine mismatch:** `enum_range_boundary(k, NULL)` now preserves
-  its source-shaped batch endpoint semantics; the independent SQL suite is 29/29
-  against each pin plus its selected native paths.
+  its source-shaped batch endpoint semantics as a naked root and through casts,
+  scalar/binary parents, predicates, lazy selected branches and shared projections;
+  fallible children are vector-evaluated before the boundary callback, so valid
+  VARCHAR-to-ENUM casts work without weakening cast errors or selected laziness.
+  The final-tree independent suite is 29/29 SQL plus six native paths per pin.
 - **Repaired typed harness comparison:** declared HUGEINT/UHUGEINT values now compare
   by their exact declared integer value when a JSON transport renders a finite exact
   integer as a number. This does not classify ordinary VARCHAR numeric text as equal.
@@ -256,18 +259,20 @@ fresh performance failures, not claims about their cause or a cross-revision
 regression. Investigate against pinned source without changing default evaluation
 demand or checked numeric semantics merely to improve the numbers.
 
-The Wave C source-bound workloads were also measured serially with three warmups
+The final Wave C source-bound workloads were measured serially with three warmups
 and nine samples against both pins (raw evidence remains under
-`target/g01-wave-c-20260915/performance/`). Their Gate P results are explicit:
-G03.3a ENUM is **at-parity or better performance: fail** (wall 0.494x, CPU
-0.429x, RSS 1.248x, throughput 2.023x; RSS only); G04.2a `make_date(STRUCT)` is
-**fail** (wall 10.337x, CPU 29.000x, RSS 1.846x, throughput 0.097x); G06.1a case
-conversion is **fail** (wall 3.008x, CPU 4.000x, RSS 0.821x, throughput 0.332x);
-G07.3a DISTINCT ON is **fail** (wall 2.518x, CPU 3.000x, RSS 2.025x, throughput
-0.397x); and G08.1a `product` is **fail** (wall 18.406x, CPU 25.667x, RSS
-0.276x, throughput 0.054x). G10.4a profiling with `no_output` is a measured
-**pass** (wall 0.598x, CPU 0.000x at timer resolution, RSS 0.746x, throughput
-1.672x), but its overall Gate P remains **open** because operational verification
+`target/g01-wave-c-20260915/performance-final-2/`). All reports retain the same
+final-tree source digest. Their Gate P results are explicit: G03.3a ENUM is
+**at-parity or better performance: fail** after adding nested-parent work (wall
+1.155x, CPU 1.143x, RSS 1.227x, throughput 0.866x); G04.2a
+`make_date(STRUCT)` is **fail** (wall 10.088x, CPU 29.000x, RSS 1.849x,
+throughput 0.099x); G06.1a case conversion is **fail** (wall 2.935x, CPU
+4.000x, RSS 0.796x, throughput 0.341x); G07.3a DISTINCT ON is **fail** (wall
+2.498x, CPU 3.000x, RSS 2.034x, throughput 0.400x); and G08.1a `product` is
+**fail** (wall 18.300x, CPU 25.667x, RSS 0.278x, throughput 0.055x). G10.4a
+profiling with `no_output` is a measured **pass** (wall 0.604x, CPU 0.000x at
+timer resolution, RSS 0.745x, throughput 1.657x), but its overall Gate P remains
+**open** because operational verification
 is incomparable with the development pin's no-op and forced-external execution is
 absent. None of these goal groups is complete while its Gate P is fail or open.
 
@@ -657,6 +662,10 @@ the following independent children enter as slots and shared contracts permit.
 | G01.4a — fast feedback orchestration | T; upstream-runner/orchestration owner, coordinate other G01 edits | Add debug-worker mode and hash-validated suite caching without weakening assertions; manifest-selected tests, debounced single-process validation, zero-selection/cache-tamper/stale-source negative tests; compare selected results with the release runner. Feedback timing is not an acceptance benchmark. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 | G01.2d.1 — typed native-probe comparison | T; `scripts/verify_reference.py` comparison helper/tests, coordinate oracle owner | HUGEINT number/string representation compares by declared type; changed value, NULL and VARCHAR numeric text still fail. Rerun development probe to expose its next genuine boundary. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 | G03.3a — ENUM range boundary | T; `src/function/enumeration.rs`, enumeration component/reference cases | Port both pins' constant/column/NULL endpoint behavior; `enum_reference.py` SQL 29/29 per pin plus existing native paths, scalar/batch and prepared coverage. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G04.2a — STRUCT date construction | T; temporal function owner | Match field binding/NULLs, checked INT64-to-INT32 errors and calendar errors through scalar, batch and prepared execution. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G06.1a — simple Unicode case conversion | T; text-function owner | Match `lower`/`upper` and aliases with the pins' exact utf8proc 2.9 / Unicode 15.1 table through scalar, batch and prepared execution. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G07.3a — DISTINCT ON | T; relational binder/executor owner | Match typed target de-duplication, NULL equality, ORDER-selected survivors, aliases, nested and prepared execution. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G08.1a — numeric product | T; aggregate owner | Match DOUBLE multiplication, NULL/empty groups, IEEE values, grouping and BIGNUM conversion; retain the source DOUBLE result type. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 | G10.4a — verification/settings controls | S; settings owner with binder integration lead | Source-map `enable_verification`, profiling and force-external settings before implementation; assert the promised setting changes execution/verification behavior. Rerun affected unchanged files, not merely their first PRAGMA. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 | G11.3a — ADD COLUMN execution cost | S; ALTER/default-demand owner, no concurrent G09/G11 shared edits | Preserve stored/default demand, rollback/holes and native exchange tests; profile source-matched ADD and rerun its full 12-case native manifest against both pins. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 | G16.3a — aggregation/numeric execution cost | S; aggregation/expression owner, coordinate G03 casts | Preserve checked arithmetic/NULL/error and scalar/batch semantics; rerun numeric+grouping manifests with all per-workload <=1.0 gates. Split by identified source algorithm after diagnosis. | [P: at-parity or better performance](#at-parity-or-better-performance) |
@@ -707,9 +716,11 @@ including deferred mode validation and provable-NULL demand. SQL operator spelli
 for exponentiation/postfix factorial, the conversion matrix and the remaining
 scalar-family catalog stay open.
 G03.3a now ports `enum_range_boundary` through a source-shaped scalar batch hook,
-including casts, constant/column/NULL endpoints and prepared execution; its
-independent SQL suite passes 29/29 against each pin and selected native paths.
-The function-family performance gate remains open (RSS is 1.248x the faster pin).
+including casts, scalar/binary parents, predicates, lazy selected branches,
+shared projections, constant/column/NULL endpoints and prepared execution; its
+final-tree independent suite passes 29/29 SQL plus six native paths against each
+pin. The function-family **at-parity or better performance** gate fails (wall
+1.155x, CPU 1.143x, RSS 1.227x and throughput 0.866x the faster pin).
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -751,10 +762,11 @@ SQL-value fallback; the keyword has its exact bounded native parsed-node lifecyc
 The remaining parsing/format catalog, local/current calendar functions, named-zone
 and ICU work stays open.
 G04.2a now supports `make_date(STRUCT(year, month, day))` with case-insensitive
-and reordered fields, NULL propagation, source errors, scalar/batch and prepared
+and reordered fields, NULL propagation, checked INT64-to-INT32 field errors before
+calendar validation, scalar/batch and prepared
 execution. The temporal component passes its assigned cases, but this slice's
-**at-parity or better performance** gate fails (wall 10.337x, CPU 29.000x and RSS
-1.846x the faster pin).
+**at-parity or better performance** gate fails (wall 10.088x, CPU 29.000x and RSS
+1.849x the faster pin).
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -828,10 +840,13 @@ Sources: `src/common/{nested,variant}.rs`, `src/function/nested/`,
 
 **Current:** selected scalar/string operations and LIKE exist; `lower`/`upper` and
 their `lcase`/`ucase` aliases now have a bounded source-matched case-conversion
-slice with scalar, batch and prepared coverage. The full upstream function catalog
-and collation system do not. Its **at-parity or better performance** gate fails
-(wall 3.008x and CPU 4.000x the faster pin, despite 0.821x RSS); remaining
-source-edge literal review is in progress.
+slice with scalar, batch and prepared coverage. It uses the pins' byte-identical
+utf8proc 2.9 / Unicode 15.1 table rather than host or current-Unicode full case
+mappings. Its Rust FFI property layout and exported symbol set also match that
+pinned header, including the full 16-bit combination index. The full upstream
+function catalog and collation system do not. Its **at-parity or better
+performance** gate fails (wall 2.935x and CPU 4.000x the faster pin, despite
+0.796x RSS).
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
@@ -858,7 +873,7 @@ subqueries and recursive UNION are implemented. G07.3a additionally implements
 `DISTINCT ON` target de-duplication, typed NULL equality and source-shaped ORDER
 selection through aliases, nested queries, prepared and batched execution. Its
 assigned execution cases pass, but **at-parity or better performance** fails (wall
-2.518x, CPU 3.000x, RSS 2.025x and throughput 0.397x the faster pin). This is
+2.498x, CPU 3.000x, RSS 2.034x and throughput 0.400x the faster pin). This is
 completion work, not a rewrite.
 
 - **G07.1 Finish join and correlation forms.** Add lateral/dependent relations,
@@ -885,7 +900,7 @@ registered in their built-in modules; grouping sets and core frames already work
 G08.1a adds unary numeric `product`, including NULL/empty behavior, IEEE DOUBLE
 multiplication and BIGNUM conversion coverage; its source `product` cases pass
 against both pins. Its **at-parity or better performance** gate fails (wall
-18.406x, CPU 25.667x and throughput 0.054x the faster pin, despite 0.276x RSS).
+18.300x, CPU 25.667x and throughput 0.055x the faster pin, despite 0.278x RSS).
 
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
@@ -1000,7 +1015,10 @@ explicitly until attachment routing exists. Settings now include operational
 forms, result comparison and bounded JSON/text profile output. Verification is an
 operational release-compatible superset of the development pin's deprecated no-op;
 forced-external execution remains explicitly unavailable because no spill-capable
-operator exists. The profiling `no_output` workload has **at-parity or better
+operator exists. Profiling mode/enable/disable/reset now share the pinned effective
+state: renderer enablement exposes the default `standard` mode and disabling
+suppresses output after a prior mode change. The profiling
+`no_output` workload has **at-parity or better
 performance: pass**, but G10.4a remains open because verification is incomparable
 with that development no-op and forced-external execution is absent. There is no
 general catalog object model. Catalog-named ENUM types now have
