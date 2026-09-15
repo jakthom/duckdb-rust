@@ -1,4 +1,4 @@
-//! Deterministic LIST/ARRAY set predicates and intersection.
+//! LIST/ARRAY set predicates and hash/probe-order intersection.
 use super::*;
 use crate::{
     common::{
