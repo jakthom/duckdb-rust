@@ -384,7 +384,17 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
                 input.len(),
             )?
         } else {
-            cast.apply_batch(&column, context.query())?
+            if *try_cast {
+                Vector::flat(
+                    expression.data_type.clone(),
+                    column
+                        .values()
+                        .map(|value| cast.apply_try(value, context.query()))
+                        .collect::<Result<Vec<_>>>()?,
+                )?
+            } else {
+                cast.apply_batch(&column, context.query())?
+            }
         };
         return Ok((
             column.clone(),
@@ -397,6 +407,9 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     }
     if let ExprKind::Scalar(function, arguments) = &expression.kind
         && arguments.len() == 1
+        && !matches!(function.argument_evaluation(), ArgumentEvaluation::TypeOnly)
+        && !function.effects().volatile
+        && !function.effects().external_access
     {
         let (column, provenance) =
             evaluate_child_with_semantic_provenance(evaluator, &arguments[0], input, context)?;
@@ -414,6 +427,8 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     }
     if let ExprKind::Operator(function, arguments) = &expression.kind
         && arguments.len() == 1
+        && !function.effects().volatile
+        && !function.effects().external_access
     {
         let (column, _) =
             evaluate_child_with_semantic_provenance(evaluator, &arguments[0], input, context)?;
