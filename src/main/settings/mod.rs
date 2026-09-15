@@ -373,7 +373,7 @@ impl SettingsSnapshot {
             .unwrap_or(&self.registry.entry("enable_profiling")?.definition.default);
         match format {
             Value::Null => Ok(None),
-            Value::Varchar(value) => Ok(Some(value)),
+            Value::Varchar(value) => Ok(Some(value.as_str())),
             _ => Err(Error::Internal(
                 "invalid enable_profiling setting type".into(),
             )),

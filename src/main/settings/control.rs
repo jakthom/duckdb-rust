@@ -13,6 +13,7 @@ pub(in crate::main) struct QueryProfile {
     verification_enabled: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl QueryProfile {
     pub(in crate::main) fn new(
         elapsed: Duration,
@@ -129,6 +130,7 @@ fn validate_extension(format: &str, output: &str) -> Result<()> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn same_representation(left: &Value, right: &Value) -> bool {
     match (left, right) {
         (Value::Float(left), Value::Float(right)) => left.to_bits() == right.to_bits(),
@@ -142,6 +144,7 @@ mod tests {
     use super::*;
     use crate::{DataType, common::RowCollection, planner::Field};
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn result(value: Value) -> QueryResult {
         QueryResult {
             columns: vec![Field::new("value", DataType::BigInt)],
@@ -150,6 +153,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn verification_rejects_a_perturbed_alternate_execution() {
         let original = result(Value::Integer(1));
