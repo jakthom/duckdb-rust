@@ -814,10 +814,10 @@ fn compare_numeric(kind: NumericKind, left: &[u8], right: &[u8]) -> bool {
             .is_some_and(|(a, b)| a == b),
         NumericKind::Float32 => parse_float_value(left, true)
             .zip(parse_float_value(right, true))
-            .is_some_and(|(a, b)| float_equal(a, b)),
+            .is_some_and(|(actual, expected)| float_equal_f32(actual as f32, expected as f32)),
         NumericKind::Float64 => parse_float_value(left, false)
             .zip(parse_float_value(right, false))
-            .is_some_and(|(a, b)| float_equal(a, b)),
+            .is_some_and(|(actual, expected)| float_equal(actual, expected)),
         NumericKind::Bignum => normalize_free_decimal(left)
             .zip(normalize_free_decimal(right))
             .is_some_and(|(a, b)| a == b),
@@ -872,8 +872,34 @@ fn parse_float_value(bytes: &[u8], single: bool) -> Option<f64> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn float_equal(left: f64, right: f64) -> bool {
-    left == right || (left.is_nan() && right.is_nan())
+fn float_equal_f32(actual: f32, expected: f32) -> bool {
+    if actual.is_nan() && expected.is_nan() {
+        return true;
+    }
+    if !actual.is_finite() || !expected.is_finite() {
+        return actual == expected;
+    }
+    // `Value::ValuesAreEqual(actual, expected)` dispatches on `expected`, then
+    // calls `ApproxEqual(expected, actual)`. ApproxEqual derives its tolerance
+    // from its right operand, so the reference tolerance is based on `actual`.
+    // The unsuffixed C++ constants are doubles; only the completed epsilon is
+    // cast back to float before the float subtraction and comparison.
+    let epsilon = (f64::from(actual.abs()) * 0.01 + 0.00000001) as f32;
+    (expected - actual).abs() <= epsilon
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn float_equal(actual: f64, expected: f64) -> bool {
+    if actual.is_nan() && expected.is_nan() {
+        return true;
+    }
+    if !actual.is_finite() || !expected.is_finite() {
+        return actual == expected;
+    }
+    // Keep this asymmetric: both pinned implementations use the actual value
+    // as the relative-tolerance reference at the SQLLogicTest call site.
+    let epsilon = actual.abs() * 0.01 + 0.00000001;
+    (expected - actual).abs() <= epsilon
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -1455,6 +1481,66 @@ mod tests {
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
+    fn pinned_float_approximate_equality_and_mutations() {
+        // Both pins route SQLLogic comparison as ApproxEqual(expected, actual):
+        // 1% of the actual value plus 1e-8 is accepted, independently in the
+        // FLOAT and DOUBLE physical types.
+        let cases: &[(&str, &[u8], &[u8], bool)] = &[
+            ("FLOAT", b"1.005", b"1.0", true),
+            ("DOUBLE", b"1.005", b"1.0", true),
+            ("FLOAT", b"1.02", b"1.0", false),
+            ("DOUBLE", b"1.02", b"1.0", false),
+            // The pinned epsilon is relative to the actual (left) result. The
+            // deliberately reversed pairs lock down that asymmetric boundary.
+            ("FLOAT", b"101.00001", b"100", true),
+            ("FLOAT", b"100", b"101.00001", false),
+            ("DOUBLE", b"101.0000005", b"100", true),
+            ("DOUBLE", b"100", b"101.0000005", false),
+        ];
+        for (logical_type, actual_value, expected_value, succeeds) in cases {
+            let columns = [ActualColumn {
+                name: "v",
+                logical_type,
+            }];
+            let cells = [ActualCell::Bytes(actual_value)];
+            let lines: &[&[u8]] = &[*expected_value];
+            assert_eq!(
+                Oracle::new()
+                    .check_query(query(&columns, &cells, 1), expected(1, lines))
+                    .is_ok(),
+                *succeeds,
+                "{logical_type}: {:?} vs {:?}",
+                actual_value,
+                expected_value
+            );
+        }
+
+        // ApproxEqual uses <= and an absolute 1e-8 floor. One representable
+        // step beyond that floor is a mismatch when the actual result is zero.
+        assert!(float_equal_f32(0.0, 1.0e-8));
+        assert!(!float_equal_f32(
+            0.0,
+            f32::from_bits((1.0e-8_f32).to_bits() + 1)
+        ));
+        // This pair distinguishes the pinned double-literal epsilon arithmetic
+        // followed by a float cast from doing every epsilon operation as f32.
+        assert!(float_equal_f32(
+            f32::from_bits(0x2a0f_287e),
+            f32::from_bits(0x322b_cd08)
+        ));
+        assert!(!float_equal_f32(
+            f32::from_bits(0x2a0f_287e),
+            f32::from_bits(0x322b_cd09)
+        ));
+        assert!(float_equal(0.0, 1.0e-8));
+        assert!(!float_equal(
+            0.0,
+            f64::from_bits((1.0e-8_f64).to_bits() + 1)
+        ));
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
     fn original_sqlite_numeric_conversion_uses_bigint_rendering() {
         let columns = [
             ActualColumn {
@@ -1685,6 +1771,7 @@ mod tests {
         fn full_match(&self, pattern: &[u8], value: &[u8]) -> Result<bool, String> {
             match pattern {
                 b".*needle.*" => Ok(value.windows(6).any(|window| window == b"needle")),
+                b"needle" => Ok(value == b"needle"),
                 b"line.*two" => Ok(value == b"line\none two"), // dot_nl=true
                 b"[" => Err("missing ]".to_string()),
                 _ => Ok(false),
@@ -1727,6 +1814,28 @@ mod tests {
                 .with_regex(&StubRe2)
                 .check_query(query(&columns, &cells, 1), expected(1, invalid)),
             Err(OracleError::RegexInvalid(_))
+        ));
+        let invalid_negative: &[&[u8]] = &[b"<!REGEX>:["];
+        assert!(matches!(
+            Oracle::new()
+                .with_regex(&StubRe2)
+                .check_query(query(&columns, &cells, 1), expected(1, invalid_negative)),
+            Err(OracleError::RegexInvalid(_))
+        ));
+
+        // Pinned StringUtil::Replace removes marker text globally before RE2
+        // compilation, and RE2::FullMatch rejects a mere substring match.
+        let repeated_marker: &[&[u8]] = &[b"<REGEX>:.*<REGEX>:needle.*"];
+        Oracle::new()
+            .with_regex(&StubRe2)
+            .check_query(query(&columns, &cells, 1), expected(1, repeated_marker))
+            .unwrap();
+        let substring_only: &[&[u8]] = &[b"<REGEX>:needle"];
+        assert!(matches!(
+            Oracle::new()
+                .with_regex(&StubRe2)
+                .check_query(query(&columns, &cells, 1), expected(1, substring_only)),
+            Err(OracleError::ValueMismatch { .. })
         ));
 
         let multiline_cells = [ActualCell::Text("line\none two")];
