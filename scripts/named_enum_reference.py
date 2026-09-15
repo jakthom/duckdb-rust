@@ -1,4 +1,4 @@
-"""Compare named-ENUM checkpoint and WAL interchange with pinned DuckDBs."""
+"""Verify one-way named-ENUM checkpoint/WAL handoffs with pinned DuckDBs."""
 
 import argparse
 from datetime import datetime, timezone
@@ -29,7 +29,7 @@ def lifecycle(schema, create_schema=False):
 
 def rows(schema):
     return f"""SELECT source,value FROM (
-        SELECT 'old' source,v::VARCHAR value FROM {q(schema, 'old_rows')}
+        SELECT 'old' AS source,v::VARCHAR AS value FROM {q(schema, 'old_rows')}
         UNION ALL SELECT 'new',v::VARCHAR FROM {q(schema, 'new_rows')}
         UNION ALL SELECT 'live',v::VARCHAR FROM {q(schema, 'live_rows')}) x ORDER BY source,value"""
 
@@ -38,7 +38,7 @@ EXPECTED = [{"source": "live", "value": "hot"}, {"source": "new", "value": "new"
 
 
 def verify_rows(rust, reference, path, schema):
-    actual = [command(engine, path, rows(schema), json_output=True, readonly=True) for engine in (rust, reference)]
+    actual = [command(engine, path, rows(schema), json_output=True) for engine in (rust, reference)]
     if actual != [EXPECTED, EXPECTED]:
         raise AssertionError(f"named ENUM values differ: {actual!r}")
 
@@ -54,23 +54,33 @@ def expect_failure(engine, path, sql):
 def mutate(engine, path, schema):
     old, new, live = q(schema, "old_rows"), q(schema, "new_rows"), q(schema, "live")
     continued, mood = q(schema, "continued"), q(schema, "mood")
-    command(engine, path, f"INSERT INTO {old} VALUES ('old'); INSERT INTO {new} VALUES ('new'); CREATE TABLE {continued}(v {live}); INSERT INTO {continued} VALUES ('cold'),('hot'); CHECKPOINT")
+    command(engine, path, f"INSERT INTO {old} VALUES ('old'); INSERT INTO {new} VALUES ('new'); CREATE TABLE {continued}(v {live}); INSERT INTO {continued} VALUES ('cold'),('hot'); DROP TYPE {live}; CHECKPOINT")
     expect_failure(engine, path, f"INSERT INTO {old} VALUES ('new')")
     expect_failure(engine, path, f"CREATE TABLE unavailable(v {mood})")
-    return command(engine, path, f"SELECT (SELECT count(*) FROM {old}) old_count,(SELECT count(*) FROM {new}) new_count,(SELECT count(*) FROM {continued}) continued_count", json_output=True, readonly=True)
+    expect_failure(engine, path, f"CREATE TABLE unavailable_live(v {live})")
+    return command(engine, path, f"SELECT (SELECT count(*) FROM {old}) AS old_count,(SELECT count(*) FROM {new}) AS new_count,(SELECT count(*) FROM {continued}) AS continued_count", json_output=True)
 
 
-def case(producer_name, producer, consumer, rust, reference, path, schema, wal):
-    if schema != "main":
+def case(producer_name, producer, consumer, rust, reference, path, schema, wal, schema_in_wal=False):
+    if schema != "main" and not schema_in_wal:
         command(producer, path, f"CREATE SCHEMA {schema}; CHECKPOINT")
-    sql = lifecycle(schema)
+    sql = lifecycle(schema, create_schema=schema_in_wal)
     if wal and not producer.rust:
         sql = "PRAGMA disable_checkpoint_on_shutdown;" + sql
+    if wal:
+        sql = "BEGIN;" + sql + "COMMIT;"
     command(producer, path, sql + ("" if wal else " CHECKPOINT"))
-    verify_rows(rust, reference, path, schema)
+    if schema != "main":
+        command(producer, path, f"BEGIN; CREATE TYPE {q(schema, 'rolled_back')} AS ENUM ('x'); ROLLBACK")
+        expect_failure(producer, path, f"CREATE TABLE rollback_absent(v {q(schema, 'rolled_back')})")
+    verify_rows(producer, consumer, path, schema)
     result = mutate(consumer, path, schema)
     if result != [{"old_count": 2, "new_count": 2, "continued_count": 2}]:
         raise AssertionError(f"continued writes differ: {result!r}")
+    final = command(producer, path, f"SELECT (SELECT count(*) FROM {q(schema, 'old_rows')}) AS old_count,(SELECT count(*) FROM {q(schema, 'new_rows')}) AS new_count,(SELECT count(*) FROM {q(schema, 'continued')}) AS continued_count", json_output=True)
+    if final != result:
+        raise AssertionError(f"opposite-engine continued writes differ: {final!r}, {result!r}")
+    expect_failure(producer, path, f"CREATE TABLE unavailable_live(v {q(schema, 'live')})")
     return {"producer": producer_name, "schema": schema, "wal": wal, "checkpoint_sha256": digest(path), "passed": True}
 
 
@@ -103,6 +113,9 @@ def main():
                     case("rust", rust_wal, reference, rust, reference, directory / "rust-wal.duckdb", "main", True),
                     case("rust", rust_wal, reference, rust, reference, directory / "rust-qualified-wal.duckdb", "app", True),
                 ]
+                if target == "development":
+                    trial["cases"].append(case("reference", reference, rust, rust, reference, directory / "reference-qualified-wal.duckdb", "app", True))
+                    trial["cases"].append(case("reference", reference, rust, rust, reference, directory / "reference-fresh-schema-wal.duckdb", "app", True, True))
             trial["passed"] = True
         except Exception as error:
             trial.update(passed=False, error=f"{type(error).__name__}: {error}")
