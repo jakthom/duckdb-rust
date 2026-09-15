@@ -91,6 +91,7 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
         return Ok(true);
     }
 
+    let contains_physical_batch = expression.uses_physical_batch();
     let mut found = false;
     let mut visit = |child: &mut BoundExpr| -> Result<()> {
         found |= materialize_physical_batches(evaluator, child, input, context, columns)?;
@@ -104,18 +105,40 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
         | ExprKind::Subquery(_) => {}
         ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => visit(inner)?,
         ExprKind::Binary(_, left, right, _) => {
-            visit(left)?;
-            visit(right)?;
+            if contains_physical_batch {
+                materialize_source_child(evaluator, left, input, context, columns)?;
+                materialize_source_child(evaluator, right, input, context, columns)?;
+                found = true;
+            } else {
+                visit(left)?;
+                visit(right)?;
+            }
         }
         ExprKind::Operator(_, arguments) => {
-            for argument in arguments {
-                visit(argument)?;
+            if contains_physical_batch {
+                for argument in arguments {
+                    materialize_source_child(evaluator, argument, input, context, columns)?;
+                }
+                found = true;
+            } else {
+                for argument in arguments {
+                    visit(argument)?;
+                }
             }
         }
         ExprKind::Scalar(function, arguments) => {
             if !matches!(function.argument_evaluation(), ArgumentEvaluation::TypeOnly) {
-                for argument in arguments {
-                    visit(argument)?;
+                if contains_physical_batch
+                    && matches!(function.argument_evaluation(), ArgumentEvaluation::Eager)
+                {
+                    for argument in arguments {
+                        materialize_source_child(evaluator, argument, input, context, columns)?;
+                    }
+                    found = true;
+                } else {
+                    for argument in arguments {
+                        visit(argument)?;
+                    }
                 }
             }
         }
@@ -127,18 +150,52 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
             visit(otherwise)?;
         }
         ExprKind::Between(value, lower, upper, ..) => {
-            visit(value)?;
-            visit(lower)?;
-            visit(upper)?;
+            if contains_physical_batch {
+                materialize_source_child(evaluator, value, input, context, columns)?;
+                materialize_source_child(evaluator, lower, input, context, columns)?;
+                materialize_source_child(evaluator, upper, input, context, columns)?;
+                found = true;
+            } else {
+                visit(value)?;
+                visit(lower)?;
+                visit(upper)?;
+            }
         }
         ExprKind::InList(value, list, ..) => {
-            visit(value)?;
-            for candidate in list {
-                visit(candidate)?;
+            if contains_physical_batch {
+                materialize_source_child(evaluator, value, input, context, columns)?;
+                for candidate in list {
+                    materialize_source_child(evaluator, candidate, input, context, columns)?;
+                }
+                found = true;
+            } else {
+                visit(value)?;
+                for candidate in list {
+                    visit(candidate)?;
+                }
             }
         }
     }
     Ok(found)
+}
+
+/// A generic parent with a physical-batch descendant evaluates its immediate
+/// children as complete vectors in source order before ordinary row evaluation
+/// resumes for the parent. This keeps an earlier fallible sibling from being
+/// overtaken by a later physical callback.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn materialize_source_child<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    child: &mut BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+    columns: &mut Vec<Vector>,
+) -> Result<()> {
+    let output = evaluate_selected_with_physical_batches(evaluator, child, input, context)?;
+    let column = columns.len();
+    columns.push(output);
+    child.kind = ExprKind::Column(column);
+    Ok(())
 }
 
 /// Evaluate a physical-batch scalar's children through the selected evaluator

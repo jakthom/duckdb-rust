@@ -195,6 +195,23 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
             ]
         );
 
+        // A generic parent retains child source order even when its later
+        // child is a physical-batch callback. In particular, it must not
+        // hoist the ENUM cast and hide the earlier INTEGER cast error.
+        c.execute("CREATE TABLE sibling_order(v VARCHAR,k VARCHAR); INSERT INTO sibling_order VALUES ('left_bad','z'),('1','enum_bad')")?;
+        let left_first = c.query("SELECT CAST(v AS INTEGER) + length(enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR) FROM sibling_order").unwrap_err();
+        assert!(left_first.to_string().contains("left_bad"), "{left_first}");
+        let physical_first = c.query("SELECT length(enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR) + CAST(v AS INTEGER) FROM sibling_order").unwrap_err();
+        assert!(
+            physical_first.to_string().contains("enum_bad"),
+            "{physical_first}"
+        );
+        c.execute("CREATE TABLE sibling_success(v VARCHAR,k VARCHAR); INSERT INTO sibling_success VALUES ('1','z'),('2','a')")?;
+        assert_eq!(
+            c.query("SELECT CAST(v AS INTEGER) + length(enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR) FROM sibling_success")?.rows,
+            vec![vec![Value::Integer(7)], vec![Value::Integer(8)]]
+        );
+
         // The callback receives child vectors before reading their first row.
         // A VARCHAR -> ENUM child is fallible, but valid rows must still form
         // one source-shaped physical batch for both evaluator adapters.
