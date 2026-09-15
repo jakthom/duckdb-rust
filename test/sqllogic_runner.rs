@@ -349,12 +349,15 @@ fn re2_adapter_validates_the_pinned_grammar_before_rust_compilation() -> duckdb_
          query T\nSELECT 'α'\n----\n<REGEX>:\\p{^Latin}\n\n\
          query T\nSELECT 'é'\n----\n<REGEX>:\\P{^Latin}\n\n\
          query T\nSELECT 'A'\n----\n<REGEX>:[[:alpha:]]\n\n\
+         query T\nSELECT 'a'\n----\n<REGEX>:\\p{Any}\n\n\
+         query T\nSELECT 'a'\n----\n<!REGEX>:\\P{Any}\n\n\
+         query T\nSELECT 'a'\n----\n<REGEX>:[\\p{Any}]\n\n\
          query T\nSELECT 'a'\n----\n<!REGEX>:\\p{^Latin}\n\n\
          query T\nSELECT 'é'\n----\n<!REGEX>:\\141\n",
     )?;
     let report = runner::run_file_report(&Database::memory()?, &passing)?;
     assert_eq!(report.status, runner::FileStatus::Passed);
-    assert_eq!(report.passed, 12);
+    assert_eq!(report.passed, 15);
 
     for (index, pattern) in [
         "(?x)a",

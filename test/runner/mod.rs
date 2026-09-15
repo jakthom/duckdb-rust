@@ -687,10 +687,13 @@ fn parse_re2_unicode_class(input: &str) -> std::result::Result<Option<(String, u
         name = without_caret;
         negated = !negated;
     }
+    // RE2 handles `Any` directly in ParseUnicodeGroup rather than placing it
+    // in the generated unicode_groups.cc table.
     if name.is_empty()
-        || !RE2_UNICODE_GROUP_NAMES
-            .split('|')
-            .any(|group| group == name)
+        || (name != "Any"
+            && !RE2_UNICODE_GROUP_NAMES
+                .split('|')
+                .any(|group| group == name))
     {
         return Err(format!("invalid RE2 Unicode character class {name:?}"));
     }
@@ -2120,6 +2123,8 @@ mod tests {
             (r"a\b{start}", "a{start}"),
             (r"\pL", "é"),
             (r"\p{Latin}", "é"),
+            (r"\p{Any}", "a"),
+            (r"[\p{Any}]", "a"),
             (r"\p{^Latin}", "α"),
             (r"\P{^Latin}", "é"),
             (r"[[:alpha:]]", "A"),
@@ -2135,6 +2140,7 @@ mod tests {
             );
         }
         assert!(matcher.full_match(br"(?-s:\C)", b"\n").unwrap());
+        assert!(!matcher.full_match(br"\P{Any}", b"a").unwrap());
         let thousand_as = "a".repeat(1000);
         assert!(
             matcher
