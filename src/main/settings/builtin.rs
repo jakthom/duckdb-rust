@@ -8,8 +8,36 @@ struct OrderingSetting {
 
 #[derive(Debug)]
 struct SearchPathSetting;
+
+#[derive(Debug)]
+struct BooleanControlSetting {
+    name: &'static str,
+}
+
+#[derive(Debug)]
+struct ProfilingFormatSetting;
+
+#[derive(Debug)]
+struct ProfilingModeSetting;
+
+#[derive(Debug)]
+struct ProfilingOutputSetting;
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut SettingRegistry) {
+    for name in ["enable_verification", "debug_force_external"] {
+        registry
+            .register(Arc::new(BooleanControlSetting { name }))
+            .expect("unique execution control setting");
+    }
+    registry
+        .register(Arc::new(ProfilingFormatSetting))
+        .expect("unique profiling format setting");
+    registry
+        .register(Arc::new(ProfilingModeSetting))
+        .expect("unique profiling mode setting");
+    registry
+        .register(Arc::new(ProfilingOutputSetting))
+        .expect("unique profiling output setting");
     registry
         .register(Arc::new(IeeeFloatingPointSetting))
         .expect("unique IEEE floating point setting");
@@ -20,6 +48,143 @@ pub(super) fn register(registry: &mut SettingRegistry) {
         registry
             .register(Arc::new(OrderingSetting { nulls }))
             .expect("unique ordering setting");
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Setting for BooleanControlSetting {
+    fn definition(&self) -> SettingDefinition {
+        SettingDefinition {
+            name: self.name.into(),
+            aliases: Vec::new(),
+            data_type: DataType::Boolean,
+            default: Value::Boolean(false),
+            default_scope: SettingScope::Session,
+            global: false,
+            session: true,
+        }
+    }
+
+    fn normalize(&self, value: &Value, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        match value {
+            Value::Boolean(_) => Ok(value.clone()),
+            Value::Null => Err(Error::InvalidInput(format!(
+                "{} must be a non-NULL BOOLEAN",
+                self.name
+            ))),
+            _ => Err(Error::Internal(format!(
+                "{} setting input was not BOOLEAN",
+                self.name
+            ))),
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Setting for ProfilingFormatSetting {
+    fn definition(&self) -> SettingDefinition {
+        SettingDefinition {
+            name: "enable_profiling".into(),
+            aliases: vec!["enable_profile".into()],
+            data_type: DataType::Varchar,
+            default: Value::Null,
+            default_scope: SettingScope::Session,
+            global: false,
+            session: true,
+        }
+    }
+
+    fn normalize(&self, value: &Value, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        let Value::Varchar(value) = value else {
+            if value == &Value::Null {
+                return Ok(Value::Null);
+            }
+            return Err(Error::Internal(
+                "enable_profiling setting input was not VARCHAR".into(),
+            ));
+        };
+        let value = value.to_ascii_lowercase();
+        match value.as_str() {
+            "default"
+            | "text"
+            | "query_tree"
+            | "query_tree_optimizer"
+            | "no_output"
+            | "json"
+            | "html"
+            | "graphviz"
+            | "yaml"
+            | "mermaid" => Ok(Value::Varchar(value)),
+            _ => Err(Error::InvalidInput(format!(
+                "\"{value}\" is not a valid FORMAT argument, valid options are: default, text, query_tree, query_tree_optimizer, no_output, json, html, graphviz, yaml, mermaid"
+            ))),
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Setting for ProfilingModeSetting {
+    fn definition(&self) -> SettingDefinition {
+        SettingDefinition {
+            name: "profiling_mode".into(),
+            aliases: Vec::new(),
+            data_type: DataType::Varchar,
+            default: Value::Null,
+            default_scope: SettingScope::Session,
+            global: false,
+            session: true,
+        }
+    }
+
+    fn normalize(&self, value: &Value, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        let Value::Varchar(value) = value else {
+            if value == &Value::Null {
+                return Ok(Value::Null);
+            }
+            return Err(Error::Internal(
+                "profiling_mode setting input was not VARCHAR".into(),
+            ));
+        };
+        let value = value.to_ascii_lowercase();
+        match value.as_str() {
+            // Development accepts all three spellings but always gathers the
+            // detailed information and reports the effective mode as standard.
+            "standard" | "detailed" | "all" => Ok(Value::Varchar("standard".into())),
+            _ => Err(Error::Parse(format!(
+                "Unrecognized profiling mode \"{value}\", supported formats: [standard, detailed, all]"
+            ))),
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Setting for ProfilingOutputSetting {
+    fn definition(&self) -> SettingDefinition {
+        SettingDefinition {
+            name: "profiling_output".into(),
+            aliases: vec!["profile_output".into()],
+            data_type: DataType::Varchar,
+            default: Value::Varchar(String::new()),
+            default_scope: SettingScope::Session,
+            global: false,
+            session: true,
+        }
+    }
+
+    fn normalize(&self, value: &Value, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        match value {
+            Value::Varchar(_) => Ok(value.clone()),
+            Value::Null => Err(Error::InvalidInput(
+                "profiling_output must be a non-NULL VARCHAR".into(),
+            )),
+            _ => Err(Error::Internal(
+                "profiling_output setting input was not VARCHAR".into(),
+            )),
+        }
     }
 }
 

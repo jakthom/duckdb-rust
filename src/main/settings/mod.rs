@@ -1,7 +1,9 @@
 //! Configuration definitions, immutable statement views and scoped publication.
 mod builtin;
+mod control;
 mod store;
 
+pub(in crate::main) use control::{QueryProfile, verify_query_results};
 pub use store::{LockedConfiguration, SnapshotConfiguration};
 
 use crate::{DataType, Error, Result, Value, parallel::QueryContext};
@@ -345,6 +347,46 @@ impl SettingsSnapshot {
             Value::Varchar(value) => crate::catalog::SearchPath::from_setting(value),
             _ => Err(Error::Internal("invalid search_path setting".into())),
         }
+    }
+
+    pub(in crate::main) fn verification_enabled(&self, query: &QueryContext) -> Result<bool> {
+        boolean(
+            self.get("enable_verification", query)?,
+            "enable_verification",
+        )
+    }
+
+    pub(in crate::main) fn force_external(&self, query: &QueryContext) -> Result<bool> {
+        boolean(
+            self.get("debug_force_external", query)?,
+            "debug_force_external",
+        )
+    }
+
+    pub(in crate::main) fn profiling_format(&self, query: &QueryContext) -> Result<Option<&str>> {
+        match self.get("enable_profiling", query)? {
+            Value::Null => Ok(None),
+            Value::Varchar(value) => Ok(Some(value)),
+            _ => Err(Error::Internal(
+                "invalid enable_profiling setting type".into(),
+            )),
+        }
+    }
+
+    pub(in crate::main) fn emit_profile(
+        &self,
+        profile: &QueryProfile,
+        query: &QueryContext,
+    ) -> Result<()> {
+        control::emit_profile(self, profile, query)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn boolean(value: &Value, name: &str) -> Result<bool> {
+    match value {
+        Value::Boolean(value) => Ok(*value),
+        _ => Err(Error::Internal(format!("invalid {name} setting type"))),
     }
 }
 
