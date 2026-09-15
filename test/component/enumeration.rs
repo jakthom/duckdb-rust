@@ -296,6 +296,24 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
         }
         let binary_wrapper = "SELECT pow((CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(a,NULL)::VARCHAR) END)+0,length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null";
         assert_eq!(c.query(binary_wrapper)?.rows, vec![vec![Value::Null]]);
+        let n = "(CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(a,NULL)::VARCHAR) END)";
+        for wrapped in [
+            format!("{n}+0"),
+            format!("{n}*1"),
+            format!("({n} BETWEEN 0 AND 1)::DOUBLE"),
+            format!("({n} IN (0,1))::DOUBLE"),
+            format!("round({n},0)"),
+        ] {
+            let sql = format!(
+                "SELECT pow({wrapped},length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null"
+            );
+            assert_eq!(c.query(&sql)?.rows, vec![vec![Value::Null]], "{sql}");
+            assert_eq!(
+                c.execute_prepared(&c.prepare(&sql)?, &[])?.rows,
+                vec![vec![Value::Null]],
+                "{sql}"
+            );
+        }
         let nullif_physical = "SELECT pow(NULLIF(length(enum_range_boundary(a,NULL)::VARCHAR),length(enum_range_boundary(a,NULL)::VARCHAR)),length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null";
         assert_eq!(c.query(nullif_physical)?.rows, vec![vec![Value::Null]]);
         assert_eq!(
