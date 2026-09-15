@@ -180,9 +180,9 @@ distinct load/restart/reconnect lifecycles. Restart preserves the implemented
 global and main-session configuration, including `search_path`. Its source-matched local
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
 zero skips). Its final-tree three-warmup, nine-sample Gate P campaign records a
-54.624833 ms Rust wall median versus 40.026833 ms for the faster C++ pin, or
-1.364705x; invocation throughput is 0.733x and fails by the same wall-time
-comparison. Rust CPU is 0.667x and RSS 0.421x the faster C++ medians, and block
+55.810125 ms Rust wall median versus 39.950000 ms for the faster C++ pin, or
+1.396999x; invocation throughput is 0.716x and fails by the same wall-time
+comparison. Rust CPU is 1.000x and RSS 0.412x the faster C++ medians, and block
 I/O is equal. Thus **at-parity or better performance:
 fail** for G01.2c. A focused split attributes the wall deficit to file-backed
 commit/lifecycle work rather than concurrent-loop scheduling; the exact engine
@@ -227,7 +227,10 @@ Two important classifications from focused follow-up:
   eager enclosing parents materialize immediate children in source order so a
   later physical descendant cannot overtake an earlier sibling error. Predicate
   AND/OR trees retain recursive selection-vector short-circuiting and expose the
-  demanded selected batch, not singleton rows, to the physical callback.
+  demanded selected batch, not singleton rows, to the physical callback, including
+  inside CASE conditions. Null-on-constant parents retain semantic provenance:
+  only an executed Constant NULL suppresses later arguments, never a flat NULL or
+  a merely constant-encoded physical result.
   The final-tree independent suite is 29/29 SQL plus six native paths per pin.
 - **Repaired typed harness comparison:** declared HUGEINT/UHUGEINT values now compare
   by their exact declared integer value when a JSON transport renders a finite exact
@@ -265,17 +268,17 @@ demand or checked numeric semantics merely to improve the numbers.
 
 The final Wave C source-bound workloads were measured serially with three warmups
 and nine samples against both pins (raw evidence remains under
-`target/g01-wave-c-20260915/performance-final-4/`). All reports retain the same
+`target/g01-wave-c-20260915/performance-final-5/`). All reports retain the same
 final-tree source digest. Their Gate P results are explicit: G03.3a ENUM is
 **at-parity or better performance: fail** after adding nested-parent work (wall
-1.128x, CPU 1.143x, RSS 1.210x, throughput 0.887x); G04.2a
-`make_date(STRUCT)` is **fail** (wall 10.113x, CPU 29.000x, RSS 1.855x,
-throughput 0.099x); G06.1a case conversion is **fail** (wall 2.869x, CPU
-4.000x, RSS 0.799x, throughput 0.349x); G07.3a DISTINCT ON is **fail** (wall
-2.502x, CPU 3.000x, RSS 2.059x, throughput 0.400x); and G08.1a `product` is
-**fail** (wall 18.239x, CPU 25.333x, RSS 0.279x, throughput 0.055x). G10.4a
-profiling with `no_output` is a measured **pass** (wall 0.616x, CPU 0.000x at
-timer resolution, RSS 0.751x, throughput 1.622x), but its overall Gate P remains
+1.135x, CPU 1.143x, RSS 1.242x, throughput 0.881x); G04.2a
+`make_date(STRUCT)` is **fail** (wall 10.082x, CPU 14.500x, RSS 1.850x,
+throughput 0.099x); G06.1a case conversion is **fail** (wall 2.838x, CPU
+4.000x, RSS 0.806x, throughput 0.352x); G07.3a DISTINCT ON is **fail** (wall
+2.541x, CPU 3.000x, RSS 1.769x, throughput 0.394x); and G08.1a `product` is
+**fail** (wall 18.562x, CPU 25.333x, RSS 0.281x, throughput 0.054x). G10.4a
+profiling with `no_output` is a measured **pass** (wall 0.630x, CPU 0.000x at
+timer resolution, RSS 0.745x, throughput 1.588x), but its overall Gate P remains
 **open** because operational verification
 is incomparable with the development pin's no-op and forced-external execution is
 absent. None of these goal groups is complete while its Gate P is fail or open.
@@ -724,7 +727,7 @@ including casts, scalar/binary parents, predicates, lazy selected branches,
 shared projections, constant/column/NULL endpoints and prepared execution; its
 final-tree independent suite passes 29/29 SQL plus six native paths against each
 pin. The function-family **at-parity or better performance** gate fails (wall
-1.128x, CPU 1.143x, RSS 1.210x and throughput 0.887x the faster pin).
+1.135x, CPU 1.143x, RSS 1.242x and throughput 0.881x the faster pin).
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -769,8 +772,8 @@ G04.2a now supports `make_date(STRUCT(year, month, day))` with case-insensitive
 and reordered fields, NULL propagation, checked INT64-to-INT32 field errors before
 calendar validation, scalar/batch and prepared
 execution. The temporal component passes its assigned cases, but this slice's
-**at-parity or better performance** gate fails (wall 10.113x, CPU 29.000x and RSS
-1.855x the faster pin).
+**at-parity or better performance** gate fails (wall 10.082x, CPU 14.500x and RSS
+1.850x the faster pin).
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -849,8 +852,8 @@ utf8proc 2.9 / Unicode 15.1 table rather than host or current-Unicode full case
 mappings. Its Rust FFI property layout and exported symbol set also match that
 pinned header, including the full 16-bit combination index. The full upstream
 function catalog and collation system do not. Its **at-parity or better
-performance** gate fails (wall 2.869x and CPU 4.000x the faster pin, despite
-0.799x RSS).
+performance** gate fails (wall 2.838x and CPU 4.000x the faster pin, despite
+0.806x RSS).
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
@@ -877,7 +880,7 @@ subqueries and recursive UNION are implemented. G07.3a additionally implements
 `DISTINCT ON` target de-duplication, typed NULL equality and source-shaped ORDER
 selection through aliases, nested queries, prepared and batched execution. Its
 assigned execution cases pass, but **at-parity or better performance** fails (wall
-2.502x, CPU 3.000x, RSS 2.059x and throughput 0.400x the faster pin). This is
+2.541x, CPU 3.000x, RSS 1.769x and throughput 0.394x the faster pin). This is
 completion work, not a rewrite.
 
 - **G07.1 Finish join and correlation forms.** Add lateral/dependent relations,
@@ -904,7 +907,7 @@ registered in their built-in modules; grouping sets and core frames already work
 G08.1a adds unary numeric `product`, including NULL/empty behavior, IEEE DOUBLE
 multiplication and BIGNUM conversion coverage; its source `product` cases pass
 against both pins. Its **at-parity or better performance** gate fails (wall
-18.239x, CPU 25.333x and throughput 0.055x the faster pin, despite 0.279x RSS).
+18.562x, CPU 25.333x and throughput 0.054x the faster pin, despite 0.281x RSS).
 
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
