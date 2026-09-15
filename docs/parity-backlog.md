@@ -68,8 +68,8 @@ execution. Catch does not expose runtime `GENERATE`/`SECTION` instances: source
 inventory finds 12 generator sites on each pin and 205 release / 389 development
 section sites without claiming them as executed cases. The source matrix contains
 42 / 65 test configs, 27 / 3 CI test-config invocations and 103 / 80 CI platform
-declarations; these are declarations, not built matrix instances. Rust has 47
-Cargo targets and 840 textual `#[test]` declarations across the workspace, not 840
+declarations; these are declarations, not built matrix instances. Rust has 48
+Cargo targets and 853 textual `#[test]` declarations across the workspace, not 853
 mapped upstream tests. Neither count measures native/API invariant coverage.
 
 Both pinned CLI/library identities are checked. Release has core_functions,
@@ -89,8 +89,11 @@ The authoritative G01 Wave A paired runner evidence is under ignored
 observations; `acceptance-2.json` through `acceptance-5.json` predate later
 audited regex/output/fixture repairs. None of the earlier reports is acceptance
 evidence for the final tree.
-Wave B evidence is under `target/g01-wave-b-20260915/`: the registry and API-map
-inventories, `api-lifecycle-acceptance-3/report.json`, and
+Wave B evidence is under `target/g01-wave-b-20260915/`:
+`registry-integrated-2/inventory.json`,
+`api-map-integrated-1/api-contract-inventory.json`,
+`extension-pins-integrated-1/extension-pin-inventory.json`,
+`api-lifecycle-acceptance-3/report.json`, and
 `performance/g01-2c-acceptance-4.json` are the retained final-tree results.
 Source/binary/harness hashes and exact commands belong in those reports. Historical
 pass counts and the superseded milestone baseline have been removed from this plan;
