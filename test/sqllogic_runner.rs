@@ -230,11 +230,13 @@ fn re2_adapter_preserves_utf8_runes_and_ascii_perl_classes() -> duckdb_rust::Res
          query T\nSELECT 'Az_09'\n----\n<REGEX>:\\w+\n\n\
          query T\nSELECT '١'\n----\n<!REGEX>:\\d\n\n\
          query T\nSELECT ' '\n----\n<!REGEX>:\\s\n\n\
-         query T\nSELECT ' '\n----\n<REGEX>:\\s\n",
+         query T\nSELECT ' '\n----\n<REGEX>:\\s\n\n\
+         query T\nSELECT '\u{11380}'\n----\n<!REGEX>:\\pL\n\n\
+         query T\nSELECT '\u{1c8a}'\n----\n<!REGEX>:(?i)\\x{1C89}\n",
     )?;
     let report = runner::run_file_report(&Database::memory()?, &passing)?;
     assert_eq!(report.status, runner::FileStatus::Passed);
-    assert_eq!(report.passed, 9);
+    assert_eq!(report.passed, 11);
 
     for (name, expected) in [
         ("negative_dot", "<!REGEX>:."),

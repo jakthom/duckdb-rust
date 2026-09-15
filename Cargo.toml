@@ -171,7 +171,12 @@ thiserror = "2.0.18"
 crc32fast = "1.5.0"
 flate2 = "1.1.9"
 libm = "0.2.16"
-regex = "1.13.1"
+# Both pinned DuckDB references vendor RE2 2023-02-01 and its Unicode 15.0
+# tables. Keep the complete Rust regex stack on the last Unicode-15 releases so
+# character properties and case folding cannot drift from the parity oracle.
+regex = "=1.10.6"
+regex-automata = "=0.4.7"
+regex-syntax = "=0.8.4"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs"] }
