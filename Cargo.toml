@@ -87,6 +87,10 @@ name = "floating"
 path = "test/component/floating.rs"
 
 [[test]]
+name = "text_caseconvert"
+path = "test/component/text_caseconvert.rs"
+
+[[test]]
 name = "casts"
 path = "test/component/casts.rs"
 

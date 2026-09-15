@@ -21,6 +21,8 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     for name in [
         "lower",
         "upper",
+        "lcase",
+        "ucase",
         "length",
         "char_length",
         "character_length",
@@ -62,7 +64,14 @@ impl ScalarFunction for Builtin {
         }
         if matches!(
             self.0,
-            "lower" | "upper" | "length" | "char_length" | "character_length" | "len"
+            "lower"
+                | "upper"
+                | "lcase"
+                | "ucase"
+                | "length"
+                | "char_length"
+                | "character_length"
+                | "len"
         ) && arguments.len() == 1
             && matches!(arguments[0], DataType::Enum(_))
         {
@@ -85,7 +94,7 @@ impl ScalarFunction for Builtin {
         let count = arguments.len();
         match self.0 {
             "concat" => Ok(DataType::Varchar),
-            "lower" | "upper"
+            "lower" | "upper" | "lcase" | "ucase"
                 if count == 1 && matches!(arguments[0], DataType::Varchar | DataType::Null) =>
             {
                 Ok(DataType::Varchar)
@@ -127,8 +136,8 @@ impl ScalarFunction for Builtin {
             return Ok(Value::Null);
         }
         Ok(match self.0 {
-            "lower" => Value::Varchar(args[0].to_string().to_lowercase()),
-            "upper" => Value::Varchar(args[0].to_string().to_uppercase()),
+            "lower" | "lcase" => Value::Varchar(case_convert(&args[0].to_string(), false)),
+            "upper" | "ucase" => Value::Varchar(case_convert(&args[0].to_string(), true)),
             "length" | "char_length" | "character_length" | "len" => {
                 Value::Integer(match &args[0] {
                     Value::Bit(value) => value.length() as i128,
@@ -138,6 +147,24 @@ impl ScalarFunction for Builtin {
             _ => return Err(Error::Internal("unregistered builtin".into())),
         })
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn case_convert(input: &str, upper: bool) -> String {
+    // The pinned utf8proc table uses U+1E9E for sharp-s uppercase and maps
+    // dotted capital I directly to ASCII i. Keep Rust's existing full mapping
+    // for every other scalar; these two source-visible exceptions otherwise
+    // expand to a different sequence.
+    let mut result = String::with_capacity(input.len());
+    for character in input.chars() {
+        match (upper, character) {
+            (true, 'ß') => result.push('ẞ'),
+            (false, 'İ') => result.push('i'),
+            (true, character) => result.extend(character.to_uppercase()),
+            (false, character) => result.extend(character.to_lowercase()),
+        }
+    }
+    result
 }
 
 #[derive(Debug)]
