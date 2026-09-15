@@ -289,6 +289,7 @@ fn equal_default(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn equal_children(
     left: &[StoredExpression],
     right: &[StoredExpression],
@@ -307,6 +308,7 @@ fn equal_children(
     Ok(true)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn native_legacy_argument_style_equivalent(
     left: StoredArgumentStyle,
     right: StoredArgumentStyle,

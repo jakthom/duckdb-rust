@@ -361,6 +361,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn stored_syntax_operator(name: &'static str, children: Vec<StoredExpression>) -> StoredExpression {
     StoredExpression {
         alias: None,
@@ -380,6 +381,7 @@ fn stored_syntax_operator(name: &'static str, children: Vec<StoredExpression>) -
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn stored_cast(expression: StoredExpression, target: DataType) -> StoredExpression {
     StoredExpression {
         alias: None,
@@ -392,6 +394,7 @@ fn stored_cast(expression: StoredExpression, target: DataType) -> StoredExpressi
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn stored_scalar_function(
     name: &'static str,
     arguments: Vec<StoredExpression>,
@@ -414,6 +417,7 @@ fn stored_scalar_function(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn stored_native_operator(
     kind: StoredOperator,
     children: Vec<StoredExpression>,
@@ -425,6 +429,7 @@ fn stored_native_operator(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn stored_comparison(
     kind: StoredComparison,
     left: StoredExpression,
@@ -441,6 +446,7 @@ fn stored_comparison(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn retained_comparison(operator: &ast::BinaryOperator) -> Option<StoredComparison> {
     use ast::BinaryOperator as O;
     Some(match operator {
@@ -454,6 +460,7 @@ fn retained_comparison(operator: &ast::BinaryOperator) -> Option<StoredCompariso
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn retained_conjunction(operator: &ast::BinaryOperator) -> Option<StoredConjunction> {
     use ast::BinaryOperator as O;
     Some(match operator {
@@ -463,6 +470,7 @@ fn retained_conjunction(operator: &ast::BinaryOperator) -> Option<StoredConjunct
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn retained_binary_operator(operator: &ast::BinaryOperator) -> Option<&'static str> {
     use ast::BinaryOperator as O;
     Some(match operator {
@@ -484,6 +492,7 @@ fn retained_binary_operator(operator: &ast::BinaryOperator) -> Option<&'static s
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn retained_unary_operator(operator: &ast::UnaryOperator) -> Option<&'static str> {
     use ast::UnaryOperator as O;
     Some(match operator {
@@ -505,6 +514,7 @@ mod tests {
         storage::table::Snapshot,
     };
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn parsed(sql: &str) -> Result<ast::Expr> {
         let Statement::Sql(statement) = DuckDbParser.parse(&format!("SELECT {sql}"))?.remove(0)
         else {
@@ -522,6 +532,7 @@ mod tests {
         Ok(expression)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn capture(sql: &str) -> Result<StoredExpression> {
         let query = QueryContext::background();
         let catalog = Snapshot::new(query.type_registry());
@@ -543,6 +554,7 @@ mod tests {
         )
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn capture_preserves_literal_cast_function_and_operator_syntax_without_evaluation() -> Result<()>
     {
@@ -587,6 +599,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn capture_rejects_dependencies_parameters_aggregates_and_windows() -> Result<()> {
         for sql in [
@@ -606,6 +619,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn captured_closed_conditional_and_predicate_syntax_binds_without_reparsing() -> Result<()> {
         let query = QueryContext::background();
@@ -649,6 +663,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn captured_predicates_use_native_parsed_node_shapes() -> Result<()> {
         let simple_case = capture("CASE 2 WHEN 1 THEN 'one' ELSE 'other' END")?;
@@ -700,6 +715,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn captured_operators_bind_through_selected_operator_services_without_reparsing() -> Result<()>
     {

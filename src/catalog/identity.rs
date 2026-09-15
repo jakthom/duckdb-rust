@@ -12,6 +12,7 @@ use super::{TableDefinition, TableName, TypeDefinition, TypeName};
 const FIRST_RUNTIME_ID: u64 = 20_000;
 static NEXT_RUNTIME_ID: AtomicU64 = AtomicU64::new(FIRST_RUNTIME_ID);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn allocate_runtime_id(counter: &AtomicU64) -> Result<NonZeroU64> {
     let value = counter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
@@ -27,6 +28,7 @@ macro_rules! runtime_id {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(NonZeroU64);
 
+        #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
         impl $name {
             /// Allocates a process-unique runtime handle. Runtime handles are
             /// intentionally absent from snapshot and WAL serialization.
@@ -39,6 +41,7 @@ macro_rules! runtime_id {
             }
         }
 
+        #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 self.0.fmt(f)
@@ -53,6 +56,7 @@ runtime_id!(ObjectId);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CatalogVersion(u64);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CatalogVersion {
     pub const fn new(value: u64) -> Self {
         Self(value)
@@ -70,6 +74,7 @@ impl CatalogVersion {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for CatalogVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -82,6 +87,7 @@ pub struct CatalogIdentity {
     pub version: Option<CatalogVersion>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CatalogIdentity {
     pub const fn new(id: CatalogId, version: Option<CatalogVersion>) -> Self {
         Self { id, version }
@@ -92,6 +98,7 @@ impl CatalogIdentity {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for CatalogIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.version {
@@ -108,6 +115,7 @@ pub enum CatalogObjectKind {
     Type,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for CatalogObjectKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -125,6 +133,7 @@ pub struct ObjectIdentity {
     pub kind: CatalogObjectKind,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ObjectIdentity {
     pub const fn new(catalog: CatalogId, object: ObjectId, kind: CatalogObjectKind) -> Self {
         Self {
@@ -135,6 +144,7 @@ impl ObjectIdentity {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for ObjectIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}:{}", self.kind, self.catalog, self.object)
@@ -152,6 +162,7 @@ pub struct TableBinding {
     catalog_version: Option<CatalogVersion>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableBinding {
     pub fn unversioned(name: TableName) -> Self {
         Self {
@@ -204,6 +215,7 @@ impl fmt::Debug for TableBinding {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for TableBinding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.name.fmt(f)
@@ -217,6 +229,7 @@ pub struct ResolvedTable {
     definition: TableDefinition,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ResolvedTable {
     pub fn unversioned(definition: TableDefinition) -> Self {
         Self {
@@ -258,6 +271,7 @@ pub struct TypeBinding {
     catalog_version: Option<CatalogVersion>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeBinding {
     pub fn unversioned(name: TypeName) -> Self {
         Self {
@@ -310,6 +324,7 @@ impl fmt::Debug for TypeBinding {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for TypeBinding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.name.fmt(f)
@@ -322,6 +337,7 @@ pub struct ResolvedType {
     definition: TypeDefinition,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ResolvedType {
     pub fn unversioned(definition: TypeDefinition) -> Self {
         Self {
@@ -381,6 +397,7 @@ mod tests {
     };
     use crate::common::DataType;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn definition(name: &str) -> TableDefinition {
         TableDefinition {
             name: TableName::main(name),
@@ -392,12 +409,14 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn table_identity(kind: CatalogObjectKind) -> ObjectIdentity {
         let catalog =
             CatalogIdentity::new(CatalogId::allocate().unwrap(), Some(CatalogVersion::new(7)));
         ObjectIdentity::new(catalog.id, ObjectId::allocate().unwrap(), kind)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn runtime_ids_are_nonzero_unique_and_share_one_namespace() {
         let threads = (0..4)
@@ -422,6 +441,7 @@ mod tests {
         assert_eq!(ids.iter().copied().collect::<HashSet<_>>().len(), ids.len());
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn allocator_and_catalog_versions_reject_overflow() {
         let exhausted = AtomicU64::new(u64::MAX);
@@ -436,6 +456,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn handles_validate_kind_and_have_stable_diagnostics() {
         let name = TableName::new("Analytics", "Events");
@@ -474,6 +495,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn type_handles_keep_catalog_identity_outside_the_enum_dictionary() {
         let definition = TypeDefinition::enumeration(
@@ -520,6 +542,7 @@ mod tests {
         assert!(!wire.to_string().contains(&identity.object.to_string()));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn object_identity_survives_catalog_version_changes() {
         let catalog_id = CatalogId::allocate().unwrap();
@@ -546,6 +569,7 @@ mod tests {
         alters: usize,
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Catalog for LegacyCatalog {
         fn identity(&self) -> Option<CatalogIdentity> {
             self.identity
@@ -565,6 +589,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl CatalogMut for LegacyCatalog {
         fn create_schema(&mut self, _name: &str, _if_not_exists: bool) -> Result<()> {
             Ok(())
@@ -600,6 +625,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn legacy_catalog_defaults_are_explicitly_unversioned() {
         let mut catalog = LegacyCatalog {
@@ -647,6 +673,7 @@ mod tests {
         assert_eq!(catalog.drops, 1);
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn identity_advertising_adapter_must_override_entry_and_mutation_paths() {
         let identity =
@@ -690,6 +717,7 @@ mod tests {
         assert_eq!((catalog.drops, catalog.alters), (0, 0));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn runtime_identity_does_not_change_table_definition_wire_shape() {
         let value = serde_json::to_value(definition("items")).unwrap();
@@ -703,6 +731,7 @@ mod tests {
 
     // Compile-time evidence that handles remain usable across threads without
     // gaining a persistence contract.
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn handles_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}

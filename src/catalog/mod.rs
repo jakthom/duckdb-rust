@@ -130,6 +130,7 @@ struct ColumnDefinitionWire {
     default: serde_json::Value,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'de> Deserialize<'de> for ColumnDefinition {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,

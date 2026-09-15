@@ -90,10 +90,12 @@ enum PhysicalSlot {
     Deleted(RowId),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn missing_physical_slots() -> Vec<PhysicalSlot> {
     vec![PhysicalSlot::Deleted(RowId::MAX)]
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PhysicalSlot {
     fn row_id(self) -> RowId {
         match self {
@@ -510,6 +512,7 @@ impl Catalog for Snapshot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn type_key(name: &TypeName) -> String {
     format!("{}:{}{}", name.schema.len(), name.schema, name.name)
 }

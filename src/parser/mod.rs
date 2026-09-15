@@ -114,6 +114,7 @@ impl Parser for DuckDbParser {
 mod tests {
     use super::*;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_ddl_retains_conflict_policy_and_empty_dictionary() {
         let statements = DuckDbParser
@@ -154,6 +155,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_parser_rejects_conflicting_or_temporary_forms() {
         assert!(

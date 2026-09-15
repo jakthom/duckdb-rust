@@ -10,6 +10,7 @@ pub(crate) struct PreparedTableAlteration {
     add_values: Option<Vec<(PhysicalSlot, Value)>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PreparedTableAlteration {
     fn live_add_values(&self, before: &TableData) -> Result<Option<BTreeMap<RowId, Value>>> {
         let Some(resolved) = &self.add_values else {

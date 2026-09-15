@@ -17,6 +17,7 @@ pub struct DependentFlags {
     pub alter_blocking: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DependentFlags {
     pub const fn automatic() -> Self {
         Self {
@@ -55,6 +56,7 @@ pub struct SubjectFlags {
     pub ownership: bool,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SubjectFlags {
     pub const fn ordinary() -> Self {
         Self { ownership: false }
@@ -77,6 +79,7 @@ struct DependencyEdge {
     subject: SubjectFlags,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DependencyEdge {
     fn merge(self, other: Self) -> Self {
         Self {
@@ -106,6 +109,7 @@ pub struct DependencyGraph {
     dependents_by_subject: Adjacency,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DependencyGraph {
     pub fn new() -> Self {
         Self::default()
@@ -458,6 +462,7 @@ impl DependencyGraph {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_endpoints(dependent: ObjectIdentity, subject: ObjectIdentity) -> Result<()> {
     if dependent == subject {
         return Err(Error::InvalidInput(
@@ -472,6 +477,7 @@ fn validate_endpoints(dependent: ObjectIdentity, subject: ObjectIdentity) -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn remove_edge(index: &mut Adjacency, first: ObjectIdentity, second: ObjectIdentity) -> bool {
     let Some(edges) = index.get_mut(&first) else {
         return false;
@@ -483,6 +489,7 @@ fn remove_edge(index: &mut Adjacency, first: ObjectIdentity, second: ObjectIdent
     removed
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn checked_edge_count(index: &Adjacency) -> Result<usize> {
     index.values().try_fold(0usize, |count, edges| {
         count
@@ -491,6 +498,7 @@ fn checked_edge_count(index: &Adjacency) -> Result<usize> {
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_ownership_acyclic(
     subjects: &Adjacency,
     objects: &BTreeSet<ObjectIdentity>,
@@ -544,18 +552,22 @@ mod tests {
     use super::*;
     use crate::catalog::{CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, ObjectId};
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn catalog() -> CatalogIdentity {
         CatalogIdentity::new(CatalogId::allocate().unwrap(), Some(CatalogVersion::new(1)))
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn object(catalog: CatalogIdentity, kind: CatalogObjectKind) -> ObjectIdentity {
         ObjectIdentity::new(catalog.id, ObjectId::allocate().unwrap(), kind)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn table(catalog: CatalogIdentity) -> ObjectIdentity {
         object(catalog, CatalogObjectKind::Table)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn diamond_drop_is_deterministic_and_dependents_first() {
         let catalog = catalog();
@@ -585,6 +597,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn restrict_blocks_regular_edges_but_removes_automatic_dependents() {
         let catalog = catalog();
@@ -619,6 +632,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn ownership_drops_owned_subject_and_blocks_direct_subject_drop() {
         let catalog = catalog();
@@ -648,6 +662,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn restrict_accepts_a_blocker_already_in_the_automatic_closure() {
         let catalog = catalog();
@@ -686,6 +701,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn ownership_cycles_and_multiple_owners_are_rejected_atomically() {
         let catalog = catalog();
@@ -724,6 +740,7 @@ mod tests {
         assert_eq!(graph, before);
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn ordinary_cycle_is_stored_but_cannot_claim_a_strict_drop_order() {
         let catalog = catalog();
@@ -752,6 +769,7 @@ mod tests {
         ));
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn alter_blocking_is_independent_of_drop_blocking() {
         let catalog = catalog();
@@ -781,6 +799,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn checked_add_rejects_self_cross_catalog_and_unpaired_ownership() {
         let first_catalog = catalog();
@@ -813,6 +832,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn object_kind_is_part_of_the_key_without_restricting_valid_edges() {
         let catalog = catalog();
@@ -833,6 +853,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn dependencies_survive_unrelated_catalog_version_increments() {
         let catalog_v1 = catalog();
@@ -863,6 +884,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn duplicate_add_merges_flags_and_remove_cleans_both_indexes() {
         let catalog = catalog();
@@ -900,6 +922,7 @@ mod tests {
         assert!(!graph.remove_dependency(dependent, subject).unwrap());
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn malformed_reverse_index_is_detected_and_mutations_roll_back() {
         let catalog = catalog();

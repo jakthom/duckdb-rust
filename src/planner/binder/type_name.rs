@@ -130,6 +130,7 @@ impl State<'_, '_> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn optional_entry(
     catalog: &dyn crate::catalog::Catalog,
     name: &crate::catalog::TypeName,
@@ -159,6 +160,7 @@ mod tests {
 
     struct TypesCatalog(Vec<TypeDefinition>);
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Catalog for TypesCatalog {
         fn schemas(&self) -> Result<Vec<String>> {
             Ok(vec!["main".into(), "s".into()])
@@ -181,6 +183,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn bind(catalog: &dyn Catalog, sql: &str, search_path: &str) -> Result<BoundStatement> {
         let registry = Arc::new(SettingRegistry::builtins());
         let session: SettingValues = if search_path.is_empty() {
@@ -217,6 +220,7 @@ mod tests {
         )
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn parsing_retains_unqualified_provenance_and_rejects_unrouted_names() {
         let name = ast::ObjectName::from(vec![ast::Ident::new("Mood")]);
@@ -234,6 +238,7 @@ mod tests {
         assert!(UnresolvedTypeName::parse(&deep).is_err());
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn binder_uses_type_namespace_search_path_and_concrete_dictionary() -> Result<()> {
         let main = TypeDefinition::enumeration(TypeName::main("mood"), vec!["main".into()])?;
@@ -279,6 +284,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn required_qualified_drop_never_falls_back_to_main() -> Result<()> {
         let catalog = TypesCatalog(vec![TypeDefinition::enumeration(
@@ -298,6 +304,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn binder_rejects_non_enum_aliases_labels_and_unrouted_qualifiers() -> Result<()> {
         let catalog = TypesCatalog(Vec::new());

@@ -20,6 +20,7 @@ const MAX_ENTRIES: usize = 4_096;
 #[derive(Clone, Debug)]
 struct Identifier(String);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Identifier {
     fn new(value: impl Into<String>) -> Result<Self> {
         let value = value.into();
@@ -41,12 +42,14 @@ impl Identifier {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PartialEq for Identifier {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq_ignore_ascii_case(&other.0)
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Eq for Identifier {}
 
 /// One schema search location. An absent catalog is resolved against the
@@ -57,6 +60,7 @@ pub struct SearchPathEntry {
     schema: Identifier,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SearchPathEntry {
     pub fn schema(schema: impl Into<String>) -> Result<Self> {
         Ok(Self {
@@ -98,6 +102,7 @@ impl SearchPathEntry {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for SearchPathEntry {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(catalog) = &self.catalog {
@@ -108,6 +113,7 @@ impl fmt::Display for SearchPathEntry {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FromStr for SearchPathEntry {
     type Err = Error;
 
@@ -124,6 +130,7 @@ pub struct SearchPath {
     explicit: Option<Vec<SearchPathEntry>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SearchPath {
     pub fn explicit(entries: Vec<SearchPathEntry>) -> Result<Self> {
         validate_entry_count(entries.len())?;
@@ -208,6 +215,7 @@ impl SearchPath {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl fmt::Display for SearchPath {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (index, entry) in self.entries().iter().enumerate() {
@@ -220,6 +228,7 @@ impl fmt::Display for SearchPath {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FromStr for SearchPath {
     type Err = Error;
 
@@ -228,6 +237,7 @@ impl FromStr for SearchPath {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_entry_count(count: usize) -> Result<()> {
     if count > MAX_ENTRIES {
         return Err(Error::Resource(
@@ -237,6 +247,7 @@ fn validate_entry_count(count: usize) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_entries(input: &str) -> Result<Vec<SearchPathEntry>> {
     if input.len() > MAX_SETTING_BYTES {
         return Err(Error::Resource(
@@ -285,6 +296,7 @@ fn parse_entries(input: &str) -> Result<Vec<SearchPathEntry>> {
     Ok(entries)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn push_identifier_character(component: &mut String, character: char) -> Result<()> {
     let size = component
         .len()
@@ -299,6 +311,7 @@ fn push_identifier_character(component: &mut String, character: char) -> Result<
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn finish_component(components: &mut Vec<String>, component: &mut String) -> Result<()> {
     if component.is_empty() {
         return Err(Error::Parse(
@@ -314,6 +327,7 @@ fn finish_component(components: &mut Vec<String>, component: &mut String) -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn finish_entry(
     entries: &mut Vec<SearchPathEntry>,
     components: &mut Vec<String>,
@@ -333,6 +347,7 @@ fn finish_entry(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn write_identifier(formatter: &mut fmt::Formatter<'_>, identifier: &str) -> fmt::Result {
     if !identifier
         .bytes()
@@ -355,6 +370,7 @@ fn write_identifier(formatter: &mut fmt::Formatter<'_>, identifier: &str) -> fmt
 mod tests {
     use super::*;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn names(entries: &[SearchPathEntry]) -> Vec<(Option<&str>, &str)> {
         entries
             .iter()
@@ -362,6 +378,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn setting_parser_preserves_spelling_quotes_and_round_trips() {
         let input = "Sales,\"Mixed.Case\",\"a,b\",\"a\"\"b\",catalog.schema,\"cat.with.dot\".\"schema,with,comma\"";
@@ -395,6 +412,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn default_explicit_and_resolution_order_remain_distinct() {
         let inherited = SearchPath::default();
@@ -446,6 +464,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn invalid_syntax_is_rejected_without_partial_update() {
         for input in [",main", "main,,other", ".main", "main.", "a.b.c", "\"main"] {
@@ -474,6 +493,7 @@ mod tests {
         assert_eq!(path, SearchPath::default());
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn whitespace_duplicates_and_optional_quoting_match_the_pins() {
         let path =
@@ -488,6 +508,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn parser_enforces_identifier_setting_and_entry_bounds() {
         assert!(matches!(

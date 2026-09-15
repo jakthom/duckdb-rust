@@ -129,6 +129,7 @@ mod tests {
         storage::duckdb::{binary::Reader, catalog},
     };
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn definition() -> TypeDefinition {
         TypeDefinition::enumeration(
             TypeName::new("s", "mood"),
@@ -137,12 +138,14 @@ mod tests {
         .unwrap()
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn encoded(version: u64) -> Result<Vec<u8>> {
         let mut output = Encoder::default();
         type_definition(&mut output, &definition(), version)?;
         Ok(output.0)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn decode(bytes: Vec<u8>) -> Result<TypeDefinition> {
         let mut reader = Reader::new(bytes);
         let qualified = catalog::create_base(&mut reader, 8)?;
@@ -153,6 +156,7 @@ mod tests {
         Ok(result)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_create_info_matches_release_and_development_layouts() -> Result<()> {
         let release = [
@@ -179,6 +183,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_reader_rejects_every_truncated_create_info() -> Result<()> {
         for version in [68, 69] {
@@ -194,6 +199,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn enum_metadata_rejects_aliases_and_oversized_allocation_before_labels() -> Result<()> {
         let wire = |alias: Option<&str>, count: usize| -> Result<Vec<u8>> {

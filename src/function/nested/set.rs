@@ -515,6 +515,7 @@ mod tests {
         modes: Vec<CastMode>,
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Arguments {
         fn new(types: Vec<DataType>) -> Self {
             let len = types.len();

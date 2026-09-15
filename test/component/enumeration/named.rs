@@ -13,10 +13,12 @@ use duckdb_rust::{
     },
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn varchar(value: &str) -> Value {
     Value::Varchar(value.into())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn native_database(path: &std::path::Path, version: u64, logged: bool) -> Result<Database> {
     let checkpoint = FileCheckpoint::open(
         path,
@@ -32,6 +34,7 @@ fn native_database(path: &std::path::Path, version: u64, logged: bool) -> Result
     DatabaseBuilder::new().durability(durability).build()
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn assert_retained_dictionaries(connection: &mut duckdb_rust::Connection) -> Result<()> {
     assert_eq!(
         connection.query("SELECT v::VARCHAR FROM old_rows")?.rows,
@@ -55,6 +58,7 @@ fn assert_retained_dictionaries(connection: &mut duckdb_rust::Connection) -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn named_enums_survive_native_checkpoint_and_wal_replay() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -96,6 +100,7 @@ fn named_enums_survive_native_checkpoint_and_wal_replay() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sql_named_enum_conflicts_replacement_and_drop_keep_concrete_table_types() -> Result<()> {
     let mut connection = Database::memory()?.connect();
@@ -145,6 +150,7 @@ fn sql_named_enum_conflicts_replacement_and_drop_keep_concrete_table_types() -> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sql_named_enum_search_path_qualification_and_rejections_are_explicit() -> Result<()> {
     let mut connection = Database::memory()?.connect();
@@ -179,6 +185,7 @@ fn sql_named_enum_search_path_qualification_and_rejections_are_explicit() -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn sql_named_enum_transaction_and_prepared_rebinding_follow_catalog_visibility() -> Result<()> {
     let mut connection = Database::memory()?.connect();

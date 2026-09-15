@@ -81,6 +81,7 @@ fn count(path: &Path) -> Result<i128> {
 
 struct CountPhysicalDefaults(AtomicUsize);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl StoredExpressionEvaluator for CountPhysicalDefaults {
     fn evaluate(
         &self,
@@ -96,6 +97,7 @@ impl StoredExpressionEvaluator for CountPhysicalDefaults {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn counted_default() -> StoredExpression {
     StoredExpression {
         alias: None,
@@ -111,6 +113,7 @@ fn counted_default() -> StoredExpression {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn effect_default() -> StoredExpression {
     StoredExpression {
         alias: None,

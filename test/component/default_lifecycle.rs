@@ -18,6 +18,7 @@ struct EffectState {
 #[derive(Debug)]
 struct LifecycleDefault(Arc<EffectState>);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Debug for EffectState {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -67,16 +68,19 @@ impl ScalarFunction for LifecycleDefault {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn functions(state: Arc<EffectState>) -> Result<FunctionRegistry> {
     let mut functions = FunctionRegistry::builtins();
     functions.register_scalar(Arc::new(LifecycleDefault(state)))?;
     Ok(functions)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn integer(value: i128) -> Value {
     Value::Integer(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn string(value: &str) -> Value {
     Value::Varchar(value.into())
 }

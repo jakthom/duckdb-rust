@@ -37,6 +37,7 @@ fn definition(schema: &str, name: &str) -> TableDefinition {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn enum_definition(schema: &str, name: &str, labels: &[&str]) -> Result<TypeDefinition> {
     TypeDefinition::enumeration(
         TypeName::new(schema, name),

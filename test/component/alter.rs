@@ -35,6 +35,7 @@ mod runner;
 
 struct CountingDefault(AtomicUsize);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl StoredExpressionEvaluator for CountingDefault {
     fn evaluate(
         &self,
@@ -50,6 +51,7 @@ impl StoredExpressionEvaluator for CountingDefault {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn counted_default() -> StoredExpression {
     StoredExpression {
         alias: Some("retained_default".into()),
@@ -66,6 +68,7 @@ fn counted_default() -> StoredExpression {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn simple_counted_default() -> StoredExpression {
     StoredExpression {
         alias: None,
@@ -356,6 +359,7 @@ struct ControlledCheckpoint {
     fail: Arc<AtomicBool>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Durability for ControlledCheckpoint {
     fn name(&self) -> &'static str {
         "controlled-checkpoint"

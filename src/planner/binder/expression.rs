@@ -8,6 +8,7 @@ pub(super) enum IntervalLowering {
     },
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn interval_lowering(interval: &ast::Interval) -> Result<IntervalLowering> {
     if interval.last_field.is_some()
         || interval.leading_precision.is_some()
@@ -1033,6 +1034,7 @@ fn aggregate_references(expression: &BoundExpr, local: &mut bool, outer: &mut bo
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn has_runtime_bound_input(expression: &BoundExpr) -> bool {
     let mut found = matches!(
         expression.kind,

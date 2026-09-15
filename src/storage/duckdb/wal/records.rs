@@ -387,6 +387,7 @@ mod tests {
         types: Vec<TypeDefinition>,
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Catalog for CatalogFixture {
         fn schemas(&self) -> Result<Vec<String>> {
             Ok(vec!["main".into()])
@@ -413,10 +414,12 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn enum_type(label: &str) -> TypeDefinition {
         TypeDefinition::enumeration(TypeName::main("mood"), vec![label.into()]).unwrap()
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn create_type_record(definition: &TypeDefinition, version: u64) -> Result<Vec<u8>> {
         let mut output = Encoder::default();
         output.property(100, 13);
@@ -427,6 +430,7 @@ mod tests {
         Ok(output.0)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn drop_type_record(version: u64) -> Result<Vec<u8>> {
         let mut output = Encoder::default();
         output.property(100, 14);
@@ -446,6 +450,7 @@ mod tests {
         Ok(output.0)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn schema_record(kind: u64, version: u64) -> Result<Vec<u8>> {
         let mut output = Encoder::default();
         output.property(100, kind);
@@ -462,6 +467,7 @@ mod tests {
         Ok(output.0)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn read_record(
         state: &mut RecordState,
         bytes: Vec<u8>,
@@ -477,6 +483,7 @@ mod tests {
         Ok(change)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_wal_records_decode_release_and_development_contracts() -> Result<()> {
         let query = QueryContext::background();
@@ -506,6 +513,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_wal_reader_rejects_truncation_and_invalid_transitions() -> Result<()> {
         let query = QueryContext::background();
@@ -524,6 +532,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn schema_wal_records_decode_release_and_development_contracts() -> Result<()> {
         let query = QueryContext::background();

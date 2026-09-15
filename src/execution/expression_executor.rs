@@ -159,6 +159,7 @@ pub trait ExpressionEvaluator: Send + Sync {
 #[derive(Default)]
 pub struct ScalarEvaluator;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// DuckDB's predicate executor short-circuits conjunctions per selected row,
 /// even though projecting the same Boolean expression preserves value-mode
 /// demand for both runtime children. Keep that distinction at the evaluator
@@ -193,6 +194,7 @@ fn select_conjunction_rows<T: ExpressionEvaluator + ?Sized>(
     Ok(Some(selected))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn selection_matches<T: ExpressionEvaluator + ?Sized>(
     evaluator: &T,
     expression: &BoundExpr,
@@ -711,6 +713,7 @@ fn comparison_validation_error(error: Error) -> Error {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn row_dependent(expression: &BoundExpr) -> bool {
     let mut dependent = matches!(
         expression.kind,
@@ -720,6 +723,7 @@ fn row_dependent(expression: &BoundExpr) -> bool {
     dependent
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn constant_null_expression(expression: &BoundExpr) -> bool {
     match &expression.kind {
         ExprKind::Literal(Value::Null) | ExprKind::Parameter(Value::Null) => true,
@@ -728,6 +732,7 @@ fn constant_null_expression(expression: &BoundExpr) -> bool {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn literal_cast_expression(expression: &BoundExpr) -> bool {
     let ExprKind::Cast(inner, _, _) = &expression.kind else {
         return false;

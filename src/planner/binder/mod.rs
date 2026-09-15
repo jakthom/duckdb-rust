@@ -139,6 +139,7 @@ fn function_name(name: &ast::ObjectName) -> Result<String> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn bare_current_timestamp(expression: &ast::Expr) -> bool {
     if let ast::Expr::Identifier(identifier) = expression {
         return identifier.value.eq_ignore_ascii_case("current_timestamp");

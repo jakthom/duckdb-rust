@@ -105,6 +105,7 @@ impl ScalarFunction for PredicateError {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn predicate_functions(calls: Arc<AtomicUsize>) -> Result<FunctionRegistry> {
     let mut functions = FunctionRegistry::builtins();
     functions.register_scalar(Arc::new(NextValue(calls)))?;

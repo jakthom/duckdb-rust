@@ -10,6 +10,7 @@ struct InsertDefaults {
     source_ordinals: Vec<Option<usize>>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl InsertDefaults {
     fn new(
         input: Arc<dyn crate::execution::physical_plan::PhysicalOperator>,

@@ -477,6 +477,7 @@ struct SelectedSortChild {
     interrupt: Option<InterruptHandle>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl std::fmt::Debug for SelectedSortChild {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter

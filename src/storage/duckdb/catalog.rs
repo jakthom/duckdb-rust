@@ -80,6 +80,7 @@ pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
     Ok(snapshot)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Version/context are explicit at native catalog boundaries so retained
 /// expressions can select a compatible wire conversion without ambient state.
 pub(super) fn column_at(
@@ -429,6 +430,7 @@ pub(super) struct CreateName {
     name: Option<String>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn table_definition_at(
     reader: &mut Reader,
     qualified: CreateName,

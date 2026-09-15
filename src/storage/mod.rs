@@ -80,6 +80,7 @@ impl UpdateMetadata {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Keep the first physical encounter position for each row while applying its
 /// final replacement. Plain UPDATE supplies unique IDs; this also keeps direct
 /// storage adapters from re-sorting defensive duplicate input by logical ID.

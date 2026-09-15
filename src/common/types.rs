@@ -642,6 +642,7 @@ mod tests {
     use super::*;
     use crate::common::NestedType;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn regular_update_support_matches_nested_physical_layouts() {
         let integer_struct = NestedType::Struct(vec![("i".into(), DataType::Integer)]).data_type();

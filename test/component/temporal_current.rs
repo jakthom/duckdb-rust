@@ -16,6 +16,7 @@ struct StepClock {
     calls: AtomicUsize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl StepClock {
     fn new(first: i64) -> Self {
         Self {
@@ -46,10 +47,12 @@ impl TransactionClock for StepClock {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn timestamp(micros: i64) -> Value {
     Value::Temporal(TemporalValue::TimestampTz(micros))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn timestamps(row: &[Value], micros: i64) -> bool {
     row.iter().all(|value| value == &timestamp(micros))
 }

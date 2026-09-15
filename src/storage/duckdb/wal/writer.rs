@@ -123,6 +123,7 @@ struct Pending {
     order: Vec<RowId>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Pending {
     fn insert(&mut self, id: RowId, row: Row) {
         if !self.rows.contains_key(&id) {
@@ -765,10 +766,12 @@ mod type_tests {
     use super::*;
     use crate::storage::duckdb::binary::{Reader, u64_at};
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn type_(label: &str) -> TypeDefinition {
         TypeDefinition::enumeration(TypeName::main("mood"), vec![label.into()]).unwrap()
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn session(version: u64, definitions: Vec<TypeDefinition>) -> Session {
         Session {
             types: definitions
@@ -780,6 +783,7 @@ mod type_tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn payloads(bytes: &[u8]) -> Result<Vec<&[u8]>> {
         let mut position = 0;
         let mut result = Vec::new();
@@ -798,12 +802,14 @@ mod type_tests {
         Ok(result)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn kind(payload: &[u8]) -> Result<u64> {
         let mut reader = Reader::new(payload.to_vec());
         reader.field(100)?;
         reader.unsigned()
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_wal_create_drop_and_replace_follow_native_record_order() -> Result<()> {
         let query = QueryContext::background();
@@ -851,6 +857,7 @@ mod type_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_wal_drop_names_switch_at_storage_69() -> Result<()> {
         for version in [68, 69] {
@@ -881,6 +888,7 @@ mod type_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn named_enum_wal_rejects_impossible_journal_transitions() {
         let query = QueryContext::background();
@@ -905,6 +913,7 @@ mod type_tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn schema_wal_names_switch_at_storage_69() -> Result<()> {
         for (version, expected) in [
