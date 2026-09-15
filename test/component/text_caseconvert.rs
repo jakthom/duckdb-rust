@@ -74,3 +74,36 @@ fn unicode_case_conversion_aliases_nulls_nuls_batches_and_prepared_execution() -
     }
     Ok(())
 }
+
+#[test]
+fn case_conversion_uses_duckdb_pinned_unicode_15_1_tables() -> Result<()> {
+    assert_eq!(utf8proc::unicode_version(), "15.1.0");
+
+    // These code points gained simple case mappings after Unicode 15.1. Both
+    // DuckDB pins leave them unchanged, while a current Unicode table does not.
+    let drift = "\u{019B}\u{0264}\u{1C89}\u{A7CB}\u{10D50}\u{16EBC}";
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let db = DatabaseBuilder::new()
+            .expressions(expressions)
+            .batch_size(2)
+            .build()?;
+        let mut connection = db.connect();
+        let sql = "SELECT lower($1), upper($1), lcase($1), ucase($1)";
+        let prepared = connection.prepare(sql)?;
+        assert_eq!(
+            connection
+                .execute_prepared(&prepared, &[Value::Varchar(drift.into())])?
+                .rows,
+            vec![vec![
+                Value::Varchar(drift.into()),
+                Value::Varchar(drift.into()),
+                Value::Varchar(drift.into()),
+                Value::Varchar(drift.into()),
+            ]]
+        );
+    }
+    Ok(())
+}

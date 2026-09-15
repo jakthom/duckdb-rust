@@ -678,8 +678,6 @@ dependencies = [
 [[package]]
 name = "utf8proc-sys"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3232ee5a98c4de53303dced4b70f0b42d456c71a36372832b08184f2d864aec"
 dependencies = [
  "cc",
 ]
