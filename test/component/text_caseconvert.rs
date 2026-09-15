@@ -79,6 +79,9 @@ fn unicode_case_conversion_aliases_nulls_nuls_batches_and_prepared_execution() -
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn case_conversion_uses_duckdb_pinned_unicode_15_1_tables() -> Result<()> {
     assert_eq!(utf8proc::unicode_version(), "15.1.0");
+    let capital_b = utf8proc::properties::CharProperties::for_char('B');
+    assert_eq!(capital_b.as_ffi_property().comb_index, 2784);
+    assert_eq!(capital_b.char_width(), Some(1));
 
     // These code points gained simple case mappings after Unicode 15.1. Both
     // DuckDB pins leave them unchanged, while a current Unicode table does not.

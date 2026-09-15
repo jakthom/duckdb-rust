@@ -224,9 +224,9 @@ pub struct utf8proc_property_struct {
     pub uppercase_seqindex: utf8proc_uint16_t,
     pub lowercase_seqindex: utf8proc_uint16_t,
     pub titlecase_seqindex: utf8proc_uint16_t,
-    pub _bitfield_align_1: [u16; 0],
+    pub comb_index: utf8proc_uint16_t,
+    pub _bitfield_align_1: [u32; 0],
     pub _bitfield_1: __BindgenBitfieldUnit<[u8; 4usize]>,
-    pub __bindgen_padding_0: u16,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -250,469 +250,149 @@ const _: () = {
         [::std::mem::offset_of!(utf8proc_property_struct, lowercase_seqindex) - 14usize];
     ["Offset of field: utf8proc_property_struct::titlecase_seqindex"]
         [::std::mem::offset_of!(utf8proc_property_struct, titlecase_seqindex) - 16usize];
+    ["Offset of field: utf8proc_property_struct::comb_index"]
+        [::std::mem::offset_of!(utf8proc_property_struct, comb_index) - 18usize];
+    ["Offset of field: utf8proc_property_struct::_bitfield_1"]
+        [::std::mem::offset_of!(utf8proc_property_struct, _bitfield_1) - 20usize];
 };
+macro_rules! utf8proc_property_bitfield {
+    ($get:ident, $set:ident, $get_raw:ident, $set_raw:ident, $offset:expr, $width:expr) => {
+        #[inline]
+        pub fn $get(&self) -> ::std::os::raw::c_uint {
+            self._bitfield_1.get($offset, $width) as ::std::os::raw::c_uint
+        }
+        #[inline]
+        pub fn $set(&mut self, val: ::std::os::raw::c_uint) {
+            self._bitfield_1.set($offset, $width, val as u64);
+        }
+        #[inline]
+        pub unsafe fn $get_raw(this: *const Self) -> ::std::os::raw::c_uint {
+            unsafe {
+                <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
+                    ::std::ptr::addr_of!((*this)._bitfield_1),
+                    $offset,
+                    $width,
+                ) as ::std::os::raw::c_uint
+            }
+        }
+        #[inline]
+        pub unsafe fn $set_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
+            unsafe {
+                <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
+                    ::std::ptr::addr_of_mut!((*this)._bitfield_1),
+                    $offset,
+                    $width,
+                    val as u64,
+                );
+            }
+        }
+    };
+}
+
 impl utf8proc_property_struct {
     #[inline]
     pub fn comb_index(&self) -> utf8proc_uint16_t {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(0usize, 10u8) as u16) }
+        self.comb_index
     }
     #[inline]
     pub fn set_comb_index(&mut self, val: utf8proc_uint16_t) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set(0usize, 10u8, val as u64)
-        }
+        self.comb_index = val;
     }
     #[inline]
     pub unsafe fn comb_index_raw(this: *const Self) -> utf8proc_uint16_t {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                0usize,
-                10u8,
-            ) as u16)
-        }
+        unsafe { ::std::ptr::addr_of!((*this).comb_index).read_unaligned() }
     }
     #[inline]
     pub unsafe fn set_comb_index_raw(this: *mut Self, val: utf8proc_uint16_t) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                0usize,
-                10u8,
-                val as u64,
-            )
-        }
+        unsafe { ::std::ptr::addr_of_mut!((*this).comb_index).write_unaligned(val) }
     }
-    #[inline]
-    pub fn comb_length(&self) -> utf8proc_uint16_t {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(10usize, 5u8) as u16) }
-    }
-    #[inline]
-    pub fn set_comb_length(&mut self, val: utf8proc_uint16_t) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set(10usize, 5u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn comb_length_raw(this: *const Self) -> utf8proc_uint16_t {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                10usize,
-                5u8,
-            ) as u16)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_comb_length_raw(this: *mut Self, val: utf8proc_uint16_t) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                10usize,
-                5u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn comb_issecond(&self) -> utf8proc_uint16_t {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(15usize, 1u8) as u16) }
-    }
-    #[inline]
-    pub fn set_comb_issecond(&mut self, val: utf8proc_uint16_t) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            self._bitfield_1.set(15usize, 1u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn comb_issecond_raw(this: *const Self) -> utf8proc_uint16_t {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                15usize,
-                1u8,
-            ) as u16)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_comb_issecond_raw(this: *mut Self, val: utf8proc_uint16_t) {
-        unsafe {
-            let val: u16 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                15usize,
-                1u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn bidi_mirrored(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(16usize, 1u8) as u32) }
-    }
-    #[inline]
-    pub fn set_bidi_mirrored(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(16usize, 1u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn bidi_mirrored_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                16usize,
-                1u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_bidi_mirrored_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                16usize,
-                1u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn comp_exclusion(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(17usize, 1u8) as u32) }
-    }
-    #[inline]
-    pub fn set_comp_exclusion(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(17usize, 1u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn comp_exclusion_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                17usize,
-                1u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_comp_exclusion_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                17usize,
-                1u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn ignorable(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(18usize, 1u8) as u32) }
-    }
-    #[inline]
-    pub fn set_ignorable(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(18usize, 1u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn ignorable_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                18usize,
-                1u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_ignorable_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                18usize,
-                1u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn control_boundary(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(19usize, 1u8) as u32) }
-    }
-    #[inline]
-    pub fn set_control_boundary(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(19usize, 1u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn control_boundary_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                19usize,
-                1u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_control_boundary_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                19usize,
-                1u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn charwidth(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(20usize, 2u8) as u32) }
-    }
-    #[inline]
-    pub fn set_charwidth(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(20usize, 2u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn charwidth_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                20usize,
-                2u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_charwidth_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                20usize,
-                2u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn ambiguous_width(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(22usize, 1u8) as u32) }
-    }
-    #[inline]
-    pub fn set_ambiguous_width(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(22usize, 1u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn ambiguous_width_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                22usize,
-                1u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_ambiguous_width_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                22usize,
-                1u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn pad(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(23usize, 1u8) as u32) }
-    }
-    #[inline]
-    pub fn set_pad(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(23usize, 1u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn pad_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                23usize,
-                1u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_pad_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                23usize,
-                1u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn boundclass(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(24usize, 6u8) as u32) }
-    }
-    #[inline]
-    pub fn set_boundclass(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(24usize, 6u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn boundclass_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                24usize,
-                6u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_boundclass_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                24usize,
-                6u8,
-                val as u64,
-            )
-        }
-    }
-    #[inline]
-    pub fn indic_conjunct_break(&self) -> ::std::os::raw::c_uint {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(30usize, 2u8) as u32) }
-    }
-    #[inline]
-    pub fn set_indic_conjunct_break(&mut self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(30usize, 2u8, val as u64)
-        }
-    }
-    #[inline]
-    pub unsafe fn indic_conjunct_break_raw(this: *const Self) -> ::std::os::raw::c_uint {
-        unsafe {
-            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 4usize]>>::raw_get(
-                ::std::ptr::addr_of!((*this)._bitfield_1),
-                30usize,
-                2u8,
-            ) as u32)
-        }
-    }
-    #[inline]
-    pub unsafe fn set_indic_conjunct_break_raw(this: *mut Self, val: ::std::os::raw::c_uint) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            <__BindgenBitfieldUnit<[u8; 4usize]>>::raw_set(
-                ::std::ptr::addr_of_mut!((*this)._bitfield_1),
-                30usize,
-                2u8,
-                val as u64,
-            )
-        }
-    }
+
+    utf8proc_property_bitfield!(
+        bidi_mirrored,
+        set_bidi_mirrored,
+        bidi_mirrored_raw,
+        set_bidi_mirrored_raw,
+        0usize,
+        1u8
+    );
+    utf8proc_property_bitfield!(
+        comp_exclusion,
+        set_comp_exclusion,
+        comp_exclusion_raw,
+        set_comp_exclusion_raw,
+        1usize,
+        1u8
+    );
+    utf8proc_property_bitfield!(
+        ignorable,
+        set_ignorable,
+        ignorable_raw,
+        set_ignorable_raw,
+        2usize,
+        1u8
+    );
+    utf8proc_property_bitfield!(
+        control_boundary,
+        set_control_boundary,
+        control_boundary_raw,
+        set_control_boundary_raw,
+        3usize,
+        1u8
+    );
+    utf8proc_property_bitfield!(
+        charwidth,
+        set_charwidth,
+        charwidth_raw,
+        set_charwidth_raw,
+        4usize,
+        2u8
+    );
+    utf8proc_property_bitfield!(
+        pad,
+        set_pad,
+        pad_raw,
+        set_pad_raw,
+        6usize,
+        2u8
+    );
+    utf8proc_property_bitfield!(
+        boundclass,
+        set_boundclass,
+        boundclass_raw,
+        set_boundclass_raw,
+        8usize,
+        6u8
+    );
+    utf8proc_property_bitfield!(
+        indic_conjunct_break,
+        set_indic_conjunct_break,
+        indic_conjunct_break_raw,
+        set_indic_conjunct_break_raw,
+        14usize,
+        2u8
+    );
+
     #[inline]
     pub fn new_bitfield_1(
-        comb_index: utf8proc_uint16_t,
-        comb_length: utf8proc_uint16_t,
-        comb_issecond: utf8proc_uint16_t,
         bidi_mirrored: ::std::os::raw::c_uint,
         comp_exclusion: ::std::os::raw::c_uint,
         ignorable: ::std::os::raw::c_uint,
         control_boundary: ::std::os::raw::c_uint,
         charwidth: ::std::os::raw::c_uint,
-        ambiguous_width: ::std::os::raw::c_uint,
         pad: ::std::os::raw::c_uint,
         boundclass: ::std::os::raw::c_uint,
         indic_conjunct_break: ::std::os::raw::c_uint,
     ) -> __BindgenBitfieldUnit<[u8; 4usize]> {
-        let mut __bindgen_bitfield_unit: __BindgenBitfieldUnit<[u8; 4usize]> = Default::default();
-        __bindgen_bitfield_unit.set(0usize, 10u8, {
-            let comb_index: u16 = unsafe { ::std::mem::transmute(comb_index) };
-            comb_index as u64
-        });
-        __bindgen_bitfield_unit.set(10usize, 5u8, {
-            let comb_length: u16 = unsafe { ::std::mem::transmute(comb_length) };
-            comb_length as u64
-        });
-        __bindgen_bitfield_unit.set(15usize, 1u8, {
-            let comb_issecond: u16 = unsafe { ::std::mem::transmute(comb_issecond) };
-            comb_issecond as u64
-        });
-        __bindgen_bitfield_unit.set(16usize, 1u8, {
-            let bidi_mirrored: u32 = unsafe { ::std::mem::transmute(bidi_mirrored) };
-            bidi_mirrored as u64
-        });
-        __bindgen_bitfield_unit.set(17usize, 1u8, {
-            let comp_exclusion: u32 = unsafe { ::std::mem::transmute(comp_exclusion) };
-            comp_exclusion as u64
-        });
-        __bindgen_bitfield_unit.set(18usize, 1u8, {
-            let ignorable: u32 = unsafe { ::std::mem::transmute(ignorable) };
-            ignorable as u64
-        });
-        __bindgen_bitfield_unit.set(19usize, 1u8, {
-            let control_boundary: u32 = unsafe { ::std::mem::transmute(control_boundary) };
-            control_boundary as u64
-        });
-        __bindgen_bitfield_unit.set(20usize, 2u8, {
-            let charwidth: u32 = unsafe { ::std::mem::transmute(charwidth) };
-            charwidth as u64
-        });
-        __bindgen_bitfield_unit.set(22usize, 1u8, {
-            let ambiguous_width: u32 = unsafe { ::std::mem::transmute(ambiguous_width) };
-            ambiguous_width as u64
-        });
-        __bindgen_bitfield_unit.set(23usize, 1u8, {
-            let pad: u32 = unsafe { ::std::mem::transmute(pad) };
-            pad as u64
-        });
-        __bindgen_bitfield_unit.set(24usize, 6u8, {
-            let boundclass: u32 = unsafe { ::std::mem::transmute(boundclass) };
-            boundclass as u64
-        });
-        __bindgen_bitfield_unit.set(30usize, 2u8, {
-            let indic_conjunct_break: u32 = unsafe { ::std::mem::transmute(indic_conjunct_break) };
-            indic_conjunct_break as u64
-        });
-        __bindgen_bitfield_unit
+        let mut unit: __BindgenBitfieldUnit<[u8; 4usize]> = Default::default();
+        unit.set(0usize, 1u8, bidi_mirrored as u64);
+        unit.set(1usize, 1u8, comp_exclusion as u64);
+        unit.set(2usize, 1u8, ignorable as u64);
+        unit.set(3usize, 1u8, control_boundary as u64);
+        unit.set(4usize, 2u8, charwidth as u64);
+        unit.set(6usize, 2u8, pad as u64);
+        unit.set(8usize, 6u8, boundclass as u64);
+        unit.set(14usize, 2u8, indic_conjunct_break as u64);
+        unit
     }
 }
 #[doc = " Struct containing information about a codepoint."]
@@ -1057,10 +737,6 @@ unsafe extern "C" {
     pub fn utf8proc_charwidth(codepoint: utf8proc_int32_t) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    #[doc = " Given a codepoint, return whether it has East Asian width class A (Ambiguous)\n\n Codepoints with this property are considered to have charwidth 1 (if they are printable)\n but some East Asian fonts render them as double width."]
-    pub fn utf8proc_charwidth_ambiguous(codepoint: utf8proc_int32_t) -> utf8proc_bool;
-}
-unsafe extern "C" {
     #[doc = " Return the Unicode category for the codepoint (one of the\n @ref utf8proc_category_t constants.)"]
     pub fn utf8proc_category(codepoint: utf8proc_int32_t) -> utf8proc_category_t;
 }
@@ -1095,6 +771,13 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " NFC normalization (@ref UTF8PROC_COMPOSE)."]
     pub fn utf8proc_NFC(str_: *const utf8proc_uint8_t) -> *mut utf8proc_uint8_t;
+}
+unsafe extern "C" {
+    #[doc = " Remove accents from a string."]
+    pub fn utf8proc_remove_accents(
+        str_: *const utf8proc_uint8_t,
+        strlen: utf8proc_ssize_t,
+    ) -> *mut utf8proc_uint8_t;
 }
 unsafe extern "C" {
     #[doc = " NFKD normalization (@ref UTF8PROC_DECOMPOSE and @ref UTF8PROC_COMPAT)."]
