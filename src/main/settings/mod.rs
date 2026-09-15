@@ -364,13 +364,30 @@ impl SettingsSnapshot {
     }
 
     pub(in crate::main) fn profiling_format(&self, query: &QueryContext) -> Result<Option<&str>> {
-        match self.get("enable_profiling", query)? {
+        // An explicit NULL is the state installed by PRAGMA disable_profiling.
+        // Without that override the deprecated profiling_mode setting still
+        // enables the default renderer, matching both pinned callback paths.
+        let format = self
+            .session
+            .get("enable_profiling")
+            .unwrap_or(&self.registry.entry("enable_profiling")?.definition.default);
+        match format {
             Value::Null => Ok(None),
             Value::Varchar(value) => Ok(Some(value)),
             _ => Err(Error::Internal(
                 "invalid enable_profiling setting type".into(),
             )),
         }
+        .and_then(|format| match format {
+            Some(format) => Ok(Some(format)),
+            None => match self.get("profiling_mode", query)? {
+                Value::Varchar(_) => Ok(Some("query_tree")),
+                Value::Null => Ok(None),
+                _ => Err(Error::Internal(
+                    "invalid profiling_mode setting type".into(),
+                )),
+            },
+        })
     }
 
     pub(in crate::main) fn emit_profile(
