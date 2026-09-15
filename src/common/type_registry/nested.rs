@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, collections::BTreeSet, sync::Arc};
 
-use super::{BoundType, KeyWriter, TypeAdapter, TypeRegistry};
+use super::{BoundType, KeyContext, KeyWriter, TypeAdapter, TypeRegistry};
 use crate::{
     common::{DataType, Error, NestedPayload, NestedType, Result, Value},
     parallel::QueryContext,
@@ -42,12 +42,55 @@ impl NestedTypes {
         &self,
         index: usize,
         value: &Value,
+        key_context: KeyContext,
         writer: &mut KeyWriter<'_>,
         query: &QueryContext,
     ) -> Result<()> {
         let mut bytes = Vec::new();
-        self.child(index)?.append_key(value, &mut bytes, query)?;
+        self.child(index)?
+            .append_key_with_context(value, key_context, &mut bytes, query)?;
         writer.extend_from_slice(&bytes)
+    }
+
+    fn write_nested_key(
+        &self,
+        value: &Value,
+        key_context: KeyContext,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        match self.payload(value)? {
+            NestedPayload::Sequence(values) | NestedPayload::Struct(values) => {
+                output.extend_from_slice(&(values.len() as u64).to_le_bytes())?;
+                let structure = matches!(self.payload(value)?, NestedPayload::Struct(_));
+                for (index, value) in values.iter().enumerate() {
+                    self.key_child(
+                        if structure { index } else { 0 },
+                        value,
+                        key_context,
+                        output,
+                        query,
+                    )?;
+                }
+            }
+            NestedPayload::Map(entries) => {
+                output.extend_from_slice(&(entries.len() as u64).to_le_bytes())?;
+                for (key, value) in entries {
+                    self.key_child(0, key, key_context, output, query)?;
+                    self.key_child(1, value, key_context, output, query)?;
+                }
+            }
+            NestedPayload::Union { tag, value } => {
+                output.extend_from_slice(&(*tag as u64).to_le_bytes())?;
+                self.key_child(*tag, value, key_context, output, query)?;
+            }
+            NestedPayload::Variant { .. } => {
+                return Err(Error::Unsupported(
+                    "VARIANT keys are not integrated yet".into(),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -275,31 +318,16 @@ impl TypeAdapter for NestedTypes {
         output: &mut KeyWriter<'_>,
         query: &QueryContext,
     ) -> Result<()> {
-        match self.payload(value)? {
-            NestedPayload::Sequence(values) | NestedPayload::Struct(values) => {
-                output.extend_from_slice(&(values.len() as u64).to_le_bytes())?;
-                let structure = matches!(self.payload(value)?, NestedPayload::Struct(_));
-                for (index, value) in values.iter().enumerate() {
-                    self.key_child(if structure { index } else { 0 }, value, output, query)?;
-                }
-            }
-            NestedPayload::Map(entries) => {
-                output.extend_from_slice(&(entries.len() as u64).to_le_bytes())?;
-                for (key, value) in entries {
-                    self.key_child(0, key, output, query)?;
-                    self.key_child(1, value, output, query)?;
-                }
-            }
-            NestedPayload::Union { tag, value } => {
-                output.extend_from_slice(&(*tag as u64).to_le_bytes())?;
-                self.key_child(*tag, value, output, query)?;
-            }
-            NestedPayload::Variant { .. } => {
-                return Err(Error::Unsupported(
-                    "VARIANT keys are not integrated yet".into(),
-                ));
-            }
-        }
-        Ok(())
+        self.write_nested_key(value, KeyContext::Equality, output, query)
+    }
+    fn write_key_with_context(
+        &self,
+        _: &DataType,
+        value: &Value,
+        key_context: KeyContext,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        self.write_nested_key(value, key_context, output, query)
     }
 }

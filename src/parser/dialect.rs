@@ -1,7 +1,7 @@
 //! Extend the selected SQL grammar through its dialect interface. Nested
 //! grouping constructs produce AST nodes; no SQL text is rewritten.
 use sqlparser::{
-    ast::Expr,
+    ast::{BinaryOperator, Expr},
     dialect::{Dialect, DuckDbDialect},
     keywords::Keyword,
     parser::{Parser, ParserError},
@@ -61,6 +61,26 @@ impl Dialect for RewriteDialect {
         expr: &Expr,
         precedence: u8,
     ) -> Option<Result<Expr, ParserError>> {
+        // sqlparser's DuckDB dialect assigns these tokens a precedence but
+        // deliberately has no infix parser for them. DuckDB uses them as the
+        // LIST/ARRAY overlap and containment spellings.
+        for (token, operator) in [
+            (Token::Overlap, BinaryOperator::PGOverlap),
+            (Token::AtArrow, BinaryOperator::AtArrow),
+            (Token::ArrowAt, BinaryOperator::ArrowAt),
+        ] {
+            if parser.consume_token(&token) {
+                let right = match parser.parse_subexpr(precedence) {
+                    Ok(right) => right,
+                    Err(error) => return Some(Err(error)),
+                };
+                return Some(Ok(Expr::BinaryOp {
+                    left: Box::new(expr.clone()),
+                    op: operator,
+                    right: Box::new(right),
+                }));
+            }
+        }
         if parser.peek_token().token == Token::Colon {
             return Some(Err(ParserError::ParserError(
                 "syntax error at or near \":\"".into(),

@@ -582,6 +582,18 @@ impl State<'_, '_> {
                 if let Some(operator) = overload {
                     return self.operator(operator, vec![recurse(left)?, recurse(right)?]);
                 }
+                // LIST/ARRAY set syntax is catalog-backed, rather than an
+                // execution operator: it shares the same contextual child
+                // coercion and retained function contract as the aliases.
+                let set_function = match op {
+                    B::PGOverlap => Some("&&"),
+                    B::AtArrow => Some("@>"),
+                    B::ArrowAt => Some("<@"),
+                    _ => None,
+                };
+                if let Some(name) = set_function {
+                    return self.scalar_call(name, vec![recurse(left)?, recurse(right)?]);
+                }
                 let op = match op {
                     B::Eq => BinaryOp::Equal,
                     B::NotEq => BinaryOp::NotEqual,

@@ -477,6 +477,9 @@ fn retained_binary_operator(operator: &ast::BinaryOperator) -> Option<&'static s
         O::BitwiseOr => "|",
         O::PGBitwiseShiftLeft => "<<",
         O::PGBitwiseShiftRight => ">>",
+        O::PGOverlap => "&&",
+        O::AtArrow => "@>",
+        O::ArrowAt => "<@",
         _ => return None,
     })
 }

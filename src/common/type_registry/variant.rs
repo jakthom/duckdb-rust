@@ -2,7 +2,7 @@
 //! primitive comparisons use the registry snapshot selected when bound.
 use std::{cmp::Ordering, sync::Arc};
 
-use super::{KeyWriter, TypeAdapter, TypeRegistry};
+use super::{KeyContext, KeyWriter, TypeAdapter, TypeRegistry};
 use crate::{
     common::{
         DataType, Error, NestedPayload, NestedType, Result, Value,
@@ -343,6 +343,22 @@ impl TypeAdapter for VariantType {
         query: &QueryContext,
     ) -> Result<()> {
         self.write_node(Node::Typed(ty, value), output, query, 0)
+    }
+    fn write_key_with_context(
+        &self,
+        ty: &DataType,
+        value: &Value,
+        key_context: KeyContext,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        query.check()?;
+        if key_context == KeyContext::SortEquivalence {
+            return Err(Error::Unsupported(
+                "VARIANT representation-sensitive membership keys are not integrated".into(),
+            ));
+        }
+        self.write_key(ty, value, output, query)
     }
 }
 

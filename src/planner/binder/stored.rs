@@ -269,6 +269,9 @@ impl State<'_, '_> {
         if let Some(selected) = selected {
             return self.operator(selected, arguments);
         }
+        if matches!(name.as_str(), "&&" | "@>" | "<@") && arity == 2 {
+            return self.scalar_call(name, arguments);
+        }
         let binary = match (name.as_str(), arity) {
             ("=", 2) => Some(BinaryOp::Equal),
             ("!=", 2) => Some(BinaryOp::NotEqual),

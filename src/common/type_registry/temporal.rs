@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use super::{KeyWriter, TypeAdapter, ValueValidation};
+use super::{KeyContext, KeyWriter, TypeAdapter, ValueValidation};
 use crate::{
     common::{DataType, Error, Result, Value},
     parallel::QueryContext,
@@ -81,5 +81,30 @@ impl TypeAdapter for TemporalType {
     ) -> Result<()> {
         context.check()?;
         output.extend_from_slice(&value.as_temporal()?.comparison_key().to_le_bytes())
+    }
+    fn write_key_with_context(
+        &self,
+        ty: &DataType,
+        value: &Value,
+        key_context: KeyContext,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        query.check()?;
+        if key_context == KeyContext::SortEquivalence
+            && let crate::common::TemporalValue::Interval {
+                months,
+                days,
+                micros,
+            } = value.as_temporal()?
+        {
+            // Membership uses DuckDB's representation-sensitive sort key for
+            // INTERVAL; ordinary SQL equality remains duration-normalized.
+            output.extend_from_slice(&months.to_le_bytes())?;
+            output.extend_from_slice(&days.to_le_bytes())?;
+            output.extend_from_slice(&micros.to_le_bytes())
+        } else {
+            self.write_key(ty, value, output, query)
+        }
     }
 }

@@ -24,6 +24,8 @@ mod object;
 mod publication;
 #[path = "nested/sequence.rs"]
 mod sequence;
+#[path = "nested/set.rs"]
+mod set;
 #[path = "nested/slice.rs"]
 mod slice;
 #[path = "nested/sort.rs"]

@@ -13,6 +13,7 @@ mod concat;
 mod constructor;
 mod map;
 mod sequence;
+mod set;
 mod slice;
 mod sort;
 mod variant;
@@ -356,6 +357,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     constructor::register(registry);
     map::register(registry);
     sequence::register(registry);
+    set::register(registry);
     slice::register(registry);
     sort::register(registry);
     variant::register(registry);
