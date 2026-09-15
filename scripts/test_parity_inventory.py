@@ -85,7 +85,7 @@ class InventoryTests(unittest.TestCase):
             with patch("compiled_registry.subprocess.run",
                        return_value=subprocess.CompletedProcess(command, 0, listing, "")) as run:
                 result = enumerate_registry(root, binary, root)
-            self.assertEqual(result["status"], "enumerated_not_executed")
+            self.assertEqual(result["status"], "enumerated_not_executed", result)
             self.assertEqual(result["hidden_cases"], 1)
             self.assertEqual(result["sql_file_cases"], 2)
             self.assertEqual(result["slow_sql_file_cases"], 0)
@@ -156,6 +156,41 @@ class InventoryTests(unittest.TestCase):
             provenance = {"generated_extension_loader": str(loader)}
             with self.assertRaisesRegex(ValueError, "duplicate configured"):
                 _configured_extension_roots(root, provenance)
+
+    def test_registry_reconciles_nonempty_configured_extension_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "test/sql").mkdir(parents=True)
+            (root / "test/sql/a.test").write_text("SELECT 1")
+            (root / "test/sqlite").mkdir(parents=True)
+            (root / "test/sqlite/test_sqllogictest.cpp").write_text("// discovery")
+            extension_root = root / "external-extension/test/sql"
+            extension_root.mkdir(parents=True)
+            extension_case = extension_root / "extension.test"
+            extension_case.write_text("SELECT 1")
+            binary = root / "build/test/unittest"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"fake")
+            (root / "build/CMakeCache.txt").write_text(
+                f"CMAKE_HOME_DIRECTORY:INTERNAL={root.resolve()}\nCMAKE_BUILD_TYPE:STRING=Release\n")
+            loader = root / "build/codegen/src/generated_extension_loader.cpp"
+            loader.parent.mkdir(parents=True)
+            loader.write_text("LoadedExtensionTestPaths(){ vector<string> VEC = {\"" + str(extension_root) + "\"}; }")
+            command = [str(binary), "*", "--list-tests"]
+            good = f"name\tgroup\ntest/sql/a.test\t[sql]\n{extension_case}\t[extension]\n"
+            with patch("compiled_registry.subprocess.run",
+                       return_value=subprocess.CompletedProcess(command, 0, good, "")):
+                result = enumerate_registry(root, binary, root)
+            self.assertEqual(result["status"], "enumerated_not_executed", result)
+            self.assertEqual(result["configured_extension_sql_file_cases"], 1)
+            missing = "name\tgroup\ntest/sql/a.test\t[sql]\n"
+            with patch("compiled_registry.subprocess.run",
+                       return_value=subprocess.CompletedProcess(command, 0, missing, "")):
+                self.assertEqual(enumerate_registry(root, binary, root)["status"], "setup_failure")
+            unknown = good + "/not-configured/test/sql/unknown.test\t[extension]\n"
+            with patch("compiled_registry.subprocess.run",
+                       return_value=subprocess.CompletedProcess(command, 0, unknown, "")):
+                self.assertEqual(enumerate_registry(root, binary, root)["status"], "setup_failure")
 
 
 if __name__ == "__main__":

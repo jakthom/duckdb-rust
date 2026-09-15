@@ -134,16 +134,32 @@ def _configured_extension_roots(source, provenance):
         raise ValueError("duplicate configured loaded-extension test roots")
     entries = []
     for root in roots:
-        resolved = Path(root).resolve()
+        raw_root = Path(root)
+        resolved = (raw_root if raw_root.is_absolute() else Path(source) / raw_root).resolve()
         entry = {"id": f"configured-extension-root:{root}", "path": root,
-                 "exists": resolved.is_dir(), "source_relative": None}
+                 "resolved_path": str(resolved), "exists": resolved.is_dir(), "source_relative": None}
         if resolved.is_relative_to(Path(source).resolve()):
-            entry["source_relative"] = str(resolved.relative_to(source))
+            entry["source_relative"] = str(resolved.relative_to(Path(source).resolve()))
         entries.append(entry)
     if any(not entry["exists"] for entry in entries):
         raise ValueError("configured loaded-extension test root is absent")
     return {"roots": entries, "count": len(entries),
             "scope": "Actual CMake-generated loader roots for this one compiled runner configuration."}
+
+
+def _configured_extension_sql_ids(configured_extensions):
+    """Mirror listFiles(root): retain an absolute root's absolute emitted paths."""
+    ids = set()
+    for root in configured_extensions["roots"]:
+        raw_root, resolved = Path(root["path"]), Path(root["resolved_path"])
+        for path in resolved.rglob("*"):
+            if not path.is_file() or not str(path).endswith(SQL_SUFFIXES):
+                continue
+            # FileSystem::JoinPath retains the configured root spelling.  Do
+            # not leak Python's resolved /private/... spelling for /var/... .
+            emitted = str(raw_root / path.relative_to(resolved))
+            ids.add(emitted.replace("\\", "/"))
+    return ids
 
 
 def enumerate_registry(source, binary, output_dir):
@@ -169,9 +185,11 @@ def enumerate_registry(source, binary, output_dir):
         source_paths = {str(path.relative_to(source)) for root in ("test", "third_party/sqllogictest/test")
                         for path in (Path(source) / root).rglob("*")
                         if path.is_file() and str(path.relative_to(source)).endswith(SQL_SUFFIXES)}
+        extension_paths = _configured_extension_sql_ids(configured_extensions)
         listed_sql = {case["name"] for case in cases if case["sql"]}
-        unknown = sorted(listed_sql - source_paths)
-        missing = sorted(source_paths - listed_sql)
+        expected_sql = source_paths | extension_paths
+        unknown = sorted(listed_sql - expected_sql)
+        missing = sorted(expected_sql - listed_sql)
         if unknown or missing:
             raise ValueError("compiled SQL registry does not account for pinned source IDs: "
                              f"unknown={len(unknown)} missing={len(missing)}")
@@ -182,7 +200,8 @@ def enumerate_registry(source, binary, output_dir):
                 "slow_sql_file_cases": sum(c["sql"] and c["name"].endswith(".test_slow") for c in cases),
                 "coverage_sql_file_cases": sum(c["sql"] and c["name"].endswith(".test_coverage") for c in cases),
                 "native_cases": len(cases) - len(listed_sql), "source_sql_not_registered": missing,
-                "registry_sql_not_in_source": unknown, "output": str(output), "output_sha256": digest(output)}
+                "registry_sql_not_in_source": unknown, "configured_extension_sql_file_cases": len(extension_paths),
+                "output": str(output), "output_sha256": digest(output)}
     except Exception as error:
         return {"status": "setup_failure", "command": command, "reason": str(error),
                 "output": str(output) if output.exists() else None}
