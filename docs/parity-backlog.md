@@ -52,7 +52,7 @@ ignored test, doctest, external harness or platform. G01/G24 own those obligatio
 | --- | --- | --- |
 | SQL | SELECT/VALUES, ordinary DML, schemas/tables, selected ALTER, transactions, EXPLAIN | Many statement families/modifiers and exact binding behavior |
 | Relations | Ordinary outer/semi/anti joins, NATURAL/USING, subqueries, set operations, recursive UNION, grouping sets, core windows/QUALIFY | Lateral/ASOF/positional joins, richer CTEs, PIVOT/UNPIVOT, sampling, remaining frames and syntax |
-| Values | Signed/unsigned integers, DECIMAL, floating, BLOB/UUID/ENUM/BIT/BIGNUM, temporal and nested families including VARIANT/TUPLE | Complete coercion/function coverage, named types, GEOMETRY, context-sensitive behavior |
+| Values | Signed/unsigned integers, DECIMAL, floating, BLOB/UUID/ENUM/BIT/BIGNUM, temporal and nested families including VARIANT/TUPLE | Complete coercion/function coverage, remaining named/user-defined types, GEOMETRY, context-sensitive behavior |
 | Expressions | Selected registered casts/operators/scalars/aggregates, scalar/batch evaluators, and a closed retained-default lifecycle | Broader retained-expression consumers and complete function/overload semantics |
 | State | Copy-on-write snapshots, rollback, basic uniqueness/NOT NULL, prepared rebinding, hash/B-tree indexes | DuckDB conflict timing, independent concurrent writers, catalog dependencies and incremental index maintenance |
 | Native persistence | Selected storage versions 64–69, many native readers, selected WAL/checkpoint/recovery and crash tests | All objects/types/versions, compressed writing, large/partial I/O, concurrent maintenance and encryption |
@@ -186,7 +186,7 @@ Sources: `src/parser/`, `src/planner/binder/`, upstream `src/parser/`,
 ## G03 — Scalar types, coercion and numeric functions
 
 **Current:** signed/unsigned widths, DECIMAL, FLOAT/DOUBLE, BIT, BIGNUM, BLOB,
-UUID and anonymous ENUM have implementations. Checked factorial and signed
+UUID and anonymous/catalog-named ENUM have implementations. Checked factorial and signed
 BIGINT/HUGEINT GCD/LCM families, including aliases and selected casts, now work
 through scalar/batch evaluation, mutations and reopen. A second numeric slice adds
 the pinned trigonometric/hyperbolic, angle, exponential, cube-root, `even`, `pi`,
@@ -457,15 +457,21 @@ model is connected to a bounded, normalized session setting: unqualified table l
 searches configured schemas before `main`, creation uses the current schema, and
 prepared statements rebind on each execution. Catalog-qualified path entries fail
 explicitly until attachment routing exists. Four built-in setting definitions exist;
-there is no general catalog object model. Preparation is still syntax-only and does
-not yet own the native prepare transaction/start timestamp or a retained plan.
+there is no general catalog object model. Catalog-named ENUM types now have
+transactional CREATE/REPLACE/DROP and SQL binding, preserve the dictionaries of
+already-bound table columns across replacement and name removal, and survive native
+checkpoint and WAL handoffs with both pinned C++ revisions. Storage version 69 uses
+the pinned qualified schema/type WAL fields; Rust still limits schema qualification
+to its top-level schema model. Preparation is still syntax-only and does not yet own
+the native prepare transaction/start timestamp or a retained plan.
 
 - **G10.1 Establish identity and dependencies.** Add catalog/object IDs, search paths,
   dependency tracking, invalidation, temporary object scope and transaction visibility.
   Preserve prepared object lifetimes and reference rename/drop/cascade rules.
 - **G10.2 Implement object families.** Add views, scalar/table macros, sequences,
-  named ENUM/user-defined types, aliases and applicable newer object families such
-  as triggers from the pinned source. Include DDL, binding and persistence lifecycle.
+  remaining user-defined types, aliases and applicable newer object families such
+  as triggers from the pinned source. Extend the implemented named ENUM slice where
+  those objects require additional DDL, binding or persistence lifecycle behavior.
 - **G10.3 Add attachments and routing.** Implement ATTACH/DETACH/USE and qualified
   access to multiple catalogs, read-only modes, storage extensions and connection
   shutdown. Match cross-database write restrictions instead of promising atomicity
@@ -505,8 +511,11 @@ Sources: `src/planner/binder/{statement,alter}.rs`, `src/catalog/alter.rs`,
 ## G12 — Native files and checkpoint compatibility
 
 **Current:** substantial native reading and selected versioned writing exist,
-including nested/VARIANT/temporal values. Thirteen decoder registrations exist;
-the writer does not provide corresponding general compressed-write selection.
+including nested/VARIANT/temporal values and catalog-named ENUM checkpoints. Named
+ENUM checkpoint and WAL handoffs pass in both producer directions against both pins,
+with development's qualified schema WAL layout additionally covered. Thirteen decoder
+registrations exist; the writer does not provide corresponding general compressed-write
+selection.
 
 - **G12.1 Complete format/version metadata.** Map supported historical/current
   versions, headers, catalog objects, types, constraints, defaults, indexes,
@@ -528,8 +537,10 @@ Sources: `src/storage/duckdb/`, upstream `src/storage/`,
 
 ## G13 — WAL, recovery and checkpoint lifecycle
 
-**Current:** native WAL v2, selected DML/ALTER/nested recovery, logged commits,
-checkpoint policies and process interruption tests exist. WAL v1 is explicitly rejected.
+**Current:** native WAL v2, selected DML/ALTER/nested/named-ENUM recovery, logged
+commits, checkpoint policies and process interruption tests exist. Versioned schema
+and named-type records cover the legacy fields and storage-69 qualified names within
+Rust's top-level schema model. WAL v1 is explicitly rejected.
 
 - **G13.1 Complete record and version coverage.** Map all required WAL record/object/
   type families, nested update paths and version transitions; preserve atomic FLUSH
