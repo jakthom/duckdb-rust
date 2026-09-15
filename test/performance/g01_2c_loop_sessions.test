@@ -39,28 +39,28 @@ SELECT sum(i) FROM state
 loop odd 3 1
 
 query I
-SELECT {odd}
+SELECT {odd} - {odd}
 ----
-3
+0
 
 endloop
 
-loop i -1 2
+loop i 0 3
 
-onlyif i>=-1&&i<=1
+onlyif i>=0&&i<=2
 query I
-SELECT {i}
+SELECT {i} - {i}
 ----
-{i}
+0
 
 endloop
 
 concurrentloop threadid 0 4
 
 query II
-SELECT {threadid}, sum(i) FROM range(100000) values(i)
+SELECT {threadid} - {threadid}, sum(i) FROM range(100000) values(i)
 ----
-{threadid}	4999950000
+0	4999950000
 
 endloop
 

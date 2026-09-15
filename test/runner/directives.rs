@@ -204,11 +204,15 @@ impl DirectiveState {
         }
         let configured = self.configured_environment.contains(&args[0]);
         let passed = self.passthrough_environment.contains(&args[0]);
-        let value = self
-            .environment
-            .get(&args[0])
-            .cloned()
-            .or_else(|| std::env::var(&args[0]).ok());
+        // The pinned runner reads its managed test environment only for an
+        // explicitly configured or passthrough name. Other names come from
+        // getenv at the require-env boundary; they are not admitted into the
+        // general replacement map in advance.
+        let value = if configured || passed {
+            self.environment.get(&args[0]).cloned()
+        } else {
+            std::env::var(&args[0]).ok()
+        };
         let Some(value) = value else {
             return DirectiveAction::SkipFile {
                 reason: format!("require-env {}", args[0]),
@@ -333,6 +337,17 @@ mod tests {
                 reason: "require-env G01_NEVER_SET".into()
             }
         );
+        state.environment.insert(
+            "G01_MANAGED_BUT_NOT_CONFIGURED_OR_PASSTHROUGH".into(),
+            "must-not-leak".into(),
+        );
+        assert!(matches!(
+            state.evaluate(&Header::new(
+                "require-env",
+                &["G01_MANAGED_BUT_NOT_CONFIGURED_OR_PASSTHROUGH"]
+            )),
+            DirectiveAction::SkipFile { .. }
+        ));
     }
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]

@@ -25,7 +25,7 @@ use parser::{
 use schedule::{Condition, LoopDefinition, LoopFrame};
 use session::Sessions;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{
         Mutex, RwLock,
@@ -1794,8 +1794,7 @@ fn execute_parsed_statement(
         Some("debug" | "debug_skip")
     );
     let debug_skip = args.first().is_some_and(|arg| arg == "debug_skip");
-    let expected_error =
-        schedule::replace_loops(substitutions.replace(&command.error.bytes), loops)?;
+    let expected_error = substitutions.replace(&command.error.bytes);
     let expected = match args.first().map(String::as_str) {
         Some("ok") => ExpectedStatement::Success,
         Some("error") => ExpectedStatement::Error(
@@ -1967,11 +1966,16 @@ fn execute_parsed_query(
         }
     }
     let label = command.args.get(2).map(String::as_str);
-    let expected_owned: Vec<_> = command
+    let mut expected_owned: Vec<_> = command
         .expected
         .iter()
-        .map(|line| schedule::replace_loops(substitutions.replace(line.normalized()), loops))
-        .collect::<Result<_>>()?;
+        .map(|line| substitutions.replace(line.normalized()))
+        .collect();
+    // Pinned LoopReplacement applies to SQL and to an external-result file
+    // name, not to literal expected rows or expected-error text.
+    if expected_owned.len() == 1 && expected_owned[0].starts_with(b"<FILE>:") {
+        expected_owned[0] = schedule::replace_loops(std::mem::take(&mut expected_owned[0]), loops)?;
+    }
     let expected: Vec<_> = expected_owned.iter().map(Vec::as_slice).collect();
     let loop_iterations = loops.iter().map(|frame| frame.ordinal).collect();
     let execution = accounting
@@ -2441,10 +2445,6 @@ fn default_directive_state() -> DirectiveState {
     if cfg!(not(target_os = "windows")) || cfg!(not(target_env = "gnu")) {
         state.available_capabilities.insert("notmingw".into());
     }
-    state.configured_environment = std::env::vars()
-        .map(|(name, _)| name)
-        .collect::<BTreeSet<_>>();
-    state.environment = std::env::vars().collect();
     state
 }
 
@@ -2670,6 +2670,14 @@ mod tests {
         let substitutions = Substitutions::default();
         substitutions.insert("NAME", "value");
         assert_eq!(substitutions.replace(b"${NAME}/{NAME}"), b"value/value");
+    }
+
+    #[test]
+    fn default_directive_state_does_not_admit_ambient_environment() {
+        let state = default_directive_state();
+        assert!(state.environment.is_empty());
+        assert!(state.configured_environment.is_empty());
+        assert!(state.passthrough_environment.is_empty());
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

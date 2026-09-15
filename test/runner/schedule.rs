@@ -7,6 +7,8 @@
 use duckdb_rust::{Error, Result};
 use std::hash::{BuildHasher, Hasher};
 
+const MAX_LOOP_ITERATIONS: usize = 100_000;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LoopDefinition {
     pub name: String,
@@ -81,6 +83,11 @@ where
         for argument in &arguments[1..] {
             expand_foreach_token(argument, &mut values, &mut variable)?;
         }
+        if values.is_empty() {
+            return Err(Error::Unsupported(
+                "foreach expansion produced no iterations".into(),
+            ));
+        }
         Ok(LoopDefinition {
             name: arguments[0].clone(),
             values,
@@ -90,24 +97,50 @@ where
         if arguments.len() != 3 {
             return Err(Error::Execution("expected loop ITERATOR START END".into()));
         }
-        let start: i32 = arguments[1]
-            .parse()
-            .map_err(|_| Error::Execution("loop start and end must be numbers".into()))?;
-        let end: i32 = arguments[2]
-            .parse()
-            .map_err(|_| Error::Execution("loop start and end must be numbers".into()))?;
+        let start = parse_stoi(&arguments[1])?;
+        let end = parse_stoi(&arguments[2])?;
+        // The development pin stores the stoi result in idx_t. Preserve that
+        // unsigned conversion and the post-body wrapping increment; v1.5.5
+        // used signed int here, but development behavior is authoritative.
+        let mut current = start as u64;
+        let end = end as u64;
+        let mut values = Vec::new();
+        loop {
+            if values.len() == MAX_LOOP_ITERATIONS {
+                return Err(Error::Unsupported(
+                    "loop expansion exceeds record limit".into(),
+                ));
+            }
+            values.push(current.to_string());
+            current = current.wrapping_add(1);
+            if current >= end {
+                break;
+            }
+        }
         Ok(LoopDefinition {
             name: arguments[0].clone(),
-            // The pinned command executes the starting iteration before its
-            // increment/end check, including when start >= end.
-            values: if start >= end {
-                vec![start.to_string()]
-            } else {
-                (start..end).map(|value| value.to_string()).collect()
-            },
+            values,
             concurrent,
         })
     }
+}
+
+fn parse_stoi(value: &str) -> Result<i32> {
+    let value = value.trim_start();
+    let bytes = value.as_bytes();
+    let mut end = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let first_digit = end;
+    while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+    }
+    if end == first_digit {
+        return Err(Error::Execution(
+            "loop start and end must be numbers".into(),
+        ));
+    }
+    value[..end]
+        .parse()
+        .map_err(|_| Error::Execution("loop start and end must be numbers".into()))
 }
 
 /// Expand the collections present in both pinned runners. Unknown angle-bracket
@@ -393,8 +426,9 @@ fn shuffled_indexes(count: usize) -> Vec<usize> {
 }
 
 /// Shuffle and launch every iteration with a distinct connection owner. The
-/// pinned runner joins every sibling and reports failures afterwards; one
-/// failure does not invent cancellation of otherwise independent contexts.
+/// pinned runner joins every spawned sibling and reports failures afterwards.
+/// Callers can share its opportunistic stop flag, but this scheduler never
+/// interrupts an already running thread.
 pub(crate) fn run_concurrent<T, F>(count: usize, run: F) -> Result<Vec<Result<T>>>
 where
     T: Send,
@@ -437,7 +471,16 @@ mod tests {
             parse_loop(&["i".into(), "5".into(), "2".into()], false, false)?.values,
             ["5"]
         );
+        assert_eq!(
+            parse_loop(&["i".into(), "-1".into(), "2".into()], false, false)?.values,
+            [u64::MAX.to_string(), "0".into(), "1".into()]
+        );
         assert!(parse_loop(&["i".into(), "2147483648".into(), "3".into()], false, false).is_err());
+        assert_eq!(
+            parse_loop(&["i".into(), "1tail".into(), "3tail".into()], false, false)?.values,
+            ["1", "2"]
+        );
+        assert!(parse_loop(&["i".into(), "a".into(), "!a".into()], false, true).is_err());
         assert!(parse_condition("i==1", false, false).is_err());
         assert!(matches!(
             parse_condition("i!=1", false, false)?,

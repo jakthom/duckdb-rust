@@ -91,18 +91,18 @@ fn loop_foreach_conditions_continue_and_odd_bounds_match_pinned_runner() -> duck
     let path = root.path().join("test/loops.test");
     std::fs::write(
         &path,
-        "loop i -1 2\n\n\
-         onlyif i>=0&&i<=1\n\
-         query I\nSELECT {i}\n----\n{i}\n\n\
-         onlyif i=0\n\
+        "loop i 0 3\n\n\
+         onlyif i>=1&&i<=2\n\
+         query I\nSELECT {i} - {i}\n----\n0\n\n\
+         onlyif i=1\n\
          continue\n\n\
          query I\nSELECT 99\n----\n99\n\n\
          endloop\n\n\
          loop odd 3 1\n\n\
-         query I\nSELECT {odd}\n----\n3\n\n\
+         query I\nSELECT {odd} - {odd}\n----\n0\n\n\
          endloop\n\n\
          foreach left,right 10,20 30,40\n\n\
-         query II\nSELECT {left}, {right}\n----\n{left}\t{right}\n\n\
+         query II\nSELECT {left} - {left}, {right} - {right}\n----\n0\t0\n\n\
          endloop\n",
     )?;
     let report = runner::run_file_report(&Database::memory()?, &path)?;
@@ -111,6 +111,18 @@ fn loop_foreach_conditions_continue_and_odd_bounds_match_pinned_runner() -> duck
         (report.declarations, report.passed, report.skipped),
         (4, 7, 1)
     );
+    Ok(())
+}
+
+#[test]
+fn loop_variables_do_not_rewrite_literal_expected_values() -> duckdb_rust::Result<()> {
+    let root = root();
+    let path = root.path().join("test/loop-expected.test");
+    std::fs::write(
+        &path,
+        "loop i 0 1\n\nquery T\nSELECT '{i}'\n----\n{i}\n\nendloop\n",
+    )?;
+    assert!(runner::run_file_report(&Database::memory()?, &path).is_err());
     Ok(())
 }
 
@@ -173,7 +185,7 @@ fn concurrent_loop_uses_distinct_connections_and_joins_all_iterations() -> duckd
     std::fs::write(
         &path,
         "concurrentloop threadid 0 4\n\n\
-         query II\nSELECT {threadid}, sum(i) FROM range(100000) values(i)\n----\n{threadid}\t4999950000\n\n\
+         query II\nSELECT {threadid} - {threadid}, sum(i) FROM range(100000) values(i)\n----\n0\t4999950000\n\n\
          endloop\n\n\
          query I\nSELECT 42\n----\n42\n",
     )?;

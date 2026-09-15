@@ -284,11 +284,25 @@ class Runner:
         if words[0] in ("loop", "concurrentloop"):
             if len(words) != 4:
                 raise ValueError("loop requires name, inclusive start and exclusive end")
-            start, end = int(words[2]), int(words[3])
+            bounds = [re.match(r"\s*[+-]?\d+", value) for value in words[2:]]
+            if any(match is None for match in bounds):
+                raise ValueError("loop start and end must be numbers")
+            start, end = (int(match.group()) for match in bounds)
             if not -(2**31) <= start < 2**31 or not -(2**31) <= end < 2**31:
                 raise ValueError("loop bounds are outside std::stoi range")
-            return [start] if start >= end else range(start, end)
-        return self.foreach_values(words[2:])
+            current, end = start % (2**64), end % (2**64)
+            values = []
+            while True:
+                if len(values) == self.max_records:
+                    raise Unsupported("loop expansion exceeds record limit")
+                values.append(current)
+                current = (current + 1) % (2**64)
+                if current >= end:
+                    return values
+        values = self.foreach_values(words[2:])
+        if not values:
+            raise Unsupported("foreach expansion produced no iterations")
+        return values
 
     @staticmethod
     def bind_loop(variables, name, value):
@@ -339,8 +353,8 @@ class Runner:
         while position < len(records):
             original = records[position]
             position += 1
-            record = Record(original.line, tuple(self.replace(w, variables) for w in original.words),
-                            self.replace(original.sql, variables), tuple(self.replace(v, variables) for v in original.expected))
+            record = Record(original.line, original.words,
+                            self.replace(original.sql, variables), tuple(self.replace(v, {}) for v in original.expected))
             words, op = record.words, record.words[0]
             if op in ("skipif", "onlyif"):
                 if len(words) != 2:
@@ -385,8 +399,8 @@ class Runner:
             original = records[position]
             position += 1
             self.line = original.line
-            record = Record(original.line, tuple(self.replace(w, variables) for w in original.words),
-                            self.replace(original.sql, variables), tuple(self.replace(v, variables) for v in original.expected))
+            record = Record(original.line, original.words,
+                            self.replace(original.sql, variables), tuple(self.replace(v, {}) for v in original.expected))
             words, op = record.words, record.words[0]
             if op in ("skipif", "onlyif"):
                 if len(words) != 2:
@@ -434,15 +448,29 @@ class Runner:
                 responses = response.get("streams")
                 if not isinstance(responses, list) or len(responses) != len(streams):
                     raise AssertionError("concurrent worker returned the wrong stream count")
+                failure = None
+                failure_line = None
+                truncated = False
                 for stream, stream_responses in zip(streams, responses):
-                    if len(stream_responses) != len(stream):
-                        raise AssertionError("concurrent worker returned the wrong response count")
+                    if not isinstance(stream_responses, list) or len(stream_responses) > len(stream):
+                        raise AssertionError("concurrent worker returned an invalid response stream")
+                    truncated |= len(stream_responses) < len(stream)
                     for item, item_response in zip(stream, stream_responses):
                         if self.passed + self.skipped >= self.max_records:
                             raise Unsupported("expanded test record limit exceeded")
                         self.line = item.line
-                        self.check_response(item, item_response)
-                        self.passed += 1
+                        try:
+                            self.check_response(item, item_response)
+                        except Exception as error:
+                            if failure is None:
+                                failure, failure_line = error, item.line
+                        else:
+                            self.passed += 1
+                if failure is not None:
+                    self.line = failure_line
+                    raise failure
+                if truncated:
+                    raise AssertionError("concurrent worker truncated responses without a recorded failure")
             elif op == "hash-threshold" and len(words) == 2:
                 if int(words[1]) < 0:
                     raise ValueError("negative hash threshold")
@@ -462,8 +490,15 @@ class Runner:
                     if len(words) > 3 or (len(words) == 3 and words[2] not in ("readonly", "readwrite")):
                         raise Unsupported(f"load options {words[1:]}")
                     if len(words) >= 2:
-                        request["path"] = words[1]
+                        request["path"] = self.replace(words[1], variables)
                     request["read_only"] = len(words) == 3 and words[2] == "readonly"
+                elif op == "restart":
+                    if len(words) == 2 and words[1] == "no_extension_load":
+                        # The Rust engine has no loadable extension state yet;
+                        # accepting the pinned spelling is observably equivalent.
+                        pass
+                    elif len(words) > 1:
+                        raise Unsupported(f"{op} options")
                 elif len(words) > 1:
                     raise Unsupported(f"{op} options")
                 response = self.engine.request(request)

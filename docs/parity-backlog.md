@@ -160,11 +160,19 @@ runtime generated instances and the full built configuration/platform matrix are
 not observable in the current artifacts, and its inventory invokes the C++
 registries rather than an equivalent Rust candidate, so Gate P is open. G01.3a's
 bounded lifecycle operation has a comparable dual-pin Gate P workload, but its
-acceptance result and the remaining assertion mappings are still open. G01.2c
-still owns loop/foreach scheduling, loop-variable conditions, concurrent execution
-and load/restart/reconnect session lifecycles. Until those land and G01.4 reruns
-both complete populations, remaining first-blocker counts cannot reliably rank all
-engine families.
+acceptance result and the remaining assertion mappings are still open. The bounded
+G01.2c adapter now implements the development pin's unsigned `idx_t` loop schedule,
+foreach collections/variables, loop conditions and `continue`, shuffled concurrent
+connections with join-all/opportunistic-stop behavior, named database/connection
+identity, and distinct load/restart/reconnect lifecycles. Its source-matched local
+fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
+zero skips); Gate P is pending below. Explicit remaining runner limits are the
+integrated test-config max-thread surface, `load ... VERSION`, and Python-proxy
+sibling-tail stopping for result/label mismatches that are detected only after a
+concurrent batch returns. The Rust adapters also fail closed after 100,000 expanded
+loop iterations instead of attempting a source runner's effectively unbounded
+range. G01.4 must rerun both complete populations before the remaining first-blocker
+counts can reliably rank all engine families.
 
 ### Independent compatibility measurements
 
@@ -559,9 +567,9 @@ first API destruction/lifetime assertion is mapped to a Rust public contract. Ne
 tools retain exact identities and reject incomplete or duplicate report selections.
 This closes the requested current-state measurement snapshot, **not G01's full
 exit**: runtime-generated and built-matrix instances, most native/client assertion
-mappings and the remaining faithful harness semantics stay open. Gate P is open for
-inventory-only G01.1b; a candidate-equivalent lifecycle workload is pending for the
-bounded G01.3a mapping.
+mappings and the explicitly recorded runner limits stay open. Gate P is open for
+inventory-only G01.1b; candidate-equivalent lifecycle workloads are pending for the
+bounded G01.2c and G01.3a implementations.
 
 - **G01.1 Inventory the acceptance population.** Enumerate both pins' SQL files,
   native registrations, generated/parameterized cases, slow tests, configurations,
