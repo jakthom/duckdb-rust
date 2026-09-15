@@ -54,7 +54,8 @@ def main():
         for path in [a.output_dir/"release-reference",a.output_dir/"development-reference",candidate]: timed(path)
     samples={"release":[],"development":[],"rust_release":[],"rust_development":[]}
     for index in range(9):
-        for label,path in (("release",a.output_dir/"release-reference"),("rust_release",candidate),("development",a.output_dir/"development-reference"),("rust_development",candidate) if index%2==0 else (("development",a.output_dir/"development-reference"),("rust_development",candidate),("release",a.output_dir/"release-reference"),("rust_release",candidate))): samples[label].append(timed(path))
+        order = (("release",a.output_dir/"release-reference"),("rust_release",candidate),("development",a.output_dir/"development-reference"),("rust_development",candidate)) if index % 2 == 0 else (("development",a.output_dir/"development-reference"),("rust_development",candidate),("release",a.output_dir/"release-reference"),("rust_release",candidate))
+        for label,path in order: samples[label].append(timed(path))
     report={"identity":identity,"samples":samples,"gate":gate({"release":samples["release"],"development":samples["development"]},{"release":samples["rust_release"],"development":samples["rust_development"]})}; (a.output_dir/"report.json").write_text(json.dumps(report,indent=2)+"\n")
     if not report["gate"]["passed"]: raise SystemExit(1)
 if __name__=="__main__": main()
