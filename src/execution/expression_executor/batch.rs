@@ -79,6 +79,20 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
         expression.kind = ExprKind::Column(column);
         return Ok(true);
     }
+    if let ExprKind::Scalar(function, _) = &expression.kind
+        && matches!(
+            function.argument_evaluation(),
+            ArgumentEvaluation::NullOnConstant
+        )
+        && expression.uses_physical_batch()
+    {
+        let output =
+            evaluate_null_on_constant_with_physical_batches(evaluator, expression, input, context)?;
+        let column = columns.len();
+        columns.push(output);
+        expression.kind = ExprKind::Column(column);
+        return Ok(true);
+    }
     let physical = matches!(
         &expression.kind,
         ExprKind::Scalar(function, _) if function.uses_physical_batch()
@@ -135,29 +149,6 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
                         materialize_source_child(evaluator, argument, input, context, columns)?;
                     }
                     found = true;
-                } else if contains_physical_batch
-                    && matches!(
-                        function.argument_evaluation(),
-                        ArgumentEvaluation::NullOnConstant
-                    )
-                {
-                    // A constant NULL stops this function before subsequent
-                    // arguments are demanded. Only materialize the reachable
-                    // source prefix; otherwise a later physical callback
-                    // could turn a deliberately suppressed error into one.
-                    let reachable = arguments
-                        .iter()
-                        .position(constant_null_expression)
-                        .unwrap_or(arguments.len());
-                    if arguments[..reachable]
-                        .iter()
-                        .any(BoundExpr::uses_physical_batch)
-                    {
-                        for argument in &mut arguments[..reachable] {
-                            materialize_source_child(evaluator, argument, input, context, columns)?;
-                        }
-                        found = true;
-                    }
                 } else {
                     for argument in arguments {
                         visit(argument)?;
@@ -200,14 +191,6 @@ fn materialize_physical_batches<T: ExpressionEvaluator + ?Sized>(
         }
     }
     Ok(found)
-}
-
-fn constant_null_expression(expression: &BoundExpr) -> bool {
-    match &expression.kind {
-        ExprKind::Literal(Value::Null) | ExprKind::Parameter(Value::Null) => true,
-        ExprKind::Cast(inner, ..) => constant_null_expression(inner),
-        _ => false,
-    }
 }
 
 /// A generic parent with a physical-batch descendant evaluates its immediate
@@ -376,6 +359,91 @@ fn evaluate_first_non_null_with_physical_batches<T: ExpressionEvaluator + ?Sized
         .bind(&expression.data_type)?
         .validate_vector(&output, context.query())?;
     Ok(output)
+}
+
+/// NullOnConstant is a semantic provenance contract, not an encoding test.
+/// Evaluate each direct child once in source order, retaining a physical child
+/// as Unknown even if its callback happens to return a constant vector.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn evaluate_null_on_constant_with_physical_batches<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Vector> {
+    let ExprKind::Scalar(function, arguments) = &expression.kind else {
+        unreachable!("caller selected NullOnConstant scalar")
+    };
+    let mut columns = Vec::with_capacity(arguments.len());
+    let mut provenance = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let (column, child_provenance) =
+            evaluate_child_with_semantic_provenance(evaluator, argument, input, context)?;
+        let constant_null = child_provenance == ArgumentProvenance::Constant
+            && column.constant_value().is_some_and(Value::is_null);
+        columns.push(column);
+        provenance.push(child_provenance);
+        if constant_null {
+            return Vector::constant(expression.data_type.clone(), Value::Null, input.len());
+        }
+    }
+    let arguments = DataChunk::new(columns, input.len())?;
+    let mut row = Vec::with_capacity(arguments.columns().len());
+    let mut values = Vec::with_capacity(input.len());
+    for index in 0..input.len() {
+        if index % 1024 == 0 {
+            context.query().check()?;
+        }
+        arguments.read_row(index, &mut row)?;
+        let value = function.evaluate_with_provenance(&row, &provenance, context.query())?;
+        context
+            .query()
+            .types()
+            .bind(&expression.data_type)?
+            .validate(&value, context.query())?;
+        values.push(value);
+    }
+    // This path exists because it contains a physical descendant. Do not
+    // upgrade its output merely because every observed value is equal.
+    Vector::flat(expression.data_type.clone(), values)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<(Vector, ArgumentProvenance)> {
+    if expression.uses_physical_batch() {
+        return Ok((
+            evaluate_selected_with_physical_batches(evaluator, expression, input, context)?,
+            ArgumentProvenance::Unknown,
+        ));
+    }
+    let batch_context = BatchContext {
+        parent: context,
+        input,
+    };
+    let mut row = Vec::with_capacity(input.columns().len());
+    let mut values = Vec::with_capacity(input.len());
+    let mut constant = true;
+    for index in 0..input.len() {
+        batch_context.query().check()?;
+        input.read_row(index, &mut row)?;
+        let value = evaluator.evaluate_with_provenance(expression, &row, &batch_context)?;
+        constant &= value.provenance == ArgumentProvenance::Constant;
+        values.push(value);
+    }
+    let column = result_column(expression.data_type.clone(), values, batch_context.query())?;
+    Ok((
+        column,
+        if constant {
+            ArgumentProvenance::Constant
+        } else {
+            ArgumentProvenance::Unknown
+        },
+    ))
 }
 
 /// Evaluates total scalar trees by columns, using retained type and operator
