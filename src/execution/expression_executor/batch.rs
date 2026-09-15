@@ -408,8 +408,6 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     if let ExprKind::Scalar(function, arguments) = &expression.kind
         && arguments.len() == 1
         && !matches!(function.argument_evaluation(), ArgumentEvaluation::TypeOnly)
-        && !function.effects().volatile
-        && !function.effects().external_access
     {
         let (column, provenance) =
             evaluate_child_with_semantic_provenance(evaluator, &arguments[0], input, context)?;
@@ -424,6 +422,18 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
                 ArgumentProvenance::Constant,
             ));
         }
+        let mut values = Vec::with_capacity(input.len());
+        for value in column.values() {
+            values.push(function.evaluate_with_provenance(
+                std::slice::from_ref(value),
+                std::slice::from_ref(&provenance),
+                context.query(),
+            )?);
+        }
+        return Ok((
+            Vector::flat(expression.data_type.clone(), values)?,
+            ArgumentProvenance::Unknown,
+        ));
     }
     if let ExprKind::Operator(function, arguments) = &expression.kind
         && arguments.len() == 1
