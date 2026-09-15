@@ -22,6 +22,53 @@ against the other. Existing
 v1.3.0 fixtures/reports are historical coverage. Preserve the original source/test
 inventory and all prior performance provenance. See the [build runbook](../../docs/reference-builds.md).
 
+## Continuous feedback and completion
+
+Accepted user clarification, 2026-09-15: use fast, targeted feedback while work
+is in progress, then a full independent pass when the agent believes the planned
+chunk is 100% complete. That belief changes its status to **ready for verification**;
+it is not evidence that the goal has been achieved. A chunk can span many edits
+and commits. Do not run completion gates after every edit or intermediate commit.
+
+Declare a validation manifest in the maintained backlog entry/handoff before
+implementation: owned paths; fast check commands; affected test targets/filters;
+unchanged upstream IDs and negative/boundary cases; full functional acceptance
+commands; performance workload IDs, configurations and metrics. Select cases by
+the changed contract and its consumers, not only by filename. Expand the manifest
+when scope changes and preserve the reason; do not shrink it to hide failures.
+
+| Stage | Required feedback | Not a completion claim |
+| --- | --- | --- |
+| Small edit batch | Affected package/target check, e.g. `cargo check -p duckdb-rust --lib` for library edits | Does not execute tests or check unrelated targets. |
+| Behavior change | Named test target/filter plus the assigned small upstream set; affected Python tests for Python-only changes | Does not cover the whole goal or establish performance parity. |
+| Ready for verification | Frozen integrated tree; delegated full sweep, complete assigned functional population and at-parity or better performance | Completion requires all applicable gates, not the agent's confidence or Cargo alone. |
+
+Keep incremental build caches worktree-local and reuse profile/feature choices.
+Do not add an unnecessary `cargo check` immediately before a targeted test that
+already compiles the same code. Coalesce edits; run one validation process per
+worktree. Any watch orchestration must debounce file changes, label results with
+their exact source state, and invalidate results if inputs change during a run.
+No zero-test selection, unchecked old binary, changed fixture or stale cached
+source may be reported green. Tracing and full Clippy/recovery/Kani/performance
+campaigns stay out of the edit loop; focused performance diagnosis is allowed.
+
+Current targeted Cargo/Python checks and upstream file selection are available.
+A debug-worker path, hash-validated extracted-suite cache and automatic watcher
+are follow-up tooling, not capabilities already delivered. A future fast upstream
+mode must retain unchanged oracles, pin/source/binary/fixture provenance and test
+counts, reject stale/modified cache entries, and label debug results as feedback
+only. Debug timings never satisfy the performance gate.
+
+At readiness, stop edits to the integrated tree. The configured Terra/low verifier
+runs exactly `python3 scripts/verify_chunk.py` for the common progressive regression
+sweep. The full assigned upstream/API/native/configuration population and the
+chunk's performance workloads are additional acceptance gates: the current sweep
+does not automatically select or execute them. The integration owner must collect
+all three outcomes for the same final tree. Run timing campaigns serially on a
+quiet host, not alongside the sweep. Every ordinary sweep stage must pass and
+Kani must run and be reported under its exploratory policy. Any subsequent edit
+invalidates completion; rerun the full sweep and refresh affected acceptance evidence.
+
 ## Correctness
 
 Accepted user clarification, 2026-09-10: **development wins when release and
@@ -88,6 +135,40 @@ failed runs; do not cherry-pick reruns or move the baseline to a slower Rust run
 The absence of a regression in a small sample does not prove all workloads or
 all supported machines are regression-free. A measured scope cannot be promoted
 to full parity while unmeasured scopes remain.
+
+### Per-chunk performance acceptance
+
+Every chunk's validation checklist, including child chunks, must contain the
+explicit requirement **at-parity or better performance**. This is not restricted
+to optimization chunks or deferred to G24. Before implementation, select the
+workloads/configurations that expose the changed operation and affected existing
+consumers, with relevant sizes/distributions and latency/throughput/resource
+metrics. Add missing comparable workloads instead of substituting an unrelated
+passing microbenchmark. Shared-path changes require wider consumer coverage.
+
+Completion requires every selected workload to satisfy the faster-reference
+rules above on the final integrated source tree. Existing latency campaigns use
+`scripts/compare_native.py` for each pin and `scripts/fastest_reference.py` to
+gate both retained Rust medians against the faster C++ median. Other interfaces,
+throughput and resource costs need corresponding adapters and separate gates;
+the latency script is not evidence for those dimensions. Record reproducible
+commands, exact inputs/builds, warmups/samples and correctness checks, retaining
+failed measurements. Small fast-loop timings do not substitute for this campaign.
+
+Report functional, regression-sweep/Kani and performance outcomes separately.
+Use performance **pass**, **fail** or **open**; missing or incomparable evidence
+is open, not success. A functional implementation with a measured slowdown is
+not a complete implementation chunk, even if it improves on the previous Rust
+revision. Known baseline failures are not grandfathered into a performance pass.
+Exploratory Kani limits do not relax functional or performance requirements.
+
+For strictly documentation-only changes, record the gate as **not applicable:
+documentation-only**, with a reviewed diff establishing no executable/build/
+configuration/fixture/workload effect. This limited classification is not a
+performance pass. Test harnesses, supporting tooling and runtime changes still
+require applicable workload evidence; missing equivalent C++ coverage stays
+open rather than being reclassified as documentation. Historical "implemented"
+labels describe functional progress, not proof of this completion gate.
 
 ## Additional testing
 

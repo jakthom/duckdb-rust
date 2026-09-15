@@ -33,6 +33,15 @@ Fuzz supported operation sequences and capability combinations, including cancel
 
 ## Measurement and promotion rules
 
+Every chunk validation, including each child chunk, explicitly requires
+**at-parity or better performance** under the
+[per-chunk acceptance rule](parity.md#per-chunk-performance-acceptance).
+Use [fast targeted feedback](parity.md#continuous-feedback-and-completion)
+while editing; when the agent reports ready, run the full delegated sweep and
+the chunk's functional and performance acceptance populations on the final tree.
+Functional success alone does not complete a chunk whose performance is failing
+or unmeasured.
+
 Before completing each substantial implementation chunk, run the [Kani
 checkpoint](kani.md) and record its findings and limitations alongside the
 applicable workload checks. During exploration, Kani proof success is not a

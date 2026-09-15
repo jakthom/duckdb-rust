@@ -11,10 +11,36 @@ changes; do not create another progress/checkpoint summary document.
 
 ## Edit loop
 
-While a chunk is in progress, use the narrowest useful feedback: ordinary
-`cargo check` plus tests directly affected by the edit. Do not launch the full
-workspace test suite, all-target Clippy, or Kani after each edit, file, commit,
-or tool call.
+At assignment, record a small validation manifest in the chunk's backlog entry
+or handoff: owned paths, fast check commands, affected test targets/filters,
+unchanged upstream case IDs, full functional acceptance commands, and the
+performance workloads/configurations that must pass at completion. Include
+negative/boundary cases and relevant shared-contract consumers. Missing coverage
+is an explicit obligation, not a reason to omit a check from the manifest.
+
+While a chunk is in progress, validate small logical edit batches, not every
+file write or tool call:
+
+- Check only the affected package/target. For library-only edits use
+  `cargo check -p duckdb-rust --lib`; check the relevant binary/test target when
+  it changes. Broaden checks when shared interfaces or dependencies change.
+- After a behavior change, run the affected test target/filter and the small
+  assigned upstream case set. A targeted `cargo test` already compiles its
+  dependencies; do not precede it with a redundant check just as a ritual.
+  Python-only edits use the affected Python unit tests, not Rust compilation.
+- Reuse worktree-local build artifacts with the same profile/features. Coalesce
+  rapid edits and permit only one validation process per worktree. A watcher, if
+  used, must debounce changes and mark an in-flight result stale if inputs change.
+  Record the tested source state, command, selected cases and outcome. Zero tests,
+  unknown filters and stale binaries cannot produce a green result.
+- Keep tracing, full-workspace tests, all-target Clippy, exhaustive recovery,
+  Kani and acceptance benchmarks out of the routine loop. Focused timing may be
+  used to diagnose a performance change; it is not completion evidence.
+
+The upstream runner's debug-worker/cached-suite fast path is planned, not yet
+implemented. Until then, use its exact `--path-list`/`--path-prefix` selections
+and account for its release build. Never pretend an unchecked existing worker
+or modified cached suite is current. See [testing cadence](specs/testing/parity.md#continuous-feedback-and-completion).
 
 ## Chunk completion sweep
 
@@ -23,7 +49,9 @@ implementation, cross-module refactor, or other unit of work identified in the
 task plan. Several edits and commits can form one chunk. Do not infer a chunk
 boundary merely because an intermediate edit or commit is complete.
 
-Before declaring each chunk complete, delegate one full sweep to the project
+An agent's "100% complete" assessment means **ready for verification**, not done.
+Freeze the integrated source tree and the chunk's validation manifest. Before
+declaring each chunk complete, delegate one full sweep to the project
 `verifier` agent. The primary agent must not run or babysit the full sweep. The
 verifier uses `gpt-5.6-terra` with low reasoning effort, as configured in
 `.codex/agents/verifier.toml`. Do not silently substitute a higher-priced model
@@ -42,6 +70,40 @@ Kani has been run and reported. If an edit is made after the sweep begins, rerun
 the complete sweep against the new final tree. Use
 `python3 scripts/verify_chunk.py --list` to inspect the stages without executing
 them.
+
+The sweep is the common regression gate, not the entire acceptance decision:
+the chunk's unchanged upstream/interop/contract cases and the performance gate
+below must also be satisfied on that final tree. Do not defer these obligations
+until the final PR or G24. Any edit invalidates the completion result and requires
+a new full sweep and refreshed affected acceptance evidence.
+
+## Per-chunk performance gate
+
+Every chunk validation must explicitly include **at-parity or better performance**.
+For every affected comparable workload/configuration, require
+`Rust median / min(release median, development median) <= 1.0`; throughput must
+be at least the larger reference throughput. Apply independent no-regression
+gates to relevant CPU, peak-memory and I/O costs. Faster cases cannot compensate
+for slower ones, and matching an already-slow Rust baseline is insufficient.
+
+Declare representative workloads before implementation, including affected
+existing consumers as well as the new operation. Add a comparable workload when
+none exists. Run final measurements on a quiet host using release/no-tracing
+builds, exact pinned references, equivalent semantics/settings and validated
+results. Preserve samples, both reference identities, source/binary hashes and
+failed runs under `target/`. Keep timed runs separate from builds, other agents'
+tests and the ordinary completion sweep. Existing comparable latency manifests
+use `scripts/compare_native.py` for both pins and `scripts/fastest_reference.py`
+for their joint gate; other workloads need the appropriate measurement adapter.
+
+Report performance separately as pass, fail or open. A missing benchmark,
+unexecuted/incomparable reference, unstable evidence or measured slowdown cannot
+be called at parity; affected implementation chunks remain incomplete. Only a
+strictly documentation-only change with no executable, build, configuration,
+fixture or workload effect may record "not applicable: documentation-only",
+with a reviewed diff and rationale. This is not a measured performance pass and
+does not waive an existing engine gap. Tooling/runtime changes are not exempt.
+See [acceptance](specs/testing/parity.md#per-chunk-performance-acceptance).
 
 ## Exploratory checkpoints with Kani
 

@@ -220,6 +220,8 @@ For every assigned chunk:
 
 1. Resolve the pinned source/tests for its precise behavior. Classify existing
    passing behavior, engine gaps, harness gaps and reference divergences.
+   Declare its validation manifest: fast commands, exact affected cases, full
+   acceptance commands and performance workloads/configurations before editing.
 2. Implement through the selected public contracts. Include names, types, NULLs,
    errors, effects, ownership and applicable configuration semantics.
 3. Carry it through its actual consumers: scalar/batch, prepared use, transaction
@@ -227,11 +229,16 @@ For every assigned chunk:
    parser branch or isolated codec is a prerequisite, not the complete outcome.
 4. Run affected unchanged upstream cases and adversarial regressions; preserve
    known passing cases. Map non-SQL assertions explicitly to Rust contracts.
-5. At the explicit chunk boundary, delegate `python3 scripts/verify_chunk.py` to
+5. Treat the agent's "100% complete" assessment as ready for verification; freeze
+   the integrated tree. At that boundary, delegate `python3 scripts/verify_chunk.py` to
    the configured low-cost verifier. Follow [AGENTS.md](../AGENTS.md). Kani findings
    must be investigated/reported under the exploratory policy; proof success is
    not a substitute for ordinary correctness or upstream execution evidence.
-6. Update this group's status with the source revision, tested population and
+6. Require **at-parity or better performance** for every affected workload under
+   [gate P](#at-parity-or-better-performance). Run this acceptance campaign on the
+   final tree, separately from concurrent agents' work and the regression sweep.
+   Functional success or improvement over a slow Rust baseline is insufficient.
+7. Update this group's status with the source revision, tested population and
    remaining cases. Keep raw logs/JSON under ignored `target/`; report compactly.
 
 One integration owner coordinates changes to `DataType`/`Value`, catalog identities,
@@ -322,10 +329,24 @@ verifier remains **Terra, low**, regardless of the implementation model.
 
 ### Minimal validation contract
 
-During editing, use `cargo check` plus the named affected Rust test filter and the
-smallest unchanged upstream case set that exercises the change. For Python harness
-edits, run the relevant `scripts/test_*.py` unit tests, including intentionally wrong
-results and incomplete selections that must fail. No benchmark or full sweep per edit.
+Declare a per-chunk validation manifest in its backlog entry or handoff before
+editing: owned paths, fast check commands, named test targets/filters, unchanged
+upstream IDs, negative/boundary cases, full functional acceptance commands and
+performance workload IDs/configurations/metrics. This is a test selection contract,
+not a second implementation plan. Broaden it when shared contracts or scope change.
+
+During editing, coalesce small logical edit batches and check only the affected
+package/target (`cargo check -p duckdb-rust --lib` for library-only changes).
+After a behavior change, run the named test target/filter and small upstream case
+set; do not add a redundant check before a test that already compiles that code.
+For Python harness edits, run the affected `scripts/test_*.py` tests, including
+deliberately wrong results and incomplete selections that must fail. Keep caches
+worktree-local, profile/features consistent and at most one validation process
+active per worktree. Any watcher must debounce edits, record the tested source
+state and invalidate stale results. Zero tests or stale binaries are not green.
+No full Clippy, recovery sweep, Kani or acceptance benchmarks per edit; focused
+timings for diagnosis remain allowed. The debug upstream/cache/watch acceleration
+is planned in G01.4a below, not yet available.
 
 Before assigning an engine chunk, freeze its exact source/test manifest, inputs,
 required configurations and expected outcomes. A large Gxx.n item is a queue of
@@ -338,12 +359,42 @@ release divergences independently; development is authoritative.
 
 Every chunk also gets exactly the repository-required completion workflow:
 delegate `python3 scripts/verify_chunk.py` to the configured verifier on the final
-integrated tree. All ordinary stages must pass, and Kani must run and be reported
-honestly under its exploratory policy. No full-sweep shortcuts are implied below.
+integrated tree once the agent reports ready. All ordinary stages must pass, and
+Kani must run and be reported honestly under its exploratory policy. The complete
+assigned functional population and performance gate P are additional requirements;
+the common sweep alone does not run them or prove chunk completion. Any later edit
+requires a new full sweep and refreshed affected acceptance evidence. No full-sweep
+shortcuts are implied below.
 If interfaces or Rust files change, include `cargo dev coverage` and
 `cargo dev trace check --workspace --all-targets` as required by AGENTS.md.
 
-### Dispatch matrix: scope, ownership, model and functional evidence
+### At-parity or better performance
+
+**Gate P applies to every row and every child chunk below, not only optimization
+work.** Each chunk validation must explicitly record **at-parity or better
+performance** for the changed operation and affected existing consumers. Declare
+representative workloads/configurations before implementation; add missing
+comparable cases instead of borrowing an unrelated passing result.
+
+For each comparable workload, require
+`Rust median / min(release median, development median) <= 1.0` and throughput
+at least `max(release throughput, development throughput)`. Gate relevant CPU,
+peak memory and I/O independently. Use equivalent correct operations, both exact
+pinned references, production release/no-tracing builds and a quiet host. Preserve
+samples, identities and failed runs under `target/`. Existing latency manifests
+use `compare_native.py` for each pin followed by `fastest_reference.py`; other
+workloads/metrics need their corresponding measurement adapters.
+
+Report P as **pass**, **fail** or **open**. A slowdown, missing workload, unexecuted
+reference or incomparable evidence cannot close an implementation chunk. Do not
+grandfather known baseline failures or defer the gate to G24. Prior "implemented"
+labels describe functional progress, not this performance acceptance. Strictly
+documentation-only changes may record **not applicable: documentation-only**, with
+a reviewed diff proving no executable/build/configuration/fixture/workload effect;
+this is not a measured pass. Tooling/runtime changes are not exempt. See the
+[full testing rule](../specs/testing/parity.md#per-chunk-performance-acceptance).
+
+### Dispatch matrix: scope, ownership, model and validation
 
 Paths in the goal's Sources paragraph and [architecture map](architecture.md)
 define its ownership area. New adapters live beside that subsystem; shared files
@@ -351,109 +402,109 @@ remain with the integration lead. `SQL` below means unchanged tests from **both*
 pins plus exact types/errors, not just result row counts. `native exchange` means
 C++→Rust and Rust→C++→Rust, including continued mutation/reopen.
 
-| Chunk(s) | Model | Owned responsibility | Smallest functional validation |
-| --- | --- | --- | --- |
-| G01.1a | L | Source/client/extension manifest reconciliation in inventory tooling | Exact pin/hash, unique IDs, known declaration fixtures and explicit absent populations. Current source inventory exists; do not recount it manually. |
-| G01.1b | T | Compiled/generated/config/platform enumeration | Compare source IDs with an actual compiled registry; enumerate hidden/parameterized cases; missing runner/config cannot produce success. |
-| G01.2a | S | Byte-preserving parser and record accounting | Invalid-UTF-8 and invisible-space upstream files; failed attempt, loop-tail, skipped and zero-selection unit tests. |
-| G01.2b | T | Source-rooted fixture/include/require/mode adapter | Upstream include/unzip/expected-file cases; missing fixture, traversal, hash and ineligible-config tests; scratch isolation. |
-| G01.2c | S | Concurrent loop/session/restart runner | Pinned parallelism case with deterministic barriers; named-session isolation, cancellation, crash and restart failure tests. |
-| G01.2d | S | Numeric/RE2/hash/sort/error oracle | C++ oracle agreement and deliberately perturbed values/types/order/errors that must fail. Never accept engine Unsupported as an expected SQL error. |
-| G01.3a | T | Native/API/client assertion mapping | Trace each selected source assertion to a Rust public-contract test, including destruction/failure; unique mapping and unmapped-count checks. |
-| G01.3b | S | Foreign-client test adapters | Test actually loads Rust-built library; wrong symbol/layout/ownership mutation fails. Depends on the corresponding G22 interface. |
-| G01.4 | T | Dual-pin campaigns and regression accounting | All selected IDs have one outcome; retain first runs/retries, immutable provenance and old-pass losses; no skipped/unknown counted as passed. |
-| G02.1 | T | Parser syntax family | SQL parser acceptance/rejection plus parse→bind→execute for each new form. |
-| G02.2 | S | Name/scope resolution | SQL ambiguity, alias/star/correlation matrix and prepared rebinding. |
-| G02.3 | S | Binding contexts and SQL preparation | Literal/parameter/typed-constant overload matrix, repeated execution and invalidation. |
-| G02.4 | T | Diagnostic categories/spans | Exact error assertions with malformed UTF-8, location and unsupported-vs-rejection controls. |
-| G03.1 | S | Cast-family matrix | SQL source/target/boundary matrix through constants, columns and parameters. |
-| G03.2 | T | Numeric overload/function family | Existing `numeric_*` component tests plus source-enumerated SQL signatures/NULL/overflow cases. |
-| G03.3 | T | Binary/UUID/ENUM/BIT family edges | Scalar and batch SQL plus native exchange for changed value representation. |
-| G03.4 | S | Context/IEEE/mixed-family behavior | Prepared-setting changes, lazy errors and nested/group/index key regressions. |
-| G04.1 | T | Temporal physical/text boundaries | `temporal_*` boundary tests plus exact native payloads and reference casts. |
-| G04.2 | T | Calendar/format/current function family | Constant/column/NULL/error SQL and transaction-stable clock tests where applicable. |
-| G04.3 | S | Named-zone/ICU adapter | Provisioned pinned ICU build; DST fold/gap and timezone-setting SQL, explicit absent-build failure. |
-| G04.4 | S | Temporal consumer integration | Prepared/default/group/index tests and checkpoint/WAL exchange for changed types. |
-| G05.1 | T | One nested accessor/constructor family | `component::nested` tests and SQL child NULL/type/shape/error matrix. Preserve already implemented slices. |
-| G05.2 | S | Lambda binding/capture and higher-order family | Nested capture/shadowing, transform/filter/reduce SQL and scalar/batch agreement. |
-| G05.3 | S | Nested relational/mutation consumers | UNNEST/lateral/prepared/nested-update SQL, rollback and mixed-width literals. |
-| G05.4 | S | Core GEOMETRY/type constructors | Pinned WKB/CRS/type SQL, invalid payloads and exact native metadata; not opaque bytes alone. |
-| G05.5 | S | Nested native codecs | Mixed-child/tag/IEEE-bit exchange, version rejection and unchanged-file failures. |
-| G06.1 | T | One text/encoding function family | SQL Unicode/NUL/empty/invalid-byte/NULL cases and batch boundaries. |
-| G06.2 | S | Regex/collation integration | SQL options/errors and same comparison semantics across sort/group/join/index. |
-| G06.3 | T | One utility/volatile function family | Source signatures plus seed/stability/effect-demand tests across statements. |
-| G06.4 | T | Function metadata | Enumerated aliases/overloads/parameters match callable behavior and binder diagnostics. |
-| G07.1 | S | One join/correlation form | SQL empty/NULL/cardinality/outer-row cases plus prepared and nested execution. |
-| G07.2 | S | Recursive/materialized CTE form | SQL recurrence/multiple-reference/type tests plus cancellation/nontermination guard. |
-| G07.3 | T | Relational modifiers/set alignment | SQL name/type/order alignment with aliases, empty and duplicate rows. |
-| G07.4 | S | PIVOT/UNPIVOT/sampling | SQL discovered schemas/NULLs and deterministic seeded sampling cases. |
-| G08.1 | T | One aggregate family | SQL empty/all-NULL/mixed-domain/overflow cases and batch partition equivalence. |
-| G08.2 | S | Aggregate modifiers | ORDER/DISTINCT/FILTER/grouping-mask combinations, error/effect demand. |
-| G08.3 | S | Window frame/function family | Peer/tie/NULL/dynamic-bound/exclusion SQL and invalid bounds. |
-| G08.4 | S | Aggregate/window state adapters | Same result across batch/parallel/spill boundaries; cancellation/cleanup. |
-| G09.1–G09.4 | — | Closed-default slice already implemented | Preserve `stored_*`, default-demand and independent native-default gates; route new consumers to G04/G10/G11. No repeat implementation budget. |
-| G10.1 | S | Remaining identity/scope/dependency integration | Existing catalog-identity tests plus temp scope, rename/drop/cascade and prepared lifetime histories. |
-| G10.2 | S | One catalog object family | CREATE/use/replace/drop, dependencies, rollback and native exchange. Named ENUM already exists. |
-| G10.3 | S | Multi-catalog attachment/routing | Qualified cross-catalog SQL, read-only and forbidden multi-database writes, shutdown/reopen. |
-| G10.4 | T | One metadata/settings family | SQL catalog reflects actual objects; scope/RESET/locking and prepared-setting tests. |
-| G11.1 | S | One DML form | Changed rows/RETURNING metadata, multirow failure atomicity, prepared execution. |
-| G11.2 | S | One constraint/generated-column family | NULL/self-reference/multirow failures, dependency DDL and rollback/reopen. |
-| G11.3 | S | One schema-evolution form | Old/new snapshots, dependent defaults/indexes, reference error timing and native exchange. |
-| G11.4 | T | DML lifecycle integration tests | Deterministic concurrent histories and bidirectional WAL/checkpoint cases for new forms. |
-| G12.1 | S | One version/object metadata codec | Read/create/rewrite/upgrade matrix; metadata and unchanged-file rejection tests. |
-| G12.2 | T | One compression codec/type/version slice | Independent compressed fixtures, decode/encode exchange and malformed boundaries. |
-| G12.3 | S | Selective/large storage adapter | Partial reads return exact rows with measured block I/O and bounded allocation. |
-| G12.4 | T | Native exchange campaign | Cross-producer mixed types/deleted IDs/corruption/version cases, continued writes. |
-| G13.1 | S | One WAL record/version family | FLUSH/abort boundaries and exact state after independent replay. |
-| G13.2 | S | Checkpoint/recovery maintenance | Concurrent/manual/automatic histories, sidecars and repeated recovery. |
-| G13.3 | A | Failure/publication state machine | Short-write/sync/rename/process-kill histories; acknowledged commits survive, unknown outcome stays explicit. |
-| G13.4 | T | Cross-engine recovery handoffs | Alternate WAL/recovery/checkpoint owners then continue writing on both pins. |
-| G14.1 | A | Visibility/conflict domains | Pinned overlapping/disjoint row and catalog histories with exact allowed conflicts. |
-| G14.2 | S | Statement/transaction error lifecycle | Bind/execute/commit/cancel failures, autocommit and prepared reuse transitions. |
-| G14.3 | S | Database/connection ownership | Repeated opens, locks, active results, close/reopen and foreign-handle lifetime. |
-| G14.4 | T | Deterministic history tests | Replay source-mapped read/write/DDL/index/checkpoint schedules, reject incorrect histories. |
-| G15.1 | S | Index DDL/catalog integration | CREATE/drop/composite/expression index SQL, dependency/rollback/native reopen. |
-| G15.2 | S | Incremental maintenance | Insert/update/delete/rollback plus NULL/NaN/nested-key uniqueness and old snapshots. |
-| G15.3 | S | Range/gather access | SQL residual/effect correctness plus instrumented row/block selectivity. |
-| G15.4 | T | Native ART interoperability | C++ visibility/use/mutation and Rust reread; corrupt-index rejection. |
-| G16.1 | T | Statistics lifecycle | ANALYZE/invalidation SQL and measured cardinality fixtures. |
-| G16.2 | S | One optimizer transformation | Optimizer on/off differential corpus with volatile/lazy-error counterexamples. |
-| G16.3 | S | Physical cost/algorithm selection | Correct alternative plans under same inputs/resources plus targeted quiet-host timings. |
-| G16.4 | T | EXPLAIN/profiling contracts | Exact required plan/metric fields, settings and executed-row accounting. |
-| G17.1 | S | Byte ownership/reservations | Fault-injected allocation and nested/vector/operator peak-byte budgets; no leaked reservations. |
-| G17.2 | S | Buffer manager | Pin/evict/dirty/read failure tests plus I/O counts and transaction lifetime. |
-| G17.3 | S | One external operator | Dataset exceeding budget, exact in-memory/spill equivalence and cleanup on failure/stop. |
-| G17.4 | T | Resource acceptance fixtures | Low-memory/disk-full/concurrent cases with peak bytes/I/O and explicit unsupported limits. |
-| G18.1 | A | Scheduler/pipeline state machine | Deterministic exactly-once/barrier/dependency tests, one/many threads and cancellation races. |
-| G18.2 | S | One parallel operator | Batch/partition equivalence, snapshots and mutation atomicity at thread counts 1 and >1. |
-| G18.3 | S | Pending/backpressure API | Real WAITING/progress/cancel/close transitions, blocked source and early destruction. |
-| G18.4 | T | Scheduler histories | Forced blocking, resource pressure, multiple connections and race/stress cases. |
-| G19.1 | S | Table-function binding/lifetime | Independent test source binds schema/options, scans, fails and frees through public API. |
-| G19.2 | S | Pushdown/source capabilities | Residual/projection identity tests, actual scanned rows/bytes and cancellation. |
-| G19.3 | S | Multi-file source adapter | Glob/list/schema-union/partition/filename SQL and reopen/missing-file cases. |
-| G19.4 | T | One core table-function family | Source signatures/output schema plus NULL/empty/correlated SQL. |
-| G20.1 | T | Bounded CSV reader/writer slice | Unchanged CSV boundary/quote/NULL/error cases and independent read/write exchange. |
-| G20.2 | S | Bounded JSON function/reader slice | Missing vs JSON-null vs SQL-NULL, path/number/nested/schema cases and malformed input. |
-| G20.3 | S | Bounded Parquet encoding/type slice | Independently produced pages/files both ways, nested/decimal/time metadata and corruption. |
-| G20.4 | S | COPY/finalization lifecycle | Partition/multi-file exact outputs, failed-write cleanup and import/export exchange. |
-| G21.1 | S | Filesystem capability adapter | Short/range reads, globs, cancellation/locks and non-idempotent failure replay tests. |
-| G21.2 | S | Secret/access-policy lifecycle | Provider scope/redaction/persistence tests, forbidden access and cleanup. |
-| G21.3 | S | Encryption format/lifecycle | Independent encrypted DB/WAL/temp exchange, wrong-key/authentication/torn-write tests. Use audited primitives, not new cryptography. |
-| G21.4 | T | One remote filesystem integration | Controlled server credentials/redirect/range/retry cases and actual transferred bytes. |
-| G22.1 | S | Bounded C v1 symbol/handle family | Compile/link unchanged C test against Rust library; ABI, free/borrow/error tests. |
-| G22.2 | A | C v2 handle/wait state machine | Native C/C++ consumer WAITING/CHUNK/FINISHED/CANCELLED and invalid/destructed-owner cases. |
-| G22.3 | S | Relation/appender/registration adapter | Foreign caller buffering/flush/rollback/early-destroy and nested-value tests. |
-| G22.4 | S | Arrow ownership/type slice | Independent Arrow consumer, offsets/dictionary/nested NULLs and exactly-once release callbacks. |
-| G22.5 | S | ADBC driver slice | Pinned driver tests for metadata/parameters/transactions/streams/errors with Rust provenance. |
-| G23.1 | L | Extension pin/ABI manifest | Resolve configured immutable refs; classify missing refs and ABI coupling, never silently omit. |
-| G23.2 | S | Loader lifecycle | Independent compatible extension, bad signature/version/platform, repeat load and retained callbacks. |
-| G23.3 | T | One built-in extension adapter | Its unchanged SQL/API cases under static/loadable required configs; missing dependency is not a pass. |
-| G23.4 | S | One pinned external capability | Exact extension suite/remote fixture against Rust; port internal-C++-coupled capability explicitly. |
-| G24.1 | S | One client adapter | Pinned conversions/relation/threading/lifetime tests loading newly built Rust artifact. |
-| G24.2 | T | One shell behavior family | Process-level args/stdout/stderr/exit/interrupt tests; terminal fixture for interactive behavior. |
-| G24.3 | T | One build/platform package | Clean install, exported symbols and provenance smoke on actual target OS/architecture. |
-| G24.4 | T | Integrated correctness accounting | All mapped IDs/configs, prior-pass regression diff, faults/fuzz/ignored/zero-test accounting. |
-| G24.5 | T | Performance acceptance campaign | Correct paired samples vs both pins, faster-reference <=1.0 per workload, then CPU/memory/I/O/scale dimensions. |
+| Chunk(s) | Model | Owned responsibility | Smallest functional validation | Performance gate |
+| --- | --- | --- | --- | --- |
+| G01.1a | L | Source/client/extension manifest reconciliation in inventory tooling | Exact pin/hash, unique IDs, known declaration fixtures and explicit absent populations. Current source inventory exists; do not recount it manually. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.1b | T | Compiled/generated/config/platform enumeration | Compare source IDs with an actual compiled registry; enumerate hidden/parameterized cases; missing runner/config cannot produce success. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.2a | S | Byte-preserving parser and record accounting | Invalid-UTF-8 and invisible-space upstream files; failed attempt, loop-tail, skipped and zero-selection unit tests. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.2b | T | Source-rooted fixture/include/require/mode adapter | Upstream include/unzip/expected-file cases; missing fixture, traversal, hash and ineligible-config tests; scratch isolation. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.2c | S | Concurrent loop/session/restart runner | Pinned parallelism case with deterministic barriers; named-session isolation, cancellation, crash and restart failure tests. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.2d | S | Numeric/RE2/hash/sort/error oracle | C++ oracle agreement and deliberately perturbed values/types/order/errors that must fail. Never accept engine Unsupported as an expected SQL error. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.3a | T | Native/API/client assertion mapping | Trace each selected source assertion to a Rust public-contract test, including destruction/failure; unique mapping and unmapped-count checks. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.3b | S | Foreign-client test adapters | Test actually loads Rust-built library; wrong symbol/layout/ownership mutation fails. Depends on the corresponding G22 interface. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.4 | T | Dual-pin campaigns and regression accounting | All selected IDs have one outcome; retain first runs/retries, immutable provenance and old-pass losses; no skipped/unknown counted as passed. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G02.1 | T | Parser syntax family | SQL parser acceptance/rejection plus parse→bind→execute for each new form. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G02.2 | S | Name/scope resolution | SQL ambiguity, alias/star/correlation matrix and prepared rebinding. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G02.3 | S | Binding contexts and SQL preparation | Literal/parameter/typed-constant overload matrix, repeated execution and invalidation. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G02.4 | T | Diagnostic categories/spans | Exact error assertions with malformed UTF-8, location and unsupported-vs-rejection controls. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G03.1 | S | Cast-family matrix | SQL source/target/boundary matrix through constants, columns and parameters. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G03.2 | T | Numeric overload/function family | Existing `numeric_*` component tests plus source-enumerated SQL signatures/NULL/overflow cases. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G03.3 | T | Binary/UUID/ENUM/BIT family edges | Scalar and batch SQL plus native exchange for changed value representation. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G03.4 | S | Context/IEEE/mixed-family behavior | Prepared-setting changes, lazy errors and nested/group/index key regressions. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G04.1 | T | Temporal physical/text boundaries | `temporal_*` boundary tests plus exact native payloads and reference casts. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G04.2 | T | Calendar/format/current function family | Constant/column/NULL/error SQL and transaction-stable clock tests where applicable. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G04.3 | S | Named-zone/ICU adapter | Provisioned pinned ICU build; DST fold/gap and timezone-setting SQL, explicit absent-build failure. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G04.4 | S | Temporal consumer integration | Prepared/default/group/index tests and checkpoint/WAL exchange for changed types. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G05.1 | T | One nested accessor/constructor family | `component::nested` tests and SQL child NULL/type/shape/error matrix. Preserve already implemented slices. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G05.2 | S | Lambda binding/capture and higher-order family | Nested capture/shadowing, transform/filter/reduce SQL and scalar/batch agreement. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G05.3 | S | Nested relational/mutation consumers | UNNEST/lateral/prepared/nested-update SQL, rollback and mixed-width literals. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G05.4 | S | Core GEOMETRY/type constructors | Pinned WKB/CRS/type SQL, invalid payloads and exact native metadata; not opaque bytes alone. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G05.5 | S | Nested native codecs | Mixed-child/tag/IEEE-bit exchange, version rejection and unchanged-file failures. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G06.1 | T | One text/encoding function family | SQL Unicode/NUL/empty/invalid-byte/NULL cases and batch boundaries. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G06.2 | S | Regex/collation integration | SQL options/errors and same comparison semantics across sort/group/join/index. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G06.3 | T | One utility/volatile function family | Source signatures plus seed/stability/effect-demand tests across statements. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G06.4 | T | Function metadata | Enumerated aliases/overloads/parameters match callable behavior and binder diagnostics. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G07.1 | S | One join/correlation form | SQL empty/NULL/cardinality/outer-row cases plus prepared and nested execution. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G07.2 | S | Recursive/materialized CTE form | SQL recurrence/multiple-reference/type tests plus cancellation/nontermination guard. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G07.3 | T | Relational modifiers/set alignment | SQL name/type/order alignment with aliases, empty and duplicate rows. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G07.4 | S | PIVOT/UNPIVOT/sampling | SQL discovered schemas/NULLs and deterministic seeded sampling cases. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G08.1 | T | One aggregate family | SQL empty/all-NULL/mixed-domain/overflow cases and batch partition equivalence. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G08.2 | S | Aggregate modifiers | ORDER/DISTINCT/FILTER/grouping-mask combinations, error/effect demand. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G08.3 | S | Window frame/function family | Peer/tie/NULL/dynamic-bound/exclusion SQL and invalid bounds. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G08.4 | S | Aggregate/window state adapters | Same result across batch/parallel/spill boundaries; cancellation/cleanup. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G09.1–G09.4 | — | Closed-default slice already implemented | Preserve `stored_*`, default-demand and independent native-default gates; route new consumers to G04/G10/G11. No repeat implementation budget. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G10.1 | S | Remaining identity/scope/dependency integration | Existing catalog-identity tests plus temp scope, rename/drop/cascade and prepared lifetime histories. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G10.2 | S | One catalog object family | CREATE/use/replace/drop, dependencies, rollback and native exchange. Named ENUM already exists. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G10.3 | S | Multi-catalog attachment/routing | Qualified cross-catalog SQL, read-only and forbidden multi-database writes, shutdown/reopen. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G10.4 | T | One metadata/settings family | SQL catalog reflects actual objects; scope/RESET/locking and prepared-setting tests. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G11.1 | S | One DML form | Changed rows/RETURNING metadata, multirow failure atomicity, prepared execution. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G11.2 | S | One constraint/generated-column family | NULL/self-reference/multirow failures, dependency DDL and rollback/reopen. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G11.3 | S | One schema-evolution form | Old/new snapshots, dependent defaults/indexes, reference error timing and native exchange. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G11.4 | T | DML lifecycle integration tests | Deterministic concurrent histories and bidirectional WAL/checkpoint cases for new forms. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G12.1 | S | One version/object metadata codec | Read/create/rewrite/upgrade matrix; metadata and unchanged-file rejection tests. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G12.2 | T | One compression codec/type/version slice | Independent compressed fixtures, decode/encode exchange and malformed boundaries. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G12.3 | S | Selective/large storage adapter | Partial reads return exact rows with measured block I/O and bounded allocation. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G12.4 | T | Native exchange campaign | Cross-producer mixed types/deleted IDs/corruption/version cases, continued writes. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G13.1 | S | One WAL record/version family | FLUSH/abort boundaries and exact state after independent replay. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G13.2 | S | Checkpoint/recovery maintenance | Concurrent/manual/automatic histories, sidecars and repeated recovery. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G13.3 | A | Failure/publication state machine | Short-write/sync/rename/process-kill histories; acknowledged commits survive, unknown outcome stays explicit. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G13.4 | T | Cross-engine recovery handoffs | Alternate WAL/recovery/checkpoint owners then continue writing on both pins. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G14.1 | A | Visibility/conflict domains | Pinned overlapping/disjoint row and catalog histories with exact allowed conflicts. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G14.2 | S | Statement/transaction error lifecycle | Bind/execute/commit/cancel failures, autocommit and prepared reuse transitions. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G14.3 | S | Database/connection ownership | Repeated opens, locks, active results, close/reopen and foreign-handle lifetime. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G14.4 | T | Deterministic history tests | Replay source-mapped read/write/DDL/index/checkpoint schedules, reject incorrect histories. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G15.1 | S | Index DDL/catalog integration | CREATE/drop/composite/expression index SQL, dependency/rollback/native reopen. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G15.2 | S | Incremental maintenance | Insert/update/delete/rollback plus NULL/NaN/nested-key uniqueness and old snapshots. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G15.3 | S | Range/gather access | SQL residual/effect correctness plus instrumented row/block selectivity. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G15.4 | T | Native ART interoperability | C++ visibility/use/mutation and Rust reread; corrupt-index rejection. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G16.1 | T | Statistics lifecycle | ANALYZE/invalidation SQL and measured cardinality fixtures. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G16.2 | S | One optimizer transformation | Optimizer on/off differential corpus with volatile/lazy-error counterexamples. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G16.3 | S | Physical cost/algorithm selection | Correct alternative plans under same inputs/resources plus targeted quiet-host timings. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G16.4 | T | EXPLAIN/profiling contracts | Exact required plan/metric fields, settings and executed-row accounting. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G17.1 | S | Byte ownership/reservations | Fault-injected allocation and nested/vector/operator peak-byte budgets; no leaked reservations. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G17.2 | S | Buffer manager | Pin/evict/dirty/read failure tests plus I/O counts and transaction lifetime. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G17.3 | S | One external operator | Dataset exceeding budget, exact in-memory/spill equivalence and cleanup on failure/stop. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G17.4 | T | Resource acceptance fixtures | Low-memory/disk-full/concurrent cases with peak bytes/I/O and explicit unsupported limits. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G18.1 | A | Scheduler/pipeline state machine | Deterministic exactly-once/barrier/dependency tests, one/many threads and cancellation races. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G18.2 | S | One parallel operator | Batch/partition equivalence, snapshots and mutation atomicity at thread counts 1 and >1. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G18.3 | S | Pending/backpressure API | Real WAITING/progress/cancel/close transitions, blocked source and early destruction. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G18.4 | T | Scheduler histories | Forced blocking, resource pressure, multiple connections and race/stress cases. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G19.1 | S | Table-function binding/lifetime | Independent test source binds schema/options, scans, fails and frees through public API. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G19.2 | S | Pushdown/source capabilities | Residual/projection identity tests, actual scanned rows/bytes and cancellation. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G19.3 | S | Multi-file source adapter | Glob/list/schema-union/partition/filename SQL and reopen/missing-file cases. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G19.4 | T | One core table-function family | Source signatures/output schema plus NULL/empty/correlated SQL. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G20.1 | T | Bounded CSV reader/writer slice | Unchanged CSV boundary/quote/NULL/error cases and independent read/write exchange. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G20.2 | S | Bounded JSON function/reader slice | Missing vs JSON-null vs SQL-NULL, path/number/nested/schema cases and malformed input. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G20.3 | S | Bounded Parquet encoding/type slice | Independently produced pages/files both ways, nested/decimal/time metadata and corruption. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G20.4 | S | COPY/finalization lifecycle | Partition/multi-file exact outputs, failed-write cleanup and import/export exchange. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G21.1 | S | Filesystem capability adapter | Short/range reads, globs, cancellation/locks and non-idempotent failure replay tests. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G21.2 | S | Secret/access-policy lifecycle | Provider scope/redaction/persistence tests, forbidden access and cleanup. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G21.3 | S | Encryption format/lifecycle | Independent encrypted DB/WAL/temp exchange, wrong-key/authentication/torn-write tests. Use audited primitives, not new cryptography. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G21.4 | T | One remote filesystem integration | Controlled server credentials/redirect/range/retry cases and actual transferred bytes. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G22.1 | S | Bounded C v1 symbol/handle family | Compile/link unchanged C test against Rust library; ABI, free/borrow/error tests. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G22.2 | A | C v2 handle/wait state machine | Native C/C++ consumer WAITING/CHUNK/FINISHED/CANCELLED and invalid/destructed-owner cases. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G22.3 | S | Relation/appender/registration adapter | Foreign caller buffering/flush/rollback/early-destroy and nested-value tests. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G22.4 | S | Arrow ownership/type slice | Independent Arrow consumer, offsets/dictionary/nested NULLs and exactly-once release callbacks. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G22.5 | S | ADBC driver slice | Pinned driver tests for metadata/parameters/transactions/streams/errors with Rust provenance. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G23.1 | L | Extension pin/ABI manifest | Resolve configured immutable refs; classify missing refs and ABI coupling, never silently omit. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G23.2 | S | Loader lifecycle | Independent compatible extension, bad signature/version/platform, repeat load and retained callbacks. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G23.3 | T | One built-in extension adapter | Its unchanged SQL/API cases under static/loadable required configs; missing dependency is not a pass. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G23.4 | S | One pinned external capability | Exact extension suite/remote fixture against Rust; port internal-C++-coupled capability explicitly. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G24.1 | S | One client adapter | Pinned conversions/relation/threading/lifetime tests loading newly built Rust artifact. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G24.2 | T | One shell behavior family | Process-level args/stdout/stderr/exit/interrupt tests; terminal fixture for interactive behavior. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G24.3 | T | One build/platform package | Clean install, exported symbols and provenance smoke on actual target OS/architecture. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G24.4 | T | Integrated correctness accounting | All mapped IDs/configs, prior-pass regression diff, faults/fuzz/ignored/zero-test accounting. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G24.5 | T | Performance acceptance campaign | Correct paired samples vs both pins, faster-reference <=1.0 per workload, then CPU/memory/I/O/scale dimensions. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 
 ## G01 — Reliable parity inventory and harnesses
 
@@ -507,13 +558,14 @@ are directly motivated by the measured baseline and can be assigned without
 inventing a new feature scope. G01.2a/b/d are the first three parallel workers;
 the following independent children enter as slots and shared contracts permit.
 
-| Child | Model / owner | Minimal functional gate |
-| --- | --- | --- |
-| G01.2d.1 — typed native-probe comparison | T; `scripts/verify_reference.py` comparison helper/tests, coordinate oracle owner | HUGEINT number/string representation compares by declared type; changed value, NULL and VARCHAR numeric text still fail. Rerun development probe to expose its next genuine boundary. |
-| G03.3a — ENUM range boundary | T; `src/function/enumeration.rs`, enumeration component/reference cases | Port both pins' constant/column/NULL endpoint behavior; `enum_reference.py` SQL 29/29 per pin plus existing native paths, scalar/batch and prepared coverage. |
-| G10.4a — verification/settings controls | S; settings owner with binder integration lead | Source-map `enable_verification`, profiling and force-external settings before implementation; assert the promised setting changes execution/verification behavior. Rerun affected unchanged files, not merely their first PRAGMA. |
-| G11.3a — ADD COLUMN execution cost | S; ALTER/default-demand owner, no concurrent G09/G11 shared edits | Preserve stored/default demand, rollback/holes and native exchange tests; profile source-matched ADD and rerun its full 12-case native manifest against both pins. |
-| G16.3a — aggregation/numeric execution cost | S; aggregation/expression owner, coordinate G03 casts | Preserve checked arithmetic/NULL/error and scalar/batch semantics; rerun numeric+grouping manifests with all per-workload <=1.0 gates. Split by identified source algorithm after diagnosis. |
+| Child | Model / owner | Minimal functional gate | Performance gate |
+| --- | --- | --- | --- |
+| G01.4a — fast feedback orchestration | T; upstream-runner/orchestration owner, coordinate other G01 edits | Add debug-worker mode and hash-validated suite caching without weakening assertions; manifest-selected tests, debounced single-process validation, zero-selection/cache-tamper/stale-source negative tests; compare selected results with the release runner. Feedback timing is not an acceptance benchmark. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G01.2d.1 — typed native-probe comparison | T; `scripts/verify_reference.py` comparison helper/tests, coordinate oracle owner | HUGEINT number/string representation compares by declared type; changed value, NULL and VARCHAR numeric text still fail. Rerun development probe to expose its next genuine boundary. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G03.3a — ENUM range boundary | T; `src/function/enumeration.rs`, enumeration component/reference cases | Port both pins' constant/column/NULL endpoint behavior; `enum_reference.py` SQL 29/29 per pin plus existing native paths, scalar/batch and prepared coverage. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G10.4a — verification/settings controls | S; settings owner with binder integration lead | Source-map `enable_verification`, profiling and force-external settings before implementation; assert the promised setting changes execution/verification behavior. Rerun affected unchanged files, not merely their first PRAGMA. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G11.3a — ADD COLUMN execution cost | S; ALTER/default-demand owner, no concurrent G09/G11 shared edits | Preserve stored/default demand, rollback/holes and native exchange tests; profile source-matched ADD and rerun its full 12-case native manifest against both pins. | [P: at-parity or better performance](#at-parity-or-better-performance) |
+| G16.3a — aggregation/numeric execution cost | S; aggregation/expression owner, coordinate G03 casts | Preserve checked arithmetic/NULL/error and scalar/batch semantics; rerun numeric+grouping manifests with all per-workload <=1.0 gates. Split by identified source algorithm after diagnosis. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 
 No engine behavior was changed by this measurement slice. Tooling uses focused
 Python regression tests (wrong results, identity/selection errors, retries, fixture
@@ -738,7 +790,9 @@ Sources: `src/function/{aggregate,window}.rs`, `src/planner/window.rs`,
 
 ## G09 — Retained expressions and default lifecycle
 
-**Status: scoped retained-default lifecycle complete.** Catalog columns and private
+**Status: scoped retained-default functionality implemented; performance acceptance
+open.** The measured ADD COLUMN slowdown must be resolved under G11.3a/gate P
+before this slice can be called fully complete. Catalog columns and private
 snapshots retain optional `StoredExpression` trees, including absence, declared
 literal type and syntax provenance. SQL CREATE/SET/ADD captures and binds closed
 defaults without executing during capture or binding; INSERT and demanded ADD
@@ -795,7 +849,8 @@ types remain explicit catalog-binding work.
   constraints and generated columns remain with G11. Those are separate consumer
   scopes and are not claimed by this G09 exit.
 
-**Exit achieved for this slice:** the checked-in development fixture covers FUNCTION
+**Functional exit achieved for this slice; performance exit remains open:**
+the checked-in development fixture covers FUNCTION
 checkpoint input, and the independent process gate passes FUNCTION/CASE/predicate
 and interval checkpoint exchange in both directions plus Rust-origin WAL recovery. A
 one-time evaluated literal or codec-only round trip cannot pass. Release checkpoint
@@ -1198,11 +1253,23 @@ Goal: Gxx — <goal title from this backlog>
 Baseline: <integrated Rust commit>; pinned development and release from reference-builds.md
 Owned chunks: Gxx.1 ... Gxx.n
 Dependencies: <specific capabilities; integration owner for shared files>
+Validation manifest:
+  Fast checks: <affected package/target and test filters; reject zero-test runs>
+  Upstream cases: <exact unchanged IDs, negative/boundary cases, configurations>
+  Functional acceptance: <complete assigned population and interop/API commands>
+  Performance: at-parity or better performance (gate P)
+    Workloads: <IDs/manifest, changed operation and affected consumers>
+    Metrics/configuration: <latency/throughput/CPU/peak-memory/I/O as applicable>
+    Baselines: <both pinned C++ identities; faster reference per workload>
+    Evidence: <final source/binary hashes, commands, samples, pass/fail/open>
 Deliver: implemented behavior, unchanged upstream cases/source mappings,
-         relevant cross-consumer regressions, chunk-sweep result, remaining gaps.
+         relevant cross-consumer regressions, full-sweep/Kani result,
+         at-parity or better performance evidence, remaining gaps.
 Constraints: selected subsystem interfaces; development wins semantic disagreements;
              no skips relabeled as passes; raw evidence only in ignored target/.
-Completion: satisfy this group's exit criteria and the per-chunk contract above.
+Readiness: agent says ready -> freeze integrated tree -> independent full pass.
+Completion: functional acceptance + full sweep/Kani report + performance gate P;
+            satisfy this group's exit criteria; any edit invalidates completion.
 ```
 
 ## Documentation maintenance
