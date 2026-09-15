@@ -98,8 +98,30 @@ impl FixtureResolver {
     }
 
     fn rooted_output(&self, relative: &Path) -> Result<PathBuf, FixtureError> {
-        Self::reject_parent(relative)?;
-        let output = self.scratch_root.join(relative);
+        if relative.components().any(|part| {
+            matches!(part, Component::ParentDir)
+                || (!relative.is_absolute()
+                    && matches!(part, Component::RootDir | Component::Prefix(_)))
+        }) {
+            return Err(FixtureError::Path {
+                path: relative.to_path_buf(),
+                message: "must not contain traversal".into(),
+            });
+        }
+        let output = if relative.is_absolute() {
+            relative.to_path_buf()
+        } else {
+            self.scratch_root.join(relative)
+        };
+        // Check the lexical path before creating parents, then canonicalize the
+        // parent to catch symlink escapes. `{TEST_DIR}/x` is absolute after the
+        // runner performs source-compatible keyword replacement.
+        if output == self.scratch_root || !output.starts_with(&self.scratch_root) {
+            return Err(FixtureError::Path {
+                path: output,
+                message: "output must be inside the scratch root".into(),
+            });
+        }
         let parent = output.parent().ok_or_else(|| FixtureError::Path {
             path: output.clone(),
             message: "has no parent".into(),
@@ -255,16 +277,32 @@ impl FixtureResolver {
         let output = self.rooted_output(destination.unwrap_or(&default))?;
         let result = copy_bounded(
             GzDecoder::new(File::open(source)?),
-            create_new(&output)?,
+            create_or_truncate(&output)?,
             self.max_gzip_bytes,
-        )?;
-        Ok((output, result))
+        );
+        match result {
+            Ok(result) => Ok((output, result)),
+            Err(error) => {
+                // Do not leave a partial extraction that a later directive can
+                // mistake for a complete fixture.
+                let _ = fs::remove_file(&output);
+                Err(error)
+            }
+        }
     }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn create_new(path: &Path) -> Result<File, FixtureError> {
     Ok(OpenOptions::new().write(true).create_new(true).open(path)?)
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn create_or_truncate(path: &Path) -> Result<File, FixtureError> {
+    Ok(OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?)
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn fingerprint(mut input: impl Read) -> Result<FixtureFingerprint, FixtureError> {
@@ -398,16 +436,56 @@ mod tests {
     }
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
-    fn gzip_is_staged_with_checksum_and_bound() {
+    fn gzip_supports_absolute_scratch_destinations_null_default_and_repeat_extraction() {
         let (temp, r) = roots();
         let root = temp.path().join("source");
+        let scratch = r.scratch_root.clone();
         let file = File::create(root.join("x.db.gz")).unwrap();
         let mut gzip = GzEncoder::new(file, Compression::default());
         gzip.write_all(b"fixture").unwrap();
         gzip.finish().unwrap();
-        let (out, hash) = r.unzip("x.db.gz", None).unwrap();
-        assert_eq!(fs::read(out).unwrap(), b"fixture");
+
+        let explicit = scratch.join("explicit.db");
+        let (out, hash) = r.unzip("x.db.gz", Some(&explicit)).unwrap();
+        assert_eq!(out, explicit);
+        assert_eq!(fs::read(&out).unwrap(), b"fixture");
         assert_eq!(hash.bytes, 7);
-        assert!(r.clone().limits(4, 3).unzip("x.db.gz", None).is_err());
+        fs::write(&out, b"stale bytes that must be truncated").unwrap();
+        r.unzip("x.db.gz", Some(&explicit)).unwrap();
+        assert_eq!(fs::read(&out).unwrap(), b"fixture");
+
+        let (default, _) = r.unzip("x.db.gz", None).unwrap();
+        assert_eq!(default, scratch.join("x.db"));
+        r.unzip("x.db.gz", None).unwrap();
+        assert_eq!(fs::read(default).unwrap(), b"fixture");
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn gzip_extraction_bound_is_reached_and_partial_output_is_removed() {
+        let (temp, r) = roots();
+        let root = temp.path().join("source");
+        let file = File::create(root.join("bounded.gz")).unwrap();
+        let mut gzip = GzEncoder::new(file, Compression::default());
+        gzip.write_all(b"four").unwrap();
+        gzip.finish().unwrap();
+
+        let bounded = r.clone().limits(4, 3);
+        let error = bounded.unzip("bounded.gz", None).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("exceeds 3 byte extraction limit")
+        );
+        assert!(!temp.path().join("scratch/bounded").exists());
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn absolute_output_outside_scratch_is_rejected_without_creation() {
+        let (temp, r) = roots();
+        let outside = temp.path().join("outside/result.db");
+        assert!(r.rooted_output(&outside).is_err());
+        assert!(!outside.parent().unwrap().exists());
     }
 }

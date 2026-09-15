@@ -8,7 +8,7 @@ mod oracle;
 #[allow(dead_code)]
 mod parser;
 
-use directives::{DirectiveAction, DirectiveHeader, DirectiveState};
+use directives::{DirectiveAction, DirectiveHeader, DirectiveState, Mode};
 use duckdb_rust::{Connection, Database, Error, Result, Value};
 use fixtures::FixtureResolver;
 use oracle::{
@@ -36,6 +36,10 @@ pub(crate) struct FileReport {
     pub declarations: usize,
     pub passed: usize,
     pub skipped: usize,
+    /// Output requested by `mode output_*`, `mode debug`, or statement-level
+    /// `debug`/`debug_skip`. Keeping it in the report makes the source modes
+    /// observable without writing nondeterministically during test execution.
+    pub output: Vec<String>,
 }
 
 struct Header {
@@ -77,8 +81,8 @@ impl ExpectedSubstitutions for Substitutions {
         let mut result = input.to_vec();
         for (name, value) in self.0.borrow().iter() {
             for marker in [
-                [b"{".as_slice(), name, b"}"].concat(),
                 [b"${".as_slice(), name, b"}"].concat(),
+                [b"{".as_slice(), name, b"}"].concat(),
             ] {
                 result = replace_all(&result, &marker, value);
             }
@@ -99,6 +103,9 @@ impl Re2Matcher for RustRe2Matcher {
         let expression = format!(r"\A(?:{pattern})\z");
         regex::bytes::RegexBuilder::new(&expression)
             .dot_matches_new_line(true)
+            // RE2's Perl character classes are ASCII. In particular, `\d`,
+            // `\w`, and `\s` must not grow to Unicode classes in this adapter.
+            .unicode(false)
             .build()
             .map(|regex| regex.is_match(value))
             .map_err(|error| error.to_string())
@@ -116,7 +123,7 @@ impl Scratch {
         let path =
             std::env::temp_dir().join(format!("duckdb-rust-sqllogic-{}-{id}", std::process::id()));
         std::fs::create_dir(&path)?;
-        Ok(Self(path))
+        Ok(Self(path.canonicalize()?))
     }
 }
 
@@ -172,9 +179,9 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
     let mut parser = SqlLogicParser::from_bytes(&path, &source);
     let mut accounting = RecordAccounting::default();
     let mut connections = BTreeMap::<String, Connection>::new();
-    let mut json_error_connections = BTreeSet::<String>::new();
     let mut directives = default_directive_state();
     let mut hash_threshold = 0usize;
+    let mut output = Vec::new();
     let mut active_sources = vec![top];
     let original_sqlite = path
         .to_string_lossy()
@@ -216,43 +223,52 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
             token = parser.tokenize().map_err(parse_error)?;
         }
 
+        if skip_record || (directives.mode.skip_depth > 0 && token.kind != TokenKind::Mode) {
+            if token.kind.is_test_command() {
+                let declaration = accounting.declare(token.location.clone());
+                let execution = accounting
+                    .plan(declaration, Vec::new())
+                    .map_err(accounting_error)?;
+                accounting
+                    .record(execution, ExecutionOutcome::Skipped)
+                    .map_err(accounting_error)?;
+            }
+            continue;
+        }
         if token.kind.is_test_command() {
             directives.mark_test_command();
         }
-        if skip_record || (directives.mode.skip_depth > 0 && token.kind.is_test_command()) {
-            let declaration = accounting.declare(token.location.clone());
-            let execution = accounting
-                .plan(declaration, Vec::new())
-                .map_err(accounting_error)?;
-            accounting
-                .record(execution, ExecutionOutcome::Skipped)
-                .map_err(accounting_error)?;
-            continue;
-        }
 
         match token.kind {
-            TokenKind::Statement => execute_statement(
-                database,
-                &mut connections,
-                &mut parser,
-                &mut accounting,
-                &mut oracle,
-                &mut json_error_connections,
-                &substitutions,
-                &token,
-                allow_missing_error,
-            )?,
+            TokenKind::Statement => {
+                let debug_skip = execute_statement(
+                    database,
+                    &mut connections,
+                    &mut parser,
+                    &mut accounting,
+                    &mut oracle,
+                    &substitutions,
+                    &token,
+                    allow_missing_error,
+                    directives.mode,
+                    &mut output,
+                )?;
+                if debug_skip {
+                    directives.mode.skip_depth += 1;
+                }
+            }
             TokenKind::Query => execute_query(
                 database,
                 &mut connections,
                 &mut parser,
                 &mut accounting,
                 &mut oracle,
-                &json_error_connections,
                 &substitutions,
                 &token,
                 hash_threshold,
                 original_sqlite,
+                directives.mode,
+                &mut output,
             )?,
             TokenKind::HashThreshold => {
                 let value = one_argument(&token, "hash-threshold")?;
@@ -283,8 +299,9 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                     .get(1)
                     .map(|value| substitutions.replace(value.as_bytes()))
                     .transpose_utf8(&token, "unzip output")?;
+                let output = output.as_deref().filter(|output| *output != "NULL");
                 fixtures
-                    .unzip(source, output.as_deref().map(Path::new))
+                    .unzip(source, output.map(Path::new))
                     .map_err(fixture_error)?;
             }
             TokenKind::Mode
@@ -315,6 +332,7 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
                             declarations: snapshot.declarations,
                             passed: snapshot.passed,
                             skipped: snapshot.skipped,
+                            output,
                         });
                     }
                     DirectiveAction::Fail { message } => return Err(Error::Execution(message)),
@@ -374,6 +392,7 @@ pub(crate) fn run_file_report(database: &Database, path: &Path) -> Result<FileRe
         declarations: snapshot.declarations,
         passed: snapshot.passed,
         skipped: snapshot.skipped,
+        output,
     })
 }
 
@@ -385,12 +404,18 @@ fn execute_statement(
     parser: &mut SqlLogicParser,
     accounting: &mut RecordAccounting,
     oracle: &mut Oracle<'_>,
-    json_error_connections: &mut BTreeSet<String>,
     substitutions: &Substitutions,
     token: &Token,
     allow_missing_error: bool,
-) -> Result<()> {
+    mode: Mode,
+    output: &mut Vec<String>,
+) -> Result<bool> {
     let args = string_arguments(token)?;
+    let statement_debug = matches!(
+        args.first().map(String::as_str),
+        Some("debug" | "debug_skip")
+    );
+    let debug_skip = args.first().is_some_and(|arg| arg == "debug_skip");
     let expected = match args.first().map(String::as_str) {
         Some("ok") => ExpectedStatement::Success,
         Some("error") => ExpectedStatement::Error(None),
@@ -430,25 +455,26 @@ fn execute_statement(
         .plan(declaration, Vec::new())
         .map_err(accounting_error)?;
     let sql_bytes = substitutions.replace(&sql.bytes);
-    let json_errors = json_error_connections.contains(&connection_name);
-    let outcome = if json_error_mode(&sql_bytes).is_some() {
-        // This setting controls the byte-to-engine diagnostic adapter below;
-        // applying it here is observable and is not an accept-and-ignore shim.
-        Ok(Vec::new())
-    } else {
-        match engine_text(&sql_bytes, json_errors) {
-            Ok(text) => connections
-                .entry(connection_name.clone())
-                .or_insert_with(|| database.connect())
-                .execute(text),
-            Err(error) => Err(error),
-        }
-    };
+    if mode.output_result || mode.debug || statement_debug {
+        output.push(format!("{}: SQL {}", token.location, escaped(&sql_bytes)));
+    }
+    let text = transport_sql(&sql_bytes).map_err(|error| {
+        let _ = accounting.record(execution, ExecutionOutcome::Failed);
+        at(token, &format!("{error}; SQL {}", escaped(&sql_bytes)))
+    })?;
+    let outcome = connections
+        .entry(connection_name.clone())
+        .or_insert_with(|| database.connect())
+        .execute(text);
+    if mode.output_result || mode.debug || statement_debug {
+        let rendered = match &outcome {
+            Ok(results) => format!("{} result set(s)", results.len()),
+            Err(error) => format!("error: {error}"),
+        };
+        output.push(format!("{}: RESULT {rendered}", token.location));
+    }
     let checked = match outcome {
-        Ok(_) => {
-            update_json_error_mode(&sql_bytes, &connection_name, json_error_connections);
-            oracle.check_statement(StatementResult::Success, expected)
-        }
+        Ok(_) => oracle.check_statement(StatementResult::Success, expected),
         Err(error) => {
             let message = error.to_string();
             oracle.check_statement(
@@ -469,7 +495,8 @@ fn execute_statement(
     }
     accounting
         .record(execution, ExecutionOutcome::Passed)
-        .map_err(accounting_error)
+        .map_err(accounting_error)?;
+    Ok(debug_skip)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -480,11 +507,12 @@ fn execute_query(
     parser: &mut SqlLogicParser,
     accounting: &mut RecordAccounting,
     oracle: &mut Oracle<'_>,
-    json_error_connections: &BTreeSet<String>,
     substitutions: &Substitutions,
     token: &Token,
     hash_threshold: usize,
     original_sqlite: bool,
+    mode: Mode,
+    output: &mut Vec<String>,
 ) -> Result<()> {
     let args = string_arguments(token)?;
     let signature = args
@@ -519,11 +547,10 @@ fn execute_query(
         .plan(declaration, Vec::new())
         .map_err(accounting_error)?;
     let sql_bytes = substitutions.replace(&sql.bytes);
-    let text = engine_text(
-        &sql_bytes,
-        json_error_connections.contains(&connection_name),
-    )
-    .map_err(|error| {
+    if mode.output_result || mode.debug {
+        output.push(format!("{}: SQL {}", token.location, escaped(&sql_bytes)));
+    }
+    let text = transport_sql(&sql_bytes).map_err(|error| {
         let _ = accounting.record(execution, ExecutionOutcome::Failed);
         at(token, &format!("{error}; SQL {}", escaped(&sql_bytes)))
     })?;
@@ -565,6 +592,16 @@ fn execute_query(
             Some(value) => ActualCell::Text(value),
         })
         .collect();
+    if mode.output_result {
+        output.push(format!("{}: RESULT {:?}", token.location, rendered));
+    }
+    if mode.output_hash {
+        output.push(format!(
+            "{}: OUTPUT_HASH requested for {} value(s)",
+            token.location,
+            rendered.len()
+        ));
+    }
     let checked = oracle.check_query(
         ActualResult {
             columns: &columns,
@@ -725,57 +762,18 @@ fn error_kind(error: &Error) -> ErrorKind {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn engine_text(bytes: &[u8], errors_as_json: bool) -> Result<&str> {
+/// Adapt byte-preserving SQLLogic input to the current Rust engine API.
+///
+/// `Connection` accepts `&str`, so invalid UTF-8 cannot cross this transport.
+/// This is a harness limitation, not an engine parser diagnostic, and must not
+/// satisfy an expected SQL error.
+fn transport_sql(bytes: &[u8]) -> Result<&str> {
     std::str::from_utf8(bytes).map_err(|error| {
         let position = error.valid_up_to();
-        if errors_as_json {
-            Error::Parse(format!(
-                r#"{{"error_type":"Parser","position":"{position}","message":"Invalid UTF-8 in query"}}"#
-            ))
-        } else {
-            let line = bytes[..position]
-                .iter()
-                .filter(|byte| **byte == b'\n')
-                .count()
-                + 1;
-            Error::Parse(format!(
-                "Invalid UTF-8 in query at byte {position}\nLINE {line}:"
-            ))
-        }
+        Error::Unsupported(format!(
+            "SQLLogic transport accepts only UTF-8 SQL; invalid byte at offset {position}; engine was not invoked"
+        ))
     })
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn update_json_error_mode(
-    sql: &[u8],
-    connection: &str,
-    json_error_connections: &mut BTreeSet<String>,
-) {
-    match json_error_mode(sql) {
-        Some(true) => {
-            json_error_connections.insert(connection.to_string());
-        }
-        Some(false) => {
-            json_error_connections.remove(connection);
-        }
-        None => {}
-    }
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn json_error_mode(sql: &[u8]) -> Option<bool> {
-    let normalized = String::from_utf8_lossy(sql)
-        .trim()
-        .trim_end_matches(';')
-        .replace(' ', "")
-        .to_ascii_lowercase();
-    if normalized == "seterrors_as_json=true" {
-        Some(true)
-    } else if normalized == "seterrors_as_json=false" {
-        Some(false)
-    } else {
-        None
-    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -874,5 +872,41 @@ impl TransposeUtf8 for Option<Vec<u8>> {
             String::from_utf8(value).map_err(|_| at(token, &format!("{role} is not UTF-8")))
         })
         .transpose()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn substitutions_replace_legacy_marker_before_braced_marker() {
+        let substitutions = Substitutions::default();
+        substitutions.insert("NAME", "value");
+        assert_eq!(substitutions.replace(b"${NAME}/{NAME}"), b"value/value");
+    }
+
+    #[test]
+    fn regex_perl_classes_are_ascii_and_non_ascii_mutations_fail() {
+        let matcher = RustRe2Matcher;
+        assert!(matcher.full_match(br"\d+", b"123").unwrap());
+        assert!(!matcher.full_match(br"\d+", "١٢٣".as_bytes()).unwrap());
+        assert!(matcher.full_match(br"\w+", b"word_42").unwrap());
+        assert!(!matcher.full_match(br"\w+", "λέξη".as_bytes()).unwrap());
+        assert!(matcher.full_match(br"\s+", b" \t\r\n").unwrap());
+        assert!(!matcher.full_match(br"\s+", "\u{00a0}".as_bytes()).unwrap());
+        assert!(
+            matcher
+                .full_match("café".as_bytes(), "café".as_bytes())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_transport_error_states_that_engine_was_not_invoked() {
+        let error = transport_sql(b"SELECT \xff").unwrap_err();
+        assert!(matches!(error, Error::Unsupported(_)));
+        assert!(error.to_string().contains("engine was not invoked"));
+        assert!(error.to_string().contains("offset 7"));
     }
 }
