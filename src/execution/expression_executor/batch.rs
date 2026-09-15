@@ -430,6 +430,9 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
     input: &DataChunk,
     context: &dyn EvaluationContext,
 ) -> Result<(Vector, ArgumentProvenance)> {
+    if matches!(expression.kind, ExprKind::Case(..)) {
+        return evaluate_case_with_semantic_provenance(evaluator, expression, input, context);
+    }
     if expression.uses_physical_batch() {
         return Ok((
             evaluate_selected_with_physical_batches(evaluator, expression, input, context)?,
@@ -459,6 +462,83 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
             ArgumentProvenance::Unknown
         },
     ))
+}
+
+/// CASE owns selected branch demand. Its result provenance is the provenance
+/// of the branches that actually supplied rows, never the encoding of a
+/// physical condition or an unselected physical branch.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn evaluate_case_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<(Vector, ArgumentProvenance)> {
+    let ExprKind::Case(branches, otherwise) = &expression.kind else {
+        unreachable!("caller selected CASE")
+    };
+    let mut active = (0..input.len()).collect::<Vec<_>>();
+    let mut values = vec![Value::Null; input.len()];
+    let mut constant = true;
+    for (condition, value) in branches {
+        if active.is_empty() {
+            break;
+        }
+        let selected = input.select(&active)?;
+        let selected_offsets = super::select_predicate_with_physical_batches(
+            evaluator, condition, &selected, context,
+        )?;
+        let mut matched = Vec::with_capacity(selected_offsets.len());
+        let mut remaining = Vec::new();
+        let mut selected_offset = 0;
+        for (offset, &index) in active.iter().enumerate() {
+            if selected_offsets.get(selected_offset) == Some(&offset) {
+                matched.push(index);
+                selected_offset += 1;
+            } else {
+                remaining.push(index);
+            }
+        }
+        if !matched.is_empty() {
+            let selected = input.select(&matched)?;
+            let (results, provenance) =
+                evaluate_child_with_semantic_provenance(evaluator, value, &selected, context)?;
+            constant &= provenance == ArgumentProvenance::Constant;
+            for (offset, &index) in matched.iter().enumerate() {
+                values[index] = results.get(offset).expect("validated CASE result").clone();
+            }
+        }
+        active = remaining;
+    }
+    if !active.is_empty() {
+        let selected = input.select(&active)?;
+        let (results, provenance) =
+            evaluate_child_with_semantic_provenance(evaluator, otherwise, &selected, context)?;
+        constant &= provenance == ArgumentProvenance::Constant;
+        for (offset, &index) in active.iter().enumerate() {
+            values[index] = results
+                .get(offset)
+                .expect("validated CASE otherwise")
+                .clone();
+        }
+    }
+    let output = Vector::flat(expression.data_type.clone(), values)?;
+    if constant {
+        context
+            .query()
+            .types()
+            .bind(&expression.data_type)?
+            .validate_vector(&output, context.query())?;
+        return Ok((
+            Vector::constant(
+                expression.data_type.clone(),
+                output.get(0).expect("nonempty CASE input").clone(),
+                input.len(),
+            )?,
+            ArgumentProvenance::Constant,
+        ));
+    }
+    Ok((output, ArgumentProvenance::Unknown))
 }
 
 /// Evaluates total scalar trees by columns, using retained type and operator

@@ -273,12 +273,15 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
             assert!(error.to_string().contains("enum_bad"), "{error}");
         }
         c.execute("CREATE TABLE physical_null(a ENUM('z','a'),b VARCHAR); INSERT INTO physical_null VALUES ('z','enum_bad')")?;
-        let physical_null = "SELECT pow(NULLIF(length(enum_range_boundary(a,NULL)::VARCHAR),length(enum_range_boundary(a,NULL)::VARCHAR)),length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null";
-        let error = c.query(physical_null).unwrap_err();
-        assert!(error.to_string().contains("enum_bad"), "{error}");
-        let error = c
-            .execute_prepared(&c.prepare(physical_null)?, &[])
-            .unwrap_err();
+        let physical_null = "SELECT pow(CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(a,NULL)::VARCHAR) END,length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null";
+        assert_eq!(c.query(physical_null)?.rows, vec![vec![Value::Null]]);
+        assert_eq!(
+            c.execute_prepared(&c.prepare(physical_null)?, &[])?.rows,
+            vec![vec![Value::Null]]
+        );
+        c.execute("CREATE TABLE physical_mixed(a ENUM('z','a'),b VARCHAR); INSERT INTO physical_mixed VALUES ('z','ok'),('a','enum_bad')")?;
+        let mixed = "SELECT pow(CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR) END,length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_mixed";
+        let error = c.query(mixed).unwrap_err();
         assert!(error.to_string().contains("enum_bad"), "{error}");
         c.execute("CREATE TABLE sibling_success(v VARCHAR,k VARCHAR); INSERT INTO sibling_success VALUES ('1','z'),('2','a')")?;
         assert_eq!(
