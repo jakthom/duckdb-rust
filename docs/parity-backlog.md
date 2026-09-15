@@ -89,6 +89,9 @@ The authoritative G01 Wave A paired runner evidence is under ignored
 observations; `acceptance-2.json` through `acceptance-5.json` predate later
 audited regex/output/fixture repairs. None of the earlier reports is acceptance
 evidence for the final tree.
+Wave B evidence is under `target/g01-wave-b-20260915/`: the registry and API-map
+inventories, `api-lifecycle-acceptance-2/report.json`, and
+`performance/g01-2c-acceptance-2.json` are the retained final-tree results.
 Source/binary/harness hashes and exact commands belong in those reports. Historical
 pass counts and the superseded milestone baseline have been removed from this plan;
 they must not be added to fresh scoped results.
@@ -159,14 +162,24 @@ the remaining 5,367 / 10,570 are explicitly unmapped. G01.1b remains open becaus
 runtime generated instances and the full built configuration/platform matrix are
 not observable in the current artifacts, and its inventory invokes the C++
 registries rather than an equivalent Rust candidate, so Gate P is open. G01.3a's
-bounded lifecycle operation has a comparable dual-pin Gate P workload, but its
-acceptance result and the remaining assertion mappings are still open. The bounded
+bounded lifecycle operation passes its dual-pin Gate P workload: after three
+warmups and nine paired samples per candidate/reference, the two Rust medians are
+at most 0.326x the faster C++ wall median and 0.297x its peak RSS; CPU and block
+I/O are independently no worse. Thus **at-parity or better performance: pass**
+for this one mapped lifecycle operation, while G01.3a remains open for the other
+5,367 / 10,570 assertion mappings. The bounded
 G01.2c adapter now implements the development pin's unsigned `idx_t` loop schedule,
 foreach collections/variables, loop conditions and `continue`, shuffled concurrent
 connections with join-all/opportunistic-stop behavior, named database/connection
 identity, and distinct load/restart/reconnect lifecycles. Its source-matched local
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
-zero skips); Gate P is pending below. Explicit remaining runner limits are the
+zero skips). Its three-warmup, nine-sample Gate P campaign records a 53.872 ms Rust
+wall median versus 40.807 ms for the faster C++ pin, or 1.320x; invocation
+throughput fails by the same ratio. Rust CPU is 0.667x and RSS 0.409x the faster
+C++ medians, and block I/O is equal. Thus **at-parity or better performance:
+fail** for G01.2c. A focused split attributes the wall deficit to file-backed
+commit/lifecycle work rather than concurrent-loop scheduling; the exact engine
+storage change remains open. Explicit remaining runner limits are the
 integrated test-config max-thread surface, `load ... VERSION`, and Python-proxy
 sibling-tail stopping for result/label mismatches that are detected only after a
 concurrent batch returns. The Rust adapters also fail closed after 100,000 expanded
@@ -568,8 +581,10 @@ tools retain exact identities and reject incomplete or duplicate report selectio
 This closes the requested current-state measurement snapshot, **not G01's full
 exit**: runtime-generated and built-matrix instances, most native/client assertion
 mappings and the explicitly recorded runner limits stay open. Gate P is open for
-inventory-only G01.1b; candidate-equivalent lifecycle workloads are pending for the
-bounded G01.2c and G01.3a implementations.
+inventory-only G01.1b. The mapped G01.3a lifecycle slice has **at-parity or better
+performance: pass**, while the bounded G01.2c runner has **at-parity or better
+performance: fail** on wall time and invocation throughput despite passing CPU,
+RSS and block-I/O dimensions.
 
 - **G01.1 Inventory the acceptance population.** Enumerate both pins' SQL files,
   native registrations, generated/parameterized cases, slow tests, configurations,
