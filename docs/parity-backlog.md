@@ -179,10 +179,11 @@ join-all/opportunistic-stop behavior, named database/connection identity, and
 distinct load/restart/reconnect lifecycles. Restart preserves the implemented
 global and main-session configuration, including `search_path`. Its source-matched local
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
-zero skips). Its three-warmup, nine-sample Gate P campaign records a 56.336 ms Rust
-wall median versus 40.522 ms for the faster C++ pin, or 1.390x; invocation
-throughput fails by the same ratio. Rust CPU is 1.000x and RSS 0.421x the faster
-C++ medians, and block I/O is equal. Thus **at-parity or better performance:
+zero skips). Its refreshed three-warmup, nine-sample Gate P campaign records a
+58.751583 ms Rust wall median versus 39.710750 ms for the faster C++ pin, or
+1.479488x; invocation throughput is 0.676x and fails by the same wall-time
+comparison. Rust CPU is 1.000x and RSS 0.415x the faster C++ medians, and block
+I/O is equal. Thus **at-parity or better performance:
 fail** for G01.2c. A focused split attributes the wall deficit to file-backed
 commit/lifecycle work rather than concurrent-loop scheduling; the exact engine
 storage change remains open. Explicit remaining runner limits are the
@@ -206,9 +207,9 @@ population. Their overlapping cases must not be summed into a global score.
 | BIGNUM SQL | 39/45 | 45/45 |
 | BIT SQL | 60/77 | 77/77 |
 | BLOB/UUID/base64 SQL | 134/136 | 136/136 |
-| Anonymous ENUM SQL | 28/29 | 28/29 |
+| Anonymous ENUM SQL | 29/29 | 29/29 |
 | Temporal-minimum exact comparisons | 20/32 (29/32 outcome categories) | 23/32 (32/32 outcome categories) |
-| Broad supported-subset native campaign | 39 checkpoints of the script passed | Stops after 10 at a HUGEINT JSON-format comparison; later checks unexecuted |
+| Broad supported-subset native campaign | 39 checkpoints of the script passed | HUGEINT declared-value comparison repaired; next source boundary remains to be measured |
 | Named ENUM and current-timestamp native handoffs | Passed selected bidirectional cases | Passed selected bidirectional cases |
 
 Numeric and ENUM native persistence each pass six selected paths per pin;
@@ -218,12 +219,12 @@ checkpoint SQL probes 49/49. These do not establish all codec/version support.
 
 Two important classifications from focused follow-up:
 
-- **Confirmed engine mismatch:** for two ENUM rows, `enum_range_boundary(k, NULL)`
-  returns `[z,a]`, then `[a]` in Rust, versus `[z,a]` for both rows in both pins.
-  This is a G03.3 function semantic bug, separate from the completed named-type lifecycle.
-- **Harness mismatch, not a demonstrated decode bug:** the defaults fixture's
-  HUGEINT value agrees, but Rust's JSON CLI emits a number and development's CLI
-  emits a string. Fix typed comparison before blaming native decoding.
+- **Repaired G03.3a engine mismatch:** `enum_range_boundary(k, NULL)` now preserves
+  its source-shaped batch endpoint semantics; the independent SQL suite is 29/29
+  against each pin plus its selected native paths.
+- **Repaired typed harness comparison:** declared HUGEINT/UHUGEINT values now compare
+  by their exact declared integer value when a JSON transport renders a finite exact
+  integer as a number. This does not classify ordinary VARCHAR numeric text as equal.
 
 Release FUNCTION-default WAL recovery retains an upstream C++ internal replay
 failure; development default handoffs pass. ALTER and settings-session probe
@@ -254,6 +255,21 @@ ordinary aggregation **16.3–17.9×**, decimal filtering **13.7–14.7×**. The
 fresh performance failures, not claims about their cause or a cross-revision
 regression. Investigate against pinned source without changing default evaluation
 demand or checked numeric semantics merely to improve the numbers.
+
+The Wave C source-bound workloads were also measured serially with three warmups
+and nine samples against both pins (raw evidence remains under
+`target/g01-wave-c-20260915/performance/`). Their Gate P results are explicit:
+G03.3a ENUM is **at-parity or better performance: fail** (wall 0.494x, CPU
+0.429x, RSS 1.248x, throughput 2.023x; RSS only); G04.2a `make_date(STRUCT)` is
+**fail** (wall 10.337x, CPU 29.000x, RSS 1.846x, throughput 0.097x); G06.1a case
+conversion is **fail** (wall 3.008x, CPU 4.000x, RSS 0.821x, throughput 0.332x);
+G07.3a DISTINCT ON is **fail** (wall 2.518x, CPU 3.000x, RSS 2.025x, throughput
+0.397x); and G08.1a `product` is **fail** (wall 18.406x, CPU 25.667x, RSS
+0.276x, throughput 0.054x). G10.4a profiling with `no_output` is a measured
+**pass** (wall 0.598x, CPU 0.000x at timer resolution, RSS 0.746x, throughput
+1.672x), but its overall Gate P remains **open** because operational verification
+is incomparable with the development pin's no-op and forced-external execution is
+absent. None of these goal groups is complete while its Gate P is fail or open.
 
 The timed harness checks row counts and sums (and DDL effects), not an exhaustive
 typed-value oracle. Scope is serial embedded, primarily in-memory execution;
@@ -690,6 +706,10 @@ partial leading bit groups and pinned strict/replace/ignore malformed-UTF-8 beha
 including deferred mode validation and provable-NULL demand. SQL operator spelling
 for exponentiation/postfix factorial, the conversion matrix and the remaining
 scalar-family catalog stay open.
+G03.3a now ports `enum_range_boundary` through a source-shaped scalar batch hook,
+including casts, constant/column/NULL endpoints and prepared execution; its
+independent SQL suite passes 29/29 against each pin and selected native paths.
+The function-family performance gate remains open (RSS is 1.248x the faster pin).
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -730,6 +750,11 @@ an explicit transaction. Column, alias and table-as-STRUCT binding wins before t
 SQL-value fallback; the keyword has its exact bounded native parsed-node lifecycle.
 The remaining parsing/format catalog, local/current calendar functions, named-zone
 and ICU work stays open.
+G04.2a now supports `make_date(STRUCT(year, month, day))` with case-insensitive
+and reordered fields, NULL propagation, source errors, scalar/batch and prepared
+execution. The temporal component passes its assigned cases, but this slice's
+**at-parity or better performance** gate fails (wall 10.337x, CPU 29.000x and RSS
+1.846x the faster pin).
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -801,8 +826,12 @@ Sources: `src/common/{nested,variant}.rs`, `src/function/nested/`,
 
 ## G06 — Text, collations and utility functions
 
-**Current:** selected scalar/string operations and LIKE exist; the full upstream
-function catalog and collation system do not.
+**Current:** selected scalar/string operations and LIKE exist; `lower`/`upper` and
+their `lcase`/`ucase` aliases now have a bounded source-matched case-conversion
+slice with scalar, batch and prepared coverage. The full upstream function catalog
+and collation system do not. Its **at-parity or better performance** gate fails
+(wall 3.008x and CPU 4.000x the faster pin, despite 0.821x RSS); remaining
+source-edge literal review is in progress.
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
@@ -825,7 +854,12 @@ Sources: `src/function/`, upstream `extension/core_functions/scalar/`,
 ## G07 — Remaining relational SQL
 
 **Current:** ordinary joins/NATURAL/USING, basic set operations, scalar/EXISTS/IN
-subqueries and recursive UNION are implemented. This is completion work, not a rewrite.
+subqueries and recursive UNION are implemented. G07.3a additionally implements
+`DISTINCT ON` target de-duplication, typed NULL equality and source-shaped ORDER
+selection through aliases, nested queries, prepared and batched execution. Its
+assigned execution cases pass, but **at-parity or better performance** fails (wall
+2.518x, CPU 3.000x, RSS 2.025x and throughput 0.397x the faster pin). This is
+completion work, not a rewrite.
 
 - **G07.1 Finish join and correlation forms.** Add lateral/dependent relations,
   ASOF and positional joins, remaining quantified/correlated subqueries and
@@ -846,8 +880,12 @@ Sources: `src/planner/binder/{query,table,recursive,subquery}.rs`,
 
 ## G08 — Aggregates and windows
 
-**Current:** nine ordinary aggregate names and eleven dedicated window names are
+**Current:** ten ordinary aggregate names and eleven dedicated window names are
 registered in their built-in modules; grouping sets and core frames already work.
+G08.1a adds unary numeric `product`, including NULL/empty behavior, IEEE DOUBLE
+multiplication and BIGNUM conversion coverage; its source `product` cases pass
+against both pins. Its **at-parity or better performance** gate fails (wall
+18.406x, CPU 25.667x and throughput 0.054x the faster pin, despite 0.276x RSS).
 
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
@@ -956,8 +994,16 @@ API statements still retain syntax and rebind on each execution. The pure search
 model is connected to a bounded, normalized session setting: unqualified table lookup
 searches configured schemas before `main`, creation uses the current schema, and
 prepared statements rebind on each execution. Catalog-qualified path entries fail
-explicitly until attachment routing exists. Four built-in setting definitions exist;
-there is no general catalog object model. Catalog-named ENUM types now have
+explicitly until attachment routing exists. Settings now include operational
+`enable_verification`, `debug_force_external`, `enable_profiling`/`enable_profile`,
+`profiling_mode` and `profiling_output`/`profile_output`, with bare Boolean PRAGMA
+forms, result comparison and bounded JSON/text profile output. Verification is an
+operational release-compatible superset of the development pin's deprecated no-op;
+forced-external execution remains explicitly unavailable because no spill-capable
+operator exists. The profiling `no_output` workload has **at-parity or better
+performance: pass**, but G10.4a remains open because verification is incomparable
+with that development no-op and forced-external execution is absent. There is no
+general catalog object model. Catalog-named ENUM types now have
 transactional CREATE/REPLACE/DROP and SQL binding, preserve the dictionaries of
 already-bound table columns across replacement and name removal, and survive native
 checkpoint and WAL handoffs with both pinned C++ revisions. Storage version 69 uses
