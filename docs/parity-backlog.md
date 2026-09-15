@@ -58,14 +58,19 @@ compiled registry; no core source paths are missing. The retained
 [manifest](../test/upstream/duckdb/manifest.json) remains
 the development archive identity; it is not an assertion of runnable eligibility.
 
-The installed release Catch registry lists **5,502 unique names: 4,834 SQL file
-names and 668 other registrations**, including hidden tests. Listing is not
-execution. The development native runner was absent from the measured installed
-build (`BUILD_UNITTESTS=OFF`), so its compiled/generated population remains
-unmeasured. A separate out-of-tree Release runner was built later for the bounded
-G01 Wave A functional/performance workloads only; it does not close G01.1b. Rust
-has 46 Cargo targets and 782 textual `#[test]` declarations across the workspace,
-not 782 mapped upstream tests. Neither count measures native/API invariant coverage.
+The release Catch registry lists **5,502 unique names: 4,834 SQL file names and
+668 other registrations**; 917 names are hidden and 747 SQL cases are tagged
+slow. The development Catch registry lists **7,189 unique names: 5,637 SQL file
+names and 1,552 other registrations**; 935 names are hidden and 791 SQL cases are
+tagged slow. Both listings have exact source, binary, CMake-cache and output
+identities, and every core SQL discovery path appears exactly once. Listing is not
+execution. Catch does not expose runtime `GENERATE`/`SECTION` instances: source
+inventory finds 12 generator sites on each pin and 205 release / 389 development
+section sites without claiming them as executed cases. The source matrix contains
+42 / 65 test configs, 27 / 3 CI test-config invocations and 103 / 80 CI platform
+declarations; these are declarations, not built matrix instances. Rust has 47
+Cargo targets and 840 textual `#[test]` declarations across the workspace, not 840
+mapped upstream tests. Neither count measures native/API invariant coverage.
 
 Both pinned CLI/library identities are checked. Release has core_functions,
 JSON and Parquet available; development lacks JSON. Neither installed reference
@@ -145,11 +150,21 @@ CPU and block I/O were independently no worse. Gate P therefore records
 **at-parity or better performance: pass** for each of G01.2a/b/d. These bounded
 workloads do not change the older 4,834/5,637-file campaign counts above.
 
-Wave B still owns loop/foreach scheduling, loop-variable conditions, concurrent
-execution, load/restart/reconnect session lifecycles (G01.2c), compiled/configured
-registry enumeration (G01.1b), and native/API/client assertion mapping (G01.3a).
-Until those land and G01.4 reruns both complete populations, remaining first-
-blocker counts cannot reliably rank all engine families.
+Wave B has landed the bounded G01.1b registry/configuration inventory and the first
+G01.3a API mapping. The mapping ties the open-transaction connection-destruction
+assertion at `test/api/test_api.cpp:70` / `:73` to the Rust public-contract test
+`transactional_ddl_constraints_and_abandonment`. That is **1** mapped assertion
+out of 5,368 selected release / 10,571 selected development source assertions;
+the remaining 5,367 / 10,570 are explicitly unmapped. G01.1b remains open because
+runtime generated instances and the full built configuration/platform matrix are
+not observable in the current artifacts, and its inventory invokes the C++
+registries rather than an equivalent Rust candidate, so Gate P is open. G01.3a's
+bounded lifecycle operation has a comparable dual-pin Gate P workload, but its
+acceptance result and the remaining assertion mappings are still open. G01.2c
+still owns loop/foreach scheduling, loop-variable conditions, concurrent execution
+and load/restart/reconnect session lifecycles. Until those land and G01.4 reruns
+both complete populations, remaining first-blocker counts cannot reliably rank all
+engine families.
 
 ### Independent compatibility measurements
 
@@ -535,13 +550,18 @@ C++→Rust and Rust→C++→Rust, including continued mutation/reopen.
 
 ## G01 — Reliable parity inventory and harnesses
 
-**Current measurement slice:** both source populations and the available compiled
-registry are inventoried; full SQL first-blocker campaigns, bounded timeout retries,
-18 existing compatibility-probe invocations and all 34 existing latency workloads
-have fresh evidence above. New tools retain exact identities and reject incomplete
-or duplicate report selections. This closes the requested current-state measurement
-snapshot, **not G01's full exit**: faithful harness semantics, generated/configuration
-instances and native/client assertion mappings remain open and have assigned chunks.
+**Current measurement slice:** both source populations and both compiled Catch
+registries are inventoried; source generator/section sites, test configurations,
+CI config invocations and platform declarations are separately enumerated; full SQL
+first-blocker campaigns, bounded timeout retries, 18 existing compatibility-probe
+invocations and all 34 existing latency workloads have fresh evidence above. The
+first API destruction/lifetime assertion is mapped to a Rust public contract. New
+tools retain exact identities and reject incomplete or duplicate report selections.
+This closes the requested current-state measurement snapshot, **not G01's full
+exit**: runtime-generated and built-matrix instances, most native/client assertion
+mappings and the remaining faithful harness semantics stay open. Gate P is open for
+inventory-only G01.1b; a candidate-equivalent lifecycle workload is pending for the
+bounded G01.3a mapping.
 
 - **G01.1 Inventory the acceptance population.** Enumerate both pins' SQL files,
   native registrations, generated/parameterized cases, slow tests, configurations,
@@ -1218,7 +1238,15 @@ Sources: upstream `api_spec/{v1,v2}/`, `src/main/capi/`, `tools/cpp/`,
 ## G23 — Extensions and their capabilities
 
 **Current:** Rust function/type registries are implementation seams, not a binary
-extension loader or compatible extension distribution system.
+extension loader or compatible extension distribution system. The pinned population
+inventory records 22 development / 23 release configured external extensions, nine
+in-tree extensions and two static registrations on each pin. `lance` is release-only
+and 20 shared external tags differ. Configured refs, patch hashes and build/load flags
+are retained; immutable ref syntax is distinguished from remote-object verification,
+and the absent external checkouts are not claimed as tested. Stable and unstable C
+tables, the C++ wrapper over C v2 and internal-C++ coupling are separate ABI classes.
+G23.1 remains open: this is inventory-only evidence with no comparable Rust candidate,
+so **at-parity or better performance: open**.
 
 - **G23.1 Freeze the compatibility population early.** Inventory configured in-tree
   and external extension pins/builds/tests. Separate stable C tables, unstable C
