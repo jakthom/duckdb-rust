@@ -91,7 +91,7 @@ audited regex/output/fixture repairs. None of the earlier reports is acceptance
 evidence for the final tree.
 Wave B evidence is under `target/g01-wave-b-20260915/`: the registry and API-map
 inventories, `api-lifecycle-acceptance-3/report.json`, and
-`performance/g01-2c-acceptance-3.json` are the retained final-tree results.
+`performance/g01-2c-acceptance-4.json` are the retained final-tree results.
 Source/binary/harness hashes and exact commands belong in those reports. Historical
 pass counts and the superseded milestone baseline have been removed from this plan;
 they must not be added to fresh scoped results.
@@ -176,9 +176,9 @@ join-all/opportunistic-stop behavior, named database/connection identity, and
 distinct load/restart/reconnect lifecycles. Restart preserves the implemented
 global and main-session configuration, including `search_path`. Its source-matched local
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
-zero skips). Its three-warmup, nine-sample Gate P campaign records a 52.349 ms Rust
-wall median versus 39.896 ms for the faster C++ pin, or 1.312x; invocation
-throughput fails by the same ratio. Rust CPU is 0.667x and RSS 0.414x the faster
+zero skips). Its three-warmup, nine-sample Gate P campaign records a 56.336 ms Rust
+wall median versus 40.522 ms for the faster C++ pin, or 1.390x; invocation
+throughput fails by the same ratio. Rust CPU is 1.000x and RSS 0.421x the faster
 C++ medians, and block I/O is equal. Thus **at-parity or better performance:
 fail** for G01.2c. A focused split attributes the wall deficit to file-backed
 commit/lifecycle work rather than concurrent-loop scheduling; the exact engine
