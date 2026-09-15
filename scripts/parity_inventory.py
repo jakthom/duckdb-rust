@@ -9,6 +9,7 @@ import re
 import subprocess
 
 from check_references import build_identity
+from compiled_registry import enumerate_registry, source_parameterizations
 from reference_version import ROOT, TARGETS, require_checkout
 from upstream_suite import declarations, digest
 
@@ -47,28 +48,9 @@ def source_inventory(source):
     }
 
 
-def native_registry(configuration, output_dir):
-    binary = configuration.build / "test/unittest"
-    if not binary.is_file():
-        return {"status": "unavailable", "reason": "native test runner not built"}
-    # An explicit wildcard includes Catch hidden tests; this is listing only.
-    command = [str(binary), "*", "--list-test-names-only"]
-    result = subprocess.run(command, cwd=configuration.source, text=True,
-                            capture_output=True, timeout=60)
-    output = output_dir / "native-registry.txt"
-    output.write_text(result.stdout)
-    (output_dir / "native-registry.stderr").write_text(result.stderr)
-    names = [line for line in result.stdout.splitlines() if line.strip()]
-    # Catch's listing can return the number of names modulo the process exit range.
-    if result.returncode not in (0, len(names) % 256) or not names:
-        return {"status": "setup_failure", "command": command,
-                "exit_code": result.returncode, "output": str(output)}
-    sql = [name for name in names if name.endswith((".test", ".test_slow", ".test_coverage"))]
-    return {"status": "enumerated_not_executed", "command": command,
-            "exit_code": result.returncode, "names": len(names),
-            "unique_names": len(set(names)), "sql_file_names": len(sql),
-            "other_names": len(names) - len(sql), "binary_sha256": digest(binary),
-            "output": str(output), "output_sha256": digest(output)}
+def native_registry(configuration, output_dir, runner=None):
+    return enumerate_registry(configuration.source,
+                              configuration.build / "test/unittest" if runner is None else runner, output_dir)
 
 
 def rust_inventory():
@@ -94,13 +76,27 @@ def rust_inventory():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--development-runner", type=Path,
+                        help="actual development unittest binary; its adjacent CMakeCache must source-match")
+    parser.add_argument("--release-runner", type=Path,
+                        help="actual release unittest binary; its adjacent CMakeCache must source-match")
     args = parser.parse_args()
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
     report = {"recorded_at": datetime.now(timezone.utc).isoformat(),
               "host": platform.platform(), "machine": platform.machine(),
               "script_sha256": digest(Path(__file__)), "rust": rust_inventory(), "targets": {},
-              "unmeasured": ["generated/parameterized instances", "full configuration/platform matrix",
+              "performance_gate": {
+                  "status": "open",
+                  "reason": "This Python inventory invokes the C++ registry and has no equivalent Rust registry candidate; timing it against either reference would be circular and cannot establish at-parity performance.",
+                  "reference_workloads": [
+                      {"id": "compiled-registry-development", "target": "development", "command": ["unittest", "*", "--list-tests"]},
+                      {"id": "compiled-registry-release", "target": "release", "command": ["unittest", "*", "--list-tests"]},
+                  ],
+                  "required_candidate_contract": "Complete source-matched Catch listing with identical unique-ID and SQL accounting.",
+                  "required_measurement": "quiet host; three warmups; 21 samples; wall time, process CPU, peak RSS, and rusage inblock+oublock; candidate median <= faster reference and candidate throughput >= larger reference throughput.",
+              },
+              "unmeasured": ["runtime generated/parameterized invocations (Catch list protocol does not expose them)", "full configuration/platform matrix",
                              "external repositories and client suites", "native-to-Rust assertion mappings",
                              "full performance/CPU/memory/I/O population"],
               "complete_parity": False}
@@ -112,20 +108,23 @@ def main():
         try:
             require_checkout(configuration.source, target)
             entry["source"] = source_inventory(configuration.source)
+            entry["source"]["parameterized_generated"] = source_parameterizations(configuration.source)
             entry["build"] = build_identity(target)
-            entry["compiled_registry"] = native_registry(configuration, directory)
-            if entry["compiled_registry"]["status"] == "enumerated_not_executed":
-                names = set((directory / "native-registry.txt").read_text().splitlines())
-                core = set(entry["source"]["sql_discovery"]["core_candidates"])
-                entry["compiled_registry"]["missing_core_sql"] = sorted(core - names)
-                entry["compiled_registry"]["core_sql_registered"] = len(core & names)
+            runner = getattr(args, f"{target}_runner")
+            entry["compiled_registry"] = native_registry(configuration, directory, runner)
+            if entry["compiled_registry"]["status"] != "enumerated_not_executed":
+                raise ValueError(entry["compiled_registry"].get("reason", "compiled registry unavailable"))
             query = ("SELECT function_type, count(*) AS overloads, "
                      "count(DISTINCT function_name) AS names FROM duckdb_functions() "
                      "GROUP BY function_type ORDER BY function_type")
             entry["function_catalog"] = json.loads(subprocess.check_output(
                 [str(configuration.binary), ":memory:", "-json", "-c", query], text=True))
             entry["status"] = "inventoried_not_validated"
-            print(target, entry["source"]["counts"], entry["compiled_registry"], flush=True)
+            registry = entry["compiled_registry"]
+            print(target, entry["source"]["counts"], {
+                "status": registry["status"], "names": registry["names"],
+                "hidden_cases": registry["hidden_cases"], "sql_file_cases": registry["sql_file_cases"],
+            }, flush=True)
         except Exception as error:
             # A missing executable must not erase a successfully enumerated source population.
             entry.update(status="setup_failure", error=str(error))
