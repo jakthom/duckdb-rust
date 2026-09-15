@@ -384,6 +384,21 @@ fn evaluate_null_on_constant_with_physical_batches<T: ExpressionEvaluator + ?Siz
         columns.push(column);
         provenance.push(child_provenance);
         if constant_null {
+            for data_type in [&argument.data_type, &expression.data_type] {
+                context
+                    .query()
+                    .types()
+                    .bind(data_type)?
+                    .validate(&Value::Null, context.query())
+                    .map_err(|error| match error {
+                        Error::Conversion(_) => Error::Internal(
+                            "constant NULL argument or result differs from its selected type"
+                                .into(),
+                        ),
+                        other => other,
+                    })?;
+            }
+            context.query().check()?;
             return Vector::constant(expression.data_type.clone(), Value::Null, input.len());
         }
     }
