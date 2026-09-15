@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g08_product_million_rows",
+      "path": "test/performance/g08_product.test"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# name: test/performance/g08_product.test
+# description: Substantial ungrouped and grouped PRODUCT workload
+# group: [performance]
+
+query I
+SELECT product(CASE WHEN i%2=0 THEN -1.0::DOUBLE ELSE 1.0::DOUBLE END)
+FROM range(1000000) t(i);
+----
+1
+
+query II
+SELECT count(*),sum(p)
+FROM (
+    SELECT i%64 AS g,
+           product(CASE WHEN i%2=0 THEN -1.0::DOUBLE ELSE 1.0::DOUBLE END) AS p
+    FROM range(1000000) t(i)
+    GROUP BY g
+) products;
+----
+64	0

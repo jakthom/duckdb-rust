@@ -14,7 +14,7 @@ struct Builtin(&'static str);
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     for name in [
-        "count", "sum", "avg", "min", "max", "first", "last", "bool_and", "bool_or",
+        "count", "sum", "avg", "product", "min", "max", "first", "last", "bool_and", "bool_or",
     ] {
         registry
             .register_aggregate(Arc::new(Builtin(name)))
@@ -52,6 +52,7 @@ impl AggregateFunction for Builtin {
                     DataType::HugeInt
                 })
             }
+            "product" if args[0].is_numeric() || args[0] == DataType::Null => Ok(DataType::Double),
             "min" | "max" | "first" | "last" => Ok(args[0].clone()),
             "bool_and" | "bool_or" if matches!(args[0], DataType::Boolean | DataType::Null) => {
                 Ok(DataType::Boolean)
@@ -211,6 +212,17 @@ impl AggregateState for State {
                     }
                     _ => return Err(Error::Internal("aggregate type mismatch".into())),
                 };
+            }
+            "product" => {
+                let right = match &value {
+                    Value::Bignum(value) => value.to_f64(|| context.check())?,
+                    _ => value.as_f64()?,
+                };
+                self.value = Value::Double(match self.value {
+                    Value::Null => right,
+                    Value::Double(left) => left * right,
+                    _ => return Err(Error::Internal("product state differs from binding".into())),
+                });
             }
             "min" | "max" => {
                 // Pinned development's numeric min/max reduction chooses the

@@ -25,6 +25,8 @@ use duckdb_rust::{
 mod columns;
 #[path = "grouping/domains.rs"]
 mod domains;
+#[path = "grouping/product.rs"]
+mod product;
 #[path = "../runner/mod.rs"]
 mod runner;
 
