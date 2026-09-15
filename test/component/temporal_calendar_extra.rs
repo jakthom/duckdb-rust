@@ -21,6 +21,76 @@ fn text_rows(result: duckdb_rust::QueryResult) -> Vec<Vec<String>> {
 
 #[test]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn make_date_struct_matches_pinned_calendar_overload_for_constants_columns_nulls_and_prepared_rows()
+-> Result<()> {
+    // Pinned source: extension/core_functions/scalar/date/make_date.cpp,
+    // ExecuteStructMakeDate<int64_t>. Both pins bind the named BIGINT fields
+    // year/month/day and yield NULL for a NULL struct or child.
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut connection = DatabaseBuilder::new()
+            .batch_size(2)
+            .expressions(expressions)
+            .build()?
+            .connect();
+        assert_eq!(
+            text_rows(connection.query(
+                "SELECT make_date({'day':29,'year':2024,'month':2}),
+                        make_date(NULL::STRUCT(year BIGINT,month BIGINT,day BIGINT)),
+                        make_date({'year':NULL::BIGINT,'month':2,'day':29})",
+            )?),
+            vec![vec!["2024-02-29", "NULL", "NULL"]]
+        );
+        connection.execute(
+            "CREATE TABLE calendar_parts(id INTEGER, p STRUCT(year BIGINT,month BIGINT,day BIGINT));",
+        )?;
+        connection.execute(
+            "INSERT INTO calendar_parts VALUES
+             (1,{'year':2024,'month':2,'day':29}),
+             (2,{'year':2023,'month':2,'day':28}),
+             (3,{'year':NULL::BIGINT,'month':2,'day':29})",
+        )?;
+        assert_eq!(
+            text_rows(connection.query("SELECT id,make_date(p) FROM calendar_parts ORDER BY id",)?),
+            vec![
+                vec!["1", "2024-02-29"],
+                vec!["2", "2023-02-28"],
+                vec!["3", "NULL"],
+            ]
+        );
+        let selected = connection.prepare("SELECT make_date(p) FROM calendar_parts WHERE id=$1")?;
+        assert_eq!(
+            text_rows(connection.execute_prepared(&selected, &[Value::Integer(1)])?),
+            vec![vec!["2024-02-29"]]
+        );
+        for (sql, message) in [
+            (
+                "SELECT make_date({'year':2023,'month':2,'day':29})",
+                "Date out of range: 2023-2-29",
+            ),
+            (
+                "SELECT make_date({'year':2024,'month':13,'day':1})",
+                "Date out of range: 2024-13-1",
+            ),
+        ] {
+            assert!(
+                matches!(connection.query(sql), Err(Error::Conversion(error)) if error == message),
+                "{sql}"
+            );
+        }
+        assert!(
+            connection
+                .query("SELECT make_date({'year':2024,'month':2})")
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn calendar_extracts_match_iso_boundaries_bce_aliases_and_domains() -> Result<()> {
     for expressions in [
         Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,

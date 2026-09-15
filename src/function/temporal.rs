@@ -3,7 +3,7 @@
 use super::{ArgumentEvaluation, FunctionRegistry, ScalarBindArguments, ScalarFunction};
 use crate::{
     common::{
-        DataType, Date, Error, Result, TemporalValue, Value,
+        DataType, Date, Error, NestedPayload, NestedType, Result, TemporalValue, Value,
         temporal::{MICROS_PER_DAY, timestamp_from_calendar},
     },
     parallel::QueryContext,
@@ -148,7 +148,29 @@ impl ScalarFunction for TemporalFunction {
         use DataType::*;
         let mut types = match (self.name, arguments.len()) {
             ("make_date", 3) => vec![BigInt; 3],
-            ("make_date", 1) => vec![Integer],
+            ("make_date", 1) => match arguments {
+                [DataType::Nested(metadata)] => {
+                    let NestedType::Struct(fields) = metadata.as_ref() else {
+                        return Err(Error::Bind("make_date requires INTEGER or STRUCT".into()));
+                    };
+                    // DuckDB's overload is one exact named three-child
+                    // STRUCT, not a partial/excess-field projection.
+                    if fields.len() != 3
+                        || !["year", "month", "day"].iter().all(|expected| {
+                            fields
+                                .iter()
+                                .any(|(actual, _)| actual.eq_ignore_ascii_case(expected))
+                        })
+                    {
+                        return Err(Error::Bind(
+                            "make_date requires STRUCT(year BIGINT, month BIGINT, day BIGINT)"
+                                .into(),
+                        ));
+                    }
+                    vec![make_date_struct_type()]
+                }
+                _ => vec![Integer],
+            },
             ("make_time", 3) => vec![BigInt, BigInt, Double],
             ("make_timestamp", 6) => vec![BigInt, BigInt, BigInt, BigInt, BigInt, Double],
             ("make_timestamp" | "make_timestamp_ms" | "make_timestamp_ns", 1) => vec![BigInt],
@@ -207,7 +229,7 @@ impl ScalarFunction for TemporalFunction {
         use DataType::*;
         let result = match (self.name, arguments) {
             ("make_date", [BigInt, BigInt, BigInt]) => Date,
-            ("make_date", [Integer]) => Date,
+            ("make_date", [Integer] | [DataType::Nested(_)]) => Date,
             ("make_time", [BigInt, BigInt, Double]) => Time,
             ("make_timestamp", [BigInt] | [BigInt, BigInt, BigInt, BigInt, BigInt, Double]) => {
                 Timestamp
@@ -288,6 +310,10 @@ impl ScalarFunction for TemporalFunction {
             }));
         }
         match self.name {
+            "make_date" if matches!(arguments, [Value::Nested(_)]) => {
+                return make_date_struct(&arguments[0])
+                    .map_or(Ok(Value::Null), |date| date.map(Value::Date));
+            }
             "make_date" if arguments.len() == 1 => {
                 return i32::try_from(arguments[0].as_i128()?)
                     .map_err(|_| invalid("date days range"))
@@ -424,6 +450,50 @@ fn make_date(arguments: &[Value]) -> Result<Date> {
     let month = u8::try_from(arguments[1].as_i128()?).map_err(|_| invalid("date month range"))?;
     let day = u8::try_from(arguments[2].as_i128()?).map_err(|_| invalid("date day range"))?;
     Date::from_ymd(year, month, day)
+}
+
+/// Exact core overload from pinned
+/// `extension/core_functions/scalar/date/make_date.cpp`: field names are
+/// matched by the regular STRUCT cast, then the three BIGINT children are
+/// consumed in year/month/day order.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn make_date_struct_type() -> DataType {
+    NestedType::Struct(vec![
+        ("year".into(), DataType::BigInt),
+        ("month".into(), DataType::BigInt),
+        ("day".into(), DataType::BigInt),
+    ])
+    .data_type()
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn make_date_struct(argument: &Value) -> Option<Result<Date>> {
+    let Value::Nested(value) = argument else {
+        return Some(Err(Error::Internal("make_date STRUCT dispatch".into())));
+    };
+    let NestedPayload::Struct(values) = &value.payload else {
+        return Some(Err(Error::Internal("make_date STRUCT payload".into())));
+    };
+    // Both pins turn a NULL struct or NULL child into a NULL result at vector
+    // level. The scalar evaluator's outer NULL fast path handles the former;
+    // use the same sentinel for a child so its caller returns SQL NULL.
+    if values.iter().any(Value::is_null) {
+        return None;
+    }
+    Some(
+        values
+            .iter()
+            .map(Value::as_i128)
+            .collect::<Result<Vec<_>>>()
+            .and_then(|fields| {
+                make_date(values).map_err(|_| {
+                    Error::Conversion(format!(
+                        "Date out of range: {}-{}-{}",
+                        fields[0], fields[1], fields[2]
+                    ))
+                })
+            }),
+    )
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
