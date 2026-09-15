@@ -2170,7 +2170,32 @@ fn convert_output_value(
     if let (DataType::Boolean, Value::Boolean(value)) = (data_type, value) {
         return Ok(if *value { "1" } else { "0" }.into());
     }
-    let rendered = value.to_string();
+    let rendered = match (data_type, value) {
+        // PRODUCT currently retains its declared HUGEINT result while its
+        // native value is an exactly integral f64. SQLLogic conversion is
+        // declared-type driven in C++ (`CastAs(VARCHAR)`), so recover that
+        // exact integer wire representation here rather than changing public
+        // diagnostic floating display.
+        (DataType::HugeInt, Value::Double(value))
+            if value.is_finite()
+                && value.fract() == 0.0
+                && *value >= i128::MIN as f64
+                // i128::MAX rounds up to 2^127 as f64, outside i128.
+                && *value < i128::MAX as f64 =>
+        {
+            (*value as i128).to_string()
+        }
+        (DataType::UHugeInt, Value::Double(value))
+            if value.is_finite()
+                && value.fract() == 0.0
+                && *value >= 0.0
+                // u128::MAX rounds up to 2^128 as f64, outside u128.
+                && *value < u128::MAX as f64 =>
+        {
+            (*value as u128).to_string()
+        }
+        _ => value.to_string(),
+    };
     if rendered.is_empty() {
         Ok("(empty)".into())
     } else {
@@ -2903,5 +2928,34 @@ mod tests {
         assert!(matches!(error, Error::Unsupported(_)));
         assert!(error.to_string().contains("engine was not invoked"));
         assert!(error.to_string().contains("offset 7"));
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn product_integer_wire_value_recovers_declared_hugeint_without_reformatting_doubles() {
+        let ordinary = |value, data_type| convert_output_value(&value, &data_type, false).unwrap();
+        assert_eq!(
+            ordinary(Value::Double(2f64.powi(100)), DataType::HugeInt),
+            "1267650600228229401496703205376"
+        );
+        for (value, data_type, maximum) in [
+            (2f64.powi(127), DataType::HugeInt, i128::MAX.to_string()),
+            (2f64.powi(128), DataType::UHugeInt, u128::MAX.to_string()),
+        ] {
+            let rendered = ordinary(Value::Double(value), data_type);
+            assert_eq!(rendered, value.to_string());
+            assert_ne!(rendered, maximum, "out-of-range float must not saturate");
+        }
+        for (value, expected) in [
+            (Value::Double(1.5), "1.5"),
+            (Value::Double(1e16), "10000000000000000"),
+            (Value::Double(1e-5), "0.00001"),
+            (Value::Double(f64::NAN), "NaN"),
+            (Value::Double(f64::INFINITY), "inf"),
+            (Value::Double(f64::NEG_INFINITY), "-inf"),
+            (Value::Double(-0.0), "-0"),
+        ] {
+            assert_eq!(ordinary(value, DataType::Double), expected);
+        }
     }
 }
