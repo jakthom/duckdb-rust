@@ -34,6 +34,10 @@ def timed(command):
         if not match: raise RuntimeError("missing "+key)
         sample[key]=int(match.group(1))
     return sample
+def require_quiet_host():
+    own=str(os.getpid()); lines=subprocess.check_output(["ps","-axo","pid=,command="],text=True).splitlines()
+    peers=[line for line in lines if line.strip().split(maxsplit=1)[0]!=own and any(token in line.lower() for token in ("cargo ","rustc","cmake","ninja","unittest"))]
+    if peers: raise RuntimeError("host is not quiet: "+" | ".join(peers))
 def gate(cpp, rust):
     if any(len(value)!=9 for value in [*cpp.values(),*rust.values()]): raise ValueError("requires exactly 9 paired samples")
     cmed={key:{metric:statistics.median(x[metric] for x in rows) for metric in METRICS} for key,rows in cpp.items()}; rmed={key:{metric:statistics.median(x[metric] for x in rows) for metric in METRICS} for key,rows in rust.items()}
@@ -50,6 +54,7 @@ def main():
     if build.returncode: raise RuntimeError(build.stderr)
     candidate=Path("target/release/g01-api-lifecycle"); identity={"rust_build":rust,"rust_binary_sha256":digest(candidate),"references":refs}
     if not a.run: print(json.dumps({"prepared":True,**identity},sort_keys=True)); return
+    require_quiet_host()
     for _ in range(3):
         for path in [a.output_dir/"release-reference",a.output_dir/"development-reference",candidate]: timed(path)
     samples={"release":[],"development":[],"rust_release":[],"rust_development":[]}
