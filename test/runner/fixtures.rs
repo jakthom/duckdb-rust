@@ -126,6 +126,23 @@ impl FixtureResolver {
             path: output.clone(),
             message: "has no parent".into(),
         })?;
+        // `create_dir_all` follows existing symlinks. Resolve the deepest
+        // existing ancestor first so it cannot create directories through a
+        // scratch-root escape.
+        let existing_parent = parent
+            .ancestors()
+            .find(|candidate| candidate.exists())
+            .ok_or_else(|| FixtureError::Path {
+                path: output.clone(),
+                message: "has no existing scratch parent".into(),
+            })?;
+        let existing_parent = fs::canonicalize(existing_parent)?;
+        if !existing_parent.starts_with(&self.scratch_root) {
+            return Err(FixtureError::Path {
+                path: output,
+                message: "parent symlink escapes scratch root".into(),
+            });
+        }
         fs::create_dir_all(parent)?;
         let parent = fs::canonicalize(parent)?;
         if !parent.starts_with(&self.scratch_root) {
@@ -298,6 +315,17 @@ fn create_new(path: &Path) -> Result<File, FixtureError> {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn create_or_truncate(path: &Path) -> Result<File, FixtureError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(FixtureError::Path {
+                path: path.to_path_buf(),
+                message: "output must not be a symlink".into(),
+            });
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     Ok(OpenOptions::new()
         .write(true)
         .create(true)
@@ -487,5 +515,33 @@ mod tests {
         let outside = temp.path().join("outside/result.db");
         assert!(r.rooted_output(&outside).is_err());
         assert!(!outside.parent().unwrap().exists());
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[cfg(unix)]
+    #[test]
+    fn gzip_output_symlinks_cannot_overwrite_files_or_create_outside_directories() {
+        let (temp, r) = roots();
+        let source = temp.path().join("source");
+        let scratch = r.scratch_root.clone();
+        let file = File::create(source.join("x.gz")).unwrap();
+        let mut gzip = GzEncoder::new(file, Compression::default());
+        gzip.write_all(b"fixture").unwrap();
+        gzip.finish().unwrap();
+
+        let outside_file = temp.path().join("outside-file");
+        fs::write(&outside_file, b"must stay intact").unwrap();
+        std::os::unix::fs::symlink(&outside_file, scratch.join("result")).unwrap();
+        assert!(r.unzip("x.gz", Some(Path::new("result"))).is_err());
+        assert_eq!(fs::read(&outside_file).unwrap(), b"must stay intact");
+
+        let outside_dir = temp.path().join("outside-dir");
+        fs::create_dir(&outside_dir).unwrap();
+        std::os::unix::fs::symlink(&outside_dir, scratch.join("escape")).unwrap();
+        assert!(
+            r.unzip("x.gz", Some(Path::new("escape/created/result")))
+                .is_err()
+        );
+        assert!(!outside_dir.join("created").exists());
     }
 }
