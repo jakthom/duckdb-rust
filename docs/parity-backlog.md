@@ -90,8 +90,8 @@ observations; `acceptance-2.json` through `acceptance-5.json` predate later
 audited regex/output/fixture repairs. None of the earlier reports is acceptance
 evidence for the final tree.
 Wave B evidence is under `target/g01-wave-b-20260915/`: the registry and API-map
-inventories, `api-lifecycle-acceptance-2/report.json`, and
-`performance/g01-2c-acceptance-2.json` are the retained final-tree results.
+inventories, `api-lifecycle-acceptance-3/report.json`, and
+`performance/g01-2c-acceptance-3.json` are the retained final-tree results.
 Source/binary/harness hashes and exact commands belong in those reports. Historical
 pass counts and the superseded milestone baseline have been removed from this plan;
 they must not be added to fresh scoped results.
@@ -156,7 +156,8 @@ workloads do not change the older 4,834/5,637-file campaign counts above.
 Wave B has landed the bounded G01.1b registry/configuration inventory and the first
 G01.3a API mapping. The mapping ties the open-transaction connection-destruction
 assertion at `test/api/test_api.cpp:70` / `:73` to the Rust public-contract test
-`transactional_ddl_constraints_and_abandonment`. That is **1** mapped assertion
+`transactional_ddl_constraints_and_abandonment`, including destruction with an
+open DDL transaction followed by same-name table recreation. That is **1** mapped assertion
 out of 5,368 selected release / 10,571 selected development source assertions;
 the remaining 5,367 / 10,570 are explicitly unmapped. G01.1b remains open because
 runtime generated instances and the full built configuration/platform matrix are
@@ -164,28 +165,32 @@ not observable in the current artifacts, and its inventory invokes the C++
 registries rather than an equivalent Rust candidate, so Gate P is open. G01.3a's
 bounded lifecycle operation passes its dual-pin Gate P workload: after three
 warmups and nine paired samples per candidate/reference, the two Rust medians are
-at most 0.326x the faster C++ wall median and 0.297x its peak RSS; CPU and block
+at most 0.332x the faster C++ wall median and 0.297x its peak RSS; CPU and block
 I/O are independently no worse. Thus **at-parity or better performance: pass**
 for this one mapped lifecycle operation, while G01.3a remains open for the other
 5,367 / 10,570 assertion mappings. The bounded
 G01.2c adapter now implements the development pin's unsigned `idx_t` loop schedule,
-foreach collections/variables, loop conditions and `continue`, shuffled concurrent
-connections with join-all/opportunistic-stop behavior, named database/connection
-identity, and distinct load/restart/reconnect lifecycles. Its source-matched local
+foreach collections and execution-time variable-token expansion, `std::stoll`
+condition prefixes and `continue`, shuffled concurrent connections with
+join-all/opportunistic-stop behavior, named database/connection identity, and
+distinct load/restart/reconnect lifecycles. Restart preserves the implemented
+global and main-session configuration, including `search_path`. Its source-matched local
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
-zero skips). Its three-warmup, nine-sample Gate P campaign records a 53.872 ms Rust
-wall median versus 40.807 ms for the faster C++ pin, or 1.320x; invocation
-throughput fails by the same ratio. Rust CPU is 0.667x and RSS 0.409x the faster
+zero skips). Its three-warmup, nine-sample Gate P campaign records a 52.349 ms Rust
+wall median versus 39.896 ms for the faster C++ pin, or 1.312x; invocation
+throughput fails by the same ratio. Rust CPU is 0.667x and RSS 0.414x the faster
 C++ medians, and block I/O is equal. Thus **at-parity or better performance:
 fail** for G01.2c. A focused split attributes the wall deficit to file-backed
 commit/lifecycle work rather than concurrent-loop scheduling; the exact engine
 storage change remains open. Explicit remaining runner limits are the
-integrated test-config max-thread surface, `load ... VERSION`, and Python-proxy
-sibling-tail stopping for result/label mismatches that are detected only after a
-concurrent batch returns. The Rust adapters also fail closed after 100,000 expanded
-loop iterations instead of attempting a source runner's effectively unbounded
-range. G01.4 must rerun both complete populations before the remaining first-blocker
-counts can reliably rank all engine families.
+integrated test-config max-thread surface, `load ... VERSION`, the engine's absent
+`unnest(getvariable(...))` variable-iteration surface, Python concurrent-stream
+precompilation for mutation-dependent nested variables, and Python-proxy sibling-tail
+stopping for result/label mismatches that are detected only after a concurrent batch
+returns. The Rust adapters also fail closed after 100,000 expanded loop iterations
+instead of attempting a source runner's effectively unbounded range. G01.4 must
+rerun both complete populations before the remaining first-blocker counts can
+reliably rank all engine families.
 
 ### Independent compatibility measurements
 
