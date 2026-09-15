@@ -44,8 +44,9 @@ class RustEngine:
         self.process = subprocess.Popen([str(binary)], cwd=directory, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=self.errors, text=True, bufsize=1)
         self.events = selectors.DefaultSelector(); self.events.register(self.process.stdout, selectors.EVENT_READ)
-        self.deadline = deadline; self.engine_unsupported_seen = False
+        self.deadline = deadline; self.engine_unsupported_seen = False; self.requests = 0
     def request(self, request):
+        self.requests += 1
         remaining = self.deadline - time.monotonic()
         if remaining <= 0: raise TimeoutError("file deadline exceeded")
         self.process.stdin.write(json.dumps(request) + "\n"); self.process.stdin.flush()
@@ -61,10 +62,11 @@ class RustEngine:
         self.process.wait(); self.process.stdin.close(); self.process.stdout.close(); self.events.close(); self.errors.close()
 
 
-def failure_class(error, engine_unsupported_seen=False):
+def failure_class(error, engine_unsupported_seen=False, phase="execution"):
     reason = str(error)
+    if phase == "parse": return "harness_parse"
     if isinstance(error, TimeoutError): return "timeout"
-    if isinstance(error, RuntimeError) and reason.startswith("worker exited:"): return "crash"
+    if isinstance(error, (RuntimeError, BrokenPipeError)) and (isinstance(error, BrokenPipeError) or reason.startswith("worker exited:")): return "crash"
     if isinstance(error, sqllogic.Unsupported):
         if engine_unsupported_seen: return "engine_unsupported"
         return "harness_directive_or_oracle"
@@ -78,27 +80,33 @@ def evidence(records, line):
 
 
 def run_case(binary, source, entry, timeout):
-    start = time.monotonic(); runner = engine = None; records = []
+    start = time.monotonic(); runner = engine = None; records = []; phase = "parse"
     result = {"id": entry["id"], "path": entry["path"], "passed_records": 0, "skipped_records": 0,
               "attempted_records": 0, "unreached_source_records": None}
     with tempfile.TemporaryDirectory(prefix="ddb-upstream-case-") as scratch:
         try:
             records = sqllogic.parse((source / entry["path"]).read_text())
             result["source_sql_records"] = sum(r.words[0] in ("query", "statement") for r in records)
-            engine = RustEngine(binary, scratch, start + timeout)
+            phase = "execution"; engine = RustEngine(binary, scratch, start + timeout)
             runner = sqllogic.Runner(engine, {"{TEST_DIR}": scratch, "__TEST_DIR__": scratch, "{WORKING_DIRECTORY}": scratch,
                 "__WORKING_DIRECTORY__": scratch, "{TEST_NAME}": entry["path"], "{BASE_TEST_NAME}": entry["path"].replace("/", "_"), "__SOURCE_DIR__": str(source)})
             runner.run(records)
             result["status"] = "passed" if runner.passed and not runner.skipped else "incomplete"
             if result["status"] != "passed": result["failure_class"] = "conditional_skip"
         except Exception as error:
-            result.update(status="failed", failure_class=failure_class(error, engine and engine.engine_unsupported_seen), reason=str(error)[:2000])
+            result.update(status="failed", failure_class=failure_class(error, engine and engine.engine_unsupported_seen, phase), reason=str(error)[:2000])
         finally:
             if runner:
-                result.update(evidence(records, runner.line), passed_records=runner.passed, skipped_records=runner.skipped, attempted_records=runner.passed)
+                result.update(evidence(records, runner.line), passed_records=runner.passed, skipped_records=runner.skipped, attempted_records=engine.requests)
             if engine: engine.close()
     if "source_sql_records" in result:
-        result["unreached_source_records"] = max(0, result["source_sql_records"] - result["passed_records"] - result["skipped_records"])
+        repeated = any(r.words[0] in ("loop", "foreach", "concurrentloop", "concurrentforeach") for r in records)
+        if repeated:
+            result["unreached_source_records"] = None
+            result["source_record_accounting"] = "unknown: loop control can revisit source records"
+        else:
+            result["unreached_source_records"] = sum(r.words[0] in ("query", "statement") and r.line > (runner.line if runner else 0) for r in records)
+            result["source_record_accounting"] = "source line ordering"
     result["elapsed_seconds"] = round(time.monotonic() - start, 6)
     return result
 

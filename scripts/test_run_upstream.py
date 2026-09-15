@@ -14,6 +14,8 @@ class RunUpstreamTests(unittest.TestCase):
         self.assertEqual(failure_class(AssertionError("wrong error")), "assertion_or_error_mismatch")
         self.assertEqual(failure_class(TimeoutError("deadline")), "timeout")
         self.assertEqual(failure_class(RuntimeError("worker exited: signal 11")), "crash")
+        self.assertEqual(failure_class(UnicodeDecodeError("utf8", b"", 0, 1, "bad"), phase="parse"), "harness_parse")
+        self.assertEqual(failure_class(BrokenPipeError()), "crash")
 
     def test_selection_and_coverage_reject_missing_or_failed_ids(self):
         sql = [{"id": "a", "path": "a.test"}, {"id": "b", "path": "b.test"}]
