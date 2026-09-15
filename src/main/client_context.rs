@@ -179,58 +179,74 @@ impl Services {
         let verification_enabled = query.settings().verification_enabled(query)?;
         let unoptimized = verification_enabled.then(|| plan.clone());
         let started = std::time::Instant::now();
-        let plan = self.optimize(plan, transaction, query)?;
-        let plan = self.physical_planner.plan(&plan)?;
-        let mut sink = CollectingSink {
-            rows: RowCollection::new(plan.schema().len()),
-            query,
-        };
-        let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
-        self.executor.execute(
-            plan.as_ref(),
-            &self.execution_context(transaction, query, &subquery_plans),
-            &mut sink,
-        )?;
-        let result = QueryResult {
-            columns: plan.schema().clone(),
-            rows: sink.rows,
-            affected_rows: 0,
-        };
-        if let Some(unoptimized) = unoptimized {
-            let optimizer_context = OptimizerContext {
-                catalog: transaction.catalog(),
-                storage: transaction.storage(),
-                query,
-            };
-            let unoptimized = ValidatedPlan::new(unoptimized, &optimizer_context)?
-                .into_plan(&optimizer_context)?;
-            let alternate = self.physical_planner.plan(&unoptimized)?;
+        let result = (|| {
+            let plan = self.optimize(plan, transaction, query)?;
+            let plan = self.physical_planner.plan(&plan)?;
             let mut sink = CollectingSink {
-                rows: RowCollection::new(alternate.schema().len()),
+                rows: RowCollection::new(plan.schema().len()),
                 query,
             };
             let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
-            crate::execution::MaterializingExecutor.execute(
-                alternate.as_ref(),
+            self.executor.execute(
+                plan.as_ref(),
                 &self.execution_context(transaction, query, &subquery_plans),
                 &mut sink,
             )?;
-            let alternate = QueryResult {
-                columns: alternate.schema().clone(),
+            let result = QueryResult {
+                columns: plan.schema().clone(),
                 rows: sink.rows,
                 affected_rows: 0,
             };
-            settings::verify_query_results(&result, &alternate)?;
+            if let Some(unoptimized) = unoptimized {
+                let optimizer_context = OptimizerContext {
+                    catalog: transaction.catalog(),
+                    storage: transaction.storage(),
+                    query,
+                };
+                let unoptimized = ValidatedPlan::new(unoptimized, &optimizer_context)?
+                    .into_plan(&optimizer_context)?;
+                let alternate = self.physical_planner.plan(&unoptimized)?;
+                let mut sink = CollectingSink {
+                    rows: RowCollection::new(alternate.schema().len()),
+                    query,
+                };
+                let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
+                crate::execution::MaterializingExecutor.execute(
+                    alternate.as_ref(),
+                    &self.execution_context(transaction, query, &subquery_plans),
+                    &mut sink,
+                )?;
+                let alternate = QueryResult {
+                    columns: alternate.schema().clone(),
+                    rows: sink.rows,
+                    affected_rows: 0,
+                };
+                settings::verify_query_results(&result, &alternate)?;
+            }
+            Ok(result)
+        })();
+        match result {
+            Ok(result) => {
+                query.settings().emit_profile(
+                    &settings::QueryProfile::new(
+                        started.elapsed(),
+                        result.rows.len(),
+                        verification_enabled,
+                    ),
+                    query,
+                )?;
+                Ok(result)
+            }
+            Err(error) => {
+                // Profiling is diagnostic: a renderer or output failure must
+                // never obscure the statement error it is recording.
+                let _ = query.settings().emit_profile(
+                    &settings::QueryProfile::new(started.elapsed(), 0, verification_enabled),
+                    query,
+                );
+                Err(error)
+            }
         }
-        query.settings().emit_profile(
-            &settings::QueryProfile::new(
-                started.elapsed(),
-                result.rows.len(),
-                verification_enabled,
-            ),
-            query,
-        )?;
-        Ok(result)
     }
 
     pub(super) fn query_batches(

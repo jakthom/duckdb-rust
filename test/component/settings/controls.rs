@@ -76,6 +76,27 @@ fn profiling_emits_measured_output_and_rejects_unimplemented_renderers() -> Resu
         other.query("SELECT 99")?;
         assert_eq!(std::fs::read_to_string(&output)?, before);
 
+        let failed_output = directory
+            .path()
+            .join(format!("failed-profile-{index}.json"));
+        connection.execute(&format!(
+            "SET profiling_output='{}'",
+            failed_output.display()
+        ))?;
+        assert!(
+            connection
+                .query("SELECT CAST('not-an-integer' AS INTEGER)")
+                .is_err()
+        );
+        let failed_profile: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&failed_output)?).unwrap();
+        assert_eq!(failed_profile["rows_returned"], 0);
+        assert!(failed_profile["latency_seconds"].as_f64().is_some());
+        assert_eq!(connection.query("SELECT 7")?.rows.len(), 1);
+        let recovered_profile: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&failed_output)?).unwrap();
+        assert_eq!(recovered_profile["rows_returned"], 1);
+
         connection.execute("RESET enable_profiling")?;
         connection.query("SELECT 42")?;
         assert_eq!(std::fs::read_to_string(&output)?, before);
