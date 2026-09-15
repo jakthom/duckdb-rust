@@ -12,7 +12,9 @@ import measure_sqllogic_performance as measure
 
 
 def sample(**overrides):
-    value = {"wall_ns": 100, "cpu_ns": 100, "max_rss_bytes": 100, "block_input": 1, "block_output": 1, "records": 2}
+    value = {"command": ["runner", "a.test"], "returncode": 0, "stdout": "PASS", "stderr": "",
+             "wall_ns": 100, "cpu_ns": 100, "max_rss_bytes": 100,
+             "block_input": 1, "block_output": 1, "records": 2}
     value.update(overrides)
     return value
 
@@ -50,6 +52,62 @@ class PerformanceGateTests(unittest.TestCase):
         release["workloads"][0]["rust"] = [sample()] * 8
         with self.assertRaises(ValueError):
             measure.gate(release, development, workloads)
+
+    def test_serialized_raw_evidence_recomputes_gate(self):
+        workloads, release, development = self.reports()
+        report = {"samples": 9, "workloads": [{**workloads[0], "observations": {
+            "release": release["workloads"][0]["cpp"],
+            "development": development["workloads"][0]["cpp"],
+            "rust": release["workloads"][0]["rust"],
+        }}]}
+        serialized = json.loads(json.dumps(report))
+        result = measure.gate_report(serialized, workloads)
+        self.assertTrue(result["passed"])
+        self.assertIn("stdout", serialized["workloads"][0]["observations"]["rust"][0])
+        self.assertEqual(result, measure.gate_report(serialized, workloads))
+
+    def test_raw_summary_or_partial_observation_fails_closed(self):
+        workloads, release, development = self.reports()
+        report = {"samples": 9, "workloads": [{**workloads[0], "observations": {
+            "release": release["workloads"][0]["cpp"],
+            "development": development["workloads"][0]["cpp"],
+            "rust": release["workloads"][0]["rust"],
+        }}]}
+        report["workloads"][0]["observations"]["rust"][0].pop("stdout")
+        with self.assertRaises(ValueError):
+            measure.gate_report(report, workloads)
+
+    def test_campaign_serializes_observations_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workload = root / "a.test"
+            workload.write_text("query I\nSELECT 1\n----\n1\n")
+            manifest = root / "workloads.json"
+            manifest.write_text(json.dumps({"workloads": [{"id": "a", "path": "a.test"}]}))
+            for name in ("release", "development", "rust"):
+                (root / name).write_text(name)
+            args = type("Args", (), {
+                "report": root / "report.json", "samples": 9, "warmups": 3,
+                "workloads": manifest, "test_root": root, "release_cpp": root / "release",
+                "development_cpp": root / "development", "rust": root / "rust",
+                "release_source": root, "development_source": root, "release_build": root,
+                "development_build": root, "release_cli": root / "release", "development_cli": root / "development",
+            })()
+            def timed(command, label):
+                value = sample(command=[str(part) for part in command])
+                if command[0] == args.rust:
+                    value.update(wall_ns=90, cpu_ns=90, max_rss_bytes=90)
+                return value
+            with patch.object(measure, "active_peers", return_value=[]), \
+                 patch.object(measure, "identity", side_effect=lambda target, *unused: {"target": target}), \
+                 patch.object(measure, "source_digest", return_value="source"), \
+                 patch.object(measure, "run_timed", side_effect=timed):
+                report = measure.run_campaign(args)
+            disk = json.loads(args.report.read_text())
+            self.assertTrue(report["passed"])
+            self.assertEqual(report["gate"], measure.gate_report(disk, measure.validate_manifest(manifest, root)))
+            self.assertEqual(set(disk["workloads"][0]["observations"]), {"release", "development", "rust"})
+            self.assertNotEqual(disk["workloads"], disk["gate"]["workloads"])
 
     def test_manifest_rejects_bad_and_duplicate_paths(self):
         with tempfile.TemporaryDirectory() as directory:

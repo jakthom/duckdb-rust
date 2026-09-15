@@ -3,9 +3,25 @@
 unzip test/data/floating-text-production/development-float.json.gz
 
 query II rowsort
-SELECT 42 AS answer, 'needle' AS text
+SELECT * FROM (VALUES (42, 'needle'), (7, 'haystack'), (19, 'pin')) AS values(answer, text)
 ----
 <FILE>:test/performance/g01_expected.csv
+
+# This literal differs from the rendered DOUBLE values. Both pinned runners
+# compare via their numeric cast fallback, as must the Rust oracle.
+query R rowsort
+SELECT value FROM (VALUES (CAST(3 AS DOUBLE)), (CAST(1 AS DOUBLE)), (CAST(2 AS DOUBLE))) AS values(value)
+----
+1
+2
+3
+
+# FLOAT comparison follows the native typed cast: these two decimal spellings
+# round to the same single-precision value, so this is not a string comparison.
+query R
+SELECT CAST(16777216 AS FLOAT)
+----
+16777217
 
 query I
 SELECT 'line
@@ -27,3 +43,10 @@ query I nosort stable_hash
 SELECT 7
 ----
 also ignored
+
+# Expected-error matching must consume the error oracle, not merely observe an
+# execution failure.  This syntax error has a stable cross-pin diagnostic class.
+statement error
+SELECT FROM
+----
+<REGEX>:.*[Pp]arser [Ee]rror.*

@@ -201,6 +201,62 @@ def gate(release, development, workloads):
             "at_parity_or_better_performance": all(item["passed"] for item in outcome)}
 
 
+def validate_observation(sample):
+    """Reject a summary or partial sample before it can enter Gate P.
+
+    The report is evidence, rather than merely input to a one-shot gate.  Keep
+    enough of each invocation to audit its runner verdict and to recompute the
+    gate after JSON serialization.
+    """
+    required = {"command", "returncode", "stdout", "stderr", "records", *METRICS}
+    if not isinstance(sample, dict) or not required <= set(sample):
+        raise ValueError("raw observation is missing command, verdict, or metric evidence")
+    if (not isinstance(sample["command"], list) or not sample["command"]
+            or any(not isinstance(part, str) or not part for part in sample["command"])):
+        raise ValueError("raw observation has an invalid command")
+    if sample["returncode"] != 0 or not isinstance(sample["stdout"], str) or not isinstance(sample["stderr"], str):
+        raise ValueError("raw observation has no successful runner verdict")
+    if not isinstance(sample["records"], int) or sample["records"] <= 0:
+        raise ValueError("raw observation has an invalid PASS count")
+    if (not isinstance(sample["wall_ns"], int) or sample["wall_ns"] <= 0
+            or any(not isinstance(sample[key], int) or sample[key] < 0 for key in METRICS if key != "wall_ns")):
+        raise ValueError("raw observation has incomplete timing metrics")
+
+
+def gate_report(report, workloads):
+    """Recompute Gate P from a serialized campaign report; fail closed."""
+    sample_count = report.get("samples")
+    if not isinstance(sample_count, int) or sample_count < 9 or sample_count % 2 != 1:
+        raise ValueError("raw report has an invalid acceptance sample count")
+    entries = report.get("workloads")
+    if not isinstance(entries, list) or len(entries) != len(workloads):
+        raise ValueError("raw report has missing, extra, or duplicate workloads")
+    expected = {item["id"]: item for item in workloads}
+    raw = {}
+    for entry in entries:
+        identifier = entry.get("id") if isinstance(entry, dict) else None
+        if identifier not in expected or identifier in raw:
+            raise ValueError("raw report has missing, extra, or duplicate workloads")
+        if any(entry.get(key) != value for key, value in expected[identifier].items()):
+            raise ValueError("raw workload identity changed: " + identifier)
+        observations = entry.get("observations")
+        if not isinstance(observations, dict) or set(observations) != {"release", "development", "rust"}:
+            raise ValueError("raw workload is missing a runner population")
+        for target, samples in observations.items():
+            if not isinstance(samples, list) or len(samples) != sample_count:
+                raise ValueError("raw workload has incomplete samples: " + identifier + "/" + target)
+            for sample in samples:
+                validate_observation(sample)
+            if len({sample["records"] for sample in samples}) != 1:
+                raise ValueError("inconsistent SQLLogic PASS count: " + identifier + "/" + target)
+        raw[identifier] = observations
+    release = {"workloads": [{**item, "cpp": raw[item["id"]]["release"], "rust": raw[item["id"]]["rust"]}
+                            for item in workloads]}
+    development = {"workloads": [{**item, "cpp": raw[item["id"]]["development"], "rust": raw[item["id"]]["rust"]}
+                                for item in workloads]}
+    return gate(release, development, workloads)
+
+
 def identity(target, cpp, source, build, cli):
     revision = require_checkout(source, target)
     _, cli_identity = require_reference(cli, target=target)
@@ -255,17 +311,18 @@ def run_campaign(args):
             rust_records = {sample["records"] for sample in samples["rust"]}
             if any(len(records) != 1 for records in cpp_records.values()) or len(rust_records) != 1:
                 raise ValueError("inconsistent SQLLogic PASS count: " + workload["id"])
-            report["workloads"].append({**workload, "cpp": samples["release"], "rust": samples["rust"],
-                                        "cpp_records": {name: next(iter(records)) for name, records in cpp_records.items()},
-                                        "rust_records": next(iter(rust_records)),
-                                        "development_cpp": samples["development"]})
-        # Gate needs both C++ data but report keeps one compact workload list.
-        release = {"workloads": [{**entry, "cpp": entry["cpp"]} for entry in report["workloads"]]}
-        development = {"workloads": [{**entry, "cpp": entry["development_cpp"]} for entry in report["workloads"]]}
-        result = gate(release, development, workloads)
-        report.update(result)
+            report["workloads"].append({**workload, "observations": samples,
+                                        "pass_counts": {name: next(iter(records)) for name, records in cpp_records.items()}
+                                        | {"rust": next(iter(rust_records))}})
+        # Do not merge this summary into the raw workload observations: evidence
+        # must survive serialization so the decision can be independently rerun.
+        report["gate"] = gate_report(report, workloads)
+        report["passed"] = report["gate"]["passed"]
+        report["at_parity_or_better_performance"] = report["gate"]["at_parity_or_better_performance"]
     except Exception as error:
         report["error"] = str(error)
+        report["gate"] = {"workloads": [], "passed": False,
+                          "at_parity_or_better_performance": False, "error": str(error)}
         if isinstance(error, SampleFailure):
             report["failed_run"] = error.details
     args.report.parent.mkdir(parents=True, exist_ok=True)
