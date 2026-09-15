@@ -11,3 +11,10 @@ query TT
 SELECT enum_range_boundary(k,NULL), enum_range_boundary(NULL::ENUM('z','a'),k) FROM enum_boundary
 ----
 100000 values hashing to 518d5f8bf394b5b55dfe849a8d31469c
+
+# Retain the same physical broadcast when the list feeds non-total parent
+# casts/scalars instead of appearing as a naked projection root.
+query II
+SELECT sum(length(enum_range_boundary(k,NULL)::VARCHAR)), sum(length(enum_range_boundary(NULL::ENUM('z','a'),k)::VARCHAR)) FROM enum_boundary
+----
+300000	150000
