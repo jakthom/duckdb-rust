@@ -185,7 +185,9 @@ def cached_population(target, cache_root):
     if metadata.exists():
         try:
             saved = json.loads(metadata.read_text())
-            if saved.get("identity") != identity or saved.get("files") != cached_files(root / "source"):
+            if (saved.get("identity") != identity
+                    or saved.get("files") != cached_files(root / "source")
+                    or not cached_manifest_matches_source(root / "source", saved.get("manifest"))):
                 raise ValueError("cached suite content differs")
             return root / "source", saved["manifest"], {**saved["population_identity"], "cache": "validated"}
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
@@ -203,6 +205,27 @@ def cached_population(target, cache_root):
         (staging / "suite.json").write_text(json.dumps(saved, sort_keys=True) + "\n")
         os.replace(staging, root)
     return root / "source", manifest, {**population_identity, "cache": "created"}
+
+
+def cached_manifest_matches_source(source, manifest):
+    """A changed suite.json cannot rewrite selection/count metadata by itself."""
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), list):
+        return False
+    actual = cached_files(source)
+    declared = {entry.get("path"): entry for entry in manifest["files"]}
+    if len(declared) != len(manifest["files"]) or len(declared) != len(actual):
+        return False
+    for entry in actual:
+        expected = declared.get(entry["path"])
+        if not isinstance(expected, dict) or expected.get("sha256") != entry["sha256"]:
+            return False
+        if expected.get("kind", entry["kind"]) != entry["kind"]:
+            return False
+    tests = []
+    for entry in actual:
+        if entry["kind"] == "file":
+            tests.extend(declarations(entry["path"], (source / entry["path"]).read_bytes()))
+    return manifest.get("tests") == tests and manifest.get("counts") == dict(Counter(test["kind"] for test in tests))
 
 
 def worker_build(debug_worker):

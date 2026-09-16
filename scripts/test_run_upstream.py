@@ -6,7 +6,7 @@ import stat
 from unittest.mock import patch
 
 import sqllogic
-from run_upstream import (cached_files, cached_population, comparable_outcome, failure_class,
+from run_upstream import (cached_files, cached_manifest_matches_source, cached_population, comparable_outcome, failure_class,
                           rewrite_report_argument, run_case, selected_entries, summarize,
                           watch_feedback)
 
@@ -94,6 +94,18 @@ class RunUpstreamTests(unittest.TestCase):
             with self.assertRaises(ValueError): cached_files(source)
             link = root / "linked-source"; link.symlink_to(source, target_is_directory=True)
             with self.assertRaises(ValueError): cached_files(link)
+
+    def test_cached_suite_json_cannot_rewrite_inventory_or_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"; source.mkdir()
+            path = source / "case.test"; path.write_text("statement ok\nSELECT 1\n")
+            files = cached_files(source)
+            manifest = {"files": files, "tests": [{"id": "case.test", "kind": "sqllogictest", "path": "case.test", "line": 1}],
+                        "counts": {"sqllogictest": 1}}
+            self.assertTrue(cached_manifest_matches_source(source, manifest))
+            for changed in [{**manifest, "counts": {}}, {**manifest, "tests": []},
+                            {**manifest, "files": [{**files[0], "kind": "symlink"}]}]:
+                self.assertFalse(cached_manifest_matches_source(source, changed))
 
     def test_debug_release_comparison_includes_all_assertion_visible_fields(self):
         passed = {"id": "a", "path": "a.test", "status": "passed", "passed_records": 1,
