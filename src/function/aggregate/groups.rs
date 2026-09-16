@@ -8,6 +8,9 @@ use crate::{
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn create(name: &str, arguments: &[DataType]) -> Option<Box<dyn GroupedAggregateState>> {
+    if name == "product" && arguments == [DataType::Double] {
+        return Some(Box::new(ProductGroups::default()));
+    }
     let sum = name == "sum";
     let kernel = arguments
         .first()
@@ -23,6 +26,96 @@ pub(super) fn create(name: &str, arguments: &[DataType]) -> Option<Box<dyn Group
         values: Vec::new(),
         counts: Vec::new(),
     }))
+}
+
+#[derive(Default)]
+struct ProductGroups {
+    values: Vec<f64>,
+    counts: Vec<usize>,
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl GroupedAggregateState for ProductGroups {
+    fn group_count(&self) -> usize {
+        self.counts.len()
+    }
+    fn resize(&mut self, groups: usize, query: &QueryContext) -> Result<()> {
+        query.check_rows(groups)?;
+        if groups < self.group_count() {
+            return Err(Error::Internal("cannot shrink aggregate groups".into()));
+        }
+        self.values.resize(groups, 1.0);
+        self.counts.resize(groups, 0);
+        Ok(())
+    }
+    fn update_batch(
+        &mut self,
+        groups: &GroupSelection<'_>,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<()> {
+        groups.validate(arguments, self.group_count())?;
+        let [column] = arguments.columns() else {
+            return Err(Error::Internal("product requires one argument".into()));
+        };
+        if column.data_type() != &DataType::Double {
+            return Err(Error::Internal(
+                "grouped product argument differs from binding".into(),
+            ));
+        }
+        if let Some(values) = column.flat_values() {
+            self.update_values(groups, values.iter(), query)
+        } else {
+            self.update_values(groups, column.values(), query)
+        }
+    }
+    fn finish(self: Box<Self>, query: &QueryContext) -> Result<Vec<Value>> {
+        query.check()?;
+        self.counts
+            .into_iter()
+            .zip(self.values)
+            .enumerate()
+            .map(|(index, (count, value))| {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                Ok(if count == 0 {
+                    Value::Null
+                } else {
+                    Value::Double(value)
+                })
+            })
+            .collect()
+    }
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ProductGroups {
+    fn update_values<'a>(
+        &mut self,
+        groups: &GroupSelection<'_>,
+        values: impl Iterator<Item = &'a Value>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        for (index, (&group, value)) in groups.indices().iter().zip(values).enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            match value {
+                Value::Double(value) => {
+                    self.values[group] *= value;
+                    self.counts[group] = self.counts[group].checked_add(1).ok_or_else(|| {
+                        Error::Resource("aggregate update count exceeds usize".into())
+                    })?;
+                }
+                Value::Null => {}
+                _ => {
+                    return Err(Error::Internal(
+                        "grouped product argument differs from binding".into(),
+                    ));
+                }
+            }
+        }
+        query.check()
+    }
 }
 
 struct IntegerGroups {

@@ -2036,22 +2036,6 @@ fn execute_parsed_query(
             logical_type,
         })
         .collect();
-    let rendered: Vec<_> = result
-        .rows
-        .iter()
-        .flatten()
-        .map(|value| match value {
-            Value::Null => None,
-            _ => Some(value.to_string()),
-        })
-        .collect();
-    let cells: Vec<_> = rendered
-        .iter()
-        .map(|value| match value {
-            None => ActualCell::Null,
-            Some(value) => ActualCell::Text(value),
-        })
-        .collect();
     let actual_values = convert_output_result(&result, original_sqlite).map_err(|error| {
         let _ = accounting
             .lock()
@@ -2059,6 +2043,13 @@ fn execute_parsed_query(
             .record(execution, ExecutionOutcome::Failed);
         at(token, &error)
     })?;
+    // The pinned wire conversion is also the oracle's rendered cell input.
+    // Reuse it instead of retaining a second allocation for every result cell;
+    // BOOLEAN, NULL, empty and NUL-containing values are already canonical.
+    let cells: Vec<_> = actual_values
+        .iter()
+        .map(|value| ActualCell::Text(value))
+        .collect();
     if mode.output_result {
         append_output_result(output, &result, &actual_values);
     }

@@ -103,6 +103,45 @@ pub struct BoundSubquery {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundExpr {
+    /// True when evaluating this tree cannot publish effects or access an
+    /// external system. Unlike `is_pure_and_total`, data-dependent errors are
+    /// allowed; consumers that reorder successful work must restore scalar
+    /// source order before reporting such an error.
+    pub fn is_effect_free(&self) -> bool {
+        match &self.kind {
+            ExprKind::Literal(_)
+            | ExprKind::Parameter(_)
+            | ExprKind::Column(_)
+            | ExprKind::OuterColumn { .. } => true,
+            ExprKind::Subquery(_) => false,
+            ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => inner.is_effect_free(),
+            ExprKind::Binary(_, left, right, _) => left.is_effect_free() && right.is_effect_free(),
+            ExprKind::Operator(function, arguments) => {
+                let effects = function.effects();
+                !effects.volatile
+                    && !effects.external_access
+                    && arguments.iter().all(Self::is_effect_free)
+            }
+            ExprKind::Scalar(function, arguments) => {
+                let effects = function.effects();
+                !effects.volatile
+                    && !effects.external_access
+                    && arguments.iter().all(Self::is_effect_free)
+            }
+            ExprKind::Case(branches, otherwise) => {
+                branches
+                    .iter()
+                    .all(|(condition, value)| condition.is_effect_free() && value.is_effect_free())
+                    && otherwise.is_effect_free()
+            }
+            ExprKind::Between(value, lower, upper, ..) => {
+                value.is_effect_free() && lower.is_effect_free() && upper.is_effect_free()
+            }
+            ExprKind::InList(value, list, ..) => {
+                value.is_effect_free() && list.iter().all(Self::is_effect_free)
+            }
+        }
+    }
     /// A conservative proof for a validated scalar tree: evaluation is pure and
     /// has no data-dependent errors for any valid input. Resource exhaustion and
     /// cancellation remain possible. False means unknown, not necessarily unsafe.

@@ -370,8 +370,7 @@ impl ExpressionEvaluator for ScalarEvaluator {
                     ));
                 }
                 query
-                    .types()
-                    .bind(&expression.data_type)?
+                    .bind_type(&expression.data_type)?
                     .validate(&value, query)
                     .map_err(|error| match error {
                         Error::Conversion(_) => Error::Internal(
@@ -596,7 +595,7 @@ impl ExpressionEvaluator for ScalarEvaluator {
                         // The selected policy permits stopping only after this
                         // child was executed and its value/metadata validated.
                         for data_type in [&argument.data_type, &expression.data_type] {
-                            query.types().bind(data_type)?.validate(&value, query)
+                            query.bind_type(data_type)?.validate(&value, query)
                                 .map_err(|error| match error {
                                     Error::Conversion(_) => Error::Internal("constant NULL argument or result differs from its selected type".into()),
                                     other => other,
@@ -835,7 +834,7 @@ fn validate_comparison_null(
     // Keep the selected operand adapter, not a fresh built-in validation path.
     operand
         .validate(&Value::Null, query)
-        .and_then(|()| query.types().bind(result)?.validate(&Value::Null, query))
+        .and_then(|()| query.bind_type(result)?.validate(&Value::Null, query))
         .map_err(comparison_validation_error)
 }
 

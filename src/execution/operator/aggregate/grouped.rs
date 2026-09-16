@@ -80,12 +80,7 @@ pub(super) fn run<I: GroupIndex>(
         && let [AggregateOutput::Function(aggregate)] = aggregation.outputs.as_slice()
         && !aggregate.distinct
         && aggregate.filter.is_none()
-        && aggregate.arguments.iter().all(|argument| {
-            matches!(
-                argument.kind,
-                ExprKind::Column(_) | ExprKind::Literal(_) | ExprKind::Parameter(_)
-            )
-        })
+        && aggregate.arguments.iter().all(BoundExpr::is_pure_and_total)
     {
         return super::ungrouped(input, aggregate, context);
     }

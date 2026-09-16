@@ -647,15 +647,21 @@ impl ExpressionEvaluator for BatchedEvaluator {
         input: &DataChunk,
         context: &dyn EvaluationContext,
     ) -> Result<Vector> {
-        if input.len() > 1 && expression.is_pure_and_total() {
+        if input.len() > 1
+            && !expression.uses_physical_batch()
+            && let Some(output) = dictionary_expression(expression, input, context)?
+        {
+            Ok(output)
+        } else if input.len() > 1 && expression.is_pure_and_total() {
             evaluate_columns(expression, input, context)
         } else {
-            if let Some(output) = evaluate_with_physical_batches(self, expression, input, context)?
+            if input.len() > 1
+                && let Some(output) =
+                    evaluate_speculative_expression(self, expression, input, context)?
             {
                 return Ok(output);
             }
-            if input.len() > 1
-                && let Some(output) = dictionary_expression(expression, input, context)?
+            if let Some(output) = evaluate_with_physical_batches(self, expression, input, context)?
             {
                 return Ok(output);
             }
@@ -719,6 +725,112 @@ impl ExpressionEvaluator for BatchedEvaluator {
             context.query(),
         )
     }
+}
+
+/// A pure eager function may expose a vector callback even when one child is
+/// not proved total. Evaluate into temporary columns first; a data error
+/// discards them and returns to scalar row order, while successful work can
+/// retain the callback's compact encoding.
+fn evaluate_speculative_expression<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Option<Vector>> {
+    let arguments: &[BoundExpr] = match &expression.kind {
+        ExprKind::Scalar(function, arguments) => {
+            let effects = function.effects();
+            if effects.volatile
+                || effects.external_access
+                || !matches!(function.argument_evaluation(), ArgumentEvaluation::Eager)
+            {
+                return Ok(None);
+            }
+            arguments
+        }
+        ExprKind::Operator(function, arguments) => {
+            let effects = function.effects();
+            if effects.volatile || effects.external_access {
+                return Ok(None);
+            }
+            arguments
+        }
+        ExprKind::Cast(inner, _, false) => std::slice::from_ref(inner.as_ref()),
+        _ => return Ok(None),
+    };
+    if arguments.iter().any(|argument| !argument.is_effect_free()) {
+        return Ok(None);
+    }
+    let mut columns = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        match evaluator.evaluate_batch(argument, input, context) {
+            Ok(column) => columns.push(column),
+            Err(error) if speculative_data_error(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        }
+    }
+    let arguments = DataChunk::new(columns, input.len())?;
+    let output = match &expression.kind {
+        ExprKind::Scalar(function, _) => match function.evaluate_batch(&arguments, context.query())
+        {
+            Ok(Some(output)) => output,
+            Ok(None)
+            | Err(
+                Error::Conversion(_)
+                | Error::Execution(_)
+                | Error::OutOfRange(_)
+                | Error::InvalidInput(_)
+                | Error::InvalidType(_),
+            ) => return Ok(None),
+            Err(error) => return Err(error),
+        },
+        ExprKind::Operator(function, _) => {
+            match function.apply_batch(&arguments, context.query()) {
+                Ok(output) => output,
+                Err(
+                    Error::Conversion(_)
+                    | Error::Execution(_)
+                    | Error::OutOfRange(_)
+                    | Error::InvalidInput(_)
+                    | Error::InvalidType(_),
+                ) => return Ok(None),
+                Err(error) => return Err(error),
+            }
+        }
+        ExprKind::Cast(_, cast, false) => match cast.apply_batch(
+            arguments
+                .columns()
+                .first()
+                .expect("speculative cast argument"),
+            context.query(),
+        ) {
+            Ok(output) => output,
+            Err(error) if speculative_data_error(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        },
+        _ => unreachable!("matched speculative expression"),
+    };
+    if output.len() != input.len() || output.data_type() != &expression.data_type {
+        return Err(Error::Internal(
+            "speculative expression batch differs from binding".into(),
+        ));
+    }
+    context
+        .query()
+        .bind_type(&expression.data_type)?
+        .validate_vector(&output, context.query())?;
+    Ok(Some(output))
+}
+
+fn speculative_data_error(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::Conversion(_)
+            | Error::Execution(_)
+            | Error::OutOfRange(_)
+            | Error::InvalidInput(_)
+            | Error::InvalidType(_)
+    )
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -802,6 +914,15 @@ fn single_pure_input(expression: &BoundExpr, column: &mut Option<usize>) -> bool
         ExprKind::Cast(inner, ..) | ExprKind::Unary(_, inner) => single_pure_input(inner, column),
         ExprKind::Operator(function, arguments)
             if !function.effects().volatile && !function.effects().external_access =>
+        {
+            arguments
+                .iter()
+                .all(|argument| single_pure_input(argument, column))
+        }
+        ExprKind::Scalar(function, arguments)
+            if !function.effects().volatile
+                && !function.effects().external_access
+                && matches!(function.argument_evaluation(), ArgumentEvaluation::Eager) =>
         {
             arguments
                 .iter()
@@ -937,6 +1058,25 @@ fn evaluate_columns(
             Vector::flat(DataType::Boolean, values)?
         }
         ExprKind::Case(branches, otherwise) => {
+            // A CASE with retained constant branches is a selection over a
+            // tiny value vector, not a freshly materialized value per row.
+            // The condition still uses the ordinary total-expression selector
+            // and therefore retains SQL NULL/non-match behavior.
+            if let [(condition, value)] = branches.as_slice()
+                && let (Some(value), Some(otherwise)) =
+                    (value.constant_value(), otherwise.constant_value())
+            {
+                let selected = BatchedEvaluator.select_batch(condition, input, context)?;
+                let mut indices = vec![1; input.len()];
+                for index in selected {
+                    indices[index] = 0;
+                }
+                let dictionary = std::sync::Arc::new(Vector::flat(
+                    expression.data_type.clone(),
+                    vec![value.clone(), otherwise.clone()],
+                )?);
+                return dictionary.select(indices);
+            }
             let mut active = Vec::new();
             let mut fallback = otherwise.as_ref();
             for (condition, value) in branches {

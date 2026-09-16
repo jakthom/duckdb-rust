@@ -207,8 +207,7 @@ impl<'a> PreparedExpression<'a> {
         }
         context
             .query
-            .types()
-            .bind(&self.expression.data_type)?
+            .bind_type(&self.expression.data_type)?
             .validate_vector(&output, context.query)?;
         Ok(output)
     }
@@ -221,7 +220,7 @@ impl<'a> PreparedExpression<'a> {
         if self.expression.data_type != DataType::Boolean {
             return Err(Error::Internal("filter predicate must be Boolean".into()));
         }
-        let boolean = context.query.types().bind(&DataType::Boolean)?;
+        let boolean = context.query.bind_type(&DataType::Boolean)?;
         let selected = if self.dependencies.is_empty() && !boolean.requires_logical_validation() {
             context
                 .expressions

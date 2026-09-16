@@ -14,6 +14,9 @@ pub(super) fn try_run(
     aggregation: &Aggregation,
     context: &ExecutionContext<'_>,
 ) -> Result<Option<Vec<Row>>> {
+    if let Some(rows) = try_ungrouped(input, aggregation, context)? {
+        return Ok(Some(rows));
+    }
     // Keep the existing ungrouped column kernel, including its overflow proof.
     if aggregation.groups.is_empty() && aggregation.sets.len() == 1 {
         return Ok(None);
@@ -193,4 +196,146 @@ pub(super) fn try_run(
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(Some(rows))
+}
+
+/// Evaluate effect-free aggregate arguments as columns, then retain aggregate
+/// updates in exact row/output order. If speculative column evaluation finds a
+/// data error, replay only that untouched batch through the scalar expression
+/// order so the reported first error remains source-compatible.
+fn try_ungrouped(
+    input: &mut dyn BatchStream,
+    aggregation: &Aggregation,
+    context: &ExecutionContext<'_>,
+) -> Result<Option<Vec<Row>>> {
+    if !aggregation.groups.is_empty()
+        || aggregation.sets.len() != 1
+        || !aggregation.sets[0].is_empty()
+        || aggregation.outputs.len() < 2
+        || aggregation
+            .outputs
+            .iter()
+            .any(|output| !matches!(output, AggregateOutput::Function(_)))
+    {
+        return Ok(None);
+    }
+    let functions = aggregation.functions().collect::<Vec<_>>();
+    if functions.iter().any(|function| {
+        function.distinct
+            || function.filter.is_some()
+            || function
+                .arguments
+                .iter()
+                .any(|argument| !argument.is_effect_free())
+    }) {
+        return Ok(None);
+    }
+    aggregation.validate_metadata(context.query)?;
+    let expressions = functions
+        .iter()
+        .map(|function| {
+            function
+                .arguments
+                .iter()
+                .map(PreparedExpression::new)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let mut states = functions
+        .iter()
+        .map(|function| {
+            function.function.create_state(
+                &function
+                    .arguments
+                    .iter()
+                    .map(|argument| argument.data_type.clone())
+                    .collect::<Vec<_>>(),
+                context.query.types(),
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut argument_rows = expressions
+        .iter()
+        .map(|arguments| Vec::with_capacity(arguments.len()))
+        .collect::<Vec<Row>>();
+    while let Some(batch) = input.next(context.query.batch_size())? {
+        let evaluated = expressions
+            .iter()
+            .map(|arguments| {
+                DataChunk::new(
+                    arguments
+                        .iter()
+                        .map(|argument| argument.evaluate_batch(&batch, context))
+                        .collect::<Result<_>>()?,
+                    batch.len(),
+                )
+            })
+            .collect::<Result<Vec<_>>>();
+        let evaluated = match evaluated {
+            Ok(evaluated) => evaluated,
+            Err(error) if data_error(&error) => {
+                update_scalar_batch(
+                    &batch,
+                    &expressions,
+                    &mut states,
+                    &mut argument_rows,
+                    context,
+                )?;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        for row in 0..batch.len() {
+            if row % 1024 == 0 {
+                context.query.check()?;
+            }
+            for ((arguments, state), values) in evaluated
+                .iter()
+                .zip(states.iter_mut())
+                .zip(argument_rows.iter_mut())
+            {
+                arguments.read_row(row, values)?;
+                state.update(values, context.query)?;
+            }
+        }
+    }
+    states
+        .into_iter()
+        .map(|state| state.finish())
+        .collect::<Result<Row>>()
+        .map(|row| Some(vec![row]))
+}
+
+fn update_scalar_batch(
+    batch: &DataChunk,
+    expressions: &[Vec<PreparedExpression<'_>>],
+    states: &mut [Box<dyn crate::function::AggregateState>],
+    argument_rows: &mut [Row],
+    context: &ExecutionContext<'_>,
+) -> Result<()> {
+    for row in batch.rows() {
+        context.query.check()?;
+        for ((arguments, state), values) in expressions
+            .iter()
+            .zip(states.iter_mut())
+            .zip(argument_rows.iter_mut())
+        {
+            values.clear();
+            for argument in arguments {
+                values.push(argument.evaluate(&row, context)?);
+            }
+            state.update(values, context.query)?;
+        }
+    }
+    Ok(())
+}
+
+fn data_error(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::Conversion(_)
+            | Error::Execution(_)
+            | Error::OutOfRange(_)
+            | Error::InvalidInput(_)
+            | Error::InvalidType(_)
+    )
 }

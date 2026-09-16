@@ -1,11 +1,9 @@
 //! Aggregation algorithms consume the same bound grouping and function contract.
+use super::super::subquery::PreparedExpression;
 use super::super::{ExecutionContext, stream::BatchStream};
 use crate::{
-    common::{
-        Error, Result, Row,
-        vector::{DataChunk, Vector},
-    },
-    planner::{ExprKind, aggregation::Aggregation, logical::AggregateExpr},
+    common::{Error, Result, Row, vector::DataChunk},
+    planner::{BoundExpr, ExprKind, aggregation::Aggregation, logical::AggregateExpr},
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -84,6 +82,11 @@ fn ungrouped(
     let mut state = aggregate
         .function
         .create_state(&types, context.query.types())?;
+    let arguments = aggregate
+        .arguments
+        .iter()
+        .map(PreparedExpression::new)
+        .collect::<Vec<_>>();
     while let Some(batch) = input.next(context.query.batch_size())? {
         if let [argument] = aggregate.arguments.as_slice()
             && let ExprKind::Column(index) = argument.kind
@@ -96,22 +99,9 @@ fn ungrouped(
             context.query.check()?;
             continue;
         }
-        let columns = aggregate
-            .arguments
+        let columns = arguments
             .iter()
-            .map(|argument| match &argument.kind {
-                ExprKind::Column(index) => batch
-                    .columns()
-                    .get(*index)
-                    .cloned()
-                    .ok_or_else(|| Error::Internal("aggregate column outside input".into())),
-                ExprKind::Literal(value) | ExprKind::Parameter(value) => {
-                    Vector::constant(argument.data_type.clone(), value.clone(), batch.len())
-                }
-                _ => Err(Error::Internal(
-                    "aggregate argument requires row evaluation".into(),
-                )),
-            })
+            .map(|argument| argument.evaluate_batch(&batch, context))
             .collect::<Result<_>>()?;
         state.update_batch(&DataChunk::new(columns, batch.len())?, context.query)?;
         context.query.check()?;

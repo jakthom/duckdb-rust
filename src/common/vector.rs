@@ -419,6 +419,9 @@ impl DataChunk {
         if selection.iter().any(|&index| index >= self.count) {
             return Err(Error::Internal("chunk selection out of bounds".into()));
         }
+        if selection.iter().copied().eq(0..self.count) {
+            return Ok(self.clone());
+        }
         let ordered = selection.windows(2).all(|pair| pair[0] <= pair[1]);
         let selection: Arc<[usize]> = selection.into();
         let columns = self
@@ -451,4 +454,109 @@ impl DataChunk {
         }));
         Ok(())
     }
+}
+
+/// Append an exact physical identity for values eligible for dictionary
+/// encoding. The declared vector type supplies logical metadata, so ENUM and
+/// extension payloads retain their physical ordinal/bytes here. False keeps an
+/// opaque representation flat.
+pub(crate) fn append_physical_identity(value: &Value, output: &mut Vec<u8>) -> bool {
+    use super::{NestedPayload, TemporalValue};
+    match value {
+        Value::Null => output.push(0),
+        Value::Boolean(value) => number(1, &[*value as u8], output),
+        Value::Integer(value) => number(2, &value.to_le_bytes(), output),
+        Value::Unsigned(value) => number(3, &value.to_le_bytes(), output),
+        Value::Decimal {
+            value,
+            width,
+            scale,
+        } => {
+            output.push(4);
+            output.extend_from_slice(&value.to_le_bytes());
+            output.extend_from_slice(&[*width, *scale]);
+        }
+        Value::Float(value) => number(5, &value.to_bits().to_le_bytes(), output),
+        Value::Double(value) => number(6, &value.to_bits().to_le_bytes(), output),
+        Value::Varchar(value) => bytes(7, value.as_bytes(), output),
+        Value::Blob(value) => bytes(8, value, output),
+        Value::Bit(_) | Value::Bignum(_) => return false,
+        Value::Uuid(value) => number(9, &value.to_le_bytes(), output),
+        Value::Enum(value) => number(10, &value.ordinal.to_le_bytes(), output),
+        Value::Date(value) => number(11, &value.days().to_le_bytes(), output),
+        Value::Temporal(value) => {
+            output.push(12);
+            match value {
+                TemporalValue::Time(value) => number(0, &value.to_le_bytes(), output),
+                TemporalValue::TimeNs(value) => number(1, &value.to_le_bytes(), output),
+                TemporalValue::TimeTz { micros, offset } => {
+                    output.push(2);
+                    output.extend_from_slice(&micros.to_le_bytes());
+                    output.extend_from_slice(&offset.to_le_bytes());
+                }
+                TemporalValue::Timestamp(value) => number(3, &value.to_le_bytes(), output),
+                TemporalValue::TimestampS(value) => number(4, &value.to_le_bytes(), output),
+                TemporalValue::TimestampMs(value) => number(5, &value.to_le_bytes(), output),
+                TemporalValue::TimestampNs(value) => number(6, &value.to_le_bytes(), output),
+                TemporalValue::TimestampTz(value) => number(7, &value.to_le_bytes(), output),
+                TemporalValue::TimestampTzNs(value) => number(8, &value.to_le_bytes(), output),
+                TemporalValue::Interval {
+                    months,
+                    days,
+                    micros,
+                } => {
+                    output.push(9);
+                    output.extend_from_slice(&months.to_le_bytes());
+                    output.extend_from_slice(&days.to_le_bytes());
+                    output.extend_from_slice(&micros.to_le_bytes());
+                }
+            }
+        }
+        Value::Nested(value) => {
+            output.push(13);
+            return match &value.payload {
+                NestedPayload::Sequence(values) => sequence(0, values, output),
+                NestedPayload::Struct(values) => sequence(1, values, output),
+                NestedPayload::Map(entries) => {
+                    output.push(2);
+                    output.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+                    for (key, value) in entries {
+                        if !append_physical_identity(key, output)
+                            || !append_physical_identity(value, output)
+                        {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                NestedPayload::Union { tag, value } => {
+                    output.push(3);
+                    output.extend_from_slice(&(*tag as u64).to_le_bytes());
+                    append_physical_identity(value, output)
+                }
+                NestedPayload::Variant { .. } => false,
+            };
+        }
+        Value::Extension(value) => bytes(14, &value.bytes, output),
+    }
+    true
+}
+
+fn number(tag: u8, value: &[u8], output: &mut Vec<u8>) {
+    output.push(tag);
+    output.extend_from_slice(value);
+}
+
+fn bytes(tag: u8, value: &[u8], output: &mut Vec<u8>) {
+    output.push(tag);
+    output.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    output.extend_from_slice(value);
+}
+
+fn sequence(tag: u8, values: &[Value], output: &mut Vec<u8>) -> bool {
+    output.push(tag);
+    output.extend_from_slice(&(values.len() as u64).to_le_bytes());
+    values
+        .iter()
+        .all(|value| append_physical_identity(value, output))
 }

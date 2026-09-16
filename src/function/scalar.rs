@@ -136,12 +136,19 @@ impl ScalarFunction for Builtin {
             return Ok(Value::Null);
         }
         Ok(match self.0 {
-            "lower" | "lcase" => Value::Varchar(case_convert(&args[0].to_string(), false)),
-            "upper" | "ucase" => Value::Varchar(case_convert(&args[0].to_string(), true)),
+            "lower" | "lcase" => match &args[0] {
+                Value::Varchar(value) => Value::Varchar(case_convert(value, false)),
+                _ => return Err(Error::Internal("case argument is not VARCHAR".into())),
+            },
+            "upper" | "ucase" => match &args[0] {
+                Value::Varchar(value) => Value::Varchar(case_convert(value, true)),
+                _ => return Err(Error::Internal("case argument is not VARCHAR".into())),
+            },
             "length" | "char_length" | "character_length" | "len" => {
                 Value::Integer(match &args[0] {
                     Value::Bit(value) => value.length() as i128,
-                    value => value.to_string().chars().count() as i128,
+                    Value::Varchar(value) => value.chars().count() as i128,
+                    _ => return Err(Error::Internal("length argument has wrong type".into())),
                 })
             }
             _ => return Err(Error::Internal("unregistered builtin".into())),
@@ -157,7 +164,13 @@ fn case_convert(input: &str, upper: bool) -> String {
     // character into several output characters.
     let mut result = String::with_capacity(input.len());
     for character in input.chars() {
-        result.push(if upper {
+        result.push(if character.is_ascii() {
+            if upper {
+                character.to_ascii_uppercase()
+            } else {
+                character.to_ascii_lowercase()
+            }
+        } else if upper {
             utf8proc::case::to_upper(character)
         } else {
             utf8proc::case::to_lower(character)

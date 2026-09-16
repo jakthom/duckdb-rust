@@ -111,6 +111,38 @@ pub trait CastFunction: Debug + Send + Sync {
         context: &QueryContext,
     ) -> Result<super::vector::Vector> {
         let propagate_nulls = self.null_handling(spec) == CastNullHandling::Propagate;
+        let cast = |value: &Value| {
+            if value.is_null() && propagate_nulls {
+                Ok(Value::Null)
+            } else {
+                self.cast(value, spec, context)
+            }
+        };
+        if let Some(value) = input.constant_value() {
+            return super::vector::Vector::constant(spec.target.clone(), cast(value)?, input.len());
+        }
+        if let Some((parent, selection)) = input.dictionary()
+            && parent.len() <= input.len() / 4
+        {
+            let mut entries = vec![usize::MAX; parent.len()];
+            let mut values = Vec::with_capacity(parent.len());
+            let mut mapped = Vec::with_capacity(selection.len());
+            for (offset, &source) in selection.iter().enumerate() {
+                if offset % 1024 == 0 {
+                    context.check()?;
+                }
+                if entries[source] == usize::MAX {
+                    entries[source] = values.len();
+                    values.push(cast(
+                        parent.get(source).expect("validated dictionary index"),
+                    )?);
+                }
+                mapped.push(entries[source]);
+            }
+            context.check()?;
+            return Arc::new(super::vector::Vector::flat(spec.target.clone(), values)?)
+                .select(mapped);
+        }
         let values = input
             .values()
             .enumerate()
@@ -118,11 +150,7 @@ pub trait CastFunction: Debug + Send + Sync {
                 if index % 1024 == 0 {
                     context.check()?;
                 }
-                if value.is_null() && propagate_nulls {
-                    Ok(Value::Null)
-                } else {
-                    self.cast(value, spec, context)
-                }
+                cast(value)
             })
             .collect::<Result<Vec<_>>>()?;
         context.check()?;
@@ -298,6 +326,12 @@ impl BoundCast {
         context: &QueryContext,
     ) -> Result<super::vector::Vector> {
         self.source.validate_vector(input, context)?;
+        if self.spec.source == self.spec.target {
+            // An explicit same-type cast is representation preserving. The
+            // source validation is also the target validation, so retain the
+            // input encoding rather than rebuilding every logical row.
+            return Ok(input.clone());
+        }
         let output = self.function.cast_batch(input, &self.spec, context);
         context.check()?;
         let output = output?;

@@ -1,6 +1,10 @@
 //! Selected, metadata-only constructors shared by SQL syntax and stored calls.
 use super::*;
-use crate::common::cast::CastMode;
+use crate::common::{
+    cast::CastMode,
+    vector::{DataChunk, Vector, append_physical_identity},
+};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 struct Constructor(&'static str);
@@ -157,6 +161,78 @@ impl ScalarFunction for BoundConstructor {
         }
         Ok(self.result.data_type().clone())
     }
+    fn is_total(&self, _: &[Option<&Value>]) -> bool {
+        true
+    }
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        const MAX_DICTIONARY_VALUES: usize = 256;
+        if arguments.columns().len() != self.arguments.len()
+            || !arguments
+                .columns()
+                .iter()
+                .map(Vector::data_type)
+                .eq(&self.arguments)
+        {
+            return Err(Error::Internal(
+                "nested constructor batch differs from binding".into(),
+            ));
+        }
+        if arguments.len() < 8 {
+            return Ok(None);
+        }
+        let limit = MAX_DICTIONARY_VALUES.min(arguments.len() / 4);
+        if let Some(output) = dictionary_argument_constructor(self, arguments, limit, query)? {
+            return Ok(Some(output));
+        }
+        let mut dictionary = HashMap::<Vec<u8>, usize>::new();
+        let mut unique = Vec::new();
+        let mut selection = Vec::with_capacity(arguments.len());
+        let mut key = Vec::new();
+        let mut row = Vec::with_capacity(arguments.columns().len());
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            key.clear();
+            for column in arguments.columns() {
+                if !append_physical_identity(
+                    column.get(index).expect("validated constructor column"),
+                    &mut key,
+                ) {
+                    return Ok(None);
+                }
+            }
+            if let Some(&entry) = dictionary.get(key.as_slice()) {
+                selection.push(entry);
+                continue;
+            }
+            if unique.len() == limit {
+                return Ok(None);
+            }
+            arguments.read_row(index, &mut row)?;
+            let value = self.evaluate(&row, query)?;
+            let entry = unique.len();
+            dictionary.insert(key.clone(), entry);
+            unique.push(value);
+            selection.push(entry);
+        }
+        query.check()?;
+        if unique.len() == 1 {
+            return Vector::constant(
+                self.result.data_type().clone(),
+                unique.pop().expect("one constructor value"),
+                arguments.len(),
+            )
+            .map(Some);
+        }
+        Arc::new(Vector::flat(self.result.data_type().clone(), unique)?)
+            .select(selection)
+            .map(Some)
+    }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
         if arguments.len() != self.arguments.len() {
@@ -181,4 +257,66 @@ impl ScalarFunction for BoundConstructor {
         self.result.validate(&result, query)?;
         Ok(result)
     }
+}
+
+/// Constructor arguments that already carry exact dictionary identities can
+/// be combined by those identities. Payload serialization remains the fallback
+/// for flat or opaque inputs.
+fn dictionary_argument_constructor(
+    function: &BoundConstructor,
+    arguments: &DataChunk,
+    limit: usize,
+    query: &QueryContext,
+) -> Result<Option<Vector>> {
+    let mut selections = Vec::with_capacity(arguments.columns().len());
+    for column in arguments.columns() {
+        if column.constant_value().is_some() {
+            selections.push(None);
+        } else if let Some((_, selection)) = column.dictionary() {
+            selections.push(Some(selection));
+        } else {
+            return Ok(None);
+        }
+    }
+    let mut dictionary = HashMap::<Vec<usize>, usize>::new();
+    let mut unique = Vec::new();
+    let mut selection = Vec::with_capacity(arguments.len());
+    let mut key = Vec::with_capacity(selections.iter().flatten().count());
+    let mut row = Vec::with_capacity(arguments.columns().len());
+    for index in 0..arguments.len() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        key.clear();
+        key.extend(
+            selections
+                .iter()
+                .filter_map(|selected| selected.map(|s| s[index])),
+        );
+        if let Some(&entry) = dictionary.get(key.as_slice()) {
+            selection.push(entry);
+            continue;
+        }
+        if unique.len() == limit {
+            return Ok(None);
+        }
+        arguments.read_row(index, &mut row)?;
+        let value = function.evaluate(&row, query)?;
+        let entry = unique.len();
+        dictionary.insert(key.clone(), entry);
+        unique.push(value);
+        selection.push(entry);
+    }
+    query.check()?;
+    if unique.len() == 1 {
+        return Vector::constant(
+            function.result.data_type().clone(),
+            unique.pop().expect("one constructor value"),
+            arguments.len(),
+        )
+        .map(Some);
+    }
+    Arc::new(Vector::flat(function.result.data_type().clone(), unique)?)
+        .select(selection)
+        .map(Some)
 }

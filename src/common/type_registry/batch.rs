@@ -1,5 +1,6 @@
 use super::*;
 use crate::common::vector::Vector;
+use std::collections::HashSet;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn select_values(
@@ -170,8 +171,50 @@ impl BoundType {
             return Err(Error::Internal("vector differs from its bound type".into()));
         }
         if self.requires_logical_validation() {
-            for value in column.values() {
+            if let Some(value) = column.constant_value() {
                 self.validate(value, context)?;
+            } else if let Some((parent, selection)) = column.dictionary() {
+                // A dictionary position denotes one exact physical value, so
+                // repeated logical rows share the same logical-validation
+                // result. Validate only positions used by this view; an
+                // unselected parent value grants no proof.
+                if parent.len() <= selection.len().saturating_mul(4).max(256) {
+                    let mut validated = vec![false; parent.len()];
+                    for (offset, &index) in selection.iter().enumerate() {
+                        if offset % 1024 == 0 {
+                            context.check()?;
+                        }
+                        let validated = validated.get_mut(index).ok_or_else(|| {
+                            Error::Internal("dictionary selection outside parent".into())
+                        })?;
+                        if !*validated {
+                            self.validate(
+                                parent.get(index).expect("checked parent index"),
+                                context,
+                            )?;
+                            *validated = true;
+                        }
+                    }
+                } else {
+                    let mut validated = HashSet::with_capacity(selection.len().min(parent.len()));
+                    for (offset, &index) in selection.iter().enumerate() {
+                        if offset % 1024 == 0 {
+                            context.check()?;
+                        }
+                        if validated.insert(index) {
+                            self.validate(
+                                parent.get(index).ok_or_else(|| {
+                                    Error::Internal("dictionary selection outside parent".into())
+                                })?,
+                                context,
+                            )?;
+                        }
+                    }
+                }
+            } else {
+                for value in column.values() {
+                    self.validate(value, context)?;
+                }
             }
         }
         context.check()

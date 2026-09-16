@@ -332,6 +332,23 @@ impl TableStorageMut for SnapshotTransaction {
         }
         Ok(count)
     }
+    fn insert_chunks(
+        &mut self,
+        table: &TableName,
+        chunks: Vec<crate::common::vector::DataChunk>,
+        context: &QueryContext,
+    ) -> Result<usize> {
+        if self.journal.is_some() {
+            let mut rows = Vec::new();
+            for chunk in chunks {
+                context.check_rows(rows.len().saturating_add(chunk.len()))?;
+                rows.extend(chunk.rows());
+            }
+            self.insert(table, rows, context)
+        } else {
+            self.snapshot.insert_chunks(table, chunks, context)
+        }
+    }
     fn update(
         &mut self,
         table: &TableName,

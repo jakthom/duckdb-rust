@@ -330,21 +330,39 @@ impl Services {
                 if if_not_exists && transaction.catalog().table(&definition.name).is_ok() {
                     return Ok(QueryResult::command(0));
                 }
-                let rows = source
-                    .map(|plan| {
-                        self.query(plan, transaction, query)
-                            .map(|r| r.rows.into_rows())
-                    })
-                    .transpose()?
-                    .unwrap_or_default();
+                enum SourceData {
+                    Rows(Vec<crate::common::Row>),
+                    Chunks(Vec<DataChunk>),
+                }
+                let source = match source {
+                    None => SourceData::Rows(Vec::new()),
+                    Some(plan)
+                        if !query.settings().verification_enabled(query)?
+                            && query.settings().profiling_format(query)?.is_none() =>
+                    {
+                        let mut chunks = Vec::new();
+                        self.query_batches(plan, transaction, query, &mut |_, chunk| {
+                            chunks.push(chunk);
+                            Ok(StreamControl::Continue)
+                        })?;
+                        SourceData::Chunks(chunks)
+                    }
+                    Some(plan) => {
+                        SourceData::Rows(self.query(plan, transaction, query)?.rows.into_rows())
+                    }
+                };
                 let name = definition.name.clone();
                 transaction
                     .catalog_mut()?
                     .create_table(definition, if_not_exists)?;
-                let count = if rows.is_empty() {
-                    0
-                } else {
-                    transaction.storage_mut()?.insert(&name, rows, query)?
+                let count = match source {
+                    SourceData::Rows(rows) if rows.is_empty() => 0,
+                    SourceData::Rows(rows) => {
+                        transaction.storage_mut()?.insert(&name, rows, query)?
+                    }
+                    SourceData::Chunks(chunks) => transaction
+                        .storage_mut()?
+                        .insert_chunks(&name, chunks, query)?,
                 };
                 Ok(QueryResult::command(count))
             }

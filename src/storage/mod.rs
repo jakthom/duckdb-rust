@@ -12,7 +12,7 @@ pub mod table;
 
 use crate::{
     catalog::{TableDefinition, TableName},
-    common::{Error, Result, Row},
+    common::{Error, Result, Row, vector::DataChunk},
     parallel::QueryContext,
 };
 use std::collections::HashSet;
@@ -154,6 +154,21 @@ pub trait TableStorageMut: TableStorage {
         rows: Vec<Row>,
         context: &QueryContext,
     ) -> Result<usize>;
+    /// Column-preserving insertion used by relational sources. Adapters that
+    /// cannot retain vector encodings receive the same rows through the default.
+    fn insert_chunks(
+        &mut self,
+        table: &TableName,
+        chunks: Vec<DataChunk>,
+        context: &QueryContext,
+    ) -> Result<usize> {
+        let mut rows = Vec::new();
+        for chunk in chunks {
+            context.check_rows(rows.len().saturating_add(chunk.len()))?;
+            rows.extend(chunk.rows());
+        }
+        self.insert(table, rows, context)
+    }
     fn update(
         &mut self,
         table: &TableName,

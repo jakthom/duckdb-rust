@@ -108,7 +108,7 @@ impl AggregateState for State {
         arguments: &crate::common::vector::DataChunk,
         context: &crate::parallel::QueryContext,
     ) -> Result<()> {
-        if !matches!(self.name, "count" | "sum") || arguments.columns().len() > 1 {
+        if !matches!(self.name, "count" | "sum" | "product") || arguments.columns().len() > 1 {
             return super::update_aggregate_rows(self, arguments, context);
         }
         context.check()?;
@@ -131,6 +131,9 @@ impl AggregateState for State {
     ) -> Result<()> {
         context.check()?;
         if self.name == "sum" && self.sum_dense(column, context)? {
+            return Ok(());
+        }
+        if self.name == "product" && self.product_dense(column, context)? {
             return Ok(());
         }
         if self.name == "count"
@@ -276,6 +279,60 @@ impl AggregateState for State {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State {
+    /// PRODUCT's selected DOUBLE overload can consume a validated dense column
+    /// without rebuilding one-value argument rows or dispatching the aggregate
+    /// callback for every input. Iteration remains in source order so IEEE
+    /// overflow, signed zero and NaN behavior stay unchanged.
+    fn product_dense(
+        &mut self,
+        column: &crate::common::vector::Vector,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<bool> {
+        if column.data_type() != &DataType::Double || !column.all_valid() {
+            return Ok(false);
+        }
+        let mut product = match self.value {
+            Value::Null => 1.0,
+            Value::Double(value) => value,
+            _ => return Err(Error::Internal("product state differs from binding".into())),
+        };
+        let count = column.len();
+        if let Some(values) = column.flat_values() {
+            for block in values.chunks(1024) {
+                context.check()?;
+                for value in block {
+                    let Value::Double(value) = value else {
+                        return Err(Error::Internal(
+                            "product argument differs from binding".into(),
+                        ));
+                    };
+                    product *= value;
+                }
+            }
+        } else {
+            for (index, value) in column.values().enumerate() {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                let Value::Double(value) = value else {
+                    return Err(Error::Internal(
+                        "product argument differs from binding".into(),
+                    ));
+                };
+                product *= value;
+            }
+        }
+        self.count = self
+            .count
+            .checked_add(count as i128)
+            .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+        if count != 0 {
+            self.value = Value::Double(product);
+        }
+        context.check()?;
+        Ok(true)
+    }
+
     /// A narrow, non-NULL column admits a range proof for every accumulator
     /// prefix. The fallback preserves exact overflow timing near either bound,
     /// for HUGEINT input and for columns without the required physical views.

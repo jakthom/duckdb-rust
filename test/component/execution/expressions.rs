@@ -140,6 +140,26 @@ fn expression_adapters_preserve_lazy_branches_first_errors_and_effect_counts() -
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn speculative_multi_column_projection_restores_row_major_first_error() -> Result<()> {
+    let mut connection = DatabaseBuilder::new()
+        .expressions(Arc::new(BatchedEvaluator))
+        .batch_size(2048)
+        .build()?
+        .connect();
+    let error = connection
+        .query(
+            "SELECT CAST(a AS INTEGER), CAST(b AS INTEGER) \
+             FROM (VALUES ('1','bad-earlier-row'),('bad-later-row','2')) t(a,b)",
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, Error::Conversion(message) if message.contains("bad-earlier-row") && !message.contains("bad-later-row"))
+    );
+    Ok(())
+}
+
 #[derive(Debug)]
 struct ModuloProbe {
     total: bool,

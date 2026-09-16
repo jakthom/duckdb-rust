@@ -115,6 +115,33 @@ impl OperatorFunction for NumericArithmetic {
                 )
             };
         }
+        if let Some(bits) = signature.result.integer_bits().filter(|bits| *bits <= 64)
+            && matches!(signature.operator, Add | Subtract | Multiply)
+            && let Some(Value::Integer(right)) = arguments.columns()[1].constant_value()
+            && let Ok(right) = i64::try_from(*right)
+        {
+            let minimum = -(1_i128 << (bits - 1));
+            let maximum = (1_i128 << (bits - 1)) - 1;
+            let operation = |left: i64| {
+                let result = match signature.operator {
+                    Add => left.checked_add(right),
+                    Subtract => left.checked_sub(right),
+                    Multiply => left.checked_mul(right),
+                    _ => unreachable!("checked arithmetic operation"),
+                }
+                .ok_or_else(overflow)?;
+                if (result as i128) < minimum || (result as i128) > maximum {
+                    return Err(overflow());
+                }
+                Ok(result)
+            };
+            return map_checked_integer_column(
+                &arguments.columns()[0],
+                &signature.result,
+                query,
+                operation,
+            );
+        }
         // Fixed-width division uses the declared physical range. The -1 case
         // keeps scalar overflow checks, including narrower integer minima.
         if signature
@@ -133,6 +160,18 @@ impl OperatorFunction for NumericArithmetic {
             let remainder_mask = (signature.operator == Modulo && magnitude.is_power_of_two())
                 .then_some(magnitude - 1);
             let column = &arguments.columns()[0];
+            if signature.operator == Modulo
+                && magnitude <= 128
+                && arguments.len() / 4 >= (magnitude as usize * 2 - 1)
+            {
+                return dictionary_signed_remainder(
+                    column,
+                    &signature.result,
+                    divisor,
+                    magnitude as usize,
+                    query,
+                );
+            }
             if let Some(mask) = remainder_mask {
                 return map_integer_column(column, &signature.result, query, |value| {
                     // Remainder keeps the numerator's sign. Unsigned
@@ -267,6 +306,51 @@ impl OperatorFunction for NumericArithmetic {
     }
 }
 
+#[inline]
+fn dictionary_signed_remainder(
+    column: &crate::common::vector::Vector,
+    data_type: &DataType,
+    divisor: i64,
+    magnitude: usize,
+    query: &QueryContext,
+) -> Result<crate::common::vector::Vector> {
+    use crate::common::vector::Vector;
+    let minimum = -(magnitude as i64 - 1);
+    let mut values = (minimum..=magnitude as i64 - 1)
+        .map(|value| Value::Integer(value as i128))
+        .collect::<Vec<_>>();
+    let null = values.len();
+    if !column.all_valid() {
+        values.push(Value::Null);
+    }
+    let parent = Arc::new(Vector::flat(data_type.clone(), values)?);
+    let select = |(index, value): (usize, &Value)| {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        Ok(match value {
+            Value::Integer(value) => ((*value as i64 % divisor) - minimum) as usize,
+            Value::Null => null,
+            _ => unreachable!("validated integer vector"),
+        })
+    };
+    let selection = if let Some(values) = column.flat_values() {
+        values
+            .iter()
+            .enumerate()
+            .map(select)
+            .collect::<Result<_>>()?
+    } else {
+        column
+            .values()
+            .enumerate()
+            .map(select)
+            .collect::<Result<_>>()?
+    };
+    query.check()?;
+    parent.select(selection)
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Choose the arithmetic kernel once per column, retaining scalar NULL and
 /// signed remainder rules without redispatching the operator for every value.
@@ -286,6 +370,98 @@ fn map_integer_column(
         narrow_column(data_type, values.iter(), apply, query)
     } else {
         narrow_column(data_type, column.values(), apply, query)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline]
+fn map_checked_integer_column(
+    column: &crate::common::vector::Vector,
+    data_type: &DataType,
+    query: &QueryContext,
+    operation: impl Fn(i64) -> Result<i64>,
+) -> Result<crate::common::vector::Vector> {
+    use crate::common::vector::Vector;
+    if let Some(value) = column.constant_value() {
+        let value = match value {
+            Value::Null => Value::Null,
+            Value::Integer(value) => Value::Integer(operation(*value as i64)? as i128),
+            _ => unreachable!("validated integer vector"),
+        };
+        return Vector::constant(data_type.clone(), value, column.len());
+    }
+    if let Some((parent, selection)) = column.dictionary()
+        && parent.len() <= column.len() / 4
+    {
+        let mut entries = vec![usize::MAX; parent.len()];
+        let mut values = Vec::with_capacity(parent.len());
+        let mut mapped = Vec::with_capacity(selection.len());
+        for (offset, &index) in selection.iter().enumerate() {
+            if offset % 1024 == 0 {
+                query.check()?;
+            }
+            let entry = if entries[index] == usize::MAX {
+                let value = match parent.get(index).expect("validated dictionary index") {
+                    Value::Null => Value::Null,
+                    Value::Integer(value) => Value::Integer(operation(*value as i64)? as i128),
+                    _ => unreachable!("validated integer vector"),
+                };
+                let entry = values.len();
+                entries[index] = entry;
+                values.push(value);
+                entry
+            } else {
+                entries[index]
+            };
+            mapped.push(entry);
+        }
+        query.check()?;
+        return Arc::new(Vector::flat(data_type.clone(), values)?).select(mapped);
+    }
+    let apply = |(index, value): (usize, &Value)| {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        match value {
+            Value::Null => Ok(None),
+            Value::Integer(value) => operation(*value as i64).map(Some),
+            _ => unreachable!("validated integer vector"),
+        }
+    };
+    if let Some(values) = column.flat_values() {
+        return checked_integer_vector(values.iter().enumerate().map(apply), data_type);
+    }
+    let values = column.values().enumerate().map(apply);
+    if data_type == &DataType::BigInt {
+        crate::common::vector::Vector::try_bigints(values)
+    } else {
+        crate::common::vector::Vector::flat(
+            data_type.clone(),
+            values
+                .map(|value| {
+                    value.map(|value| value.map_or(Value::Null, |v| Value::Integer(v as i128)))
+                })
+                .collect::<Result<_>>()?,
+        )
+    }
+}
+
+#[inline]
+fn checked_integer_vector(
+    values: impl Iterator<Item = Result<Option<i64>>>,
+    data_type: &DataType,
+) -> Result<crate::common::vector::Vector> {
+    if data_type == &DataType::BigInt {
+        crate::common::vector::Vector::try_bigints(values)
+    } else {
+        crate::common::vector::Vector::flat(
+            data_type.clone(),
+            values
+                .map(|value| {
+                    value.map(|value| value.map_or(Value::Null, |v| Value::Integer(v as i128)))
+                })
+                .collect::<Result<_>>()?,
+        )
     }
 }
 

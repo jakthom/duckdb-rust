@@ -1,6 +1,7 @@
 use std::{
+    collections::HashMap,
     sync::{
-        Arc,
+        Arc, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -28,6 +29,8 @@ pub struct QueryContext {
     batch_size: usize,
     max_intermediate_rows: usize,
     types: Arc<crate::common::type_registry::TypeRegistry>,
+    bound_types:
+        Arc<RwLock<HashMap<crate::common::DataType, crate::common::type_registry::BoundType>>>,
     settings: crate::main::settings::SettingsSnapshot,
     stored_expressions: Option<Arc<dyn crate::catalog::expression::StoredExpressionEvaluator>>,
     transaction_timestamp_micros: Option<i64>,
@@ -80,8 +83,36 @@ impl QueryContext {
     pub fn type_registry(&self) -> Arc<crate::common::type_registry::TypeRegistry> {
         self.types.clone()
     }
+    /// Reuse immutable type bindings within one query. Binding remains fully
+    /// validated on the first request; execution no longer rebuilds nested
+    /// adapter state for every value from the same bound expression.
+    pub fn bind_type(
+        &self,
+        data_type: &crate::common::DataType,
+    ) -> Result<crate::common::type_registry::BoundType> {
+        self.check()?;
+        if let Some(bound) = self
+            .bound_types
+            .read()
+            .map_err(|_| Error::Internal("query type cache lock poisoned".into()))?
+            .get(data_type)
+            .cloned()
+        {
+            return Ok(bound);
+        }
+        let bound = self.types.bind(data_type)?;
+        let mut cache = self
+            .bound_types
+            .write()
+            .map_err(|_| Error::Internal("query type cache lock poisoned".into()))?;
+        Ok(cache
+            .entry(data_type.clone())
+            .or_insert_with(|| bound.clone())
+            .clone())
+    }
     pub fn with_types(mut self, types: Arc<crate::common::type_registry::TypeRegistry>) -> Self {
         self.types = types;
+        self.bound_types = Arc::new(RwLock::new(HashMap::new()));
         self
     }
 
@@ -107,6 +138,7 @@ impl QueryContext {
             batch_size: 2048,
             max_intermediate_rows: usize::MAX,
             types: crate::common::type_registry::builtin_types(),
+            bound_types: Arc::new(RwLock::new(HashMap::new())),
             settings: crate::main::settings::SettingsSnapshot::default(),
             stored_expressions: None,
             transaction_timestamp_micros: None,
@@ -129,6 +161,7 @@ impl QueryContext {
             batch_size,
             max_intermediate_rows,
             types: crate::common::type_registry::builtin_types(),
+            bound_types: Arc::new(RwLock::new(HashMap::new())),
             settings: crate::main::settings::SettingsSnapshot::default(),
             stored_expressions: None,
             transaction_timestamp_micros: None,

@@ -1,7 +1,11 @@
 //! Published snapshots own columns. A private writer materializes rows once,
 //! then validates and seals them before publication. These are alternative
 //! representations of the same data, never a query cache or a second copy.
-use std::{collections::BTreeMap, ops::Index, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Index,
+    sync::Arc,
+};
 
 use serde::{Deserialize, Serialize, ser::SerializeMap};
 
@@ -79,6 +83,52 @@ impl Serialize for RowView<'_> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Rows {
+    pub fn from_chunks(
+        ids: Vec<RowId>,
+        types: Arc<[DataType]>,
+        chunks: Vec<DataChunk>,
+        context: &QueryContext,
+    ) -> Result<Self> {
+        let count = chunks.iter().try_fold(0usize, |count, chunk| {
+            count
+                .checked_add(chunk.len())
+                .ok_or_else(|| Error::Resource("table row count overflow".into()))
+        })?;
+        if ids.len() != count {
+            return Err(Error::Internal(
+                "published table identities differ from columns".into(),
+            ));
+        }
+        context.check_rows(count)?;
+        let mut columns = types.iter().map(|_| Vec::new()).collect::<Vec<_>>();
+        for chunk in chunks {
+            context.check()?;
+            if chunk.columns().len() != types.len()
+                || !chunk
+                    .columns()
+                    .iter()
+                    .map(Vector::data_type)
+                    .eq(types.iter())
+            {
+                return Err(Error::Internal(
+                    "insert chunk differs from table schema".into(),
+                ));
+            }
+            for (output, column) in columns.iter_mut().zip(chunk.columns()) {
+                output.push(column.clone());
+            }
+        }
+        let columns = columns
+            .into_iter()
+            .zip(types.iter())
+            .map(|(columns, data_type)| compact_vectors(data_type, columns, count))
+            .collect::<Result<_>>()?;
+        Ok(Self::Published {
+            ids: ids.into(),
+            data: DataChunk::new(columns, count)?,
+            types,
+        })
+    }
     pub fn add_column_values(
         &mut self,
         data_type: &DataType,
@@ -138,6 +188,12 @@ impl Rows {
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+    pub fn published_data(&self) -> Option<&DataChunk> {
+        match self {
+            Self::Published { data, .. } => Some(data),
+            Self::Writable(_) => None,
+        }
     }
     pub fn iter(&self) -> impl Iterator<Item = (&RowId, RowView<'_>)> {
         let (rows, columns) = match self {
@@ -213,7 +269,7 @@ impl Rows {
         let columns = columns
             .into_iter()
             .zip(types.iter())
-            .map(|(values, data_type)| Vector::flat(data_type.clone(), values))
+            .map(|(values, data_type)| compact_column(data_type, values))
             .collect::<Result<_>>()?;
         context.check()?;
         *self = Self::Published {
@@ -230,6 +286,15 @@ impl Rows {
                     return Err(Error::Internal(
                         "physical scan order differs from live rows".into(),
                     ));
+                }
+                if order == ids.as_ref() {
+                    return Ok(SnapshotScan {
+                        ids: ids.clone(),
+                        data: data.clone(),
+                        types: types.clone(),
+                        position: 0,
+                        finished: false,
+                    });
                 }
                 let selection = order
                     .iter()
@@ -250,6 +315,186 @@ impl Rows {
             Self::Writable(_) => Err(Error::Internal("unpublished table scan".into())),
         }
     }
+}
+
+/// Published table segments retain a compact physical dictionary when exact
+/// payload identity has a small domain. This is storage encoding, not SQL
+/// equality: floating-point bits and nested payload boundaries are preserved.
+/// Unsupported opaque payloads and wider domains stay flat.
+fn compact_column(data_type: &DataType, values: Vec<Value>) -> Result<Vector> {
+    const MAX_DICTIONARY_VALUES: usize = 256;
+    if values.len() < 8 {
+        return Vector::flat(data_type.clone(), values);
+    }
+    let limit = MAX_DICTIONARY_VALUES.min(values.len() / 4);
+    let mut dictionary = HashMap::<Vec<u8>, usize>::new();
+    let mut unique = Vec::new();
+    let mut selection = Vec::with_capacity(values.len());
+    let mut key = Vec::new();
+    for value in &values {
+        key.clear();
+        if !crate::common::vector::append_physical_identity(value, &mut key) {
+            return Vector::flat(data_type.clone(), values);
+        }
+        if let Some(&index) = dictionary.get(key.as_slice()) {
+            selection.push(index);
+            continue;
+        }
+        if unique.len() == limit {
+            return Vector::flat(data_type.clone(), values);
+        }
+        let index = unique.len();
+        dictionary.insert(key.clone(), index);
+        unique.push(value.clone());
+        selection.push(index);
+    }
+    if unique.len() == 1 {
+        return Vector::constant(
+            data_type.clone(),
+            unique.pop().expect("one value"),
+            values.len(),
+        );
+    }
+    Arc::new(Vector::flat(data_type.clone(), unique)?).select(selection)
+}
+
+/// Merge already encoded CTAS batches by their exact dictionary entries.
+/// This avoids materializing and then re-hashing every logical row when each
+/// source batch already proved a small physical domain.
+fn compact_vectors(data_type: &DataType, columns: Vec<Vector>, count: usize) -> Result<Vector> {
+    if data_type.is_signed_integer()
+        && let Some(compact) = compact_dense_signed_vectors(data_type, &columns, count)?
+    {
+        return Ok(compact);
+    }
+    const MAX_DICTIONARY_VALUES: usize = 256;
+    let limit = MAX_DICTIONARY_VALUES.min(count / 4);
+    let mut dictionary = HashMap::<Vec<u8>, usize>::new();
+    let mut unique = Vec::new();
+    let mut selection = Vec::with_capacity(count);
+    let mut key = Vec::new();
+    let mut failed = false;
+    let mut intern = |value: &Value| -> Option<usize> {
+        key.clear();
+        if !crate::common::vector::append_physical_identity(value, &mut key) {
+            return None;
+        }
+        if let Some(&index) = dictionary.get(key.as_slice()) {
+            return Some(index);
+        }
+        if unique.len() == limit {
+            return None;
+        }
+        let index = unique.len();
+        dictionary.insert(key.clone(), index);
+        unique.push(value.clone());
+        Some(index)
+    };
+    'columns: for column in &columns {
+        if let Some(value) = column.constant_value() {
+            let Some(index) = intern(value) else {
+                failed = true;
+                break;
+            };
+            selection.extend(std::iter::repeat_n(index, column.len()));
+            continue;
+        }
+        let Some((parent, selected)) = column.dictionary() else {
+            failed = true;
+            break;
+        };
+        let mut mapped = vec![usize::MAX; parent.len()];
+        for &source in selected {
+            if mapped[source] == usize::MAX {
+                let Some(index) = intern(parent.get(source).expect("validated dictionary index"))
+                else {
+                    failed = true;
+                    break 'columns;
+                };
+                mapped[source] = index;
+            }
+            selection.push(mapped[source]);
+        }
+    }
+    drop(intern);
+    if failed || selection.len() != count {
+        let combined = Vector::concatenate(data_type.clone(), &columns)?;
+        let mut values = Vec::with_capacity(count);
+        combined.append_to(&mut values);
+        return compact_column(data_type, values);
+    }
+    if unique.len() == 1 {
+        return Vector::constant(data_type.clone(), unique.pop().expect("one value"), count);
+    }
+    Arc::new(Vector::flat(data_type.clone(), unique)?).select(selection)
+}
+
+/// Dense fixed-width integer domains can be materially larger than the small
+/// opaque-payload dictionary limit and still use less memory than repeated
+/// row `Value`s. Build their dictionary arithmetically, without hashing every
+/// input or constructing a second flat column before deciding the encoding.
+fn compact_dense_signed_vectors(
+    data_type: &DataType,
+    columns: &[Vector],
+    count: usize,
+) -> Result<Option<Vector>> {
+    const MAX_DENSE_DICTIONARY_VALUES: usize = 16_384;
+    if count < 8 {
+        return Ok(None);
+    }
+    let mut minimum = None::<i128>;
+    let mut maximum = None::<i128>;
+    let mut has_null = false;
+    for column in columns {
+        for value in column.values() {
+            match value {
+                Value::Null => has_null = true,
+                Value::Integer(value) => {
+                    minimum = Some(minimum.map_or(*value, |minimum| minimum.min(*value)));
+                    maximum = Some(maximum.map_or(*value, |maximum| maximum.max(*value)));
+                }
+                _ => {
+                    return Err(Error::Internal(
+                        "signed column has non-integer payload".into(),
+                    ));
+                }
+            }
+        }
+    }
+    let Some((minimum, maximum)) = minimum.zip(maximum) else {
+        return Ok(Some(Vector::constant(
+            data_type.clone(),
+            Value::Null,
+            count,
+        )?));
+    };
+    let Some(width) = maximum
+        .abs_diff(minimum)
+        .checked_add(1)
+        .and_then(|width| usize::try_from(width).ok())
+    else {
+        return Ok(None);
+    };
+    let entries = width.saturating_add(usize::from(has_null));
+    if entries > MAX_DENSE_DICTIONARY_VALUES || entries > count / 4 {
+        return Ok(None);
+    }
+    let mut values = Vec::with_capacity(entries);
+    values.extend((0..width).map(|offset| Value::Integer(minimum + offset as i128)));
+    let null = values.len();
+    if has_null {
+        values.push(Value::Null);
+    }
+    let mut selection = Vec::with_capacity(count);
+    for column in columns {
+        selection.extend(column.values().map(|value| match value {
+            Value::Null => null,
+            Value::Integer(value) => (*value - minimum) as usize,
+            _ => unreachable!("validated signed column"),
+        }));
+    }
+    let parent = Arc::new(Vector::flat(data_type.clone(), values)?);
+    Ok(Some(parent.select(selection)?))
 }
 
 // The snapshot format describes logical rows and identities, independently of

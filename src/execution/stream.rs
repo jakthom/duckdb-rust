@@ -74,16 +74,14 @@ impl BatchStream for CheckedStream<'_> {
                     ));
                 }
                 for (ordinal, data_type) in &self.validators {
-                    for value in batch.columns()[*ordinal].values() {
-                        data_type
-                            .validate(value, self.query)
-                            .map_err(|error| match error {
-                                Error::Conversion(_) => Error::Internal(
-                                    "operator returned an invalid logical value".into(),
-                                ),
-                                other => other,
-                            })?;
-                    }
+                    data_type
+                        .validate_vector(&batch.columns()[*ordinal], self.query)
+                        .map_err(|error| match error {
+                            Error::Conversion(_) => {
+                                Error::Internal("operator returned an invalid logical value".into())
+                            }
+                            other => other,
+                        })?;
                 }
             }
             self.query.check()?;

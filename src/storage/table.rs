@@ -22,7 +22,7 @@ use crate::{
         PreparedCatalogInsert, ResolvedTable, ResolvedType, TableBinding, TableDefinition,
         TableName, TypeBinding, TypeDefinition, TypeName,
     },
-    common::{Error, Result, Row},
+    common::{Error, Result, Row, Value, vector::DataChunk},
     execution::index::{HashIndexFactory, IndexFactory, IndexSpec, KeyIndex},
     parallel::QueryContext,
 };
@@ -919,22 +919,58 @@ impl TableData {
             .iter()
             .map(|c| context.types().bind(&c.data_type))
             .collect::<Result<Vec<_>>>()?;
+        if let Some(data) = self.rows.published_data() {
+            if data.columns().len() != self.definition.columns.len() {
+                return Err(Error::Constraint("row width differs from table".into()));
+            }
+            for (column, (definition, data_type)) in data
+                .columns()
+                .iter()
+                .zip(self.definition.columns.iter().zip(&types))
+            {
+                data_type
+                    .validate_vector(column, context)
+                    .map_err(|error| match error {
+                        Error::Conversion(message) => Error::Constraint(format!(
+                            "invalid value for {}: {message}",
+                            definition.name
+                        )),
+                        other => other,
+                    })?;
+                if !definition.nullable && column.values().any(Value::is_null) {
+                    return Err(Error::Constraint(format!(
+                        "NOT NULL constraint failed: {}.{}",
+                        self.definition.name, definition.name
+                    )));
+                }
+            }
+            return Ok(());
+        }
+        let mut validated = (0..types.len()).map(|_| HashSet::new()).collect::<Vec<_>>();
         for row in self.rows.values() {
             context.check()?;
             if row.len() != self.definition.columns.len() {
                 return Err(Error::Constraint("row width differs from table".into()));
             }
-            for ((value, column), data_type) in row.iter().zip(&self.definition.columns).zip(&types)
+            for (index, ((value, column), data_type)) in row
+                .iter()
+                .zip(&self.definition.columns)
+                .zip(&types)
+                .enumerate()
             {
-                data_type
-                    .validate(value, context)
-                    .map_err(|error| match error {
-                        Error::Conversion(message) => Error::Constraint(format!(
-                            "invalid value for {}: {message}",
-                            column.name
-                        )),
-                        other => other,
-                    })?;
+                if shared_value_identity(value)
+                    .is_none_or(|identity| validated[index].insert(identity))
+                {
+                    data_type
+                        .validate(value, context)
+                        .map_err(|error| match error {
+                            Error::Conversion(message) => Error::Constraint(format!(
+                                "invalid value for {}: {message}",
+                                column.name
+                            )),
+                            other => other,
+                        })?;
+                }
                 if value.is_null() && !column.nullable {
                     return Err(Error::Constraint(format!(
                         "NOT NULL constraint failed: {}.{}",
@@ -982,6 +1018,19 @@ impl TableData {
             indexes.push(factory.build(spec, &mut entries, context)?);
         }
         Ok(indexes)
+    }
+}
+
+/// Immutable Arc-backed payloads can share one logical-validation result while
+/// every row still receives its own NULL/constraint checks.
+fn shared_value_identity(value: &Value) -> Option<(u8, usize)> {
+    match value {
+        Value::Bit(value) => Some((0, Arc::as_ptr(value) as usize)),
+        Value::Bignum(value) => Some((1, Arc::as_ptr(value) as usize)),
+        Value::Enum(value) => Some((2, Arc::as_ptr(value) as usize)),
+        Value::Nested(value) => Some((3, Arc::as_ptr(value) as usize)),
+        Value::Extension(value) => Some((4, Arc::as_ptr(value) as usize)),
+        _ => None,
     }
 }
 
@@ -1085,6 +1134,53 @@ impl TableStorageMut for Snapshot {
             next.rows.insert(id, row);
             next.physical_slots.push(PhysicalSlot::Live(id));
         }
+        next.validate(
+            self.indexes.as_ref(),
+            &context.clone().with_types(self.types.clone()),
+        )?;
+        self.tables.insert(table.key(), Arc::new(next));
+        Ok(count)
+    }
+    fn insert_chunks(
+        &mut self,
+        table: &TableName,
+        chunks: Vec<DataChunk>,
+        context: &QueryContext,
+    ) -> Result<usize> {
+        let count = chunks.iter().try_fold(0usize, |count, chunk| {
+            count
+                .checked_add(chunk.len())
+                .ok_or_else(|| Error::Resource("table row count overflow".into()))
+        })?;
+        context.check_rows(self.get(table)?.rows.len().saturating_add(count))?;
+        if count == 0 {
+            return Ok(0);
+        }
+        if !self.get(table)?.rows.is_empty() {
+            let mut rows = Vec::with_capacity(count);
+            for chunk in chunks {
+                rows.extend(chunk.rows());
+            }
+            return self.insert(table, rows, context);
+        }
+        let mut next = self.get(table)?.clone();
+        let mut ids = Vec::with_capacity(count);
+        for _ in 0..count {
+            context.check()?;
+            let id = next.next_id;
+            next.next_id = id
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
+            ids.push(id);
+            next.physical_slots.push(PhysicalSlot::Live(id));
+        }
+        let types = next
+            .definition
+            .columns
+            .iter()
+            .map(|column| column.data_type.clone())
+            .collect::<Arc<[_]>>();
+        next.rows = Rows::from_chunks(ids, types, chunks, context)?;
         next.validate(
             self.indexes.as_ref(),
             &context.clone().with_types(self.types.clone()),

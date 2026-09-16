@@ -1,4 +1,9 @@
-use std::{collections::HashSet, fmt::Debug, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    sync::Arc,
+};
 
 use super::{
     ExecutionContext,
@@ -15,7 +20,11 @@ use super::{
 };
 use crate::{
     catalog::TableBinding,
-    common::{Result, Row, Value, vector::DataChunk},
+    common::{
+        Result, Row,
+        type_registry::OrderingRepresentation,
+        vector::{DataChunk, Vector},
+    },
     planner::{
         BoundExpr, ExprKind, LogicalPlan, PlanNode, Schema,
         aggregation::Aggregation,
@@ -476,19 +485,27 @@ impl PhysicalOperator for Operator {
                 }
                 let mut current = i128::from(*start);
                 stream::from_fn(move |max_rows| {
-                    let mut rows = Vec::new();
-                    while rows.len() < max_rows
+                    let mut values = Vec::with_capacity(max_rows);
+                    while values.len() < max_rows
                         && if *step > 0 {
                             current < i128::from(*end)
                         } else {
                             current > i128::from(*end)
                         }
                     {
-                        context.query.check()?;
-                        rows.push(vec![Value::Integer(current)]);
+                        if values.len() % 1024 == 0 {
+                            context.query.check()?;
+                        }
+                        values.push(current as i64);
                         current += i128::from(*step);
                     }
-                    stream::chunk(schema, &rows)
+                    if values.is_empty() {
+                        return Ok(None);
+                    }
+                    let count = values.len();
+                    let values =
+                        Vector::try_bigints(values.into_iter().map(|value| Ok(Some(value))))?;
+                    DataChunk::new(vec![values], count).map(Some)
                 })
             }
             Node::Filter(input, predicate) => {
@@ -532,6 +549,13 @@ impl PhysicalOperator for Operator {
                 let batch_safe = expressions.len() == 1
                     || expressions.iter().any(BoundExpr::uses_physical_batch)
                     || expressions.iter().all(BoundExpr::is_pure_and_total);
+                // Multiple fallible roots normally preserve row-major first
+                // errors. Effect-free roots may first try column execution:
+                // successful temporary columns are observable-equivalent; a
+                // data error discards them and restores scalar source order.
+                let speculative_batch = !batch_safe
+                    && expressions.len() > 1
+                    && expressions.iter().all(BoundExpr::is_effect_free);
                 let expressions = expressions
                     .iter()
                     .map(PreparedExpression::new)
@@ -547,6 +571,29 @@ impl PhysicalOperator for Operator {
                             .map(|expression| expression.evaluate_batch(&batch, context))
                             .collect::<Result<_>>()?;
                         return DataChunk::new(columns, batch.len()).map(Some);
+                    }
+                    if speculative_batch {
+                        let mut columns = Vec::with_capacity(expressions.len());
+                        let mut retry_rows = false;
+                        for expression in &expressions {
+                            match expression.evaluate_batch(&batch, context) {
+                                Ok(column) => columns.push(column),
+                                Err(
+                                    crate::Error::Conversion(_)
+                                    | crate::Error::Execution(_)
+                                    | crate::Error::OutOfRange(_)
+                                    | crate::Error::InvalidInput(_)
+                                    | crate::Error::InvalidType(_),
+                                ) => {
+                                    retry_rows = true;
+                                    break;
+                                }
+                                Err(error) => return Err(error),
+                            }
+                        }
+                        if !retry_rows {
+                            return DataChunk::new(columns, batch.len()).map(Some);
+                        }
                     }
                     let mut columns = (0..expressions.len())
                         .map(|_| Vec::with_capacity(batch.len()))
@@ -618,6 +665,16 @@ impl PhysicalOperator for Operator {
                 algorithm,
             } => stream::deferred(schema, context, move || {
                 let mut input = stream::open(input.as_ref(), context)?;
+                if targets.iter().all(BoundExpr::is_pure_and_total)
+                    && order.iter().all(|item| item.expression.is_pure_and_total())
+                {
+                    let rows = grouped_distinct_on(input.as_mut(), targets, order, context)?;
+                    if order.is_empty() {
+                        return Ok(rows);
+                    }
+                    let mut survivors = stream::deferred(schema, context, move || Ok(rows));
+                    return algorithm.sort(survivors.as_mut(), order, context);
+                }
                 let rows = if order.is_empty() {
                     let mut rows = Vec::new();
                     while let Some(batch) = input.next(context.query.batch_size())? {
@@ -694,6 +751,435 @@ impl PhysicalOperator for Operator {
             }),
         })
     }
+}
+
+/// DuckDB implements DISTINCT ON as hash groups with ordered FIRST aggregates,
+/// followed by the ordinary ORDER BY over the surviving groups. Keep only one
+/// owned row and order key per group while consuming the input once.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn grouped_distinct_on(
+    input: &mut dyn stream::BatchStream,
+    targets: &[BoundExpr],
+    order: &[OrderExpr],
+    context: &ExecutionContext<'_>,
+) -> Result<Vec<Row>> {
+    let target_types = targets
+        .iter()
+        .map(|target| context.query.bind_type(&target.data_type))
+        .collect::<Result<Vec<_>>>()?;
+    let order_types = order
+        .iter()
+        .map(|item| context.query.bind_type(&item.expression.data_type))
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(rows) = grouped_distinct_on_signed_columns(
+        input,
+        targets,
+        order,
+        &target_types,
+        &order_types,
+        context,
+    )? {
+        return Ok(rows);
+    }
+    let targets = targets
+        .iter()
+        .map(PreparedExpression::new)
+        .collect::<Vec<_>>();
+    let orders = order
+        .iter()
+        .map(|item| PreparedExpression::new(&item.expression))
+        .collect::<Vec<_>>();
+    let mut groups = HashMap::<Vec<u8>, usize>::new();
+    let mut rows = Vec::<(Row, Row)>::new();
+    let mut key = Vec::new();
+    let mut row = Vec::new();
+    while let Some(batch) = input.next(context.query.batch_size())? {
+        let target_columns = targets
+            .iter()
+            .map(|target| target.evaluate_batch(&batch, context))
+            .collect::<Result<Vec<_>>>()?;
+        let order_columns = orders
+            .iter()
+            .map(|order| order.evaluate_batch(&batch, context))
+            .collect::<Result<Vec<_>>>()?;
+        for index in 0..batch.len() {
+            if index % 1024 == 0 {
+                context.query.check()?;
+            }
+            key.clear();
+            for (column, data_type) in target_columns.iter().zip(&target_types) {
+                data_type.append_key(
+                    column.get(index).expect("validated DISTINCT ON target"),
+                    &mut key,
+                    context.query,
+                )?;
+            }
+            if let Some(&group) = groups.get(key.as_slice()) {
+                if compare_order_columns(
+                    &order_columns,
+                    index,
+                    &rows[group].1,
+                    order,
+                    &order_types,
+                    context,
+                )? != Ordering::Less
+                {
+                    continue;
+                }
+                batch.read_row(index, &mut row)?;
+                rows[group].0.clone_from(&row);
+                rows[group].1 = order_columns
+                    .iter()
+                    .map(|column| {
+                        column
+                            .get(index)
+                            .expect("validated DISTINCT ON order")
+                            .clone()
+                    })
+                    .collect();
+            } else {
+                context.query.check_rows(rows.len().saturating_add(1))?;
+                batch.read_row(index, &mut row)?;
+                let group = rows.len();
+                groups.insert(key.clone(), group);
+                rows.push((
+                    row.clone(),
+                    order_columns
+                        .iter()
+                        .map(|column| {
+                            column
+                                .get(index)
+                                .expect("validated DISTINCT ON order")
+                                .clone()
+                        })
+                        .collect(),
+                ));
+            }
+        }
+    }
+    context.query.check()?;
+    Ok(rows.into_iter().map(|(row, _)| row).collect())
+}
+
+/// Keep row addresses, rather than owned rows and evaluated order keys, for
+/// the common single-integer DISTINCT ON shape. Input chunks already own their
+/// vector views, so the winning rows are materialized only after grouping.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn grouped_distinct_on_signed_columns(
+    input: &mut dyn stream::BatchStream,
+    targets: &[BoundExpr],
+    order: &[OrderExpr],
+    target_types: &[crate::common::type_registry::BoundType],
+    order_types: &[crate::common::type_registry::BoundType],
+    context: &ExecutionContext<'_>,
+) -> Result<Option<Vec<Row>>> {
+    let [target] = targets else {
+        return Ok(None);
+    };
+    let [target_type] = target_types else {
+        return Ok(None);
+    };
+    let ExprKind::Column(target_column) = &target.kind else {
+        return Ok(None);
+    };
+    if !target_type.data_type().is_signed_integer() {
+        return Ok(None);
+    }
+    let order_columns = order
+        .iter()
+        .map(|item| match item.expression.kind {
+            ExprKind::Column(column) => Some(column),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(order_columns) = order_columns else {
+        return Ok(None);
+    };
+    if order_types.iter().any(|data_type| {
+        data_type.ordering_representation() != OrderingRepresentation::SignedInteger
+    }) {
+        return Ok(None);
+    }
+    // A target column is equal within every group and cannot distinguish an
+    // ordered FIRST candidate. DuckDB likewise does not need it in the
+    // aggregate's per-group ordering state.
+    let order_columns = order_columns
+        .into_iter()
+        .zip(order)
+        .filter(|(column, _)| *column != *target_column)
+        .collect::<Vec<_>>();
+
+    let mut batches = Vec::<DataChunk>::new();
+    let mut row_count = 0usize;
+    while let Some(batch) = input.next(context.query.batch_size())? {
+        row_count = row_count.checked_add(batch.len()).ok_or_else(|| {
+            crate::common::Error::Resource("DISTINCT ON row count overflow".into())
+        })?;
+        batches.push(batch);
+    }
+
+    let mut winners = Vec::<(usize, usize)>::new();
+    let mut choose = |group: Option<usize>, current: (usize, usize)| -> Result<Option<usize>> {
+        if let Some(group) = group {
+            if compare_signed_order_rows(&batches, current, winners[group], &order_columns)
+                == Ordering::Less
+            {
+                winners[group] = current;
+            }
+            return Ok(None);
+        }
+        context.query.check_rows(winners.len().saturating_add(1))?;
+        let group = winners.len();
+        winners.push(current);
+        Ok(Some(group))
+    };
+
+    if let Some(dictionary_len) = shared_dense_signed_dictionary(&batches, *target_column) {
+        let mut groups = vec![usize::MAX; dictionary_len];
+        for (batch_index, batch) in batches.iter().enumerate() {
+            let (_, selected) = batch.columns()[*target_column]
+                .dictionary()
+                .expect("checked shared DISTINCT ON dictionary");
+            for (row_index, &source) in selected.iter().enumerate() {
+                if row_index % 1024 == 0 {
+                    context.query.check()?;
+                }
+                let group = (groups[source] != usize::MAX).then_some(groups[source]);
+                if let Some(group) = choose(group, (batch_index, row_index))? {
+                    groups[source] = group;
+                }
+            }
+        }
+    } else {
+        let mut minimum = None::<i128>;
+        let mut maximum = None::<i128>;
+        for batch in &batches {
+            for value in batch.columns()[*target_column].values() {
+                match value {
+                    crate::common::Value::Null => {}
+                    crate::common::Value::Integer(value) => {
+                        minimum = Some(minimum.map_or(*value, |minimum| minimum.min(*value)));
+                        maximum = Some(maximum.map_or(*value, |maximum| maximum.max(*value)));
+                    }
+                    _ => unreachable!("validated signed integer DISTINCT ON target"),
+                }
+            }
+        }
+        let dense_width = minimum.zip(maximum).and_then(|(minimum, maximum)| {
+            usize::try_from(maximum.abs_diff(minimum).checked_add(1)?).ok()
+        });
+        let mut groups = if dense_width.is_some_and(|width| width <= row_count / 2) {
+            SignedDistinctGroups::Dense {
+                minimum: minimum.expect("nonempty dense DISTINCT ON domain"),
+                groups: vec![usize::MAX; dense_width.expect("checked dense width")],
+                null: usize::MAX,
+            }
+        } else {
+            SignedDistinctGroups::Sparse(HashMap::new())
+        };
+        for (batch_index, batch) in batches.iter().enumerate() {
+            let target_values = &batch.columns()[*target_column];
+            for row_index in 0..batch.len() {
+                if row_index % 1024 == 0 {
+                    context.query.check()?;
+                }
+                let key = match target_values
+                    .get(row_index)
+                    .expect("validated DISTINCT ON target")
+                {
+                    crate::common::Value::Null => None,
+                    crate::common::Value::Integer(value) => Some(*value),
+                    _ => unreachable!("validated signed integer DISTINCT ON target"),
+                };
+                let group = groups.get(key);
+                if let Some(group) = choose(group, (batch_index, row_index))? {
+                    groups.insert(key, group);
+                }
+            }
+        }
+    }
+    drop(choose);
+    context.query.check()?;
+    let mut rows = Vec::with_capacity(winners.len());
+    for (batch_index, row_index) in winners {
+        let mut row = Vec::with_capacity(batches[batch_index].columns().len());
+        batches[batch_index].read_row(row_index, &mut row)?;
+        rows.push(row);
+    }
+    Ok(Some(rows))
+}
+
+fn shared_dense_signed_dictionary(batches: &[DataChunk], column: usize) -> Option<usize> {
+    let (parent, _) = batches.first()?.columns().get(column)?.dictionary()?;
+    let mut minimum = None;
+    let mut saw_null = false;
+    for (index, value) in parent.values().enumerate() {
+        match value {
+            crate::common::Value::Integer(value) if !saw_null => {
+                let minimum = *minimum.get_or_insert(*value);
+                if *value != minimum.checked_add(index as i128)? {
+                    return None;
+                }
+            }
+            crate::common::Value::Null if index + 1 == parent.len() => saw_null = true,
+            _ => return None,
+        }
+    }
+    if minimum.is_none() && !saw_null {
+        return None;
+    }
+    batches
+        .iter()
+        .all(|batch| {
+            batch.columns()[column]
+                .dictionary()
+                .is_some_and(|(other, _)| Arc::ptr_eq(parent, other))
+        })
+        .then_some(parent.len())
+}
+
+enum SignedDistinctGroups {
+    Dense {
+        minimum: i128,
+        groups: Vec<usize>,
+        null: usize,
+    },
+    Sparse(HashMap<Option<i128>, usize>),
+}
+
+impl SignedDistinctGroups {
+    fn get(&self, key: Option<i128>) -> Option<usize> {
+        let group = match (self, key) {
+            (Self::Dense { null, .. }, None) => *null,
+            (
+                Self::Dense {
+                    minimum, groups, ..
+                },
+                Some(key),
+            ) => groups[(key - minimum) as usize],
+            (Self::Sparse(groups), key) => return groups.get(&key).copied(),
+        };
+        (group != usize::MAX).then_some(group)
+    }
+
+    fn insert(&mut self, key: Option<i128>, group: usize) {
+        match (self, key) {
+            (Self::Dense { null, .. }, None) => *null = group,
+            (
+                Self::Dense {
+                    minimum, groups, ..
+                },
+                Some(key),
+            ) => groups[(key - *minimum) as usize] = group,
+            (Self::Sparse(groups), key) => {
+                groups.insert(key, group);
+            }
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn compare_signed_order_rows(
+    batches: &[DataChunk],
+    left: (usize, usize),
+    right: (usize, usize),
+    columns: &[(usize, &OrderExpr)],
+) -> Ordering {
+    let left_batch = &batches[left.0];
+    let right_batch = &batches[right.0];
+    for &(column, order) in columns {
+        let left = left_batch.columns()[column]
+            .get(left.1)
+            .expect("validated DISTINCT ON order");
+        let right = right_batch.columns()[column]
+            .get(right.1)
+            .expect("validated DISTINCT ON order");
+        let comparison = match (left, right) {
+            (crate::common::Value::Null, crate::common::Value::Null) => Ordering::Equal,
+            (crate::common::Value::Null, _) => {
+                if order.nulls_first {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+            (_, crate::common::Value::Null) => {
+                if order.nulls_first {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            (crate::common::Value::Integer(left), crate::common::Value::Integer(right)) => {
+                let comparison = left.cmp(right);
+                if order.descending {
+                    comparison.reverse()
+                } else {
+                    comparison
+                }
+            }
+            _ => unreachable!("validated signed integer DISTINCT ON order"),
+        };
+        if comparison != Ordering::Equal {
+            return comparison;
+        }
+    }
+    Ordering::Equal
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn compare_order_columns(
+    left: &[Vector],
+    index: usize,
+    right: &[crate::common::Value],
+    order: &[OrderExpr],
+    types: &[crate::common::type_registry::BoundType],
+    context: &ExecutionContext<'_>,
+) -> Result<Ordering> {
+    for (((column, right), order), data_type) in left.iter().zip(right).zip(order).zip(types) {
+        let left = column.get(index).expect("validated DISTINCT ON order");
+        let comparison = match (left.is_null(), right.is_null()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => {
+                if order.nulls_first {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+            (false, true) => {
+                if order.nulls_first {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            (false, false) => {
+                let comparison = if data_type.ordering_representation()
+                    == OrderingRepresentation::SignedInteger
+                {
+                    match (left, right) {
+                        (
+                            crate::common::Value::Integer(left),
+                            crate::common::Value::Integer(right),
+                        ) => left.cmp(right),
+                        _ => unreachable!("validated signed integer order key"),
+                    }
+                } else {
+                    data_type.compare(left, right, context.query)?
+                };
+                if order.descending {
+                    comparison.reverse()
+                } else {
+                    comparison
+                }
+            }
+        };
+        if comparison != Ordering::Equal {
+            return Ok(comparison);
+        }
+    }
+    Ok(Ordering::Equal)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
