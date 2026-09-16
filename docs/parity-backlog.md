@@ -1321,6 +1321,78 @@ the separate one-million-row SQLLogic process wall/CPU/RSS/I/O/throughput report
 pass; the latter includes runner startup and table construction and is not a
 substitute for the native prepared-query scope.
 
+**G16.3a.2 frozen validation manifest — ordinary ungrouped aggregation.** This
+bounded child owns `src/common/cast/mod.rs`, its focused cast regression,
+`benchmark/g16_ordinary_aggregation{,_sqllogic}_workloads.json`, the two
+`test/performance/g16_ordinary_aggregation*.test` fixtures and this entry. The
+ordinary aggregate execution itself uses the shared stable physical-order scan
+prerequisite; this child does not claim ordered aggregate arguments, grouping,
+or a new aggregate operator. Fast checks are
+`cargo test --offline --test casts primitive_integer_overflow_reports_physical_types -- --exact`,
+`cargo test --offline --test execution batches::integer_sum_batches_preserve_wide_prefixes_and_vector_views -- --exact`,
+and `cargo run --offline --bin sqllogictest -- test
+performance/g16_ordinary_aggregation.test
+performance/g16_ordinary_aggregation_overflow_error.test sql/relational.test`.
+Affected functional acceptance includes the complete `casts`, `execution`,
+`numeric` and `grouping` targets, the full unchanged upstream
+`test/sql/aggregate/group/test_group_null.test` population, and the retained
+reachable prefix of `test/sql/aggregate/aggregates/test_sum.test` for both pins.
+The latter is deliberately partial: records 18–19 require G08.2 `ORDER BY`
+inside aggregate calls and are outside this unmodified-aggregation child.
+
+Performance has three independently declared scopes: prepared native latency
+for 50,000 stored BIGINT rows with separate `sum(i)` and `count(*)` cases; a
+one-million-row process-level SQLLogic SUM/count workload; and a process-level
+SQLLogic workload that repeats the changed HUGEINT-to-BIGINT SUM overflow 128
+times. The SQLLogic files are immutable custom-comparable inputs shared by Rust
+and both exact pinned runners; they have no external fixture directives. Final
+acceptance uses release/no tracing, one thread, three warmups and 21 alternating
+samples. Every case must validate its exact result or error and independently
+meet Rust/faster-C++ `<=1.0` for wall, CPU, peak RSS and block I/O, plus invocation
+throughput at least the faster reference. The 50,000-row prepared scope and the
+one-million-row/repeated-error process scopes are not interchangeable.
+
+Both pins map ordinary SUM/count through
+`src/execution/operator/aggregate/physical_ungrouped_aggregate.cpp` (release
+`9631350d6f0632c609cea28d22f514b925e40e5ade2826ccea9a485f9ecadcfd`,
+development
+`3d6fbd7e62b1a49b630a17e0eea21535386c62ef896c48625c448e8fc09e81fa`)
+and SUM through `extension/core_functions/aggregate/distributive/sum.cpp`
+(release
+`54948afb24869e7443cb1c6fcba07cc91089e56a421d9227c1df4a1c7fd9c1b6`,
+development
+`d1a31e607537af8543d7ae31472941f4d5c6a3eba29bc38c7befd083be0b95ae`).
+The release uses its direct unary SUM path while development contains the
+clustered SUM rewrite; the stable scan prerequisite is the Rust-side source of
+the measured ungrouped improvement. Both pins format checked primitive narrowing
+through `CastExceptionText<SRC,DST>` in
+`src/include/duckdb/common/operator/cast_operators.hpp` (release
+`7282bb476d972c67399c7f556c3973716caf0ed61da78b9995f8b9809820bbeb`,
+development
+`72aeac3d44657d87da757c57eb09d6b98ed79199293e088fc5b4651ccdc3c053`),
+using physical names `INT128` and `INT64`. Rust now derives those names from the
+retained bound cast specification while preserving `Error::Conversion` and all
+nonnumeric/parsing paths.
+
+The original unchanged `test_sum.test` run stopped identically on both pins
+after 14/19 records at the pre-existing Rust diagnostic
+`4611686018427388403500 overflows BIGINT`; that first-blocker evidence remains
+under `target/`. After the bounded diagnostic correction both pin-specific files
+(release hash
+`752a36568e99b9bacd27a2ad0f5340ac562a46766ce046ec253f0d346c25aa53`,
+development hash
+`4cef15f7fb47d5984eb1b51eed59a9b7b2ca89035b19b7d45b3a11c0c4ada5a6`)
+advance to 17/19, then stop identically at `sum(n ORDER BY ABS(n))`; this is
+retained G08.2 blocker evidence, not an upstream pass. The separate complete
+`test_group_null.test` population passes 4/4 on both pins. Focused validation
+passes the exact overflow/category regression, all 14 cast tests, all 106
+execution tests, and the local ordinary/repeated-error fixtures on Rust and both
+pinned C++ runners (3 and 130 records respectively). Post-change nine-sample
+diagnostics (not quiet-host acceptance) measured native SUM at 0.889x release
+and 0.270x development, and COUNT at 0.682x release and 0.248x development.
+Performance remains **open** until the final identical-source 21-sample native
+and SQLLogic resource reports pass all declared metrics.
+
 - **G16.1 Establish statistics lifecycle.** Implement ANALYZE and required table/
   column statistics, propagation, invalidation and cardinality estimates.
 - **G16.2 Add relational transformations.** Expand safe filter/projection/limit

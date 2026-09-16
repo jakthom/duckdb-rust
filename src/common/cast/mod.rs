@@ -767,13 +767,32 @@ impl CastFunction for PrimitiveCast {
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {
         context.check()?;
         builtin::primitive(value, &spec.target).map_err(|error| match error {
-            Error::Conversion(_) if spec.source.is_floating() && spec.target.is_signed_integer() => {
+            Error::Conversion(_)
+                if (spec.source.is_signed_integer() || spec.source.is_floating())
+                    && spec.target.is_signed_integer() =>
+            {
                 Error::Conversion(format!(
                     "Type {} with value {value} can't be cast because the value is out of range for the destination type {}",
-                    spec.source, spec.target
+                    primitive_numeric_name(&spec.source), primitive_numeric_name(&spec.target)
                 ))
             }
             other => other,
         })
+    }
+}
+
+/// DuckDB's primitive cast diagnostics name the physical C++ source and target
+/// types rather than their SQL aliases (for example, INT128 instead of
+/// HUGEINT). PrimitiveCast only calls this for numeric types it owns.
+fn primitive_numeric_name(data_type: &DataType) -> &'static str {
+    match data_type {
+        DataType::TinyInt => "INT8",
+        DataType::SmallInt => "INT16",
+        DataType::Integer => "INT32",
+        DataType::BigInt => "INT64",
+        DataType::HugeInt => "INT128",
+        DataType::Float => "FLOAT",
+        DataType::Double => "DOUBLE",
+        _ => unreachable!("primitive cast owns only signed and floating numeric types"),
     }
 }

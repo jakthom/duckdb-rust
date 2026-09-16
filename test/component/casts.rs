@@ -42,6 +42,32 @@ fn spec(target: DataType, mode: CastMode) -> CastSpec {
 }
 
 #[test]
+fn primitive_integer_overflow_reports_physical_types() -> Result<()> {
+    let query = QueryContext::background();
+    let cast = CastRegistry::builtins().bind(
+        &DataType::HugeInt,
+        &DataType::BigInt,
+        CastMode::Explicit,
+        query.types(),
+    )?;
+    let value = Value::Integer(4_611_686_018_427_388_403_500);
+    assert!(matches!(
+        cast.apply(&value, &query),
+        Err(Error::Conversion(message))
+            if message == "Type INT128 with value 4611686018427388403500 can't be cast because the value is out of range for the destination type INT64"
+    ));
+
+    let mut connection = DatabaseBuilder::new().build()?.connect();
+    connection.execute("CREATE TABLE bigints(b BIGINT); INSERT INTO bigints SELECT * FROM range(4611686018427387904, 4611686018427388904)")?;
+    assert!(matches!(
+        connection.query("SELECT SUM(b)::BIGINT FROM bigints"),
+        Err(Error::Conversion(message))
+            if message == "Type INT128 with value 4611686018427388403500 can't be cast because the value is out of range for the destination type INT64"
+    ));
+    Ok(())
+}
+
+#[test]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn temporal_coercion_costs_rank_only_available_selected_casts() -> Result<()> {
     let query = QueryContext::background();
