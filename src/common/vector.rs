@@ -7,6 +7,11 @@ enum Encoding {
     Flat(Arc<Vec<Value>>),
     Constant(Value),
     Dictionary(Arc<Vector>, Arc<[usize]>),
+    /// Immutable table storage retains CTAS batches without first copying all
+    /// payloads into a second table-wide flat allocation.  A scan-sized slice
+    /// that lies within one segment becomes that segment's ordinary vector,
+    /// so scalar and aggregate kernels retain their existing flat fast paths.
+    Chunks(Arc<[Vector]>, Arc<[usize]>),
 }
 
 /// Immutable, owning column view. Selection and validity are resolved by `get`.
@@ -26,6 +31,45 @@ pub struct Vector {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Vector {
+    /// Combine same-typed immutable input batches without copying their
+    /// payloads.  This is storage-facing: execution still observes ordinary
+    /// vectors after a scan slices a segment-sized batch.
+    pub(crate) fn chunked(data_type: DataType, chunks: Vec<Self>) -> Result<Self> {
+        let mut offsets = Vec::with_capacity(chunks.len().saturating_add(1));
+        offsets.push(0);
+        let mut count = 0usize;
+        let mut all_valid = true;
+        let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
+        let mut previous = None;
+        for chunk in &chunks {
+            if chunk.data_type != data_type {
+                return Err(Error::Internal("chunked vector type differs".into()));
+            }
+            count = count
+                .checked_add(chunk.len())
+                .ok_or_else(|| Error::Resource("chunked vector size overflow".into()))?;
+            offsets.push(count);
+            all_valid &= chunk.all_valid();
+            if numeric_ascending {
+                numeric_ascending &= chunk.numeric_ascending();
+                if let Some(last) = previous
+                    && let Some(first) = chunk.get(0)
+                {
+                    numeric_ascending &= numeric_le(last, first);
+                }
+                previous = chunk.get(chunk.len().saturating_sub(1));
+            }
+        }
+        Ok(Self {
+            data_type,
+            encoding: Encoding::Chunks(chunks.into(), offsets.into()),
+            decimal_i64: None,
+            offset: 0,
+            count,
+            all_valid,
+            numeric_ascending,
+        })
+    }
     /// Concatenate already validated, identically typed columns in logical
     /// order. No adapter assertion can skip physical validation: every input
     /// was constructed through this module's checked constructors.
@@ -255,6 +299,18 @@ impl Vector {
         if offset > self.count || count > self.count - offset {
             return Err(Error::Internal("vector slice out of bounds".into()));
         }
+        if let Encoding::Chunks(chunks, offsets) = &self.encoding {
+            let start = self.offset + offset;
+            let end = start + count;
+            let segment = offsets
+                .partition_point(|&end| end <= start)
+                .saturating_sub(1);
+            if let Some(chunk) = chunks.get(segment)
+                && end <= offsets[segment + 1]
+            {
+                return chunk.slice(start - offsets[segment], count);
+            }
+        }
         Ok(Self {
             data_type: self.data_type.clone(),
             encoding: self.encoding.clone(),
@@ -295,6 +351,14 @@ impl Vector {
             Encoding::Flat(v) => v.get(index),
             Encoding::Constant(v) => Some(v),
             Encoding::Dictionary(v, s) => s.get(index).and_then(|&i| v.get(i)),
+            Encoding::Chunks(chunks, offsets) => {
+                let segment = offsets
+                    .partition_point(|&end| end <= index)
+                    .saturating_sub(1);
+                chunks
+                    .get(segment)
+                    .and_then(|chunk| chunk.get(index - offsets[segment]))
+            }
         }
     }
     pub fn values(&self) -> impl Iterator<Item = &Value> {
@@ -335,6 +399,7 @@ impl Vector {
                     output.extend(self.values().cloned());
                 }
             }
+            Encoding::Chunks(_, _) => output.extend(self.values().cloned()),
         }
     }
     /// A borrowed contiguous physical view when this encoding provides one.
@@ -489,6 +554,29 @@ mod physical_tests {
         ] {
             assert!(Vector::flat(data_type.clone(), vec![mismatched]).is_err());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn chunked_storage_retains_segments_and_recovers_flat_scan_slices() -> Result<()> {
+        let first = Vector::try_bigints([Ok(Some(10)), Ok(Some(11))])?;
+        let second = Vector::try_bigints([Ok(Some(12)), Ok(Some(13))])?;
+        let chunks = Vector::chunked(DataType::BigInt, vec![first.clone(), second.clone()])?;
+        assert_eq!(
+            chunks.values().cloned().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(10),
+                Value::Integer(11),
+                Value::Integer(12),
+                Value::Integer(13),
+            ]
+        );
+        assert!(chunks.flat_values().is_none());
+        assert_eq!(chunks.slice(2, 2)?.flat_values(), second.flat_values());
+        assert_eq!(
+            chunks.slice(1, 2)?.values().cloned().collect::<Vec<_>>(),
+            vec![Value::Integer(11), Value::Integer(12)]
+        );
         Ok(())
     }
 }

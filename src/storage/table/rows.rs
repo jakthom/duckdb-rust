@@ -118,10 +118,26 @@ impl Rows {
                 output.push(column.clone());
             }
         }
+        // CTAS already hands ownership of immutable batch vectors to storage.
+        // A high-cardinality column cannot use the compact dictionary, so
+        // retain its segments instead of allocating a second table-wide Value
+        // column while all input batches remain live. Scan slices fully
+        // contained in a segment recover the original vector, including its
+        // flat numeric fast paths. Small physical domains keep the existing
+        // dictionary path, where copying is an actual storage reduction.
         let columns = columns
             .into_iter()
             .zip(types.iter())
-            .map(|(columns, data_type)| compact_vectors(data_type, columns, count))
+            .map(|(mut columns, data_type)| {
+                if retains_high_cardinality_segments(&columns, count) {
+                    return match columns.len() {
+                        0 => Vector::chunked(data_type.clone(), columns),
+                        1 => Ok(columns.pop().expect("one input column")),
+                        _ => Vector::chunked(data_type.clone(), columns),
+                    };
+                }
+                compact_vectors(data_type, columns, count)
+            })
             .collect::<Result<_>>()?;
         Ok(Self::Published {
             ids: ids.into(),
@@ -356,6 +372,32 @@ impl Rows {
             Self::Writable(_) => unreachable!("unpublished table scan"),
         }
     }
+}
+
+/// Stop probing as soon as the small physical dictionary is known not to fit.
+/// This mirrors `compact_vectors`' 256-entry limit without materializing a
+/// full column merely to discover an ordinary high-cardinality CTAS input.
+fn retains_high_cardinality_segments(columns: &[Vector], count: usize) -> bool {
+    const MAX_DICTIONARY_VALUES: usize = 256;
+    let limit = MAX_DICTIONARY_VALUES.min(count / 4);
+    if limit == 0 {
+        return false;
+    }
+    let mut dictionary = HashMap::<Vec<u8>, ()>::new();
+    let mut key = Vec::new();
+    for column in columns {
+        for value in column.values() {
+            key.clear();
+            if !crate::common::vector::append_physical_identity(value, &mut key) {
+                return false;
+            }
+            dictionary.entry(key.clone()).or_insert(());
+            if dictionary.len() > limit {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
