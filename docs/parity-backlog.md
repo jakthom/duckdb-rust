@@ -1189,6 +1189,50 @@ Sources: `src/execution/index/`, `src/optimizer/key_lookup.rs`,
 **Current:** the default pipeline has expression simplification, equality lookup
 and conservative EXISTS decorrelation. There is no general cost model.
 
+**G16.3a.1 frozen validation manifest — decimal total-cents aggregation.** Owned
+paths are `src/common/vector.rs`, `src/function/aggregate{.rs,/exact.rs}` and, only where the selected
+ungrouped driver requires it, `src/execution/operator/aggregate{.rs,/batched.rs}`;
+the slice also owns its focused component/performance fixtures, performance
+manifest and this backlog entry. Fast validation is
+`cargo test -p duckdb-rust --test numeric batches::exact_sum_column_proofs_cover_block_width_transitions_and_signed_tails -- --exact`
+and `cargo test -p duckdb-rust --test numeric batches::exact_sum_batches_match_scalar_prefixes_nulls_and_wide_fallbacks -- --exact`;
+the affected SQL command is `cargo run --offline --bin sqllogictest -- test
+sql/relational.test performance/g16_decimal_total_cents.test`. The unchanged upstream case ID is
+`test/sql/types/decimal/decimal_aggregates.test`, selected exactly with
+`scripts/run_upstream.py --target both --path-prefix
+test/sql/types/decimal/decimal_aggregates.test`; it covers empty/NULL values,
+DECIMAL physical-width boundaries and table SUM. Full functional acceptance adds
+the complete `numeric_batches`, `numeric_contracts`, `grouping` and SQL
+`relational.test` targets so scalar/batch, checked overflow/cancellation,
+dictionary, alternate aggregation, grouping and downstream decimal arithmetic
+remain consumers. Performance workloads are the unchanged native
+`decimal_total_cents` case (50,000 stored `DECIMAL(12,2)` rows) and the maintained
+substantial SQLLogic total-cents case, serial/one thread, release/no tracing,
+three warmups and 21 alternating samples against both pins. Each workload must
+return the declared exact row/count checksum and pass independently for wall,
+process CPU, peak RSS, block input/output and invocation throughput at Rust/faster
+C++ `<=1.0` (throughput `>=` the faster reference); raw identities and failures
+stay under `target/`. Final commands use fresh paths with `compare_native.py` plus
+`fastest_reference.py` for the embedded latency case and
+`measure_sqllogic_performance.py` for the complete resource gate.
+
+The implementation maps both pins' `PhysicalUngroupedAggregate` and DECIMAL
+`BindDecimalSum`/`GetSumAggregate` path: DECIMAL widths through 18 retain their
+physical signed-64 coefficient lane while logical `Value` remains the fallback
+oracle. NULL, constant, dictionary, sliced, DECIMAL(19..38), cancellation and
+checked prefix-overflow paths stay on the existing general kernels. The shared
+scan prerequisite `be47ada` removes only the diagnosed stable-order identity
+rebuild and retains hole/relocation/snapshot/rollback/checkpoint coverage. On the
+post-change tree, the focused tests pass, the complete numeric target is 67/67,
+grouping is 64/64, local relational/performance SQL is 14/14, and the unchanged
+decimal aggregate upstream file is 1/1 per pin. A nine-sample diagnostic (not
+quiet-host acceptance) measured the 50,000-row embedded latency scope at 0.775x
+the release pin after an earlier post-scan 1.142x result. Performance remains
+**open** until the final identical-source dual-pin 21-sample latency reports and
+the separate one-million-row SQLLogic process wall/CPU/RSS/I/O/throughput report
+pass; the latter includes runner startup and table construction and is not a
+substitute for the native prepared-query scope.
+
 - **G16.1 Establish statistics lifecycle.** Implement ANALYZE and required table/
   column statistics, propagation, invalidation and cardinality estimates.
 - **G16.2 Add relational transformations.** Expand safe filter/projection/limit

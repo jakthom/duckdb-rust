@@ -451,16 +451,16 @@ impl State {
         if kernel.result_type() != self.data_type {
             return Ok(false);
         }
-        let Some(values) = column.flat_values().filter(|_| column.all_valid()) else {
+        if !column.all_valid() {
             return Ok(false);
-        };
+        }
         let mut sum = match self.value {
             Value::Null => 0,
             Value::Integer(value) => value,
             Value::Decimal { value, .. } => value,
             _ => return Ok(false),
         };
-        let Some(bound) = kernel.maximum_magnitude().checked_mul(values.len() as i128) else {
+        let Some(bound) = kernel.maximum_magnitude().checked_mul(column.len() as i128) else {
             return Ok(false);
         };
         if !sum.checked_add(bound).is_some_and(|v| kernel.valid_sum(v))
@@ -468,8 +468,14 @@ impl State {
         {
             return Ok(false);
         }
-        sum += kernel.column_sum(values, context)?;
-        if !values.is_empty() {
+        if let Some(values) = column.flat_decimal_i64() {
+            sum += kernel.column_sum_decimal_i64(values, context)?;
+        } else if let Some(values) = column.flat_values() {
+            sum += kernel.column_sum(values, context)?;
+        } else {
+            return Ok(false);
+        }
+        if !column.is_empty() {
             self.value = kernel.value(sum);
         }
         context.check()?;

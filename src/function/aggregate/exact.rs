@@ -113,6 +113,36 @@ impl SumKernel {
         query.check()?;
         Ok(sum)
     }
+    /// DECIMAL widths through 18 use a signed 64-bit physical vector in both
+    /// pins. The caller already proved every SQL prefix fits the DECIMAL(38,s)
+    /// result, so independent machine lanes can reduce the compact payload
+    /// before one exact widening step per block.
+    pub(super) fn column_sum_decimal_i64(
+        self,
+        values: &[i64],
+        query: &crate::parallel::QueryContext,
+    ) -> Result<i128> {
+        let Self::Decimal { .. } = self else {
+            return Err(Error::Internal(
+                "physical DECIMAL coefficients used by another SUM domain".into(),
+            ));
+        };
+        let narrow = self
+            .maximum_magnitude()
+            .checked_mul(values.len().min(1024) as i128)
+            .is_some_and(|bound| bound <= i64::MAX as i128);
+        let mut sum = 0_i128;
+        for block in values.chunks(1024) {
+            query.check()?;
+            sum += if narrow {
+                sum_proven_i64(block)
+            } else {
+                sum_i64_wide(block)
+            };
+        }
+        query.check()?;
+        Ok(sum)
+    }
     /// Caller proves every prefix fits the result domain. Decode the physical
     /// kind once per block, retaining checked machine-width partial sums.
     pub(super) fn block_sum(self, values: &[Value]) -> i128 {
@@ -175,4 +205,35 @@ fn proven_column(
     }
     query.check()?;
     Ok(sum)
+}
+
+#[inline]
+fn sum_proven_i64(values: &[i64]) -> i128 {
+    let mut lanes = [0_i64; 4];
+    let mut blocks = values.chunks_exact(4);
+    for block in &mut blocks {
+        for (lane, value) in lanes.iter_mut().zip(block) {
+            *lane += *value;
+        }
+    }
+    let mut sum: i64 = lanes.into_iter().sum();
+    sum += blocks.remainder().iter().sum::<i64>();
+    i128::from(sum)
+}
+
+#[inline]
+fn sum_i64_wide(values: &[i64]) -> i128 {
+    let mut lanes = [0_i128; 4];
+    let mut blocks = values.chunks_exact(4);
+    for block in &mut blocks {
+        for (lane, value) in lanes.iter_mut().zip(block) {
+            *lane += i128::from(*value);
+        }
+    }
+    lanes.into_iter().sum::<i128>()
+        + blocks
+            .remainder()
+            .iter()
+            .map(|value| i128::from(*value))
+            .sum::<i128>()
 }

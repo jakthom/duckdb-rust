@@ -14,6 +14,10 @@ enum Encoding {
 pub struct Vector {
     data_type: DataType,
     encoding: Encoding,
+    /// DuckDB stores DECIMAL widths through 18 as physical signed integers.
+    /// Retain that source-shaped lane beside the logical `Value` oracle for
+    /// flat, non-NULL columns so numeric kernels do not redispatch the enum.
+    decimal_i64: Option<Arc<Vec<i64>>>,
     offset: usize,
     count: usize,
     all_valid: bool,
@@ -54,14 +58,7 @@ impl Vector {
         for column in columns {
             column.append_to(&mut values);
         }
-        Ok(Self {
-            data_type,
-            encoding: Encoding::Flat(Arc::new(values)),
-            offset: 0,
-            count,
-            all_valid: columns.iter().all(Self::all_valid),
-            numeric_ascending: false,
-        })
+        Self::flat(data_type, values)
     }
     /// Construct BIGINT storage from statically bounded physical values. The
     /// constructor establishes type and validity without a second value scan.
@@ -87,6 +84,7 @@ impl Vector {
             offset: 0,
             count: output.len(),
             encoding: Encoding::Flat(Arc::new(output)),
+            decimal_i64: None,
             all_valid,
             numeric_ascending: false,
         })
@@ -114,6 +112,7 @@ impl Vector {
             count: output.len(),
             offset: 0,
             encoding: Encoding::Flat(Arc::new(output)),
+            decimal_i64: None,
             all_valid,
             numeric_ascending: false,
         })
@@ -153,6 +152,7 @@ impl Vector {
             count: output.len(),
             offset: 0,
             encoding: Encoding::Flat(Arc::new(output)),
+            decimal_i64: None,
             all_valid,
             numeric_ascending: false,
         })
@@ -160,6 +160,8 @@ impl Vector {
     pub fn flat(data_type: DataType, values: Vec<Value>) -> Result<Self> {
         let mut all_valid = true;
         let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
+        let mut decimal_i64 = matches!(data_type, DataType::Decimal { width: 1..=18, .. })
+            .then(|| Vec::with_capacity(values.len()));
         let mut previous = None;
         for value in &values {
             if !value.fits_type(&data_type) {
@@ -168,6 +170,17 @@ impl Vector {
                 ));
             }
             all_valid &= !value.is_null();
+            if let Some(coefficients) = &mut decimal_i64 {
+                match value {
+                    Value::Decimal { value, .. } => {
+                        coefficients.push(i64::try_from(*value).map_err(|_| {
+                            Error::Internal("narrow DECIMAL coefficient exceeds i64".into())
+                        })?);
+                    }
+                    Value::Null => decimal_i64 = None,
+                    _ => unreachable!("validated narrow DECIMAL column"),
+                }
+            }
             if numeric_ascending {
                 numeric_ascending =
                     !value.is_null() && previous.is_none_or(|previous| numeric_le(previous, value));
@@ -179,6 +192,7 @@ impl Vector {
             offset: 0,
             count: values.len(),
             encoding: Encoding::Flat(Arc::new(values)),
+            decimal_i64: decimal_i64.map(Arc::new),
             all_valid,
             numeric_ascending,
         })
@@ -195,6 +209,7 @@ impl Vector {
             data_type,
             all_valid: !value.is_null(),
             encoding: Encoding::Constant(value),
+            decimal_i64: None,
             offset: 0,
             count,
         })
@@ -223,6 +238,7 @@ impl Vector {
             count: selection.len(),
             all_valid: self.all_valid,
             encoding: Encoding::Dictionary(self.clone(), selection),
+            decimal_i64: None,
         }
     }
     /// An owning contiguous view, with no payload copy or selection allocation.
@@ -234,6 +250,7 @@ impl Vector {
         Ok(Self {
             data_type: self.data_type.clone(),
             encoding: self.encoding.clone(),
+            decimal_i64: self.decimal_i64.clone(),
             offset: self.offset + offset,
             count,
             all_valid: self.all_valid,
@@ -321,6 +338,17 @@ impl Vector {
             _ => None,
         }
     }
+    /// Borrow the compact physical coefficients for a flat DECIMAL(1..=18)
+    /// view. Logical values remain authoritative for every fallback and for
+    /// encodings whose NULL/selection semantics need resolution.
+    pub(crate) fn flat_decimal_i64(&self) -> Option<&[i64]> {
+        if !matches!(self.encoding, Encoding::Flat(_)) {
+            return None;
+        }
+        self.decimal_i64
+            .as_ref()
+            .map(|values| &values[self.offset..self.offset + self.count])
+    }
     /// The repeated value when every logical row uses a constant encoding.
     pub fn constant_value(&self) -> Option<&Value> {
         match &self.encoding {
@@ -347,6 +375,64 @@ fn numeric_le(left: &Value, right: &Value) -> bool {
         (Value::Unsigned(a), Value::Unsigned(b)) => a <= b,
         (Value::Decimal { value: a, .. }, Value::Decimal { value: b, .. }) => a <= b,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod physical_tests {
+    use super::*;
+
+    fn decimal(value: i128, width: u8) -> Value {
+        Value::Decimal {
+            value,
+            width,
+            scale: 2,
+        }
+    }
+
+    #[test]
+    fn narrow_decimal_lanes_follow_flat_slices_and_decline_other_encodings() -> Result<()> {
+        let data_type = DataType::Decimal {
+            width: 12,
+            scale: 2,
+        };
+        let flat = Vector::flat(
+            data_type.clone(),
+            vec![decimal(-100, 12), decimal(0, 12), decimal(250, 12)],
+        )?;
+        assert_eq!(flat.flat_decimal_i64(), Some(&[-100, 0, 250][..]));
+        assert_eq!(flat.slice(1, 2)?.flat_decimal_i64(), Some(&[0, 250][..]));
+        assert!(
+            Vector::flat(
+                data_type.clone(),
+                vec![decimal(1, 12), Value::Null, decimal(2, 12)]
+            )?
+            .flat_decimal_i64()
+            .is_none()
+        );
+        assert!(
+            Vector::constant(data_type.clone(), decimal(1, 12), 3)?
+                .flat_decimal_i64()
+                .is_none()
+        );
+        assert!(
+            Arc::new(flat)
+                .select(vec![2, 0, 2])?
+                .flat_decimal_i64()
+                .is_none()
+        );
+        assert!(
+            Vector::flat(
+                DataType::Decimal {
+                    width: 19,
+                    scale: 2,
+                },
+                vec![decimal(1, 19)]
+            )?
+            .flat_decimal_i64()
+            .is_none()
+        );
+        Ok(())
     }
 }
 

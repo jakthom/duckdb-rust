@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g16_3a_1_decimal_total_cents_million_rows",
+      "path": "test/performance/g16_decimal_total_cents.test"
+    }
+  ]
+}
