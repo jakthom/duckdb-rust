@@ -133,11 +133,17 @@ fn validate(plan: RecursivePlan<'_>) -> Result<()> {
 fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Result<Stream<'a>> {
     context.query.check()?;
     validate(plan)?;
-    let types = plan
-        .schema
-        .iter()
-        .map(|field| context.query.types().bind(&field.data_type))
-        .collect::<Result<Vec<_>>>()?;
+    // UNION ALL never constructs equality keys.  In particular, correlated
+    // scalar recursions open a fresh fixed point for every outer row, so avoid
+    // binding the otherwise unused adapters on each open.
+    let types = (!plan.all)
+        .then(|| {
+            plan.schema
+                .iter()
+                .map(|field| context.query.types().bind(&field.data_type))
+                .collect::<Result<Vec<_>>>()
+        })
+        .transpose()?;
     let mut seen = HashSet::new();
     let mut seed = Some(stream::open(plan.seed, context)?);
     let mut generation = DataSet {
@@ -150,11 +156,16 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
             context.query.check()?;
             if let Some(seed_input) = &mut seed {
                 if let Some(batch) = seed_input.next(max_rows)? {
-                    let rows = retain(batch.rows(), plan.all, &types, &mut seen, context.query)?;
-                    context
-                        .query
-                        .check_rows(generation.rows.len().saturating_add(rows.len()))?;
-                    generation.rows.extend(rows);
+                    retain(
+                        batch.rows(),
+                        plan.all,
+                        plan.schema.len(),
+                        types.as_deref(),
+                        &mut seen,
+                        &mut generation.rows,
+                        context.query,
+                    )?;
+                    context.query.check_rows(generation.rows.len())?;
                 } else {
                     seed = None;
                 }
@@ -177,7 +188,19 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
                 ..*context
             };
             let next = stream::collect(plan.step, &nested)?;
-            generation.rows = retain(next.rows, plan.all, &types, &mut seen, context.query)?;
+            // The step no longer borrows this generation after collection.
+            // Keep its allocation for the following generation instead of
+            // allocating a tiny row buffer for every fixed-point turn.
+            generation.rows.clear();
+            retain(
+                next.rows,
+                plan.all,
+                plan.schema.len(),
+                types.as_deref(),
+                &mut seen,
+                &mut generation.rows,
+                context.query,
+            )?;
             position = 0;
         }
     }))
@@ -187,19 +210,20 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
 fn retain(
     rows: impl IntoIterator<Item = Row>,
     all: bool,
-    types: &[BoundType],
+    width: usize,
+    types: Option<&[BoundType]>,
     seen: &mut HashSet<Vec<u8>>,
+    output: &mut Vec<Row>,
     context: &QueryContext,
-) -> Result<Vec<Row>> {
-    let mut output = Vec::new();
+) -> Result<()> {
     for row in rows {
         context.check()?;
-        if row.len() != types.len() {
+        if row.len() != width {
             return Err(Error::Internal("recursive row width mismatch".into()));
         }
         if !all {
             let mut key = Vec::new();
-            for (data_type, value) in types.iter().zip(&row) {
+            for (data_type, value) in types.expect("UNION requires key types").iter().zip(&row) {
                 data_type.append_key(value, &mut key, context)?;
             }
             if !seen.insert(key) {
@@ -210,5 +234,5 @@ fn retain(
         context.check_rows(output.len().saturating_add(1))?;
         output.push(row);
     }
-    Ok(output)
+    Ok(())
 }

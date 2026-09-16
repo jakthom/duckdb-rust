@@ -108,6 +108,21 @@ fn recursive_limit_cancellation_and_owned_results() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn correlated_union_all_recursion_reuses_each_outer_scope() -> Result<()> {
+    let db = Database::memory()?;
+    let actual = db.connect().query(
+        "SELECT (WITH RECURSIVE r(i) AS (SELECT j UNION ALL SELECT i+1 FROM r WHERE i<j+8) SELECT sum(i) FROM r) FROM range(16) x(j)",
+    )?;
+    assert_eq!(
+        actual.rows,
+        (0..16)
+            .map(|j| { vec![Value::Integer((j..=j + 8).map(i128::from).sum::<i128>(),)] })
+            .collect::<Vec<_>>(),
+    );
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn recursive_resource_limits_bound_retained_state_and_failures_abort_writes() -> Result<()> {
