@@ -678,6 +678,17 @@ the following independent children enter as slots and shared contracts permit.
 | G11.3a — ADD COLUMN execution cost | S; ALTER/default-demand owner, no concurrent G09/G11 shared edits | Preserve stored/default demand, rollback/holes and native exchange tests; profile source-matched ADD and rerun its full 12-case native manifest against both pins. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 | G16.3a — aggregation/numeric execution cost | S; aggregation/expression owner, coordinate G03 casts | Preserve checked arithmetic/NULL/error and scalar/batch semantics; rerun numeric+grouping manifests with all per-workload <=1.0 gates. Split by identified source algorithm after diagnosis. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 
+**G01.4a resume checkpoint (2026-09-16).** The compiled selected-feedback
+campaign now initializes its per-workload cache map before timing, with a mocked
+end-to-end `main()` regression covering both pins and 24 Rust invocations at the
+minimum accepted 3-warmup/9-sample shape. The focused runner/measurement suite is
+27/27. For the compiled Gate P path, build `target/release/sqllogictest` and use
+`scripts/run_upstream.py --write-feedback-provenance
+target/release/sqllogictest`; this supersedes the earlier worker-sidecar command
+in the table row. The previous frozen 21-sample compiled report passed every
+wall/CPU/RSS/I/O/throughput metric, but final integrated functional, performance
+and completion-sweep evidence remains required after this manifest update.
+
 No engine behavior was changed by this measurement slice. Tooling uses focused
 Python regression tests (wrong results, identity/selection errors, retries, fixture
 eligibility and record accounting). The final integrated tree also requires the
@@ -1078,7 +1089,8 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
 - **G11.3 Finish schema changes.** Add ALTER TYPE/USING, nested-field changes and
   remaining object/column modifiers; coordinate indexes, defaults, dependent objects,
   old snapshots and catalog conflict timing.
-  - **G11.3a ADD COLUMN execution cost — ready for integrated verification.** Source
+  - **G11.3a ADD COLUMN execution cost — functional slice ready; performance
+    completion open.** Source
     mapping follows `DataTable`/`RowGroupCollection::AddColumn` and
     `RowGroup::AddColumn`: stable published rows retain their existing columns and a
     simple selected default can use one constant vector, while custom evaluators and
@@ -1098,7 +1110,8 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
     `test/component/alter.rs`, `benchmark/g11_add_column_workloads.json`,
     `test/performance/g11_add_column.test`,
     `benchmark/g11_add_column_sqllogic_workloads.json`,
-    `scripts/{measure_sqllogic_performance.py,test_measure_sqllogic_performance.py}`,
+    `scripts/{measure_sqllogic_performance.py,test_measure_sqllogic_performance.py,
+    alter_reference.py,test_alter_reference.py}`,
     and this entry. Focused checks are `cargo test --offline --test alter`,
     `cargo test --offline --test contracts
     add_default_demand_distinguishes_materialized_and_simple_physical_paths --
@@ -1115,6 +1128,11 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
     `benchmark/native_workloads.json` against both `release` and `development`.
     Run `scripts/alter_reference.py --target release|development` after the final
     release/no-default-features build for independent ALTER checkpoint/WAL exchange.
+    Its report separates the unchanged SQL corpus from the exchange result: both
+    stay fail-closed, so a known pin divergence cannot hide an unexecuted or failed
+    exchange. The exchange's final aggregate is explicitly cast to VARCHAR because
+    the development CLI serializes BIGINT JSON values as strings while the release
+    adapter returns numbers; wrong totals still fail exactly.
     Gate P's exact focused manifest is `benchmark/g11_add_column_workloads.json`:
     50,000 rows, one thread, three warmups and nine alternating paired samples, timed
     `ALTER TABLE t ADD COLUMN added BIGINT DEFAULT 7`, untimed reset and verified
@@ -1140,6 +1158,21 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
     target/g11_add_column_sqllogic_resources.json --samples 21 --warmups 3`.
     Acceptance requires wall latency, invocation throughput, CPU, peak RSS, block
     input and block output to pass independently against the faster pin.
+
+    The resume audit passes all 65 ALTER component tests, the exact default-demand
+    contract and the SQL corpus target. Independent release and development
+    checkpoint/WAL exchanges all pass after transport normalization. Each complete
+    command still exits nonzero because the unchanged corpus exposes one explicit
+    reference divergence per pin: release accepts `DROP NOT NULL` where its corpus
+    expects an error, and development accepts `ADD COLUMN ... NOT NULL` where its
+    corpus expects an error. These are retained divergences, not exchange passes.
+    The final 9-sample full native campaign passed 11/12 workloads but
+    `recursive_correlated` measured 1.121x/1.087x against the faster pin. That
+    workload uses `range(16)`, recursion, a correlated subquery and SUM; it cannot
+    execute persistent-table, ADD COLUMN, physical-slot or stable scan-order code.
+    Re-measure it with 21 quiet-host samples and hand any confirmed regression to
+    its recursion/subquery/aggregation owner; G11 cannot claim full native parity
+    while the shared existing-consumer gate is red.
 
     The default-demand split is pinned-source behavior, not a timing inference.
     Release `src/parser/transform/statement/transform_alter_table.cpp` keeps only a
