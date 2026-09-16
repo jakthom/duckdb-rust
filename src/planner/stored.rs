@@ -4,7 +4,7 @@ use super::{BindContext, Binder};
 use crate::{
     catalog::{
         Catalog,
-        expression::{StoredExpression, StoredExpressionEvaluator},
+        expression::{StoredDefaultValues, StoredExpression, StoredExpressionEvaluator},
     },
     common::{
         DataType, Error, Result, Value,
@@ -86,5 +86,26 @@ impl StoredExpressionEvaluator for SelectedStoredExpressions {
             })?;
         query.check()?;
         Ok(value)
+    }
+
+    fn evaluate_simple_default(
+        &self,
+        expression: &StoredExpression,
+        target: &DataType,
+        catalog: &dyn Catalog,
+        query: &QueryContext,
+        count: usize,
+    ) -> Result<StoredDefaultValues> {
+        if !expression.is_simple_default() {
+            return Err(Error::Internal(
+                "constant ADD evaluation requires a simple default".into(),
+            ));
+        }
+        if count == 0 {
+            return Ok(StoredDefaultValues::Materialized(Vec::new()));
+        }
+        Ok(StoredDefaultValues::Repeated(
+            self.evaluate(expression, target, catalog, query)?,
+        ))
     }
 }

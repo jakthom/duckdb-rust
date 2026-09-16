@@ -1125,6 +1125,13 @@ fn add_default_demand_distinguishes_materialized_and_simple_physical_paths() -> 
         c.execute("ALTER TABLE t ADD COLUMN failed INTEGER DEFAULT CAST('bad' AS INTEGER)")
             .is_err()
     );
+    assert!(
+        c.execute(
+            "ALTER TABLE live ADD COLUMN required INTEGER NOT NULL DEFAULT CAST(NULL AS INTEGER)"
+        )
+        .is_err()
+    );
+    assert_eq!(c.query("SELECT * FROM live ORDER BY i")?.columns.len(), 2);
     c.execute("CHECKPOINT")?;
     c.execute("ALTER TABLE t ADD COLUMN simple INTEGER DEFAULT CAST('bad' AS INTEGER)")?;
     c.execute("INSERT INTO t VALUES (3, 30, 40)")?;

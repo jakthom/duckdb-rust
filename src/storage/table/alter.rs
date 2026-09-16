@@ -1,33 +1,85 @@
 use super::*;
-use crate::{catalog::TableAlteration, common::Value};
+use crate::{
+    catalog::{TableAlteration, expression::StoredDefaultValues},
+    common::Value,
+};
 use std::collections::BTreeMap;
 
 pub(crate) struct PreparedTableAlteration {
     definition: Option<TableDefinition>,
-    /// One result per current physical slot, including deleted slots. Applying
-    /// the same preparation to the transaction's catalog basis consumes its
-    /// corresponding prefix without evaluating the expression again.
-    add_values: Option<Vec<(PhysicalSlot, Value)>>,
+    add_values: Option<PreparedAddValues>,
+}
+
+enum PreparedAddValues {
+    /// Literal defaults use DuckDB's constant-vector path. Retain the source
+    /// slots so applying the same preparation to the transaction's catalog
+    /// basis still verifies its corresponding physical prefix.
+    Constant {
+        source_slots: Arc<Vec<PhysicalSlot>>,
+        value: Value,
+    },
+    /// Non-literal defaults retain one result per current physical slot,
+    /// including deleted slots. The expression is never evaluated again when
+    /// applying this preparation to catalog-basis, current, or WAL state.
+    Materialized(Vec<(PhysicalSlot, Value)>),
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl PreparedTableAlteration {
+    fn validate_add_slots(&self, before: &TableData) -> Result<()> {
+        let Some(resolved) = &self.add_values else {
+            return Ok(());
+        };
+        match resolved {
+            PreparedAddValues::Constant { source_slots, .. } => {
+                if Arc::ptr_eq(source_slots, &before.physical_slots) {
+                    return Ok(());
+                }
+                validate_slot_prefix(
+                    &before.physical_slots,
+                    source_slots.iter().copied(),
+                    source_slots.len(),
+                )
+            }
+            PreparedAddValues::Materialized(values) => validate_slot_prefix(
+                &before.physical_slots,
+                values.iter().map(|(slot, _)| *slot),
+                values.len(),
+            ),
+        }
+    }
+}
+
+fn validate_slot_prefix(
+    before: &[PhysicalSlot],
+    source: impl Iterator<Item = PhysicalSlot>,
+    source_len: usize,
+) -> Result<()> {
+    if source_len < before.len() {
+        return Err(Error::Internal(
+            "ADD COLUMN preparation omits physical slots".into(),
+        ));
+    }
+    for (slot, resolved_slot) in before.iter().zip(source) {
+        if slot.row_id() != resolved_slot.row_id() {
+            return Err(Error::Internal(
+                "ADD COLUMN physical slot identity changed after preparation".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PreparedTableAlteration {
     fn live_add_values(&self, before: &TableData) -> Result<Option<BTreeMap<RowId, Value>>> {
-        let Some(resolved) = &self.add_values else {
+        let Some(PreparedAddValues::Materialized(resolved)) = &self.add_values else {
             return Ok(None);
         };
-        if resolved.len() < before.physical_slots.len() {
-            return Err(Error::Internal(
-                "ADD COLUMN preparation omits physical slots".into(),
-            ));
-        }
+        self.validate_add_slots(before)?;
         let mut values = BTreeMap::new();
         for (slot, (resolved_slot, value)) in before.physical_slots.iter().zip(resolved) {
-            if slot.row_id() != resolved_slot.row_id() {
-                return Err(Error::Internal(
-                    "ADD COLUMN physical slot identity changed after preparation".into(),
-                ));
-            }
+            debug_assert_eq!(slot.row_id(), resolved_slot.row_id());
             if let Some(id) = slot.live() {
                 values.insert(id, value.clone());
             }
@@ -71,35 +123,15 @@ impl Snapshot {
             )));
         }
         let add_values = if let TableAlteration::AddColumn { column, .. } = alteration {
-            let mut values = Vec::with_capacity(before.physical_slots.len());
-            let visible_only = column
-                .default
-                .as_ref()
-                .is_some_and(|expression| !expression.is_simple_default());
-            for &slot in &before.physical_slots {
-                context.check()?;
-                let value = if visible_only && slot.live().is_none() {
-                    // DuckDB rewrites non-simple ADD defaults to ADD NULL,
-                    // UPDATE visible rows, SET DEFAULT. Deleted physical slots
-                    // therefore neither observe effects nor raise failures.
-                    Value::Null
-                } else {
-                    match &column.default {
-                        Some(expression) => match expression.as_literal() {
-                            Some((data_type, value)) if data_type == &column.data_type => {
-                                value.clone()
-                            }
-                            _ => context.stored_expressions()?.evaluate(
-                                expression,
-                                &column.data_type,
-                                self,
-                                context,
-                            )?,
-                        },
-                        None => Value::Null,
-                    }
-                };
-                if !(visible_only && slot.live().is_none()) {
+            let literal = match &column.default {
+                None => Some(Value::Null),
+                Some(expression) => expression
+                    .as_literal()
+                    .filter(|(data_type, _)| *data_type == &column.data_type)
+                    .map(|(_, value)| value.clone()),
+            };
+            if let Some(value) = literal {
+                if !before.physical_slots.is_empty() {
                     self.types
                         .bind(&column.data_type)?
                         .validate(&value, context)?;
@@ -107,9 +139,94 @@ impl Snapshot {
                         return Err(not_null(name, &column.name));
                     }
                 }
-                values.push((slot, value));
+                Some(PreparedAddValues::Constant {
+                    source_slots: before.physical_slots.clone(),
+                    value,
+                })
+            } else if column
+                .default
+                .as_ref()
+                .is_some_and(|expression| expression.is_simple_default())
+            {
+                let expression = column.default.as_ref().expect("checked simple default");
+                match context.stored_expressions()?.evaluate_simple_default(
+                    expression,
+                    &column.data_type,
+                    self,
+                    context,
+                    before.physical_slots.len(),
+                )? {
+                    StoredDefaultValues::Repeated(value) => {
+                        self.types
+                            .bind(&column.data_type)?
+                            .validate(&value, context)?;
+                        if value.is_null() && !column.nullable {
+                            return Err(not_null(name, &column.name));
+                        }
+                        Some(PreparedAddValues::Constant {
+                            source_slots: before.physical_slots.clone(),
+                            value,
+                        })
+                    }
+                    StoredDefaultValues::Materialized(values) => {
+                        if values.len() != before.physical_slots.len() {
+                            return Err(Error::Internal(
+                                "simple ADD default returned the wrong row count".into(),
+                            ));
+                        }
+                        let data_type = self.types.bind(&column.data_type)?;
+                        let mut resolved = Vec::with_capacity(values.len());
+                        for (&slot, value) in before.physical_slots.iter().zip(values) {
+                            data_type.validate(&value, context)?;
+                            if value.is_null() && !column.nullable {
+                                return Err(not_null(name, &column.name));
+                            }
+                            resolved.push((slot, value));
+                        }
+                        Some(PreparedAddValues::Materialized(resolved))
+                    }
+                }
+            } else {
+                let mut values = Vec::with_capacity(before.physical_slots.len());
+                let visible_only = column
+                    .default
+                    .as_ref()
+                    .is_some_and(|expression| !expression.is_simple_default());
+                for &slot in before.physical_slots.iter() {
+                    context.check()?;
+                    let value = if visible_only && slot.live().is_none() {
+                        // DuckDB rewrites non-simple ADD defaults to ADD NULL,
+                        // UPDATE visible rows, SET DEFAULT. Deleted physical slots
+                        // therefore neither observe effects nor raise failures.
+                        Value::Null
+                    } else {
+                        match &column.default {
+                            Some(expression) => match expression.as_literal() {
+                                Some((data_type, value)) if data_type == &column.data_type => {
+                                    value.clone()
+                                }
+                                _ => context.stored_expressions()?.evaluate(
+                                    expression,
+                                    &column.data_type,
+                                    self,
+                                    context,
+                                )?,
+                            },
+                            None => Value::Null,
+                        }
+                    };
+                    if !(visible_only && slot.live().is_none()) {
+                        self.types
+                            .bind(&column.data_type)?
+                            .validate(&value, context)?;
+                        if value.is_null() && !column.nullable {
+                            return Err(not_null(name, &column.name));
+                        }
+                    }
+                    values.push((slot, value));
+                }
+                Some(PreparedAddValues::Materialized(values))
             }
-            Some(values)
         } else {
             None
         };
@@ -129,16 +246,25 @@ impl Snapshot {
     ) -> Result<Option<Vec<(RowId, Row)>>> {
         context.check()?;
         let before = self.get(name)?;
-        let Some(values) = prepared.live_add_values(before)? else {
+        let Some(values) = &prepared.add_values else {
             return Ok(None);
         };
+        prepared.validate_add_slots(before)?;
+        let materialized = prepared.live_add_values(before)?;
         let mut rows = Vec::with_capacity(before.rows.len());
         for (&id, row) in before.rows.iter() {
             context.check()?;
             let mut row = row.to_owned();
-            row.push(values.get(&id).cloned().ok_or_else(|| {
-                Error::Internal("ADD COLUMN preparation omits a live row".into())
-            })?);
+            row.push(match values {
+                PreparedAddValues::Constant { value, .. } => value.clone(),
+                PreparedAddValues::Materialized(_) => materialized
+                    .as_ref()
+                    .and_then(|values| values.get(&id))
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::Internal("ADD COLUMN preparation omits a live row".into())
+                    })?,
+            });
             rows.push((id, row));
         }
         Ok(Some(rows))
@@ -173,12 +299,24 @@ impl Snapshot {
         let mut after = before.clone();
         match alteration {
             TableAlteration::AddColumn { column, .. } => {
-                let values = prepared.live_add_values(before)?.ok_or_else(|| {
+                prepared.validate_add_slots(before)?;
+                match prepared.add_values.as_ref().ok_or_else(|| {
                     Error::Internal("ADD COLUMN has no prepared default values".into())
-                })?;
-                after
-                    .rows
-                    .add_column_values(&column.data_type, &values, context)?;
+                })? {
+                    PreparedAddValues::Constant { value, .. } => {
+                        after
+                            .rows
+                            .add_column_constant(&column.data_type, value, context)?
+                    }
+                    PreparedAddValues::Materialized(_) => {
+                        let values = prepared.live_add_values(before)?.ok_or_else(|| {
+                            Error::Internal("ADD COLUMN has no materialized default values".into())
+                        })?;
+                        after
+                            .rows
+                            .add_column_values(&column.data_type, &values, context)?;
+                    }
+                }
             }
             TableAlteration::DropColumn { column, .. } => {
                 after

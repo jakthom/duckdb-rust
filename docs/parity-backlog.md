@@ -1077,6 +1077,55 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
 - **G11.3 Finish schema changes.** Add ALTER TYPE/USING, nested-field changes and
   remaining object/column modifiers; coordinate indexes, defaults, dependent objects,
   old snapshots and catalog conflict timing.
+  - **G11.3a ADD COLUMN execution cost — ready for integrated verification.** Source
+    mapping follows `DataTable`/`RowGroupCollection::AddColumn` and
+    `RowGroup::AddColumn`: stable published rows retain their existing columns and a
+    simple selected default can use one constant vector, while custom evaluators and
+    non-simple defaults retain materialized physical-slot demand. Physical-slot state
+    is copy-on-write, and scans retain the published ID vector when derived metadata
+    proves physical and logical order match; holes and relocated order keep the
+    ordered-selection path. The non-quiet development diagnostic reduced
+    `alter_add_column` from 177.634x on the immediately preceding literal-only tree
+    (258.8–268.6x initial baseline) to 0.179x. A separate focused dual-pin diagnostic
+    passed both Rust campaigns at no more than 0.238x of the faster C++ median; these
+    runs are diagnostic, not final Gate P.
+    Final quiet dual-pin performance and resource evidence remains open.
+
+    Validation manifest: owned paths are `src/catalog/expression.rs`,
+    `src/planner/stored.rs`, `src/storage/table{.rs,/alter.rs,/rows.rs,/recovery.rs}`,
+    `test/component/alter.rs`, `benchmark/g11_add_column_workloads.json`, and this
+    entry. Focused checks are `cargo test --offline --test alter`,
+    `cargo test --offline --test contracts
+    add_default_demand_distinguishes_materialized_and_simple_physical_paths --
+    --exact`, and `cargo test --offline --test sql sql_logic_corpus -- --exact`.
+    Negative/boundary coverage includes empty and deleted-only tables, literal and
+    one-cast simple defaults, non-simple/custom per-slot results and failures, NOT
+    NULL, differing catalog-basis append/delete prefixes, relocation/holes, old
+    readers, rollback, checkpoint reclamation/failure, WAL and native reopen.
+    Unchanged native workload IDs are `scan`, `filter`, `aggregate`, `point`, `limit`,
+    `correlated_exists`, `recursive_linear`, `recursive_cycle`,
+    `recursive_correlated`, `alter_add_column`, `alter_drop_column`, and
+    `alter_rename_table`; run `scripts/compare_native.py` with nine samples and
+    `benchmark/native_workloads.json` against both `release` and `development`.
+    Run `scripts/alter_reference.py --target release|development` after the final
+    release/no-default-features build for independent ALTER checkpoint/WAL exchange.
+    Gate P's exact focused manifest is `benchmark/g11_add_column_workloads.json`:
+    50,000 rows, one thread, three warmups and nine alternating paired samples, timed
+    `ALTER TABLE t ADD COLUMN added BIGINT DEFAULT 7`, untimed reset and verified
+    `sum(added)=350000`; run both pins then `scripts/fastest_reference.py` on their
+    reports. Preserve wall, CPU, peak-memory and I/O evidence under `target/` and
+    require every applicable metric to beat the faster pin independently.
+
+    The default-demand split is pinned-source behavior, not a timing inference.
+    Release `src/parser/transform/statement/transform_alter_table.cpp` keeps only a
+    bare `ConstantExpression` on the direct ADD path; development
+    `src/parser/peg/transformer/transform_alter.cpp::IsSimpleDefaultValue` additionally
+    admits one non-TRY cast around a constant. Both pins' materialization rewrite is
+    `ADD ... DEFAULT NULL`, visible-row `UPDATE`, then `SET DEFAULT`, so deleted slots
+    are outside non-simple evaluation. Development's unchanged C API tests
+    `ALTER with a non-constant DEFAULT expands and executes fully` and `an error
+    inside an expanded group is sticky and rolls back` assert that expansion and
+    atomic failure; the sequence ADD tests assert per-visible-row values.
 - **G11.4 Verify durable and concurrent behavior.** Exercise prepared mutation,
   rollback, concurrent changes, native serialization and WAL replay for each new
   form. Do not treat in-memory DDL success as durable compatibility.

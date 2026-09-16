@@ -143,6 +143,31 @@ pub trait StoredExpressionEvaluator: Send + Sync {
         catalog: &dyn super::Catalog,
         query: &QueryContext,
     ) -> Result<Value>;
+
+    /// Evaluate a syntactically simple ADD default for every retained physical
+    /// slot. The default preserves one callback per slot for selected/custom
+    /// evaluators; implementations that prove the expression is constant may
+    /// return one repeated value for constant-vector storage.
+    fn evaluate_simple_default(
+        &self,
+        expression: &StoredExpression,
+        target: &DataType,
+        catalog: &dyn super::Catalog,
+        query: &QueryContext,
+        count: usize,
+    ) -> Result<StoredDefaultValues> {
+        let mut values = Vec::with_capacity(count);
+        for _ in 0..count {
+            query.check()?;
+            values.push(self.evaluate(expression, target, catalog, query)?);
+        }
+        Ok(StoredDefaultValues::Materialized(values))
+    }
+}
+
+pub enum StoredDefaultValues {
+    Repeated(Value),
+    Materialized(Vec<Value>),
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

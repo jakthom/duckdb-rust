@@ -14,7 +14,7 @@ use duckdb_rust::{
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
     parallel::{InterruptHandle, QueryContext},
     storage::{
-        TableStorage, TableStorageMut,
+        TableStorage, TableStorageMut, UpdateMetadata,
         checkpoint::{Durability, MemoryDurability},
         format::{JsonSnapshotFormat, SnapshotFormat},
         log::Commit,
@@ -355,6 +355,74 @@ fn transaction_add_resolves_physical_defaults_once_for_snapshot_and_catalog_basi
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn constant_add_accepts_catalog_basis_prefix_and_preserves_old_and_rolled_back_views() -> Result<()>
+{
+    let query = QueryContext::background();
+    let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
+    let table = TableName::main("constant_prefix");
+    let mut seed = manager.begin()?;
+    seed.catalog_mut()?.create_table(
+        TableDefinition {
+            name: table.clone(),
+            columns: vec![ColumnDefinition::new("i", DataType::Integer)],
+            unique_keys: vec![],
+        },
+        false,
+    )?;
+    seed.storage_mut()?.insert(
+        &table,
+        vec![vec![Value::Integer(10)], vec![Value::Integer(20)]],
+        &query,
+    )?;
+    seed.commit()?;
+
+    let old = manager.begin()?;
+    let mut writer = manager.begin()?;
+    writer.storage_mut()?.delete(&table, &[0], &query)?;
+    writer
+        .storage_mut()?
+        .insert(&table, vec![vec![Value::Integer(30)]], &query)?;
+    writer.catalog_mut()?.alter_table(
+        &table,
+        &TableAlteration::AddColumn {
+            column: ColumnDefinition::new("added", DataType::BigInt).with_default(
+                StoredExpression::literal(DataType::BigInt, Value::Integer(7)),
+            ),
+            if_not_exists: false,
+        },
+        &query,
+    )?;
+    assert_eq!(
+        writer.storage().scan(&table, &query)?,
+        vec![
+            (1, vec![Value::Integer(20), Value::Integer(7)]),
+            (2, vec![Value::Integer(30), Value::Integer(7)]),
+        ]
+    );
+    writer.commit()?;
+    assert_eq!(
+        old.storage().scan(&table, &query)?,
+        vec![(0, vec![Value::Integer(10)]), (1, vec![Value::Integer(20)])]
+    );
+
+    let mut rolled_back = manager.begin()?;
+    rolled_back.catalog_mut()?.alter_table(
+        &table,
+        &TableAlteration::AddColumn {
+            column: ColumnDefinition::new("rolled_back", DataType::Integer).with_default(
+                StoredExpression::literal(DataType::Integer, Value::Integer(9)),
+            ),
+            if_not_exists: false,
+        },
+        &query,
+    )?;
+    drop(rolled_back);
+    assert_eq!(manager.begin()?.catalog().table(&table)?.columns.len(), 2);
+    Ok(())
+}
+
 struct ControlledCheckpoint {
     fail: Arc<AtomicBool>,
 }
@@ -465,6 +533,13 @@ fn checkpoint_reclaims_only_after_success_and_old_snapshots_keep_physical_demand
     )?;
     assert_eq!(calls.0.load(Ordering::SeqCst), 2);
     current.commit()?;
+    assert_eq!(
+        manager.begin()?.storage().scan(&table, &query)?,
+        vec![
+            (1, vec![Value::Integer(20), Value::Integer(1)]),
+            (2, vec![Value::Integer(30), Value::Integer(2)]),
+        ]
+    );
     Ok(())
 }
 
@@ -554,6 +629,58 @@ fn scan_order_survives_holes_relocation_snapshots_rollback_and_checkpoint() -> R
         writer.query("SELECT id,added FROM t")?.rows,
         vec![integers(&[3, 7]), integers(&[10, 7])]
     );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn recovered_snapshot_rederives_relocated_physical_order() -> Result<()> {
+    let query = QueryContext::background();
+    let table = TableName::main("relocated");
+    let mut snapshot = Snapshot::default();
+    snapshot.create_table(
+        TableDefinition {
+            name: table.clone(),
+            columns: vec![ColumnDefinition {
+                nullable: false,
+                ..ColumnDefinition::new("id", DataType::Integer)
+            }],
+            unique_keys: vec![duckdb_rust::catalog::UniqueKey {
+                columns: vec![0],
+                primary: true,
+            }],
+        },
+        false,
+    )?;
+    snapshot.insert(
+        &table,
+        vec![
+            vec![Value::Integer(1)],
+            vec![Value::Integer(2)],
+            vec![Value::Integer(3)],
+        ],
+        &query,
+    )?;
+    let metadata = UpdateMetadata::for_table(&snapshot.table(&table)?, vec![0])?;
+    snapshot.update(
+        &table,
+        &metadata,
+        vec![(0, vec![Value::Integer(10)])],
+        &query,
+    )?;
+    let expected = vec![
+        (1, vec![Value::Integer(2)]),
+        (2, vec![Value::Integer(3)]),
+        (0, vec![Value::Integer(10)]),
+    ];
+    assert_eq!(snapshot.scan(&table, &query)?, expected);
+
+    let restored = JsonSnapshotFormat.decode(
+        JsonSnapshotFormat.encode(&snapshot)?,
+        snapshot.type_registry(),
+    )?;
+    assert_eq!(restored.scan(&table, &query)?, expected);
+    restored.validate_with_context(&query)?;
     Ok(())
 }
 
