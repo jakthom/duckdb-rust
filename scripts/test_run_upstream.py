@@ -7,8 +7,8 @@ import tarfile
 from unittest.mock import patch
 
 import sqllogic
-from run_upstream import (cached_files, cached_manifest_matches_source, cached_population, comparable_outcome, extract_source_archive, failure_class,
-                          rewrite_report_argument, run_case, selected_entries, summarize,
+from run_upstream import (cached_files, cached_manifest_matches_source, cached_population, comparable_outcome, extract_source_archive, failure_class, main,
+                          rewrite_report_argument, run_case, selected_entries, selected_feedback_population, selected_path_list, summarize,
                           watch_feedback)
 
 
@@ -47,6 +47,68 @@ class RunUpstreamTests(unittest.TestCase):
             with self.assertRaises(ValueError): selected_entries([{"id": "a", "path": "a.test"}], [], paths)
         with self.assertRaises(ValueError):
             selected_entries([{"id": "a", "path": "a.test"}], ["other/"], None)
+
+    def test_selected_path_list_rejects_empty_duplicates_and_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = Path(directory) / "paths"
+            for content in ("", "a.test\na.test\n", "../a.test\n", "/a.test\n", "a//b.test\n"):
+                paths.write_text(content)
+                with self.assertRaises(ValueError): selected_path_list(paths)
+            paths.write_text("# selected edit\na.test\n")
+            self.assertEqual(selected_path_list(paths), ["a.test"])
+
+    def test_selected_feedback_cache_validates_bytes_metadata_and_pin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); data = b"statement ok\nSELECT 1\n"
+            with patch("run_upstream.selected_source_file", return_value=("pin-a", data)) as source_file:
+                source, manifest, identity = selected_feedback_population("release", ["test/sql/case.test"], root)
+                self.assertEqual(identity["cache"], "created")
+                self.assertEqual(manifest["tests"][0]["path"], "test/sql/case.test")
+                self.assertEqual(sorted(p.relative_to(source).as_posix() for p in source.rglob("*") if p.is_file()), ["test/sql/case.test"])
+                _, _, identity = selected_feedback_population("release", ["test/sql/case.test"], root)
+                self.assertEqual(identity["cache"], "validated")
+                (source / "test/sql/case.test").write_text("tampered")
+                rebuilt, _, identity = selected_feedback_population("release", ["test/sql/case.test"], root)
+                self.assertEqual(identity["cache"], "created")
+                self.assertEqual((rebuilt / "test/sql/case.test").read_bytes(), data)
+                metadata = next(root.glob("selected-feedback/release/*/suite.json"))
+                saved = __import__("json").loads(metadata.read_text()); saved["manifest"]["counts"] = {}
+                metadata.write_text(__import__("json").dumps(saved))
+                _, _, identity = selected_feedback_population("release", ["test/sql/case.test"], root)
+                self.assertEqual(identity["cache"], "created")
+                self.assertGreaterEqual(source_file.call_count, 4)
+            with patch("run_upstream.selected_source_file", side_effect=[("pin-a", data), ("pin-b", data)]):
+                with self.assertRaisesRegex(ValueError, "revision changed"):
+                    selected_feedback_population("release", ["a.test", "b.test"], root)
+
+    def test_selected_feedback_does_not_supply_an_unlisted_fixture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sql = b"statement ok\nCOPY t FROM '__SOURCE_DIR__/fixture.csv'\n"
+            with patch("run_upstream.selected_source_file", return_value=("pin-a", sql)):
+                source, manifest, _ = selected_feedback_population("release", ["case.test"], root)
+            self.assertFalse((source / "fixture.csv").exists())
+            worker = root / "worker"
+            worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin:\n r=json.loads(line); print(json.dumps({'ok': 'fixture.csv' not in r.get('sql',''), 'message': 'missing fixture'}), flush=True)\n")
+            worker.chmod(worker.stat().st_mode | stat.S_IXUSR)
+            outcome = run_case(worker, source, manifest["tests"][0], 2)
+            self.assertEqual(outcome["status"], "failed")
+
+    def test_prebuilt_path_list_uses_selected_feedback_not_full_population(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); source = root / "source"; source.mkdir()
+            (source / "case.test").write_text("statement ok\nSELECT 1\n")
+            worker, paths, report = root / "worker", root / "paths", root / "report.json"
+            worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin: print(json.dumps({'ok':True}),flush=True)\n")
+            worker.chmod(worker.stat().st_mode | stat.S_IXUSR); paths.write_text("case.test\n")
+            manifest = {"files": cached_files(source), "tests": [{"id":"case.test", "kind":"sqllogictest", "path":"case.test", "line":1}], "counts":{"sqllogictest":1}}
+            with patch("run_upstream.cached_population", side_effect=AssertionError("must not materialize full suite")), \
+                 patch("run_upstream.selected_feedback_population", return_value=(source, manifest, {"kind":"selected_feedback", "revision":"pin", "cache":"validated"})), \
+                 patch("run_upstream.sys.argv", ["run_upstream.py", "--target", "release", "--worker", str(worker), "--path-list", str(paths), "--report", str(report), "--suite-cache", str(root / "cache")]):
+                main()
+            saved = __import__("json").loads(report.read_text())
+            self.assertEqual(saved["campaign_kind"], "selected-feedback")
+            self.assertFalse(saved["populations"]["release"]["full_suite_passed"])
 
     def test_run_case_counts_sent_sql_and_source_reach_honestly(self):
         with tempfile.TemporaryDirectory() as d:
@@ -155,8 +217,9 @@ class RunUpstreamTests(unittest.TestCase):
                  patch("run_upstream.time.sleep"), patch("run_upstream.subprocess.run", side_effect=child):
                 with self.assertRaises(KeyboardInterrupt): watch_feedback(args)
             self.assertEqual(len(calls), 2)
-            self.assertEqual(calls[0][-1], f"--report={report}")
-            self.assertEqual(calls[1][-1], f"--report={report.with_name('watch.watch-1.json')}")
+            self.assertIn(f"--report={report}", calls[0])
+            self.assertIn(f"--report={report.with_name('watch.watch-1.json')}", calls[1])
+            self.assertIn("--feedback-watch-child", calls[0])
 
     def test_report_argument_rewrite_rejects_missing_and_handles_split_form(self):
         command = ["--report", "old.json"]

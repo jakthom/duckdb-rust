@@ -335,6 +335,9 @@ def watch_feedback(args):
     """Continuously rerun settled edits; each child retains a distinct report."""
     original = list(sys.argv[1:])
     original.remove("--watch")
+    # Preserve the public watch intent in its one-shot children. A plain
+    # release --path-list remains a full-population campaign for accounting.
+    original.append("--feedback-watch-child")
     index = 0
     while True:
         # A change resets the debounce interval rather than starting an
@@ -374,7 +377,7 @@ def rewrite_report_argument(command, report):
 
 
 def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):
-    allowed = None if not path_list else {x.strip() for x in path_list.read_text().splitlines() if x.strip() and not x.startswith("#")}
+    allowed = None if not path_list else set(selected_path_list(path_list))
     if allowed is not None:
         unknown = allowed - {e["path"] for e in sql}
         if unknown: raise ValueError(f"path list contains unknown upstream paths: {sorted(unknown)[:5]}")
@@ -385,6 +388,90 @@ def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):
     selected = [e for e in sql if (not prefixes or any(e["path"].startswith(p) for p in prefixes)) and (allowed is None or e["path"] in allowed)]
     if not selected: raise ValueError("selection contains no upstream SQL files")
     return selected
+
+
+def selected_path_list(path_list):
+    """Exact, safe feedback paths; duplicates cannot disguise a reduced run."""
+    paths, seen = [], set()
+    for raw in path_list.read_text().splitlines():
+        path = raw.strip()
+        if not path or path.startswith("#"):
+            continue
+        parsed = PurePosixPath(path)
+        if (parsed.is_absolute() or ".." in parsed.parts or parsed.as_posix() != path
+                or "\x00" in path or path in seen):
+            raise ValueError("path list contains unsafe or duplicate upstream path: " + path)
+        seen.add(path); paths.append(path)
+    if not paths:
+        raise ValueError("selection contains no upstream SQL files")
+    return paths
+
+
+def selected_source_file(target, path):
+    """Read one trusted pinned source file without extracting the full suite."""
+    if target == "release":
+        revision = require_checkout(TARGETS[target].source, target)
+        try:
+            data = subprocess.check_output(["git", "show", f"{revision}:{path}"], cwd=TARGETS[target].source)
+        except subprocess.CalledProcessError as error:
+            raise ValueError("selected upstream path is absent from pinned release: " + path) from error
+        return revision, data
+    manifest = json.loads((DESTINATION / "manifest.json").read_text())
+    if manifest.get("revision") != REVISION:
+        raise ValueError("unexpected retained development revision")
+    expected = {entry["path"]: entry for entry in manifest.get("files", [])}.get(path)
+    if not expected or expected.get("kind") != "file":
+        raise ValueError("selected upstream path is absent from retained development source: " + path)
+    archive_name = manifest.get("archive")
+    if not isinstance(archive_name, str) or PurePosixPath(archive_name).name != archive_name:
+        raise ValueError("retained development archive name is unsafe")
+    with tarfile.open(DESTINATION / archive_name) as archive:
+        try:
+            member = archive.getmember(path)
+        except KeyError as error:
+            raise ValueError("retained development archive omits selected path: " + path) from error
+        if not member.isfile(): raise ValueError("selected development path is not a regular file: " + path)
+        data = archive.extractfile(member).read()
+    if hashlib.sha256(data).hexdigest() != expected.get("sha256"):
+        raise ValueError("selected development source hash differs: " + path)
+    return REVISION, data
+
+
+def selected_feedback_population(target, paths, cache_root):
+    """Small, hash-validated source root for explicit debug/prebuilt feedback."""
+    fetched = [(*selected_source_file(target, path), path) for path in paths]
+    revisions = {revision for revision, _, _ in fetched}
+    if len(revisions) != 1: raise ValueError("selected source revision changed during feedback setup")
+    revision = revisions.pop()
+    files = [{"path": path, "kind": "file", "sha256": hashlib.sha256(data).hexdigest()}
+             for _, data, path in fetched]
+    identity = {"target": target, "revision": revision, "paths": paths, "files": files}
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    root = cache_root / "selected-feedback" / target / key
+    metadata = root / "suite.json"
+    if metadata.exists():
+        try:
+            saved = json.loads(metadata.read_text())
+            if (saved.get("identity") != identity or not cached_manifest_matches_source(root / "source", saved.get("manifest"))):
+                raise ValueError("selected feedback cache differs")
+            return root / "source", saved["manifest"], {"kind": "selected_feedback", **identity, "cache": "validated"}
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            shutil.rmtree(root, ignore_errors=True)
+    root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="ddb-upstream-selected-", dir=root.parent) as temporary:
+        staging = Path(temporary) / "ready"; source = staging / "source"
+        tests = []
+        for _, data, path in fetched:
+            destination = source / path; destination.parent.mkdir(parents=True, exist_ok=True); destination.write_bytes(data)
+            entries = declarations(path, data)
+            if len(entries) != 1 or entries[0].get("kind") != "sqllogictest":
+                raise ValueError("selected feedback path is not one SQLLogic file: " + path)
+            tests.extend(entries)
+        manifest = {"revision": revision, "files": files, "tests": tests,
+                    "counts": dict(Counter(test["kind"] for test in tests))}
+        (staging / "suite.json").write_text(json.dumps({"identity": identity, "manifest": manifest}, sort_keys=True) + "\n")
+        os.replace(staging, root)
+    return root / "source", manifest, {"kind": "selected_feedback", **identity, "cache": "created"}
 
 
 def main():
@@ -399,6 +486,7 @@ def main():
     parser.add_argument("--suite-cache", type=Path, default=ROOT / "target/upstream-suite-cache",
                         help="worktree-local, hash-validated extracted-suite cache")
     parser.add_argument("--watch", action="store_true", help="continuously debounce edits and run one locked validation per settled source state")
+    parser.add_argument("--feedback-watch-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--debounce-seconds", type=float, default=0.25)
     args = parser.parse_args()
     if args.watch:
@@ -409,6 +497,11 @@ def main():
     if args.report.exists() or journal.exists(): raise FileExistsError("choose a new report path; retain earlier failures")
     if args.timeout <= 0 or not 1 <= args.jobs <= 8 or args.debounce_seconds < 0 or (args.watch and args.debounce_seconds <= 0): raise ValueError("positive timeout, 1..8 workers, and positive watch debounce required")
     if args.compare_release and (not args.debug_worker or args.worker): raise ValueError("--compare-release requires a built debug worker")
+    # This deliberately narrow path is an edit-feedback operation, not a way to
+    # make a full-suite campaign appear complete.  It keeps worker/cache costs in
+    # the caller-visible path while avoiding 14k unrelated source files.
+    feedback_paths = (selected_path_list(args.path_list)
+                      if args.path_list and (args.debug_worker or args.worker or args.feedback_watch_child) else None)
     lock_handle = acquire_validation_lock(args.suite_cache)
     source_before = validation_fingerprint()
     if args.worker:
@@ -422,23 +515,33 @@ def main():
     for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "test/runner/worker.rs"]):
         source_hash.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
     targets = ("development", "release") if args.target == "both" else (args.target,)
-    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "rust_source_sha256": source_hash.hexdigest(), "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign."}
+    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "rust_source_sha256": source_hash.hexdigest(), "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "campaign_kind": "selected-feedback" if feedback_paths else "suite-campaign", "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign." + (" Selected-feedback is deliberately not full-suite acceptance." if feedback_paths else "")}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with journal.open("x") as progress:
         progress.write(json.dumps({"event": "started", "metadata": report}) + "\n"); progress.flush()
         for target in targets:
-            source, manifest, identity = cached_population(target, args.suite_cache); sql = [e for e in manifest["tests"] if e["kind"] == "sqllogictest"]; selected = selected_entries(sql, args.path_prefix, args.path_list, args.retry_timeouts_from, target)
-            population = {"identity": identity, "inventory": manifest["counts"], "sql_files_total": len(sql), "selected": selected, "sql_files_selected": len(selected), "results": [], "unported": [e for e in manifest["tests"] if e["kind"] != "sqllogictest"], "obligations": {scope: "unverified" for scope in REQUIRED_SCOPES}}
+            if feedback_paths:
+                source, manifest, identity = selected_feedback_population(target, feedback_paths, args.suite_cache)
+            else:
+                source, manifest, identity = cached_population(target, args.suite_cache)
+            sql = [e for e in manifest["tests"] if e["kind"] == "sqllogictest"]
+            selected = selected_entries(sql, args.path_prefix, args.path_list, args.retry_timeouts_from, target)
+            population = {"identity": identity, "inventory": manifest["counts"], "sql_files_total": len(sql), "selected": selected, "sql_files_selected": len(selected), "results": [], "unported": [e for e in manifest["tests"] if e["kind"] != "sqllogictest"], "obligations": {scope: "unverified" for scope in REQUIRED_SCOPES}, "selection_kind": "selected-feedback" if feedback_paths else "suite"}
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
                 for outcome in pool.map(lambda e: run_case(binary, source, e, args.timeout), selected):
                     population["results"].append(outcome); progress.write(json.dumps({"event": "result", "target": target, **outcome}) + "\n"); progress.flush()
                     if len(population["results"]) % 250 == 0: print(f"{target}: {len(population['results'])}/{len(selected)} files recorded", flush=True)
-            population.update(summarize(sql, selected, population["results"], population["unported"], population["obligations"])); report["populations"][target] = population
+            population.update(summarize(sql, selected, population["results"], population["unported"], population["obligations"]))
+            if feedback_paths:
+                population["sql_suite_passed"] = False
+                population["full_suite_passed"] = False
+            report["populations"][target] = population
     if args.compare_release:
         release_build, release_binary = worker_build(False)
         compared = {"rust_build_command": release_build, "rust_binary_sha256": digest(release_binary), "targets": {}}
         for target, population in report["populations"].items():
-            source, _, _ = cached_population(target, args.suite_cache)
+            source, _, _ = (selected_feedback_population(target, feedback_paths, args.suite_cache)
+                            if feedback_paths else cached_population(target, args.suite_cache))
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
                 release_results = list(pool.map(lambda e: run_case(release_binary, source, e, args.timeout), population["selected"]))
             differences = [(comparable_outcome(debug), comparable_outcome(release)) for debug, release in zip(population["results"], release_results) if comparable_outcome(debug) != comparable_outcome(release)]
