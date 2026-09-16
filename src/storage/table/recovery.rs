@@ -31,9 +31,11 @@ impl Snapshot {
         for slot in slots {
             context.check()?;
             let (physical_slot, row) = match slot {
-                RestoredSlot::Live(id, row) => (PhysicalSlot::Live(id), Some(row)),
-                RestoredSlot::Deleted(id) => (PhysicalSlot::Deleted(id), None),
+                RestoredSlot::Live(id, row) => (PhysicalSlot::present(id), Some(row)),
+                RestoredSlot::Deleted(id) => (PhysicalSlot::deleted(id), None),
             };
+            let physical_slot = physical_slot
+                .map_err(|_| Error::Corrupt("invalid restored row identity".into()))?;
             let id = physical_slot.row_id();
             if id >= next_id
                 || !physical.insert(id)
@@ -112,7 +114,7 @@ impl RecoveryTarget for Snapshot {
                             .checked_add(1)
                             .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
                         table.rows.insert(id, row.clone());
-                        Arc::make_mut(&mut table.physical_slots).push(PhysicalSlot::Live(id));
+                        Arc::make_mut(&mut table.physical_slots).push(PhysicalSlot::present(id)?);
                     }
                 }
                 RecoveredChange::Delete { table, ids } => {
@@ -125,13 +127,11 @@ impl RecoveryTarget for Snapshot {
                         if table.rows.remove(id).is_some() {
                             let slot = Arc::make_mut(&mut table.physical_slots)
                                 .iter_mut()
-                                .find(|slot| {
-                                    matches!(slot, PhysicalSlot::Live(row_id) if row_id == id)
-                                })
+                                .find(|slot| slot.live() == Some(*id))
                                 .ok_or_else(|| {
                                     Error::Corrupt("live row has no physical slot".into())
                                 })?;
-                            *slot = PhysicalSlot::Deleted(*id);
+                            *slot = PhysicalSlot::deleted(*id)?;
                         }
                     }
                 }

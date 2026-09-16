@@ -89,29 +89,108 @@ struct TableData {
     indexes: Vec<Arc<dyn KeyIndex>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum PhysicalSlot {
+/// A physical row identity plus its visibility bit.  This deliberately uses
+/// one machine word: a table already retains the live identity column, and a
+/// second 16-byte enum for every physical row made append-heavy CTAS tables
+/// retain substantially more provenance than the actual values require.
+///
+/// Row identities reserve their high bit while they are retained as physical
+/// slots.  The public identity space is still enormous; attempting to enter
+/// the reserved half reports a resource error rather than aliasing a deleted
+/// slot.  Native layouts and WAL entries continue to carry the original ID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PhysicalSlot(RowId);
+
+#[derive(Serialize, Deserialize)]
+enum SerializedPhysicalSlot {
     Live(RowId),
     Deleted(RowId),
 }
 
+const DELETED_SLOT_BIT: RowId = RowId::MAX ^ (RowId::MAX >> 1);
+const PHYSICAL_ROW_ID_MAX: RowId = DELETED_SLOT_BIT - 1;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn missing_physical_slots() -> Arc<Vec<PhysicalSlot>> {
-    Arc::new(vec![PhysicalSlot::Deleted(RowId::MAX)])
+    // This legacy-field marker is never a physical slot. It lets old JSON
+    // snapshots distinguish an omitted field from an empty table.
+    Arc::new(vec![PhysicalSlot(RowId::MAX)])
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PhysicalSlot {
-    fn row_id(self) -> RowId {
-        match self {
-            Self::Live(id) | Self::Deleted(id) => id,
+    fn present(id: RowId) -> Result<Self> {
+        if id > PHYSICAL_ROW_ID_MAX {
+            return Err(Error::Resource("physical row identity exhausted".into()));
         }
+        Ok(Self(id))
+    }
+    fn deleted(id: RowId) -> Result<Self> {
+        if id > PHYSICAL_ROW_ID_MAX {
+            return Err(Error::Resource("physical row identity exhausted".into()));
+        }
+        Ok(Self(id | DELETED_SLOT_BIT))
+    }
+    fn row_id(self) -> RowId {
+        self.0 & PHYSICAL_ROW_ID_MAX
     }
     fn live(self) -> Option<RowId> {
-        match self {
-            Self::Live(id) => Some(id),
-            Self::Deleted(_) => None,
+        (self.0 & DELETED_SLOT_BIT == 0).then_some(self.0)
+    }
+    fn is_deleted(self) -> bool {
+        self.0 & DELETED_SLOT_BIT != 0
+    }
+}
+
+impl Serialize for PhysicalSlot {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        let state = if self.is_deleted() {
+            SerializedPhysicalSlot::Deleted(self.row_id())
+        } else {
+            SerializedPhysicalSlot::Live(self.row_id())
+        };
+        state.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for PhysicalSlot {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        match SerializedPhysicalSlot::deserialize(deserializer)? {
+            SerializedPhysicalSlot::Live(id) => Self::present(id),
+            SerializedPhysicalSlot::Deleted(id) => Self::deleted(id),
         }
+        .map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod physical_slot_tests {
+    use super::*;
+
+    #[test]
+    fn compact_physical_slots_retain_visibility_identity_and_json_contract() -> Result<()> {
+        assert_eq!(
+            std::mem::size_of::<PhysicalSlot>(),
+            std::mem::size_of::<RowId>()
+        );
+        let live = PhysicalSlot::present(42)?;
+        let deleted = PhysicalSlot::deleted(42)?;
+        assert_eq!(live.live(), Some(42));
+        assert!(!live.is_deleted());
+        assert_eq!(deleted.live(), None);
+        assert!(deleted.is_deleted());
+        assert_eq!(deleted.row_id(), 42);
+        // Keep the snapshot's previous tagged JSON representation readable.
+        let restored: PhysicalSlot = serde_json::from_str(r#"{"Deleted":42}"#).unwrap();
+        assert_eq!(restored, deleted);
+        assert_eq!(serde_json::to_string(&live).unwrap(), r#"{"Live":42}"#);
+        assert!(PhysicalSlot::present(DELETED_SLOT_BIT).is_err());
+        Ok(())
     }
 }
 
@@ -176,9 +255,9 @@ impl Snapshot {
                     (0..table.next_id)
                         .map(|id| {
                             if table.rows.contains_key(&id) {
-                                PhysicalSlot::Live(id)
+                                PhysicalSlot::present(id).expect("restored identity was validated")
                             } else {
-                                PhysicalSlot::Deleted(id)
+                                PhysicalSlot::deleted(id).expect("restored identity was validated")
                             }
                         })
                         .collect(),
@@ -268,8 +347,9 @@ impl Snapshot {
                 table
                     .physical_slots
                     .iter()
-                    .filter_map(|slot| slot.live().map(PhysicalSlot::Live))
-                    .collect(),
+                    .filter_map(|slot| slot.live().map(PhysicalSlot::present))
+                    .collect::<Result<Vec<_>>>()
+                    .expect("existing physical identities remain representable"),
             );
         }
         compacted
@@ -290,10 +370,7 @@ impl Snapshot {
                 let deleted = table
                     .physical_slots
                     .iter()
-                    .filter_map(|slot| match slot {
-                        PhysicalSlot::Deleted(id) => Some(*id),
-                        PhysicalSlot::Live(_) => None,
-                    })
+                    .filter_map(|slot| slot.is_deleted().then_some(slot.row_id()))
                     .collect::<HashSet<_>>();
                 (name, deleted)
             })
@@ -322,9 +399,8 @@ impl Snapshot {
                 continue;
             }
             if let Some(table) = result.tables.get_mut(&name.key()) {
-                Arc::make_mut(&mut Arc::make_mut(table).physical_slots).retain(
-                    |slot| !matches!(slot, PhysicalSlot::Deleted(id) if deleted.contains(id)),
-                );
+                Arc::make_mut(&mut Arc::make_mut(table).physical_slots)
+                    .retain(|slot| !(slot.is_deleted() && deleted.contains(&slot.row_id())));
             }
         }
         result
@@ -1169,7 +1245,7 @@ impl TableStorageMut for Snapshot {
                 .checked_add(1)
                 .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
             next.rows.insert(id, row);
-            Arc::make_mut(&mut next.physical_slots).push(PhysicalSlot::Live(id));
+            Arc::make_mut(&mut next.physical_slots).push(PhysicalSlot::present(id)?);
         }
         next.validate(
             self.indexes.as_ref(),
@@ -1209,7 +1285,7 @@ impl TableStorageMut for Snapshot {
                 .checked_add(1)
                 .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
             ids.push(id);
-            Arc::make_mut(&mut next.physical_slots).push(PhysicalSlot::Live(id));
+            Arc::make_mut(&mut next.physical_slots).push(PhysicalSlot::present(id)?);
         }
         let types = next
             .definition
@@ -1252,12 +1328,12 @@ impl TableStorageMut for Snapshot {
             for (id, _) in &rows {
                 let slot = Arc::make_mut(&mut next.physical_slots)
                     .iter_mut()
-                    .find(|slot| matches!(slot, PhysicalSlot::Live(row_id) if row_id == id))
+                    .find(|slot| slot.live() == Some(*id))
                     .ok_or_else(|| {
                         Error::Internal("updated row has no live physical slot".into())
                     })?;
-                *slot = PhysicalSlot::Deleted(*id);
-                relocated.push(PhysicalSlot::Live(*id));
+                *slot = PhysicalSlot::deleted(*id)?;
+                relocated.push(PhysicalSlot::present(*id)?);
             }
             Arc::make_mut(&mut next.physical_slots).extend(relocated);
             if count != 0 {
@@ -1285,9 +1361,9 @@ impl TableStorageMut for Snapshot {
             if next.rows.remove(id).is_some() {
                 let slot = Arc::make_mut(&mut next.physical_slots)
                     .iter_mut()
-                    .find(|slot| matches!(slot, PhysicalSlot::Live(row_id) if row_id == id))
+                    .find(|slot| slot.live() == Some(*id))
                     .ok_or_else(|| Error::Internal("live row has no physical slot".into()))?;
-                *slot = PhysicalSlot::Deleted(*id);
+                *slot = PhysicalSlot::deleted(*id)?;
                 count += 1;
             }
         }
