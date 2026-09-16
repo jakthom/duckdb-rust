@@ -412,6 +412,14 @@ pub trait AggregateFunction: Debug + Send + Sync {
         arguments: &[DataType],
         types: &crate::common::type_registry::TypeRegistry,
     ) -> Result<Box<dyn AggregateState>>;
+    /// True proves that `AggregateState::update_batch` cannot produce a
+    /// data-dependent error for any valid column of these bound types.
+    /// Executors may then update complete aggregate columns in function order
+    /// after every argument expression has succeeded. Infrastructure failures
+    /// such as cancellation remain possible.
+    fn batch_update_is_total(&self, _arguments: &[DataType]) -> bool {
+        false
+    }
     /// Optional partition evaluation through the same window contract. None
     /// requests the generic frame evaluator; callers never inspect function names.
     fn evaluate_window(

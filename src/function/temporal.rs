@@ -5,6 +5,7 @@ use crate::{
     common::{
         DataType, Date, Error, NestedPayload, NestedType, Result, TemporalValue, Value,
         temporal::{MICROS_PER_DAY, timestamp_from_calendar},
+        vector::{DataChunk, Vector},
     },
     parallel::QueryContext,
 };
@@ -412,6 +413,60 @@ impl ScalarFunction for TemporalFunction {
         }
         Ok(result)
     }
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        if self.name != "make_date"
+            || arguments.columns().len() != 1
+            || !matches!(arguments.columns()[0].data_type(), DataType::Nested(_))
+        {
+            return Ok(None);
+        }
+        let column = &arguments.columns()[0];
+        if let Some(value) = column.constant_value() {
+            return Vector::constant(DataType::Date, make_date_struct_value(value)?, column.len())
+                .map(Some);
+        }
+        if let Some((parent, selection)) = column.dictionary()
+            && parent.len() <= column.len() / 4
+        {
+            let mut entries = vec![usize::MAX; parent.len()];
+            let mut values = Vec::with_capacity(parent.len());
+            let mut mapped = Vec::with_capacity(selection.len());
+            for (offset, &source) in selection.iter().enumerate() {
+                if offset % 1024 == 0 {
+                    query.check()?;
+                }
+                let entry = if entries[source] == usize::MAX {
+                    let value = make_date_struct_value(
+                        parent.get(source).expect("validated dictionary index"),
+                    )?;
+                    let entry = values.len();
+                    entries[source] = entry;
+                    values.push(value);
+                    entry
+                } else {
+                    entries[source]
+                };
+                mapped.push(entry);
+            }
+            query.check()?;
+            return Arc::new(Vector::flat(DataType::Date, values)?)
+                .select(mapped)
+                .map(Some);
+        }
+        let mut values = Vec::with_capacity(column.len());
+        for (index, value) in column.values().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            values.push(make_date_struct_value(value)?);
+        }
+        query.check()?;
+        Vector::flat(DataType::Date, values).map(Some)
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -480,30 +535,41 @@ fn make_date_struct(argument: &Value) -> Option<Result<Date>> {
     if values.iter().any(Value::is_null) {
         return None;
     }
-    Some(
-        values
-            .iter()
-            .map(Value::as_i128)
-            .collect::<Result<Vec<_>>>()
-            .and_then(|fields| {
-                // `FromDateCast<int64_t>` in both pinned make_date.cpp files
-                // first applies checked INT64 -> INT32 casts to *each* field.
-                // Do not turn those cast failures into a calendar error.
-                let fields = fields
-                    .into_iter()
-                    .map(make_date_struct_int32)
-                    .collect::<Result<Vec<_>>>()?;
-                let date_error = || {
-                    Error::Conversion(format!(
-                        "Date out of range: {}-{}-{}",
-                        fields[0], fields[1], fields[2]
-                    ))
-                };
-                let month = u8::try_from(fields[1]).map_err(|_| date_error())?;
-                let day = u8::try_from(fields[2]).map_err(|_| date_error())?;
-                Date::from_ymd(fields[0], month, day).map_err(|_| date_error())
-            }),
-    )
+    if values.len() != 3 {
+        return Some(Err(Error::Internal("make_date STRUCT arity".into())));
+    }
+    Some((|| {
+        let fields = [
+            values[0].as_i128()?,
+            values[1].as_i128()?,
+            values[2].as_i128()?,
+        ];
+        // `FromDateCast<int64_t>` in both pinned make_date.cpp files first
+        // applies checked INT64 -> INT32 casts to every field. Preserve that
+        // error order without allocating temporary vectors per input row.
+        let fields = [
+            make_date_struct_int32(fields[0])?,
+            make_date_struct_int32(fields[1])?,
+            make_date_struct_int32(fields[2])?,
+        ];
+        let date_error = || {
+            Error::Conversion(format!(
+                "Date out of range: {}-{}-{}",
+                fields[0], fields[1], fields[2]
+            ))
+        };
+        let month = u8::try_from(fields[1]).map_err(|_| date_error())?;
+        let day = u8::try_from(fields[2]).map_err(|_| date_error())?;
+        Date::from_ymd(fields[0], month, day).map_err(|_| date_error())
+    })())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn make_date_struct_value(argument: &Value) -> Result<Value> {
+    if argument.is_null() {
+        return Ok(Value::Null);
+    }
+    make_date_struct(argument).map_or(Ok(Value::Null), |date| date.map(Value::Date))
 }
 
 /// The STRUCT overload has BIGINT children but its pinned implementation calls

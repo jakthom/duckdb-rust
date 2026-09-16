@@ -76,6 +76,14 @@ impl AggregateFunction for Builtin {
             seen: false,
         }))
     }
+    fn batch_update_is_total(&self, args: &[DataType]) -> bool {
+        self.0 == "count"
+            || (self.0 == "sum"
+                && args
+                    .first()
+                    .and_then(SumKernel::bind)
+                    .is_some_and(|kernel| kernel.supports_count(usize::MAX)))
+    }
     fn evaluate_window(
         &self,
         input: &super::window::WindowInput<'_>,
@@ -130,6 +138,16 @@ impl AggregateState for State {
         context: &crate::parallel::QueryContext,
     ) -> Result<()> {
         context.check()?;
+        if self.name == "count" && column.all_valid() {
+            self.count = self
+                .count
+                .checked_add(column.len() as i128)
+                .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+            return Ok(());
+        }
+        if self.name == "sum" && self.sum_repeated(column, context)? {
+            return Ok(());
+        }
         if self.name == "sum" && self.sum_dense(column, context)? {
             return Ok(());
         }
@@ -279,6 +297,59 @@ impl AggregateState for State {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State {
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    /// A constant column, or a dictionary whose physical entries all carry
+    /// one coefficient, has a closed-form exact SUM. Restrict this to domains
+    /// whose entire process-sized input population fits the accumulator, so
+    /// replacing row-order additions cannot change overflow timing.
+    fn sum_repeated(
+        &mut self,
+        column: &crate::common::vector::Vector,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<bool> {
+        let Some(kernel) = SumKernel::bind(column.data_type())
+            .filter(|kernel| kernel.result_type() == self.data_type)
+            .filter(|kernel| kernel.supports_count(usize::MAX))
+        else {
+            return Ok(false);
+        };
+        let repeated = if let Some(value) = column.constant_value() {
+            kernel.coefficient(value)
+        } else if column.all_valid()
+            && let Some((parent, _)) = column.dictionary()
+        {
+            let mut values = parent.values();
+            let first = values.next().and_then(|value| kernel.coefficient(value));
+            first.filter(|first| {
+                values.all(|value| kernel.coefficient(value).as_ref() == Some(first))
+            })
+        } else {
+            None
+        };
+        let Some(repeated) = repeated else {
+            return Ok(false);
+        };
+        let contribution = repeated
+            .checked_mul(column.len() as i128)
+            .ok_or_else(|| Error::Execution("sum overflow".into()))?;
+        let sum = match self.value {
+            Value::Null => contribution,
+            Value::Integer(value) => value
+                .checked_add(contribution)
+                .ok_or_else(|| Error::Execution("sum overflow".into()))?,
+            Value::Decimal { value, .. } => value
+                .checked_add(contribution)
+                .filter(|value| kernel.valid_sum(*value))
+                .ok_or_else(|| Error::Execution("sum overflow".into()))?,
+            _ => return Ok(false),
+        };
+        if !column.is_empty() {
+            self.value = kernel.value(sum);
+        }
+        context.check()?;
+        Ok(true)
+    }
+
     /// PRODUCT's selected DOUBLE overload can consume a validated dense column
     /// without rebuilding one-value argument rows or dispatching the aggregate
     /// callback for every input. Iteration remains in source order so IEEE

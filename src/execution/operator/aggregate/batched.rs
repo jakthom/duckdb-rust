@@ -241,6 +241,15 @@ fn try_ungrouped(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
+    let batch_updates_are_total = functions.iter().all(|function| {
+        function.function.batch_update_is_total(
+            &function
+                .arguments
+                .iter()
+                .map(|argument| argument.data_type.clone())
+                .collect::<Vec<_>>(),
+        )
+    });
     let mut states = functions
         .iter()
         .map(|function| {
@@ -285,17 +294,23 @@ fn try_ungrouped(
             }
             Err(error) => return Err(error),
         };
-        for row in 0..batch.len() {
-            if row % 1024 == 0 {
-                context.query.check()?;
+        if batch_updates_are_total {
+            for (arguments, state) in evaluated.iter().zip(states.iter_mut()) {
+                state.update_batch(arguments, context.query)?;
             }
-            for ((arguments, state), values) in evaluated
-                .iter()
-                .zip(states.iter_mut())
-                .zip(argument_rows.iter_mut())
-            {
-                arguments.read_row(row, values)?;
-                state.update(values, context.query)?;
+        } else {
+            for row in 0..batch.len() {
+                if row % 1024 == 0 {
+                    context.query.check()?;
+                }
+                for ((arguments, state), values) in evaluated
+                    .iter()
+                    .zip(states.iter_mut())
+                    .zip(argument_rows.iter_mut())
+                {
+                    arguments.read_row(row, values)?;
+                    state.update(values, context.query)?;
+                }
             }
         }
     }
