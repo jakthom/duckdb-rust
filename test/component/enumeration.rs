@@ -266,12 +266,10 @@ fn enum_range_boundary_references_the_first_physical_batch_row() -> Result<()> {
         );
         c.execute("CREATE TABLE null_order(v DOUBLE,k VARCHAR); INSERT INTO null_order VALUES (NULL,'enum_bad')")?;
         let flat_null = "SELECT pow(v,length(enum_range_boundary(k::ENUM('z','a'),NULL)::VARCHAR)) FROM null_order";
-        for sql in [flat_null] {
-            let error = c.query(sql).unwrap_err();
-            assert!(error.to_string().contains("enum_bad"), "{error}");
-            let error = c.execute_prepared(&c.prepare(sql)?, &[]).unwrap_err();
-            assert!(error.to_string().contains("enum_bad"), "{error}");
-        }
+        let error = c.query(flat_null).unwrap_err();
+        assert!(error.to_string().contains("enum_bad"), "{error}");
+        let error = c.execute_prepared(&c.prepare(flat_null)?, &[]).unwrap_err();
+        assert!(error.to_string().contains("enum_bad"), "{error}");
         c.execute("CREATE TABLE physical_null(a ENUM('z','a'),b VARCHAR); INSERT INTO physical_null VALUES ('z','enum_bad')")?;
         let physical_null = "SELECT pow(CASE WHEN a='z' THEN NULL::DOUBLE ELSE length(enum_range_boundary(a,NULL)::VARCHAR) END,length(enum_range_boundary(b::ENUM('z','a'),NULL)::VARCHAR)) FROM physical_null";
         assert_eq!(c.query(physical_null)?.rows, vec![vec![Value::Null]]);
