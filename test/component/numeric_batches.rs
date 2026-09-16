@@ -579,6 +579,17 @@ fn exact_sum_batches_match_scalar_prefixes_nulls_and_wide_fallbacks() -> Result<
         state.update_column(&cached_decimal, &cancelled),
         Err(Error::Interrupted)
     ));
+    let cached_bigint = Vector::flat(
+        DataType::BigInt,
+        (0..4099)
+            .map(|index| Value::Integer(i128::from(index)))
+            .collect(),
+    )?;
+    let mut state = sum.create_state(&[DataType::BigInt], query.types())?;
+    assert!(matches!(
+        state.update_column(&cached_bigint, &cancelled),
+        Err(Error::Interrupted)
+    ));
     Ok(())
 }
 

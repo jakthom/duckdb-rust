@@ -119,11 +119,13 @@ impl AggregateState for State {
         if !matches!(self.name, "count" | "sum" | "product") || arguments.columns().len() > 1 {
             return super::update_aggregate_rows(self, arguments, context);
         }
-        context.check()?;
         let Some(column) = arguments.columns().first() else {
             if self.name != "count" {
                 return super::update_aggregate_rows(self, arguments, context);
             }
+            // This is the only total zero-argument fast path, so it cannot
+            // rely on a column kernel for its cancellation boundary.
+            context.check()?;
             self.count = self
                 .count
                 .checked_add(arguments.len() as i128)
@@ -137,7 +139,13 @@ impl AggregateState for State {
         column: &crate::common::vector::Vector,
         context: &crate::parallel::QueryContext,
     ) -> Result<()> {
-        context.check()?;
+        // SUM's column kernels establish their own bounded cancellation
+        // boundary (before each 1024-row reduction and before return). Avoid
+        // checking twice before the first dense block; the other aggregate
+        // paths still need this entry check for their early-return fast paths.
+        if self.name != "sum" {
+            context.check()?;
+        }
         if self.name == "count" && column.all_valid() {
             self.count = self
                 .count
