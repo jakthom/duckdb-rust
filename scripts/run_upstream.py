@@ -319,7 +319,7 @@ def worker_source_digest():
     from source_identity import vendored_sources
     digestor = hashlib.sha256()
     for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock",
-                        *(ROOT / "src").rglob("*.rs"), ROOT / "test/runner/worker.rs"]):
+                        *(ROOT / "src").rglob("*.rs"), *(ROOT / "test/runner").rglob("*.rs")]):
         digestor.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
     return digestor.hexdigest()
 
@@ -344,6 +344,16 @@ def record_release_worker_provenance(binary):
     command = ["cargo", "build", "--offline", "--release", "--no-default-features",
                "--bin", "duckdb-rust-test-worker"]
     subprocess.run(command, cwd=ROOT, check=True)
+    return write_worker_provenance(expected, "release")
+
+
+def record_release_feedback_provenance(binary):
+    """Build and attest the sole compiled selected-feedback runner."""
+    expected = ROOT / "target/release/sqllogictest"
+    if Path(binary).absolute() != expected.absolute():
+        raise ValueError("feedback provenance may only attest target/release/sqllogictest")
+    subprocess.run(["cargo", "build", "--offline", "--release", "--no-default-features",
+                    "--bin", "sqllogictest"], cwd=ROOT, check=True)
     return write_worker_provenance(expected, "release")
 
 
@@ -582,6 +592,8 @@ def main():
     parser.add_argument("--worker-provenance", type=Path, help="required matching release-worker provenance sidecar")
     parser.add_argument("--write-worker-provenance", type=Path, metavar="WORKER",
                         help="write a current release provenance sidecar and exit")
+    parser.add_argument("--write-feedback-provenance", type=Path, metavar="RUNNER",
+                        help="build and attest the compiled selected-feedback runner, then exit")
     parser.add_argument("--compare-release", action="store_true", help="require debug-worker outcomes to equal a fresh release-worker run")
     parser.add_argument("--suite-cache", type=Path, default=ROOT / "target/upstream-suite-cache",
                         help="worktree-local, hash-validated extracted-suite cache")
@@ -591,6 +603,10 @@ def main():
     args = parser.parse_args()
     if args.write_worker_provenance:
         path, _ = record_release_worker_provenance(args.write_worker_provenance)
+        print(path)
+        return
+    if args.write_feedback_provenance:
+        path, _ = record_release_feedback_provenance(args.write_feedback_provenance)
         print(path)
         return
     if args.report is None:

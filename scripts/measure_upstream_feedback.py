@@ -17,6 +17,8 @@ import tempfile
 import measure_sqllogic_performance as measure
 from reference_version import ROOT, TARGETS, require_checkout, require_reference
 from upstream_suite import digest
+from run_upstream import (checked_worker_provenance, selected_feedback_population,
+                          selected_path_list)
 
 
 def validate_manifest(path):
@@ -41,40 +43,29 @@ def validate_manifest(path):
     return result
 
 
-def upstream_verdict(path, target, expected):
+def upstream_verdict(path, target, expected, source_sha256, suite_sha256):
     report = json.loads(path.read_text())
-    provenance = report.get("worker_provenance")
-    if (report.get("stale_source") or report.get("worker_profile") != "release"
-            or not isinstance(provenance, dict)
-            or provenance.get("source_sha256") != report.get("rust_source_sha256")
-            or provenance.get("binary_sha256") != report.get("rust_binary_sha256")):
-        raise ValueError("stale or non-release Rust feedback run")
-    population = report.get("populations", {}).get(target)
-    if not population or population.get("sql_files_selected") != 1:
-        raise ValueError("Rust feedback report has an incomplete selection")
-    selected = population.get("selected")
-    results = population.get("results")
-    if selected != [{"id": expected, "kind": "sqllogictest", "path": expected, "line": 1}] or len(results) != 1:
-        raise ValueError("Rust feedback report selected a different source case")
-    if results[0].get("status") != "passed" or not results[0].get("passed_records"):
+    if (report.get("version") != 1 or report.get("path") != expected
+            or report.get("source_sha256") != source_sha256
+            or report.get("suite_sha256") != suite_sha256
+            or report.get("status") != "passed" or not isinstance(report.get("passed_records"), int)
+            or report["passed_records"] <= 0):
         raise ValueError("Rust feedback result did not validate every assertion")
-    return results[0]["passed_records"]
+    return report["passed_records"]
 
 
-def rust_command(args, target, workload, scratch, sample_id, cache):
-    selected = scratch / f"{sample_id}-{target}-{workload['id']}.paths"
-    selected.write_text(workload["path"] + "\n")
+def rust_command(args, target, workload, scratch, sample_id, source, suite, source_sha256, suite_sha256):
+    token = scratch / f"{sample_id}-{workload['id']}.token.json"
+    token.write_text(json.dumps({"version": 1, "source_root": str(source), "path": workload["path"],
+                                 "source_sha256": source_sha256, "suite_path": str(suite),
+                                 "suite_sha256": suite_sha256}, sort_keys=True))
     report = scratch / f"{sample_id}-{target}-{workload['id']}.json"
-    return ["python3", ROOT / "scripts/run_upstream.py", "--worker", args.rust,
-            "--worker-provenance", args.rust_provenance,
-            "--target", target, "--path-list", selected, "--jobs", "1", "--timeout", str(args.timeout),
-            "--suite-cache", cache,
-            "--report", report], report
+    return [args.rust, "--feedback-token", token, "--feedback-report", report], report
 
 
-def timed_rust(command, report, target, workload):
-    sample = measure.run_timed(command, "feedback", execute=subprocess.run)
-    sample["records"] = upstream_verdict(report, target, workload["path"])
+def timed_rust(command, report, workload, source_sha256, suite_sha256, timeout):
+    sample = measure.run_timed(command, "feedback", execute=lambda *args, **kwargs: subprocess.run(*args, timeout=timeout, **kwargs))
+    sample["records"] = upstream_verdict(report, None, workload["path"], source_sha256, suite_sha256)
     return sample
 
 
@@ -122,6 +113,10 @@ def main():
     raw, references = [], {}
     workloads = validate_manifest(args.workloads)
     rust = args.rust.resolve(strict=True)
+    # Full source/binary provenance belongs to campaign setup, matching the
+    # pinned C++ build/source checks below. Timed invocations still validate the
+    # exact cache metadata and selected source bytes through their token.
+    provenance_path, provenance_before = checked_worker_provenance(rust, args.rust_provenance)
     for target, binary, build in (("release", args.release_cpp, args.release_build),
                                   ("development", args.development_cpp, args.development_build)):
         source = TARGETS[target].source
@@ -145,19 +140,18 @@ def main():
                 observations = {name: [] for name in ("release_cpp", "development_cpp", "release_rust", "development_rust")}
                 cold_setup = {}
                 commands = {}
+                prepared = {}
                 for target, binary in (("release", args.release_cpp), ("development", args.development_cpp)):
                     commands[f"{target}_cpp"] = [binary, "--test-dir", TARGETS[target].source,
                                                    workload["path"], "--use-colour", "no", "--durations", "no"]
+                for target in ("release", "development"):
+                    cache = cache_run_root / workload["id"] / target
+                    source, manifest, identity = selected_feedback_population(target, [workload["path"]], cache)
+                    suite = source.parent / "suite.json"
+                    source_file = source / workload["path"]
+                    prepared[target] = (source, suite, digest(source_file), digest(suite), identity)
+                    cold_setup[target] = {"cache": identity}
                 for iteration in range(args.warmups + args.samples):
-                    # The first feedback run creates the complete suite cache.
-                    # Retain that caller-visible setup cost separately; Gate P
-                    # compares the repeated, warm feedback operation to the
-                    # equivalent already-materialized C++ selected-test run.
-                    if iteration == 0:
-                        for target in ("release", "development"):
-                            cache = cache_run_root / workload["id"] / target
-                            command, result_report = rust_command(args, target, workload, scratch, "cold", cache)
-                            cold_setup[target] = timed_rust(command, result_report, target, workload)
                     names = ["release_cpp", "development_cpp", "release_rust", "development_rust"]
                     names = names[iteration % len(names):] + names[:iteration % len(names)]
                     for name in names:
@@ -165,15 +159,22 @@ def main():
                             sample = measure.run_timed(commands[name], "cpp")
                         else:
                             target = name.removesuffix("_rust")
-                            cache = cache_run_root / workload["id"] / target
-                            command, result_report = rust_command(args, target, workload, scratch, f"{workload['id']}-round-{iteration}", cache)
-                            sample = timed_rust(command, result_report, target, workload)
+                            source, suite, source_sha256, suite_sha256, _ = prepared[target]
+                            command, result_report = rust_command(args, target, workload, scratch, f"{workload['id']}-round-{iteration}", source, suite, source_sha256, suite_sha256)
+                            sample = timed_rust(command, result_report, workload, source_sha256, suite_sha256, args.timeout)
                         if iteration >= args.warmups: observations[name].append(sample)
                 raw.append({**workload, "cold_setup": cold_setup, "observations": observations})
+        provenance_path_after, provenance_after = checked_worker_provenance(rust, args.rust_provenance)
+        if provenance_path_after != provenance_path or provenance_after != provenance_before:
+            raise ValueError("Rust feedback provenance changed during campaign")
         result = gate(raw, workloads)
         report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "workloads": raw, "gate": result,
                   "passed": result["passed"], "references": references, "rust_binary": str(rust),
                   "rust_binary_sha256": digest(rust), "workloads_sha256": digest(args.workloads),
+                  "rust_provenance_before": provenance_before, "rust_provenance_after": provenance_after,
+                  "rust_provenance_path": str(provenance_path), "stale_source": False,
+                  "harness_sha256": {name: digest(ROOT / "scripts" / name) for name in
+                                      ("measure_upstream_feedback.py", "run_upstream.py", "upstream_suite.py")},
                   "samples": args.samples, "warmups": args.warmups,
                   "scope": "Selected upstream SQLLogic source paths. Gate P times repeated warm feedback: cache validation, worker launch, execution, unchanged assertions, report emission and caller-visible process startup, matched to pinned C++ unittest startup/execution/assertions over its materialized source. `cold_setup` separately retains the one-time Rust cache materialization cost, which has no C++ runner analogue. Compilation is excluded."}
     except Exception as error:

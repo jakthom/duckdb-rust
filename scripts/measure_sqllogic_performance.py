@@ -87,10 +87,10 @@ def records_from_output(stdout, label):
     """Only accept a successful, nonempty native-runner verdict."""
     import re
     if label == "feedback":
-        # The upstream feedback driver writes its assertion evidence to the
-        # report named in the command.  Keep stdout machine-readable too, but
-        # defer the exact selected-result validation to that retained report.
-        if not re.search(r'(?m)^\{"outcomes":', stdout):
+        # The compiled feedback runner writes exact assertion evidence to its
+        # report. Its stdout remains a small native-runner verdict; detailed
+        # source/cache identity is checked by the feedback adapter.
+        if not re.search(r"(?m)^[1-9][0-9]* records passed; 0 skipped$", stdout):
             raise ValueError("feedback runner did not emit its report marker")
         return 1
     if label == "rust":
