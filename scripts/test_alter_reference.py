@@ -59,6 +59,30 @@ class AlterReferenceReportingTests(unittest.TestCase):
         self.assertEqual(result["exchange"]["error"]["message"], "wrong sum")
         self.assertFalse(result["passed"])
 
+    def test_native_total_uses_explicit_text_transport_for_both_pins(self):
+        self.assertEqual(
+            alter_reference.NATIVE_TOTAL,
+            "SELECT CAST(sum(n) AS VARCHAR) AS total FROM renamed",
+        )
+        # Release's encoded JSON formerly decoded BIGINT as an int while the
+        # development shell returned a string. The explicit CAST makes both
+        # transports return this one exact SQL value.
+        for pin in ["release", "development"]:
+            with self.subTest(pin=pin):
+                calls = []
+                def command(*args, **kwargs):
+                    calls.append((args, kwargs))
+                    return [{"total": "45"}]
+                alter_reference.assert_native_total(command, self.reference, "native.db")
+                self.assertEqual(calls[0][0][2], alter_reference.NATIVE_TOTAL)
+                self.assertEqual(calls[0][1], {"json_output": True, "readonly": True})
+
+    def test_native_total_wrong_value_remains_a_failure(self):
+        with self.assertRaises(AssertionError):
+            alter_reference.assert_native_total(
+                lambda *args, **kwargs: [{"total": "44"}], self.reference, "native.db"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

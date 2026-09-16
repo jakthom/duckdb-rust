@@ -30,6 +30,13 @@ ALTER TABLE renamed DROP COLUMN value;
 COMMIT;
 INSERT INTO renamed(id) VALUES(5);
 """
+NATIVE_TOTAL = "SELECT CAST(sum(n) AS VARCHAR) AS total FROM renamed"
+
+
+def assert_native_total(command, reference, path):
+    """Check the final native aggregate using its explicit text transport."""
+    actual = command(reference, path, NATIVE_TOTAL, json_output=True, readonly=True)
+    assert actual == [{"total": "45"}], actual
 
 
 def run_configuration(rust, reference, command, directory, durability):
@@ -111,7 +118,10 @@ def verify(rust, reference, command, directory, *, durabilities=("checkpoint", "
             assert command(engine, path, "SELECT * FROM renamed ORDER BY id", json_output=True, readonly=True) == expected
         assert before == (path.read_bytes(), Path(str(path) + ".wal").read_bytes())
         command(rust, path, "ALTER TABLE renamed RENAME COLUMN extra TO n; INSERT INTO renamed VALUES(6,12); CHECKPOINT")
-        assert command(reference, path, "SELECT sum(n) AS total FROM renamed", json_output=True, readonly=True) == [{"total": 45}]
+        # Both pins expose their native BIGINT JSON transport differently.
+        # Compare an explicitly textual SQL result so this boundary validates
+        # the exact aggregate value rather than a shell representation detail.
+        assert_native_total(command, reference, path)
         report["native_wal"] = {"sql": NATIVE_ALTER, "checkpoint_sha256": hashlib.sha256(before[0]).hexdigest(), "wal_sha256": hashlib.sha256(before[1]).hexdigest(), "passed": True}
     return report
 
