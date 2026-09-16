@@ -2,11 +2,11 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use crate::{
-    common::{type_registry::BoundType, Error, Result, Row},
+    common::{Error, Result, Row, type_registry::BoundType},
     execution::{
+        DataSet, ExecutionContext,
         physical_plan::{DeliveryMode, PhysicalOperator},
         stream::{self, Stream},
-        DataSet, ExecutionContext,
     },
     parallel::QueryContext,
     planner::{RecursiveId, Schema},

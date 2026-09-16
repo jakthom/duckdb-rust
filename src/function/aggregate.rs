@@ -679,10 +679,12 @@ mod reduction_tests {
             Value::Integer(1),
             Value::Integer(1),
         ];
-        assert!(sum_narrow(&values, |value| match value {
-            Value::Integer(value) => Some(*value as i64),
-            _ => None,
-        })
-        .is_none());
+        assert!(
+            sum_narrow(&values, |value| match value {
+                Value::Integer(value) => Some(*value as i64),
+                _ => None,
+            })
+            .is_none()
+        );
     }
 }

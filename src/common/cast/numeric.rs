@@ -40,14 +40,22 @@ impl CastFunction for ExactNumericCast {
                 let Value::Decimal { value, .. } = self.cast(value, spec, query)? else {
                     unreachable!("narrow decimal cast result")
                 };
-                i64::try_from(value).map_err(|_| Error::Internal(
-                    "validated narrow decimal coefficient exceeds i64".into(),
-                ))
+                i64::try_from(value).map_err(|_| {
+                    Error::Internal("validated narrow decimal coefficient exceeds i64".into())
+                })
             };
             let coefficients = if let Some(values) = input.flat_values() {
-                values.iter().enumerate().map(convert).collect::<Result<Vec<_>>>()?
+                values
+                    .iter()
+                    .enumerate()
+                    .map(convert)
+                    .collect::<Result<Vec<_>>>()?
             } else {
-                input.values().enumerate().map(convert).collect::<Result<Vec<_>>>()?
+                input
+                    .values()
+                    .enumerate()
+                    .map(convert)
+                    .collect::<Result<Vec<_>>>()?
             };
             query.check()?;
             return crate::common::vector::Vector::try_decimal_i64(

@@ -216,18 +216,19 @@ impl Vector {
             ));
         };
         let maximum = crate::common::numeric::DECIMAL_POWERS[usize::from(width)];
-        if scale > width || coefficients
-            .iter()
-            .any(|value| u128::from(value.unsigned_abs()) >= maximum)
+        if scale > width
+            || coefficients
+                .iter()
+                .any(|value| u128::from(value.unsigned_abs()) >= maximum)
         {
             return Err(Error::Internal(
                 "narrow decimal coefficient differs from declared metadata".into(),
             ));
         }
         let mut values = Vec::new();
-        values.try_reserve_exact(coefficients.len()).map_err(|_| {
-            Error::Resource("cannot allocate narrow DECIMAL logical column".into())
-        })?;
+        values
+            .try_reserve_exact(coefficients.len())
+            .map_err(|_| Error::Resource("cannot allocate narrow DECIMAL logical column".into()))?;
         let mut numeric_ascending = true;
         let mut previous = None;
         for &value in &coefficients {
@@ -620,16 +621,26 @@ mod physical_tests {
             vec![decimal(-250, 18), decimal(0, 18), decimal(999, 18)]
         );
         assert!(vector.numeric_ascending());
-        assert!(Vector::try_decimal_i64(
-            DataType::Decimal { width: 19, scale: 2 },
-            vec![1],
-        )
-        .is_err());
-        assert!(Vector::try_decimal_i64(
-            DataType::Decimal { width: 18, scale: 2 },
-            vec![1_000_000_000_000_000_000],
-        )
-        .is_err());
+        assert!(
+            Vector::try_decimal_i64(
+                DataType::Decimal {
+                    width: 19,
+                    scale: 2
+                },
+                vec![1],
+            )
+            .is_err()
+        );
+        assert!(
+            Vector::try_decimal_i64(
+                DataType::Decimal {
+                    width: 18,
+                    scale: 2
+                },
+                vec![1_000_000_000_000_000_000],
+            )
+            .is_err()
+        );
         Ok(())
     }
 

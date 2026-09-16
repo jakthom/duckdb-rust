@@ -1,6 +1,6 @@
-use super::{physical_plan::PhysicalOperator, DataSet, ExecutionContext};
+use super::{DataSet, ExecutionContext, physical_plan::PhysicalOperator};
 use crate::{
-    common::{vector::DataChunk, Error, Result, Row},
+    common::{Error, Result, Row, vector::DataChunk},
     parallel::QueryContext,
     planner::Schema,
 };
