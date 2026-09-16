@@ -143,12 +143,23 @@ def archive_population(target, temporary):
 
 def cached_files(source):
     """Return a complete, content-addressed inventory of a cached suite tree."""
+    if source.is_symlink() or not source.is_dir():
+        raise ValueError("cached suite source is not an owned directory")
+    root = source.resolve()
     files = []
     for path in sorted(source.rglob("*")):
-        if path.is_dir():
-            continue
         relative = str(path.relative_to(source))
-        data = os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
+        if path.is_symlink():
+            link = os.readlink(path)
+            # Cached suite links are part of the source identity, but must not
+            # turn a selected SQL file into an arbitrary host-file read.
+            if Path(link).is_absolute() or not (path.parent / link).resolve().is_relative_to(root):
+                raise ValueError("cached suite symlink escapes source root: " + relative)
+            data = link.encode()
+        elif path.is_dir():
+            continue
+        else:
+            data = path.read_bytes()
         files.append({"path": relative, "kind": "symlink" if path.is_symlink() else "file",
                       "sha256": hashlib.sha256(data).hexdigest()})
     return files

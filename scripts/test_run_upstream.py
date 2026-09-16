@@ -6,7 +6,7 @@ import stat
 from unittest.mock import patch
 
 import sqllogic
-from run_upstream import (cached_population, comparable_outcome, failure_class,
+from run_upstream import (cached_files, cached_population, comparable_outcome, failure_class,
                           rewrite_report_argument, run_case, selected_entries, summarize,
                           watch_feedback)
 
@@ -84,6 +84,16 @@ class RunUpstreamTests(unittest.TestCase):
                 self.assertEqual(identity["cache"], "created")
                 self.assertEqual((rebuilt / "case.test").read_text(), "statement ok\nSELECT 1\n")
                 self.assertEqual(archive.call_count, 2)
+
+    def test_cached_suite_rejects_symlink_root_and_escape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"; source.mkdir()
+            (source / "inside.test").write_text("SELECT 1")
+            (source / "escape.test").symlink_to("../../outside.test")
+            with self.assertRaises(ValueError): cached_files(source)
+            link = root / "linked-source"; link.symlink_to(source, target_is_directory=True)
+            with self.assertRaises(ValueError): cached_files(link)
 
     def test_debug_release_comparison_includes_all_assertion_visible_fields(self):
         passed = {"id": "a", "path": "a.test", "status": "passed", "passed_records": 1,
