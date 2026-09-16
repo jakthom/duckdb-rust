@@ -47,6 +47,8 @@ impl CastFunction for ExactNumericCast {
             coefficients.try_reserve_exact(values.len()).map_err(|_| {
                 Error::Resource("cannot allocate DECIMAL coefficient column".into())
             })?;
+            let mut numeric_ascending = true;
+            let mut previous = None;
             for (index, &value) in values.iter().enumerate() {
                 if index % 1024 == 0 {
                     query.check()?;
@@ -65,12 +67,16 @@ impl CastFunction for ExactNumericCast {
                         spec.target
                     )));
                 }
-                coefficients.push(coefficient as i64);
+                let coefficient = coefficient as i64;
+                numeric_ascending &= previous.is_none_or(|previous| previous <= coefficient);
+                previous = Some(coefficient);
+                coefficients.push(coefficient);
             }
             query.check()?;
             return Ok(crate::common::vector::Vector::decimal_i64_prevalidated(
                 spec.target.clone(),
                 coefficients,
+                numeric_ascending,
             ));
         }
         if input.all_valid()

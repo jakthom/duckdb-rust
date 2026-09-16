@@ -407,7 +407,11 @@ impl Vector {
     /// Transfer coefficients after a cast kernel has checked the declared
     /// range.  Do not rescan them here: this constructor is deliberately
     /// narrower than `try_decimal_i64` and remains crate-private.
-    pub(crate) fn decimal_i64_prevalidated(data_type: DataType, coefficients: Vec<i64>) -> Self {
+    pub(crate) fn decimal_i64_prevalidated(
+        data_type: DataType,
+        coefficients: Vec<i64>,
+        numeric_ascending: bool,
+    ) -> Self {
         debug_assert!(matches!(data_type, DataType::Decimal { width: 1..=18, .. }));
         Self {
             data_type,
@@ -415,9 +419,10 @@ impl Vector {
             encoding: Encoding::FlatDecimalI64(Arc::new(coefficients)),
             offset: 0,
             all_valid: true,
-            // A cast does not establish ordering; conservatively decline
-            // ordering-only consumers rather than paying another full scan.
-            numeric_ascending: false,
+            // The producing cast checks this while it converts the values,
+            // avoiding a second scan and retaining the proof for range
+            // predicates.
+            numeric_ascending,
         }
     }
     /// Construct an all-valid DOUBLE column from values already known to be
@@ -877,6 +882,10 @@ mod physical_tests {
             )
             .is_err()
         );
+        let ordered = Vector::decimal_i64_prevalidated(data_type.clone(), vec![-250, 0, 999], true);
+        assert!(ordered.numeric_ascending());
+        let unordered = Vector::decimal_i64_prevalidated(data_type, vec![999, -250], false);
+        assert!(!unordered.numeric_ascending());
         Ok(())
     }
 
