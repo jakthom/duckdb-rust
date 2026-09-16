@@ -274,7 +274,7 @@ final-tree source and release-binary digests, and every measured invocation exit
 successfully. Their Gate P results are explicit: G01.2c lifecycle is **at-parity
 or better performance: fail** (wall 1.417x, CPU 1.000x, RSS 0.409x, throughput
 0.706x); G03.3a ENUM is **fail** after adding nested-parent work (wall 1.123x,
-CPU 1.143x, RSS 1.235x, throughput 0.891x); G04.2a `make_date(STRUCT)` is
+CPU 1.143x, RSS 1.235x, throughput 0.890x); G04.2a `make_date(STRUCT)` is
 **fail** (wall 10.407x, CPU 30.000x, RSS 1.867x, throughput 0.096x); G06.1a case
 conversion is **fail** (wall 2.933x, CPU 4.000x, RSS 0.838x, throughput 0.341x);
 G07.3a DISTINCT ON is **fail** (wall 2.590x, CPU 3.500x, RSS 2.091x,
@@ -734,7 +734,7 @@ including casts, scalar/binary parents, predicates, lazy selected branches,
 shared projections, constant/column/NULL endpoints and prepared execution; its
 final-tree independent suite passes 29/29 SQL plus six native paths against each
 pin. The function-family **at-parity or better performance** gate fails (wall
-1.123x, CPU 1.143x, RSS 1.235x and throughput 0.891x the faster pin).
+1.123x, CPU 1.143x, RSS 1.235x and throughput 0.890x the faster pin).
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
