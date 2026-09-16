@@ -29,6 +29,32 @@ impl CastFunction for ExactNumericCast {
         spec: &CastSpec,
         query: &QueryContext,
     ) -> Result<crate::common::vector::Vector> {
+        if input.all_valid()
+            && spec.source.is_signed_integer()
+            && matches!(spec.target, DataType::Decimal { width: 1..=18, .. })
+        {
+            let convert = |(index, value): (usize, &Value)| {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                let Value::Decimal { value, .. } = self.cast(value, spec, query)? else {
+                    unreachable!("narrow decimal cast result")
+                };
+                i64::try_from(value).map_err(|_| Error::Internal(
+                    "validated narrow decimal coefficient exceeds i64".into(),
+                ))
+            };
+            let coefficients = if let Some(values) = input.flat_values() {
+                values.iter().enumerate().map(convert).collect::<Result<Vec<_>>>()?
+            } else {
+                input.values().enumerate().map(convert).collect::<Result<Vec<_>>>()?
+            };
+            query.check()?;
+            return crate::common::vector::Vector::try_decimal_i64(
+                spec.target.clone(),
+                coefficients,
+            );
+        }
         if spec.target == DataType::HugeInt && self.is_total(spec) {
             let convert = |(index, value): (usize, &Value)| {
                 if index % 1024 == 0 {

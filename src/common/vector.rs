@@ -201,6 +201,55 @@ impl Vector {
             numeric_ascending: false,
         })
     }
+    /// Construct a validated, non-NULL narrow DECIMAL column from its native
+    /// signed coefficients. This retains the logical values required by the
+    /// generic execution contract while transferring the same coefficient
+    /// allocation to physical consumers instead of rebuilding it from Values.
+    pub(crate) fn try_decimal_i64(data_type: DataType, coefficients: Vec<i64>) -> Result<Self> {
+        let DataType::Decimal {
+            width: width @ 1..=18,
+            scale,
+        } = data_type
+        else {
+            return Err(Error::Internal(
+                "narrow decimal coefficients require DECIMAL(1..=18) metadata".into(),
+            ));
+        };
+        let maximum = crate::common::numeric::DECIMAL_POWERS[usize::from(width)];
+        if scale > width || coefficients
+            .iter()
+            .any(|value| u128::from(value.unsigned_abs()) >= maximum)
+        {
+            return Err(Error::Internal(
+                "narrow decimal coefficient differs from declared metadata".into(),
+            ));
+        }
+        let mut values = Vec::new();
+        values.try_reserve_exact(coefficients.len()).map_err(|_| {
+            Error::Resource("cannot allocate narrow DECIMAL logical column".into())
+        })?;
+        let mut numeric_ascending = true;
+        let mut previous = None;
+        for &value in &coefficients {
+            numeric_ascending &= previous.is_none_or(|previous| previous <= value);
+            previous = Some(value);
+            values.push(Value::Decimal {
+                value: i128::from(value),
+                width,
+                scale,
+            });
+        }
+        let count = values.len();
+        Ok(Self {
+            data_type: DataType::Decimal { width, scale },
+            encoding: Encoding::Flat(Arc::new(values)),
+            decimal_i64: Some(Arc::new(coefficients)),
+            offset: 0,
+            count,
+            all_valid: true,
+            numeric_ascending,
+        })
+    }
     pub fn flat(data_type: DataType, values: Vec<Value>) -> Result<Self> {
         let mut all_valid = true;
         let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
@@ -554,6 +603,33 @@ mod physical_tests {
         ] {
             assert!(Vector::flat(data_type.clone(), vec![mismatched]).is_err());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn direct_narrow_decimal_coefficients_preserve_metadata_and_lanes() -> Result<()> {
+        let data_type = DataType::Decimal {
+            width: 18,
+            scale: 2,
+        };
+        let vector = Vector::try_decimal_i64(data_type.clone(), vec![-250, 0, 999])?;
+        assert_eq!(vector.data_type(), &data_type);
+        assert_eq!(vector.flat_decimal_i64(), Some(&[-250, 0, 999][..]));
+        assert_eq!(
+            vector.values().cloned().collect::<Vec<_>>(),
+            vec![decimal(-250, 18), decimal(0, 18), decimal(999, 18)]
+        );
+        assert!(vector.numeric_ascending());
+        assert!(Vector::try_decimal_i64(
+            DataType::Decimal { width: 19, scale: 2 },
+            vec![1],
+        )
+        .is_err());
+        assert!(Vector::try_decimal_i64(
+            DataType::Decimal { width: 18, scale: 2 },
+            vec![1_000_000_000_000_000_000],
+        )
+        .is_err());
         Ok(())
     }
 
