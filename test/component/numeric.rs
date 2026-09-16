@@ -562,7 +562,10 @@ fn narrow_decimal_sum_cache_rebuilds_after_wal_checkpoint_and_reopen() -> Result
     let path = directory.path().join("narrow-decimal-sum.duckdb");
     {
         let mut c = Database::open_logged(&path)?.connect();
-        c.execute("CREATE TABLE d(v DECIMAL(18,2)); INSERT INTO d VALUES (9999999999999999.99),(-9999999999999999.99),(1.25),(NULL)")?;
+        // Keep the reconstructed scan all-valid: a NULL correctly disables the
+        // compact coefficient lane for the whole vector and would only exercise
+        // the logical fallback already covered by numeric_batches.
+        c.execute("CREATE TABLE d(v DECIMAL(18,2)); INSERT INTO d VALUES (9999999999999999.99),(-9999999999999999.99),(1.25)")?;
         assert_eq!(
             c.query("SELECT sum(v) FROM d")?.rows,
             vec![vec![decimal(125, 38, 2)?]]
