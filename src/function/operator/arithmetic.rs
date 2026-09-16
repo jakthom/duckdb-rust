@@ -374,7 +374,22 @@ fn dictionary_signed_remainder(
             _ => unreachable!("validated integer vector"),
         })
     };
-    let selection = if let Some(values) = column.flat_values() {
+    let selection = if let Some(values) = column.flat_bigints() {
+        let mut selected = Vec::with_capacity(values.len());
+        for (index, &value) in values.iter().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let remainder = if let Some(mask) = mask {
+                let remainder = (value.unsigned_abs() & mask) as i64;
+                if value < 0 { -remainder } else { remainder }
+            } else {
+                value % divisor
+            };
+            selected.push((remainder - minimum) as usize);
+        }
+        selected
+    } else if let Some(values) = column.flat_values() {
         values
             .iter()
             .cloned()

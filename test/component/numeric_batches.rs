@@ -249,6 +249,56 @@ fn small_unsigned_remainder_dictionaries_preserve_values_nulls_and_views() -> Re
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn bigint_remainder_dictionary_uses_compact_lane_without_changing_fallbacks() -> Result<()> {
+    let query = QueryContext::background();
+    let registry = OperatorRegistry::builtins();
+    let values = [i64::MIN, -129, -128, -1, 0, 1, 127, 128, i64::MAX];
+    let flat = Arc::new(Vector::flat(
+        DataType::BigInt,
+        (0..4099)
+            .map(|index| Value::Integer(values[index % values.len()] as i128))
+            .collect(),
+    )?);
+    let nullable = Vector::flat(
+        DataType::BigInt,
+        (0..4099)
+            .map(|index| {
+                if index % 7 == 0 {
+                    Value::Null
+                } else {
+                    Value::Integer(values[index % values.len()] as i128)
+                }
+            })
+            .collect(),
+    )?;
+    let bound = registry.bind(
+        Operator::Modulo,
+        &[DataType::BigInt, DataType::BigInt],
+        query.types(),
+    )?;
+    for left in [
+        flat.as_ref().clone(),
+        // Selected and nullable inputs deliberately retain the generic
+        // fallback, including the signed-minimum remainder rule.
+        flat.select((0..4099).rev().collect())?,
+        nullable,
+    ] {
+        let divisor = Value::Integer(2);
+        let right = Vector::constant(DataType::BigInt, divisor.clone(), left.len())?;
+        let expected = left
+            .values()
+            .map(|value| bound.apply(&[value, divisor.clone()], &query))
+            .collect::<Result<Vec<_>>>()?;
+        let result =
+            bound.apply_batch(&DataChunk::new(vec![left, right], expected.len())?, &query)?;
+        assert!(result.dictionary().is_some());
+        assert_eq!(result.values().collect::<Vec<_>>(), expected);
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn numeric_comparison_batches_match_both_scalar_type_adapters() -> Result<()> {
     for adapter in [
         Arc::new(ExactNumericTypes) as Arc<dyn duckdb_rust::common::type_registry::TypeAdapter>,
