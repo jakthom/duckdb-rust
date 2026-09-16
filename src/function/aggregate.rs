@@ -171,7 +171,7 @@ impl AggregateState for State {
         }
         for value in column.values() {
             context.check()?;
-            self.update(std::slice::from_ref(value), context)?;
+            self.update(std::slice::from_ref(&value), context)?;
         }
         context.check()
     }
@@ -327,9 +327,9 @@ impl State {
             && let Some((parent, _)) = column.dictionary()
         {
             let mut values = parent.values();
-            let first = values.next().and_then(|value| kernel.coefficient(value));
+            let first = values.next().and_then(|value| kernel.coefficient(&value));
             first.filter(|first| {
-                values.all(|value| kernel.coefficient(value).as_ref() == Some(first))
+                values.all(|value| kernel.coefficient(&value).as_ref() == Some(first))
             })
         } else {
             None
@@ -382,8 +382,8 @@ impl State {
             let signs = parent
                 .values()
                 .map(|value| match value {
-                    Value::Double(value) if *value == 1.0 => Some(false),
-                    Value::Double(value) if *value == -1.0 => Some(true),
+                    Value::Double(value) if value == 1.0 => Some(false),
+                    Value::Double(value) if value == -1.0 => Some(true),
                     _ => None,
                 })
                 .collect::<Option<Vec<_>>>();
@@ -495,14 +495,14 @@ impl State {
         context: &crate::parallel::QueryContext,
     ) -> Result<()> {
         if let Some(values) = column.flat_values() {
-            self.update_values(values.iter(), context)
+            self.update_values(values.iter().cloned(), context)
         } else {
             self.update_values(column.values(), context)
         }
     }
-    fn update_values<'a>(
+    fn update_values(
         &mut self,
-        values: impl Iterator<Item = &'a Value>,
+        values: impl Iterator<Item = Value>,
         context: &crate::parallel::QueryContext,
     ) -> Result<()> {
         if self.name == "count" {
@@ -534,7 +534,7 @@ impl State {
                 }
                 let value = match value {
                     Value::Null => continue,
-                    Value::Integer(value) => *value,
+                    Value::Integer(value) => value,
                     _ => {
                         return Err(Error::Internal(
                             "integer sum argument differs from binding".into(),

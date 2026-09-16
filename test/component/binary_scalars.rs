@@ -236,19 +236,19 @@ fn binary_scalar_conversion_vectors_preserve_bytes_and_uuid_bits() -> Result<()>
             let result = cast.apply_batch(&column, &query)?;
             let expected = column
                 .values()
-                .map(|value| cast.apply(value, &query))
+                .map(|value| cast.apply(&value, &query))
                 .collect::<Result<Vec<_>>>()?;
-            assert_eq!(result.values().cloned().collect::<Vec<_>>(), expected);
+            assert_eq!(result.values().collect::<Vec<_>>(), expected);
             let bound = types.bind(&data_type)?;
             for a in column.values() {
                 for b in column.values() {
                     let mut ak = vec![];
                     let mut bk = vec![];
-                    bound.append_key(a, &mut ak, &query)?;
-                    bound.append_key(b, &mut bk, &query)?;
+                    bound.append_key(&a, &mut ak, &query)?;
+                    bound.append_key(&b, &mut bk, &query)?;
                     assert_eq!(ak == bk, a == b);
                     if !a.is_null() && !b.is_null() {
-                        assert_eq!(bound.compare(a, b, &query)?, a.compare(b)?);
+                        assert_eq!(bound.compare(&a, &b, &query)?, a.compare(&b)?);
                     }
                 }
             }

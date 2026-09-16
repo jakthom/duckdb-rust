@@ -3,7 +3,6 @@
 //! representations of the same data, never a query cache or a second copy.
 use std::{
     collections::{BTreeMap, HashMap},
-    ops::Index,
     sync::Arc,
 };
 
@@ -52,25 +51,17 @@ impl RowView<'_> {
             Self::Columns(data, _) => data.columns().len(),
         }
     }
-    pub fn get(&self, column: usize) -> Option<&Value> {
+    pub fn get(&self, column: usize) -> Option<Value> {
         match self {
-            Self::Row(row) => row.get(column),
+            Self::Row(row) => row.get(column).cloned(),
             Self::Columns(data, index) => data.columns().get(column)?.get(*index),
         }
     }
-    pub fn iter(&self) -> impl Iterator<Item = &Value> + Clone {
-        (0..self.len()).map(|index| &self[index])
+    pub fn iter(&self) -> impl Iterator<Item = Value> + '_ {
+        (0..self.len()).filter_map(|index| self.get(index))
     }
     pub fn to_owned(self) -> Row {
-        self.iter().cloned().collect()
-    }
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl Index<usize> for RowView<'_> {
-    type Output = Value;
-    fn index(&self, index: usize) -> &Self::Output {
-        self.get(index).expect("validated row column")
+        self.iter().collect()
     }
 }
 
@@ -404,7 +395,7 @@ fn retains_high_cardinality_segments(columns: &[Vector], count: usize) -> bool {
     for column in columns {
         for value in column.values() {
             key.clear();
-            if !crate::common::vector::append_physical_identity(value, &mut key) {
+            if !crate::common::vector::append_physical_identity(&value, &mut key) {
                 return false;
             }
             dictionary.entry(key.clone()).or_insert(());
@@ -509,7 +500,7 @@ fn compact_vectors(data_type: &DataType, columns: Vec<Vector>, count: usize) -> 
             for &source in selected {
                 if mapped[source] == usize::MAX {
                     let Some(index) =
-                        intern(parent.get(source).expect("validated dictionary index"))
+                        intern(&parent.get(source).expect("validated dictionary index"))
                     else {
                         failed = true;
                         break 'columns;
@@ -554,8 +545,8 @@ fn compact_dense_signed_vectors(
             match value {
                 Value::Null => has_null = true,
                 Value::Integer(value) => {
-                    minimum = Some(minimum.map_or(*value, |minimum| minimum.min(*value)));
-                    maximum = Some(maximum.map_or(*value, |maximum| maximum.max(*value)));
+                    minimum = Some(minimum.map_or(value, |minimum| minimum.min(value)));
+                    maximum = Some(maximum.map_or(value, |maximum| maximum.max(value)));
                 }
                 _ => {
                     return Err(Error::Internal(
@@ -593,7 +584,7 @@ fn compact_dense_signed_vectors(
     for column in columns {
         selection.extend(column.values().map(|value| match value {
             Value::Null => null,
-            Value::Integer(value) => (*value - minimum) as usize,
+            Value::Integer(value) => (value - minimum) as usize,
             _ => unreachable!("validated signed column"),
         }));
     }

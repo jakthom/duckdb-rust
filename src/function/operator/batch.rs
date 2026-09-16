@@ -51,7 +51,7 @@ impl BoundOperator {
         if arguments.columns().iter().all(Vector::all_valid) {
             if !self.signature.nullable
                 && !output.all_valid()
-                && output.values().any(Value::is_null)
+                && output.values().any(|value| value.is_null())
             {
                 return Err(Error::Internal(
                     "operator batch violated NULL propagation".into(),
@@ -74,7 +74,7 @@ impl BoundOperator {
             let null_input = arguments
                 .columns()
                 .iter()
-                .any(|column| column.get(index).is_some_and(Value::is_null));
+                .any(|column| column.get(index).is_some_and(|value| value.is_null()));
             if (null_input && !value.is_null())
                 || (!null_input && !self.signature.nullable && value.is_null())
             {
@@ -84,7 +84,7 @@ impl BoundOperator {
             }
             if self.result.requires_logical_validation() {
                 self.result
-                    .validate(value, query)
+                    .validate(&value, query)
                     .map_err(|error| match error {
                         Error::Conversion(_) => {
                             Error::Internal("operator returned an invalid logical result".into())

@@ -247,10 +247,7 @@ fn composite_binding_retains_children_for_validation_comparison_keys_and_casts()
     assert_eq!(cast.apply(&Value::Null, &q)?, Value::Null);
     let vector = Vector::flat(data_type, vec![a, Value::Null, b])?;
     assert_eq!(
-        cast.apply_batch(&vector, &q)?
-            .values()
-            .cloned()
-            .collect::<Vec<_>>(),
+        cast.apply_batch(&vector, &q)?.values().collect::<Vec<_>>(),
         vec![
             Value::Varchar("AbC".into()),
             Value::Null,

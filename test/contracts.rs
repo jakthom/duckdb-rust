@@ -102,14 +102,8 @@ fn column_projection_preserves_shared_values_shape_and_lifetimes() -> Result<()>
     )?;
     let selected = source.select(&[2, 0, 2])?;
     let projected = selected.project(&[1, 0, 0])?;
-    assert!(std::ptr::eq(
-        projected.columns()[1].get(0).unwrap(),
-        source.columns()[0].get(2).unwrap()
-    ));
-    assert!(std::ptr::eq(
-        projected.columns()[1].get(1).unwrap(),
-        projected.columns()[2].get(1).unwrap()
-    ));
+    assert_eq!(projected.columns()[1].get(0), source.columns()[0].get(2));
+    assert_eq!(projected.columns()[1].get(1), projected.columns()[2].get(1));
     let empty_columns = selected.project(&[])?;
     assert_eq!(empty_columns.len(), 3);
     assert_eq!(
@@ -550,7 +544,7 @@ fn vectors_own_values_and_validate_shape() -> Result<()> {
     let selected = base.select(vec![2, 1, 2, 0])?;
     drop(base);
     assert_eq!(
-        selected.values().cloned().collect::<Vec<_>>(),
+        selected.values().collect::<Vec<_>>(),
         vec![
             Value::Integer(3),
             Value::Null,

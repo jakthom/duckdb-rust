@@ -84,8 +84,8 @@ fn base64_preserves_bytes_padding_errors_and_selected_vector_shapes() -> Result<
             Vector::constant(DataType::Blob, Value::Blob(vec![0, 1]), 9)?,
         ] {
             for value in vector.values() {
-                let encoded = encode.evaluate(std::slice::from_ref(value), &query)?;
-                assert_eq!(decode.evaluate(&[encoded], &query)?, *value);
+                let encoded = encode.evaluate(std::slice::from_ref(&value), &query)?;
+                assert_eq!(decode.evaluate(&[encoded], &query)?, value);
             }
         }
         assert!(matches!(

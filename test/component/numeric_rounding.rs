@@ -183,11 +183,10 @@ fn floating_integral_casts_round_ties_even_before_checking_every_width() -> Resu
                         bound
                             .apply_batch(&vector, &query)?
                             .values()
-                            .cloned()
                             .collect::<Vec<_>>(),
                         vector
                             .values()
-                            .map(|value| bound.apply(value, &query))
+                            .map(|value| bound.apply(&value, &query))
                             .collect::<Result<Vec<_>>>()?
                     );
                 }

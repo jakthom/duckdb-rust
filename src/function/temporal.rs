@@ -444,7 +444,7 @@ impl ScalarFunction for TemporalFunction {
                 }
                 let entry = if entries[source] == usize::MAX {
                     let value = make_date_struct_value(
-                        parent.get(source).expect("validated dictionary index"),
+                        &parent.get(source).expect("validated dictionary index"),
                     )?;
                     let entry = values.len();
                     entries[source] = entry;
@@ -465,7 +465,7 @@ impl ScalarFunction for TemporalFunction {
             if index % 1024 == 0 {
                 query.check()?;
             }
-            values.push(make_date_struct_value(value)?);
+            values.push(make_date_struct_value(&value)?);
         }
         query.check()?;
         Vector::flat(DataType::Date, values).map(Some)

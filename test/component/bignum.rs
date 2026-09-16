@@ -160,11 +160,10 @@ fn magnitude_arithmetic_native_encoding_and_decimal_conversion_preserve_full_dom
             bound
                 .apply_batch(&vector, &query)?
                 .values()
-                .cloned()
                 .collect::<Vec<_>>(),
             vector
                 .values()
-                .map(|v| bound.apply(v, &query))
+                .map(|v| bound.apply(&v, &query))
                 .collect::<Result<Vec<_>>>()?
         );
     }
@@ -287,7 +286,6 @@ fn exact_bignum_operators_functions_grouping_and_windows_retain_bound_types() ->
                 operation
                     .apply_batch(&chunk, &query)?
                     .values()
-                    .cloned()
                     .collect::<Vec<_>>(),
                 vector
                     .values()

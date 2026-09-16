@@ -216,14 +216,14 @@ fn typed_numeric_column_constructors_check_bounds_and_stop_at_first_error() -> R
         [Ok(Some(u128::MAX)), Ok(None), Ok(Some(0))],
     )?;
     assert_eq!(
-        unsigned.values().cloned().collect::<Vec<_>>(),
+        unsigned.values().collect::<Vec<_>>(),
         vec![Value::Unsigned(u128::MAX), Value::Null, Value::Unsigned(0)]
     );
     assert!(!unsigned.all_valid());
     let signed = Vector::try_hugeints([Ok(Some(i128::MIN)), Ok(Some(i128::MAX))])?;
     assert!(signed.all_valid());
     assert_eq!(
-        signed.values().cloned().collect::<Vec<_>>(),
+        signed.values().collect::<Vec<_>>(),
         vec![Value::Integer(i128::MIN), Value::Integer(i128::MAX)]
     );
     assert!(matches!(
@@ -360,7 +360,6 @@ fn cast_batch_boundary_rejects_foreign_shapes_nulls_and_retains_binding() -> Res
             retained
                 .apply_batch(&input, &query)?
                 .values()
-                .cloned()
                 .collect::<Vec<_>>(),
             vec![Value::Integer(u64::MAX as i128), Value::Null]
         );
@@ -399,10 +398,10 @@ fn dictionary_expression_reuse_preserves_first_logical_error_and_try_cast_nulls(
                     }
                     let scalar = ScalarEvaluator
                         .evaluate_batch(&root, &input, &query)
-                        .map(|v| v.values().cloned().collect::<Vec<_>>());
+                        .map(|v| v.values().collect::<Vec<_>>());
                     let batched = BatchedEvaluator
                         .evaluate_batch(&root, &input, &query)
-                        .map(|v| v.values().cloned().collect::<Vec<_>>());
+                        .map(|v| v.values().collect::<Vec<_>>());
                     assert_eq!(format!("{scalar:?}"), format!("{batched:?}"));
                 }
             }

@@ -75,10 +75,10 @@ fn contiguous_views_preserve_nested_selection_nulls_and_empty_cardinality() -> R
         selected,
         Vector::constant(DataType::BigInt, Value::Null, 4)?,
     ] {
-        let expected: Vec<_> = column.values().skip(1).take(2).cloned().collect();
+        let expected: Vec<_> = column.values().skip(1).take(2).collect();
         let view = column.slice(1, 2)?;
-        assert_eq!(view.values().cloned().collect::<Vec<_>>(), expected);
-        assert_eq!(view.slice(1, 1)?.get(0), expected.get(1));
+        assert_eq!(view.values().collect::<Vec<_>>(), expected);
+        assert_eq!(view.slice(1, 1)?.get(0), expected.get(1).cloned());
         assert!(view.slice(2, 0)?.is_empty());
         assert!(view.get(2).is_none());
         assert!(view.slice(2, 1).is_err());
@@ -86,21 +86,21 @@ fn contiguous_views_preserve_nested_selection_nulls_and_empty_cardinality() -> R
         let retained = Arc::new(view).select(vec![1, 0, 1])?;
         drop(column);
         assert_eq!(
-            retained.values().cloned().collect::<Vec<_>>(),
+            retained.values().collect::<Vec<_>>(),
             vec![
                 expected[1].clone(),
                 expected[0].clone(),
                 expected[1].clone()
             ]
         );
-        let expected = retained.values().cloned().collect::<Vec<_>>();
+        let expected = retained.values().collect::<Vec<_>>();
         let mut appended = vec![Value::Null];
         retained.append_to(&mut appended);
         assert_eq!(&appended[1..], expected);
         let nested = Arc::new(retained).select(vec![2, 0, 1])?.slice(1, 2)?;
         let mut copied = Vec::new();
         nested.append_to(&mut copied);
-        assert_eq!(copied, nested.values().cloned().collect::<Vec<_>>());
+        assert_eq!(copied, nested.values().collect::<Vec<_>>());
     }
     let empty_width = DataChunk::new(vec![], 9)?;
     assert_eq!(
@@ -130,7 +130,7 @@ fn typed_integer_columns_establish_physical_validity_and_stop_on_errors() -> Res
     assert_eq!(column.data_type(), &DataType::BigInt);
     assert!(!column.all_valid());
     assert_eq!(
-        column.values().cloned().collect::<Vec<_>>(),
+        column.values().collect::<Vec<_>>(),
         vec![
             Value::Integer(i64::MIN as i128),
             Value::Null,
@@ -405,7 +405,7 @@ fn integer_sum_batches_preserve_wide_prefixes_and_vector_views() -> Result<()> {
                     sum.create_state(std::slice::from_ref(&data_type), query.types())?;
                 let expected = column
                     .values()
-                    .try_for_each(|value| scalar.update(std::slice::from_ref(value), &query))
+                    .try_for_each(|value| scalar.update(std::slice::from_ref(&value), &query))
                     .and_then(|_| scalar.finish());
                 let actual = (0..column.len())
                     .step_by(batch_size)

@@ -68,7 +68,7 @@ impl OperatorFunction for NumericArithmetic {
                 }
                 let parent = Arc::new(Vector::flat(signature.result.clone(), values)?);
                 let mut selected = Vec::with_capacity(arguments.len());
-                let mut select = |(index, value): (usize, &Value)| -> Result<()> {
+                let mut select = |(index, value): (usize, Value)| -> Result<()> {
                     if index % 1024 == 0 {
                         query.check()?;
                     }
@@ -80,14 +80,18 @@ impl OperatorFunction for NumericArithmetic {
                     Ok(())
                 };
                 if let Some(values) = column.flat_values() {
-                    values.iter().enumerate().try_for_each(&mut select)?;
+                    values
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .try_for_each(&mut select)?;
                 } else {
                     column.values().enumerate().try_for_each(&mut select)?;
                 }
                 query.check()?;
                 return parent.select(selected);
             }
-            let apply = |(index, value): (usize, &Value)| {
+            let apply = |(index, value): (usize, Value)| {
                 if index % 1024 == 0 {
                     query.check()?;
                 }
@@ -106,7 +110,7 @@ impl OperatorFunction for NumericArithmetic {
             return if let Some(values) = column.flat_values() {
                 Vector::try_unsigned(
                     signature.result.clone(),
-                    values.iter().enumerate().map(apply),
+                    values.iter().cloned().enumerate().map(apply),
                 )
             } else {
                 Vector::try_unsigned(
@@ -328,13 +332,13 @@ fn dictionary_signed_remainder(
     let mask = magnitude
         .is_power_of_two()
         .then_some((magnitude - 1) as u64);
-    let select = |(index, value): (usize, &Value)| {
+    let select = |(index, value): (usize, Value)| {
         if index % 1024 == 0 {
             query.check()?;
         }
         Ok(match value {
             Value::Integer(value) => {
-                let value = *value as i64;
+                let value = value as i64;
                 let remainder = if let Some(mask) = mask {
                     let remainder = (value.unsigned_abs() & mask) as i64;
                     if value < 0 { -remainder } else { remainder }
@@ -350,6 +354,7 @@ fn dictionary_signed_remainder(
     let selection = if let Some(values) = column.flat_values() {
         values
             .iter()
+            .cloned()
             .enumerate()
             .map(select)
             .collect::<Result<_>>()?
@@ -374,13 +379,13 @@ fn map_integer_column(
     query: &QueryContext,
     operation: impl Fn(i64) -> i64,
 ) -> Result<crate::common::vector::Vector> {
-    let apply = |value: &Value| match value {
+    let apply = |value: Value| match value {
         Value::Null => None,
-        Value::Integer(value) => Some(operation(*value as i64)),
+        Value::Integer(value) => Some(operation(value as i64)),
         _ => unreachable!("validated integer vector"),
     };
     if let Some(values) = column.flat_values() {
-        narrow_column(data_type, values.iter(), apply, query)
+        narrow_column(data_type, values.iter().cloned(), apply, query)
     } else {
         narrow_column(data_type, column.values(), apply, query)
     }
@@ -416,7 +421,7 @@ fn map_checked_integer_column(
             let entry = if entries[index] == usize::MAX {
                 let value = match parent.get(index).expect("validated dictionary index") {
                     Value::Null => Value::Null,
-                    Value::Integer(value) => Value::Integer(operation(*value as i64)? as i128),
+                    Value::Integer(value) => Value::Integer(operation(value as i64)? as i128),
                     _ => unreachable!("validated integer vector"),
                 };
                 let entry = values.len();
@@ -431,18 +436,18 @@ fn map_checked_integer_column(
         query.check()?;
         return Arc::new(Vector::flat(data_type.clone(), values)?).select(mapped);
     }
-    let apply = |(index, value): (usize, &Value)| {
+    let apply = |(index, value): (usize, Value)| {
         if index % 1024 == 0 {
             query.check()?;
         }
         match value {
             Value::Null => Ok(None),
-            Value::Integer(value) => operation(*value as i64).map(Some),
+            Value::Integer(value) => operation(value as i64).map(Some),
             _ => unreachable!("validated integer vector"),
         }
     };
     if let Some(values) = column.flat_values() {
-        return checked_integer_vector(values.iter().enumerate().map(apply), data_type);
+        return checked_integer_vector(values.iter().cloned().enumerate().map(apply), data_type);
     }
     let values = column.values().enumerate().map(apply);
     if data_type == &DataType::BigInt {
@@ -481,10 +486,10 @@ fn checked_integer_vector(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
-fn narrow_column<'a>(
+fn narrow_column(
     data_type: &DataType,
-    values: impl Iterator<Item = &'a Value>,
-    apply: impl Fn(&Value) -> Option<i64>,
+    values: impl Iterator<Item = Value>,
+    apply: impl Fn(Value) -> Option<i64>,
     query: &QueryContext,
 ) -> Result<crate::common::vector::Vector> {
     use crate::common::vector::Vector;

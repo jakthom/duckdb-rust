@@ -66,7 +66,7 @@ impl GroupedAggregateState for ProductGroups {
             return Ok(());
         }
         if let Some(values) = column.flat_values() {
-            self.update_values(groups, values.iter(), query)
+            self.update_values(groups, values.iter().cloned(), query)
         } else {
             self.update_values(groups, column.values(), query)
         }
@@ -115,8 +115,8 @@ impl ProductGroups {
         let Some(signs) = parent
             .values()
             .map(|value| match value {
-                Value::Double(value) if *value == 1.0 => Some(false),
-                Value::Double(value) if *value == -1.0 => Some(true),
+                Value::Double(value) if value == 1.0 => Some(false),
+                Value::Double(value) if value == -1.0 => Some(true),
                 _ => None,
             })
             .collect::<Option<Vec<_>>>()
@@ -144,10 +144,10 @@ impl ProductGroups {
         Ok(true)
     }
 
-    fn update_values<'a>(
+    fn update_values(
         &mut self,
         groups: &GroupSelection<'_>,
-        values: impl Iterator<Item = &'a Value>,
+        values: impl Iterator<Item = Value>,
         query: &QueryContext,
     ) -> Result<()> {
         for (index, (&group, value)) in groups.indices().iter().zip(values).enumerate() {
@@ -279,7 +279,7 @@ impl GroupedAggregateState for IntegerGroups {
             // Read Value storage sequentially. Counting non-NULL updates once
             // per group proves wide sums safe without permuting the values.
             if let Some(values) = column.flat_values() {
-                self.update_sum(groups, values.iter(), counted, query)?;
+                self.update_sum(groups, values.iter().cloned(), counted, query)?;
             } else {
                 self.update_sum(groups, column.values(), counted, query)?;
             }
@@ -326,10 +326,10 @@ impl GroupedAggregateState for IntegerGroups {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IntegerGroups {
-    fn update_sum<'a>(
+    fn update_sum(
         &mut self,
         groups: &GroupSelection<'_>,
-        values: impl Iterator<Item = &'a Value>,
+        values: impl Iterator<Item = Value>,
         counted: bool,
         query: &QueryContext,
     ) -> Result<()> {
@@ -338,7 +338,7 @@ impl IntegerGroups {
             SumKernel::Unsigned(_) => self.update_coefficients(
                 groups,
                 values.map(|value| match value {
-                    Value::Unsigned(value) => Some(*value as i128),
+                    Value::Unsigned(value) => Some(value as i128),
                     Value::Null => None,
                     _ => unreachable!("validated unsigned SUM input"),
                 }),
@@ -348,7 +348,7 @@ impl IntegerGroups {
             SumKernel::Decimal { .. } => self.update_coefficients(
                 groups,
                 values.map(|value| match value {
-                    Value::Decimal { value, .. } => Some(*value),
+                    Value::Decimal { value, .. } => Some(value),
                     Value::Null => None,
                     _ => unreachable!("validated decimal SUM input"),
                 }),
@@ -357,10 +357,10 @@ impl IntegerGroups {
             ),
         }
     }
-    fn update_signed<'a>(
+    fn update_signed(
         &mut self,
         groups: &GroupSelection<'_>,
-        values: impl Iterator<Item = &'a Value>,
+        values: impl Iterator<Item = Value>,
         counted: bool,
         query: &QueryContext,
     ) -> Result<()> {

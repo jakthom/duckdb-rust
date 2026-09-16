@@ -86,7 +86,7 @@ impl BoundType {
                 visit(index, None)?;
             } else {
                 key.clear();
-                self.append_validated_key(value, &mut key, context)?;
+                self.append_validated_key(&value, &mut key, context)?;
                 visit(index, Some(&key))?;
             }
         }

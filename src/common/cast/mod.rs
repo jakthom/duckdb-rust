@@ -133,9 +133,8 @@ pub trait CastFunction: Debug + Send + Sync {
                 }
                 if entries[source] == usize::MAX {
                     entries[source] = values.len();
-                    values.push(cast(
-                        parent.get(source).expect("validated dictionary index"),
-                    )?);
+                    let value = parent.get(source).expect("validated dictionary index");
+                    values.push(cast(&value)?);
                 }
                 mapped.push(entries[source]);
             }
@@ -150,7 +149,7 @@ pub trait CastFunction: Debug + Send + Sync {
                 if index % 1024 == 0 {
                     context.check()?;
                 }
-                cast(value)
+                cast(&value)
             })
             .collect::<Result<Vec<_>>>()?;
         context.check()?;
@@ -279,7 +278,7 @@ impl BoundCast {
                         context.check()?;
                     }
                     Ok(match value {
-                        Value::Unsigned(value) => predicate.matches((*value as i128).cmp(right)),
+                        Value::Unsigned(value) => predicate.matches((value as i128).cmp(right)),
                         Value::Null => false,
                         _ => unreachable!("validated unsigned dictionary"),
                     })
@@ -296,12 +295,12 @@ impl BoundCast {
             context.check()?;
             return Ok(Some(selected));
         }
-        let mut visit = |(index, value): (usize, &Value)| -> Result<()> {
+        let mut visit = |(index, value): (usize, Value)| -> Result<()> {
             if index % 1024 == 0 {
                 context.check()?;
             }
             match value {
-                Value::Unsigned(value) if predicate.matches((*value as i128).cmp(right)) => {
+                Value::Unsigned(value) if predicate.matches((value as i128).cmp(right)) => {
                     selected.push(index)
                 }
                 Value::Unsigned(_) | Value::Null => (),
@@ -310,7 +309,11 @@ impl BoundCast {
             Ok(())
         };
         if let Some(values) = input.flat_values() {
-            values.iter().enumerate().try_for_each(&mut visit)?;
+            values
+                .iter()
+                .cloned()
+                .enumerate()
+                .try_for_each(&mut visit)?;
         } else {
             input.values().enumerate().try_for_each(&mut visit)?;
         }

@@ -41,9 +41,9 @@ impl TypeAdapter for ExactNumericTypes {
                 )
             } else {
                 (
-                    physical_compare(left.get(0).expect("nonempty sorted column"), right),
+                    physical_compare(&left.get(0).expect("nonempty sorted column"), right),
                     physical_compare(
-                        left.get(left.len() - 1).expect("nonempty sorted column"),
+                        &left.get(left.len() - 1).expect("nonempty sorted column"),
                         right,
                     ),
                 )

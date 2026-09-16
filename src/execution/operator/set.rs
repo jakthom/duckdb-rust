@@ -162,13 +162,13 @@ fn key(
     {
         return data_type
             .key_representation()
-            .integer_key(batch.columns()[0].get(index).expect("valid batch row"))
+            .integer_key(&batch.columns()[0].get(index).expect("valid batch row"))
             .map(Key::Integer);
     }
     let mut key = Vec::new();
     for (column, data_type) in batch.columns().iter().zip(types) {
         data_type.append_key(
-            column.get(index).expect("valid batch row"),
+            &column.get(index).expect("valid batch row"),
             &mut key,
             context.query,
         )?;

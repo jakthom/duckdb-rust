@@ -99,12 +99,12 @@ fn absolute_retains_logical_bounds_decimal_metadata_and_float_bits() -> Result<(
             Vector::constant(ty.clone(), flat.values().last().unwrap().clone(), 3)?,
         ] {
             for value in vector.values() {
-                let expected = match value {
+                let expected = match &value {
                     Value::Integer(v) => Value::Integer(i128::try_from(v.unsigned_abs()).unwrap()),
                     other => other.clone(),
                 };
                 assert_eq!(
-                    bound.evaluate(std::slice::from_ref(value), &query)?,
+                    bound.evaluate(std::slice::from_ref(&value), &query)?,
                     expected
                 );
             }

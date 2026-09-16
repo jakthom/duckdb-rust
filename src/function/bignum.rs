@@ -104,7 +104,7 @@ impl AggregateState for BignumSum {
         query: &QueryContext,
     ) -> Result<()> {
         for value in column.values() {
-            self.update(std::slice::from_ref(value), query)?;
+            self.update(std::slice::from_ref(&value), query)?;
         }
         query.check()
     }

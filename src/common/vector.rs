@@ -4,7 +4,11 @@ use super::{DataType, Error, Result, Row, Value};
 
 #[derive(Clone, Debug)]
 enum Encoding {
-    Flat(Arc<Vec<Value>>),
+    /// Typed all-valid flats are authoritative physical storage. Generic,
+    /// nullable and mixed columns retain their exact logical representation.
+    FlatValues(Arc<Vec<Value>>),
+    FlatSigned(Arc<Vec<i128>>),
+    FlatDecimalI64(Arc<Vec<i64>>),
     Constant(Value),
     Dictionary(Arc<Vector>, Arc<[usize]>),
     /// Immutable table storage retains CTAS batches without first copying all
@@ -14,15 +18,22 @@ enum Encoding {
     Chunks(Arc<[Vector]>, Arc<[usize]>),
 }
 
+fn same_flat_backing(left: &Encoding, right: &Encoding) -> bool {
+    match (left, right) {
+        (Encoding::FlatValues(left), Encoding::FlatValues(right)) => Arc::ptr_eq(left, right),
+        (Encoding::FlatSigned(left), Encoding::FlatSigned(right)) => Arc::ptr_eq(left, right),
+        (Encoding::FlatDecimalI64(left), Encoding::FlatDecimalI64(right)) => {
+            Arc::ptr_eq(left, right)
+        }
+        _ => false,
+    }
+}
+
 /// Immutable, owning column view. Selection and validity are resolved by `get`.
 #[derive(Clone, Debug)]
 pub struct Vector {
     data_type: DataType,
     encoding: Encoding,
-    /// DuckDB stores DECIMAL widths through 18 as physical signed integers.
-    /// Retain that source-shaped lane beside the logical `Value` oracle for
-    /// flat, non-NULL columns so numeric kernels do not redispatch the enum.
-    decimal_i64: Option<Arc<Vec<i64>>>,
     offset: usize,
     count: usize,
     all_valid: bool,
@@ -53,17 +64,16 @@ impl Vector {
             if numeric_ascending {
                 numeric_ascending &= chunk.numeric_ascending();
                 if let Some(last) = previous
-                    && let Some(first) = chunk.get(0)
+                    && let Some(first) = chunk.value(0)
                 {
-                    numeric_ascending &= numeric_le(last, first);
+                    numeric_ascending &= numeric_le(&last, &first);
                 }
-                previous = chunk.get(chunk.len().saturating_sub(1));
+                previous = chunk.value(chunk.len().saturating_sub(1));
             }
         }
         Ok(Self {
             data_type,
             encoding: Encoding::Chunks(chunks.into(), offsets.into()),
-            decimal_i64: None,
             offset: 0,
             count,
             all_valid,
@@ -85,15 +95,22 @@ impl Vector {
                 .ok_or_else(|| Error::Resource("concatenated vector size overflow".into()))?;
         }
         if let Some(first) = columns.first()
-            && let Encoding::Flat(backing) = &first.encoding
+            && matches!(
+                first.encoding,
+                Encoding::FlatValues(_) | Encoding::FlatSigned(_) | Encoding::FlatDecimalI64(_)
+            )
         {
             let mut end = first.offset;
             if columns.iter().all(|column| {
-                let contiguous = column.offset == end && matches!(&column.encoding, Encoding::Flat(other) if Arc::ptr_eq(backing, other));
+                let contiguous =
+                    column.offset == end && same_flat_backing(&first.encoding, &column.encoding);
                 end = column.offset + column.count;
                 contiguous
             }) {
-                return Ok(Self { count, ..first.clone() });
+                return Ok(Self {
+                    count,
+                    ..first.clone()
+                });
             }
         }
         values
@@ -123,12 +140,25 @@ impl Vector {
                 }
             });
         }
+        let count = output.len();
+        let encoding = if all_valid {
+            Encoding::FlatSigned(Arc::new(
+                output
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value,
+                        _ => unreachable!(),
+                    })
+                    .collect(),
+            ))
+        } else {
+            Encoding::FlatValues(Arc::new(output))
+        };
         Ok(Self {
             data_type: DataType::BigInt,
             offset: 0,
-            count: output.len(),
-            encoding: Encoding::Flat(Arc::new(output)),
-            decimal_i64: None,
+            count,
+            encoding,
             all_valid,
             numeric_ascending: false,
         })
@@ -151,12 +181,25 @@ impl Vector {
                 }
             });
         }
+        let count = output.len();
+        let encoding = if all_valid {
+            Encoding::FlatSigned(Arc::new(
+                output
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value,
+                        _ => unreachable!(),
+                    })
+                    .collect(),
+            ))
+        } else {
+            Encoding::FlatValues(Arc::new(output))
+        };
         Ok(Self {
             data_type: DataType::HugeInt,
-            count: output.len(),
+            count,
             offset: 0,
-            encoding: Encoding::Flat(Arc::new(output)),
-            decimal_i64: None,
+            encoding,
             all_valid,
             numeric_ascending: false,
         })
@@ -195,8 +238,7 @@ impl Vector {
             data_type,
             count: output.len(),
             offset: 0,
-            encoding: Encoding::Flat(Arc::new(output)),
-            decimal_i64: None,
+            encoding: Encoding::FlatValues(Arc::new(output)),
             all_valid,
             numeric_ascending: false,
         })
@@ -225,26 +267,16 @@ impl Vector {
                 "narrow decimal coefficient differs from declared metadata".into(),
             ));
         }
-        let mut values = Vec::new();
-        values
-            .try_reserve_exact(coefficients.len())
-            .map_err(|_| Error::Resource("cannot allocate narrow DECIMAL logical column".into()))?;
         let mut numeric_ascending = true;
         let mut previous = None;
         for &value in &coefficients {
             numeric_ascending &= previous.is_none_or(|previous| previous <= value);
             previous = Some(value);
-            values.push(Value::Decimal {
-                value: i128::from(value),
-                width,
-                scale,
-            });
         }
-        let count = values.len();
+        let count = coefficients.len();
         Ok(Self {
             data_type: DataType::Decimal { width, scale },
-            encoding: Encoding::Flat(Arc::new(values)),
-            decimal_i64: Some(Arc::new(coefficients)),
+            encoding: Encoding::FlatDecimalI64(Arc::new(coefficients)),
             offset: 0,
             count,
             all_valid: true,
@@ -268,33 +300,42 @@ impl Vector {
                 previous = Some(value);
             }
         }
-        // Validate the complete logical column before allocating an optional
-        // physical cache. This preserves the pre-cache type-error precedence
-        // and avoids reserving a lane that a NULL would immediately discard.
-        let decimal_i64 =
-            if all_valid && matches!(data_type, DataType::Decimal { width: 1..=18, .. }) {
-                let mut coefficients = Vec::new();
-                coefficients.try_reserve_exact(values.len()).map_err(|_| {
-                    Error::Resource("cannot allocate DECIMAL coefficient column".into())
-                })?;
-                for value in &values {
-                    let Value::Decimal { value, .. } = value else {
-                        unreachable!("validated narrow DECIMAL column");
-                    };
-                    coefficients.push(i64::try_from(*value).map_err(|_| {
-                        Error::Internal("narrow DECIMAL coefficient exceeds i64".into())
-                    })?);
-                }
-                Some(Arc::new(coefficients))
-            } else {
-                None
-            };
+        // Validate the whole logical column before transferring it into the
+        // authoritative physical lane.  A NULL deliberately keeps the exact
+        // generic representation and therefore its original fallback rules.
+        let count = values.len();
+        let encoding = if all_valid && data_type.is_signed_integer() {
+            Encoding::FlatSigned(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            ))
+        } else if all_valid && matches!(data_type, DataType::Decimal { width: 1..=18, .. }) {
+            let mut coefficients = Vec::new();
+            coefficients.try_reserve_exact(values.len()).map_err(|_| {
+                Error::Resource("cannot allocate DECIMAL coefficient column".into())
+            })?;
+            for value in &values {
+                let Value::Decimal { value, .. } = value else {
+                    unreachable!("validated narrow DECIMAL column");
+                };
+                coefficients.push(i64::try_from(*value).map_err(|_| {
+                    Error::Internal("narrow DECIMAL coefficient exceeds i64".into())
+                })?);
+            }
+            Encoding::FlatDecimalI64(Arc::new(coefficients))
+        } else {
+            Encoding::FlatValues(Arc::new(values))
+        };
         Ok(Self {
             data_type,
             offset: 0,
-            count: values.len(),
-            encoding: Encoding::Flat(Arc::new(values)),
-            decimal_i64,
+            count,
+            encoding,
             all_valid,
             numeric_ascending,
         })
@@ -311,7 +352,6 @@ impl Vector {
             data_type,
             all_valid: !value.is_null(),
             encoding: Encoding::Constant(value),
-            decimal_i64: None,
             offset: 0,
             count,
         })
@@ -340,7 +380,6 @@ impl Vector {
             count: selection.len(),
             all_valid: self.all_valid,
             encoding: Encoding::Dictionary(self.clone(), selection),
-            decimal_i64: None,
         }
     }
     /// An owning contiguous view, with no payload copy or selection allocation.
@@ -364,7 +403,6 @@ impl Vector {
         Ok(Self {
             data_type: self.data_type.clone(),
             encoding: self.encoding.clone(),
-            decimal_i64: self.decimal_i64.clone(),
             offset: self.offset + offset,
             count,
             all_valid: self.all_valid,
@@ -392,27 +430,47 @@ impl Vector {
     pub fn numeric_ascending(&self) -> bool {
         self.numeric_ascending
     }
-    pub fn get(&self, index: usize) -> Option<&Value> {
+    /// Resolve a logical value by ownership. Typed physical lanes cannot
+    /// synthesize a borrowed `Value`, so all encoding-transparent consumers
+    /// use this single owned seam.
+    pub fn value(&self, index: usize) -> Option<Value> {
         if index >= self.count {
             return None;
         }
         let index = self.offset + index;
         match &self.encoding {
-            Encoding::Flat(v) => v.get(index),
-            Encoding::Constant(v) => Some(v),
-            Encoding::Dictionary(v, s) => s.get(index).and_then(|&i| v.get(i)),
+            Encoding::FlatValues(v) => v.get(index).cloned(),
+            Encoding::FlatSigned(v) => v.get(index).copied().map(Value::Integer),
+            Encoding::FlatDecimalI64(v) => {
+                v.get(index).copied().map(|value| match self.data_type {
+                    DataType::Decimal { width, scale } => Value::Decimal {
+                        value: i128::from(value),
+                        width,
+                        scale,
+                    },
+                    _ => unreachable!("decimal physical lane requires decimal type"),
+                })
+            }
+            Encoding::Constant(v) => Some(v.clone()),
+            Encoding::Dictionary(v, s) => s.get(index).and_then(|&i| v.value(i)),
             Encoding::Chunks(chunks, offsets) => {
                 let segment = offsets
                     .partition_point(|&end| end <= index)
                     .saturating_sub(1);
                 chunks
                     .get(segment)
-                    .and_then(|chunk| chunk.get(index - offsets[segment]))
+                    .and_then(|chunk| chunk.value(index - offsets[segment]))
             }
         }
     }
-    pub fn values(&self) -> impl Iterator<Item = &Value> {
-        (0..self.len()).filter_map(|i| self.get(i))
+    /// Compatibility spelling for the owned scalar access seam.  This is not
+    /// a borrowed accessor: callers which need a `&Value` must keep the owned
+    /// result alive locally.
+    pub fn get(&self, index: usize) -> Option<Value> {
+        self.value(index)
+    }
+    pub fn values(&self) -> impl Iterator<Item = Value> + '_ {
+        (0..self.len()).filter_map(|i| self.value(i))
     }
     /// Append owned values in logical order, preserving slices and selections.
     /// Flat and selected-flat columns avoid repeated encoding dispatch. Output
@@ -420,19 +478,16 @@ impl Vector {
     pub fn append_to(&self, output: &mut Vec<Value>) {
         if self.all_valid
             && self.data_type.is_signed_integer()
-            && let Some(values) = self.flat_values()
+            && let Some(values) = self.flat_signed()
         {
             // Physical validation proves every payload is an integer. Copy
             // the inline coefficient without generic heap-owning Value clone
             // dispatch in window preparation and materialization.
-            output.extend(values.iter().map(|value| match value {
-                Value::Integer(value) => Value::Integer(*value),
-                _ => unreachable!("validated non-NULL signed column"),
-            }));
+            output.extend(values.iter().copied().map(Value::Integer));
             return;
         }
         match &self.encoding {
-            Encoding::Flat(values) => {
+            Encoding::FlatValues(values) => {
                 output.extend_from_slice(&values[self.offset..self.offset + self.count])
             }
             Encoding::Constant(value) => {
@@ -446,10 +501,12 @@ impl Vector {
                             .map(|&index| values[index].clone()),
                     );
                 } else {
-                    output.extend(self.values().cloned());
+                    output.extend(self.values());
                 }
             }
-            Encoding::Chunks(_, _) => output.extend(self.values().cloned()),
+            Encoding::FlatSigned(_) | Encoding::FlatDecimalI64(_) | Encoding::Chunks(_, _) => {
+                output.extend(self.values())
+            }
         }
     }
     /// A borrowed contiguous physical view when this encoding provides one.
@@ -457,7 +514,7 @@ impl Vector {
     /// Consumers must retain the general `values` path for other encodings.
     pub fn flat_values(&self) -> Option<&[Value]> {
         match &self.encoding {
-            Encoding::Flat(values) => Some(&values[self.offset..self.offset + self.count]),
+            Encoding::FlatValues(values) => Some(&values[self.offset..self.offset + self.count]),
             _ => None,
         }
     }
@@ -465,12 +522,19 @@ impl Vector {
     /// view. Logical values remain authoritative for every fallback and for
     /// encodings whose NULL/selection semantics need resolution.
     pub(crate) fn flat_decimal_i64(&self) -> Option<&[i64]> {
-        if !matches!(self.encoding, Encoding::Flat(_)) {
-            return None;
+        match &self.encoding {
+            Encoding::FlatDecimalI64(values) => {
+                Some(&values[self.offset..self.offset + self.count])
+            }
+            _ => None,
         }
-        self.decimal_i64
-            .as_ref()
-            .map(|values| &values[self.offset..self.offset + self.count])
+    }
+    /// Authoritative compact signed lane for all-valid flat signed columns.
+    pub(crate) fn flat_signed(&self) -> Option<&[i128]> {
+        match &self.encoding {
+            Encoding::FlatSigned(values) => Some(&values[self.offset..self.offset + self.count]),
+            _ => None,
+        }
     }
     /// The repeated value when every logical row uses a constant encoding.
     pub fn constant_value(&self) -> Option<&Value> {
@@ -524,6 +588,10 @@ mod physical_tests {
             vec![decimal(-100, 12), decimal(0, 12), decimal(250, 12)],
         )?;
         assert_eq!(flat.flat_decimal_i64(), Some(&[-100, 0, 250][..]));
+        assert!(
+            flat.flat_values().is_none(),
+            "narrow decimal lane is authoritative"
+        );
         assert_eq!(flat.clone().flat_decimal_i64(), Some(&[-100, 0, 250][..]));
         assert_eq!(flat.slice(1, 2)?.flat_decimal_i64(), Some(&[0, 250][..]));
         assert_eq!(flat.slice(0, 0)?.flat_decimal_i64(), Some(&[][..]));
@@ -617,7 +685,7 @@ mod physical_tests {
         assert_eq!(vector.data_type(), &data_type);
         assert_eq!(vector.flat_decimal_i64(), Some(&[-250, 0, 999][..]));
         assert_eq!(
-            vector.values().cloned().collect::<Vec<_>>(),
+            vector.values().collect::<Vec<_>>(),
             vec![decimal(-250, 18), decimal(0, 18), decimal(999, 18)]
         );
         assert!(vector.numeric_ascending());
@@ -645,12 +713,45 @@ mod physical_tests {
     }
 
     #[test]
+    fn all_valid_signed_lanes_are_authoritative_and_nullable_or_wide_values_fallback() -> Result<()>
+    {
+        let signed = Vector::flat(
+            DataType::HugeInt,
+            vec![Value::Integer(i128::MIN), Value::Integer(42)],
+        )?;
+        assert_eq!(signed.flat_signed(), Some(&[i128::MIN, 42][..]));
+        assert!(signed.flat_values().is_none());
+        assert_eq!(
+            signed.values().collect::<Vec<_>>(),
+            vec![Value::Integer(i128::MIN), Value::Integer(42)]
+        );
+
+        let nullable = Vector::flat(DataType::BigInt, vec![Value::Integer(1), Value::Null])?;
+        assert!(nullable.flat_signed().is_none());
+        assert!(nullable.flat_values().is_some());
+        let wide = Vector::flat(
+            DataType::Decimal {
+                width: 19,
+                scale: 0,
+            },
+            vec![Value::Decimal {
+                value: 1,
+                width: 19,
+                scale: 0,
+            }],
+        )?;
+        assert!(wide.flat_decimal_i64().is_none());
+        assert!(wide.flat_values().is_some());
+        Ok(())
+    }
+
+    #[test]
     fn chunked_storage_retains_segments_and_recovers_flat_scan_slices() -> Result<()> {
         let first = Vector::try_bigints([Ok(Some(10)), Ok(Some(11))])?;
         let second = Vector::try_bigints([Ok(Some(12)), Ok(Some(13))])?;
         let chunks = Vector::chunked(DataType::BigInt, vec![first.clone(), second.clone()])?;
         assert_eq!(
-            chunks.values().cloned().collect::<Vec<_>>(),
+            chunks.values().collect::<Vec<_>>(),
             vec![
                 Value::Integer(10),
                 Value::Integer(11),
@@ -661,7 +762,7 @@ mod physical_tests {
         assert!(chunks.flat_values().is_none());
         assert_eq!(chunks.slice(2, 2)?.flat_values(), second.flat_values());
         assert_eq!(
-            chunks.slice(1, 2)?.values().cloned().collect::<Vec<_>>(),
+            chunks.slice(1, 2)?.values().collect::<Vec<_>>(),
             vec![Value::Integer(11), Value::Integer(12)]
         );
         Ok(())
@@ -753,7 +854,7 @@ impl DataChunk {
         (0..self.count).map(|i| {
             self.columns
                 .iter()
-                .map(|v| v.get(i).expect("validated chunk cardinality").clone())
+                .map(|v| v.value(i).expect("validated chunk cardinality"))
                 .collect()
         })
     }
@@ -764,12 +865,11 @@ impl DataChunk {
             return Err(Error::Internal("chunk row index out of bounds".into()));
         }
         row.clear();
-        row.extend(self.columns.iter().map(|column| {
-            column
-                .get(index)
-                .expect("validated chunk cardinality")
-                .clone()
-        }));
+        row.extend(
+            self.columns
+                .iter()
+                .map(|column| column.value(index).expect("validated chunk cardinality")),
+        );
         Ok(())
     }
 }

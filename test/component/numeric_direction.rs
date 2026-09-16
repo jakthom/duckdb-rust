@@ -62,7 +62,7 @@ fn numeric_directions_preserve_decimal_widths_and_floating_boundaries() -> Resul
                     Vector::constant(source, decimal(1, width, scale)?, 3)?,
                 ] {
                     for value in vector.values() {
-                        let actual = function.evaluate(std::slice::from_ref(value), &query)?;
+                        let actual = function.evaluate(std::slice::from_ref(&value), &query)?;
                         let expected = match value {
                             Value::Null => Value::Null,
                             Value::Decimal { value, .. } => {
@@ -431,11 +431,10 @@ fn full_scale_decimal_text_retains_declared_width_and_sql_cast_boundaries() -> R
                 bound
                     .apply_batch(&input, &query)?
                     .values()
-                    .cloned()
                     .collect::<Vec<_>>(),
                 input
                     .values()
-                    .map(|value| bound.apply(value, &query))
+                    .map(|value| bound.apply(&value, &query))
                     .collect::<Result<Vec<_>>>()?
             );
         }

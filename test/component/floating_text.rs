@@ -269,11 +269,10 @@ fn selected_floating_text_casts_keep_shortest_midpoint_fallback_and_vector_seman
                         bound
                             .apply_batch(&vector, &query)?
                             .values()
-                            .cloned()
                             .collect::<Vec<_>>(),
                         vector
                             .values()
-                            .map(|value| bound.apply(value, &query))
+                            .map(|value| bound.apply(&value, &query))
                             .collect::<Result<Vec<_>>>()?
                     );
                 }

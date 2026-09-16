@@ -54,7 +54,7 @@ impl Pending {
             let value = row
                 .get(column)
                 .ok_or_else(|| corrupt("physical update column out of bounds"))?;
-            let node = Node::new(data_type, value, 0, &mut self.remaining, context)?;
+            let node = Node::new(data_type, &value, 0, &mut self.remaining, context)?;
             self.nodes.insert(key.clone(), node);
         }
         self.nodes

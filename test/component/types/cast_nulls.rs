@@ -64,7 +64,6 @@ fn selected_casts_can_handle_typed_nulls_without_hiding_invalid_nonnull_output()
                 bound
                     .apply_batch(&vector, &query)?
                     .values()
-                    .cloned()
                     .collect::<Vec<_>>(),
                 vec![
                     Value::Varchar("42".into()),
@@ -120,7 +119,7 @@ impl CastFunction for NullableCast {
                 if value.is_null() && !self.call_nulls && !self.malformed_batch {
                     Ok(Value::Null)
                 } else {
-                    self.cast(value, spec, query)
+                    self.cast(&value, spec, query)
                 }
             })
             .collect::<Result<Vec<_>>>()?;
@@ -173,7 +172,6 @@ fn selected_output_nullability_is_independent_retained_and_checked() -> Result<(
             retained
                 .apply_batch(&input, &query)?
                 .values()
-                .cloned()
                 .collect::<Vec<_>>(),
             expected
         );

@@ -97,11 +97,13 @@ impl Snapshot {
                 context.check()?;
                 let row = destination.rows.get(&new).ok_or_else(invalid)?;
                 let source = source.rows.get(&old).ok_or_else(invalid)?;
+                let source_values = source.to_owned();
+                let row_values = row.to_owned();
                 if !seen.insert(new)
-                    || source.len() != row.len()
+                    || source_values.len() != row_values.len()
                     || !equal(
-                        source.iter(),
-                        row.iter(),
+                        source_values.iter(),
+                        row_values.iter(),
                         selected.as_deref(),
                         format,
                         context,

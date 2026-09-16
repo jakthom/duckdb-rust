@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::RowId;
 use crate::{
-    common::{DataType, Error, Result, Row, type_registry::BoundType, vector::DataChunk},
+    common::{DataType, Error, Result, Row, Value, type_registry::BoundType, vector::DataChunk},
     parallel::QueryContext,
 };
 
@@ -158,7 +158,7 @@ impl ScanBatch {
                 ));
             }
             if data_type.requires_logical_validation() {
-                let validate = |value| {
+                let validate = |value: &Value| {
                     data_type
                         .validate(value, context)
                         .map_err(|error| match error {
@@ -172,7 +172,7 @@ impl ScanBatch {
                     BatchData::Single { row, .. } => validate(&row[index])?,
                     BatchData::Columns { data, .. } => {
                         for value in data.columns()[index].values() {
-                            validate(value)?;
+                            validate(&value)?;
                         }
                     }
                 }

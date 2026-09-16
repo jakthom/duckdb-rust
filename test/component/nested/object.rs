@@ -145,7 +145,6 @@ fn internal_object_text_retains_selected_children_and_batch_validity() -> Result
         nested
             .apply_batch(&batch, &query)?
             .values()
-            .cloned()
             .collect::<Vec<_>>(),
         vec![expected, Value::Null]
     );

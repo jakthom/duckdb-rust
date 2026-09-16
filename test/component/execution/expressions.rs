@@ -73,7 +73,7 @@ fn integer_batch_kernels_match_scalar_width_null_selection_and_overflow_semantic
                         .collect::<Result<Vec<_>>>();
                     let columns = bound
                         .apply_batch(&batch, &query)
-                        .map(|column| column.values().cloned().collect::<Vec<_>>());
+                        .map(|column| column.values().collect::<Vec<_>>());
                     assert_eq!(
                         format!("{scalar:?}"),
                         format!("{columns:?}"),

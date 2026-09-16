@@ -173,7 +173,7 @@ fn precision_rounding_checks_every_decimal_metadata_and_integral_boundary() -> R
                         for input in vector.values() {
                             let result = bound.evaluate(
                                 &[
-                                    cast.apply(input, &query)?,
+                                    cast.apply(&input, &query)?,
                                     Value::Integer(i128::from(precision)),
                                 ],
                                 &query,

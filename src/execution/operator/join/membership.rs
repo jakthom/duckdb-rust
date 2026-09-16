@@ -202,8 +202,8 @@ pub(super) fn visit_integers(
     context: &QueryContext,
     visit: impl FnMut(usize, Option<i128>),
 ) -> Result<()> {
-    fn values<'a>(
-        values: impl Iterator<Item = &'a Value>,
+    fn values(
+        values: impl Iterator<Item = Value>,
         representation: KeyRepresentation,
         context: &QueryContext,
         mut visit: impl FnMut(usize, Option<i128>),
@@ -216,7 +216,7 @@ pub(super) fn visit_integers(
                     context.check()?;
                 }
                 let key = match value {
-                    Value::Integer(value) => Some(*value),
+                    Value::Integer(value) => Some(value),
                     Value::Null => None,
                     _ => unreachable!("validated signed membership key"),
                 };
@@ -228,13 +228,13 @@ pub(super) fn visit_integers(
             if row % 1024 == 0 {
                 context.check()?;
             }
-            let key = representation.integer_key(value)?;
+            let key = representation.integer_key(&value)?;
             visit(row, key);
         }
         context.check()
     }
     if let Some(flat) = input.flat_values() {
-        values(flat.iter(), representation, context, visit)
+        values(flat.iter().cloned(), representation, context, visit)
     } else {
         values(input.values(), representation, context, visit)
     }

@@ -66,7 +66,7 @@ fn grouped_integer_states_match_scalar_states_for_encodings_widths_and_empty_gro
                         })
                         .collect::<Result<Vec<_>>>()?;
                     for (i, value) in column.values().enumerate() {
-                        scalar[i % 5].update(std::slice::from_ref(value), &query)?;
+                        scalar[i % 5].update(std::slice::from_ref(&value), &query)?;
                     }
                     for offset in (0..column.len()).step_by(batch_size) {
                         let len = batch_size.min(column.len() - offset);

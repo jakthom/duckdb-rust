@@ -804,7 +804,7 @@ fn grouped_distinct_on(
             key.clear();
             for (column, data_type) in target_columns.iter().zip(&target_types) {
                 data_type.append_key(
-                    column.get(index).expect("validated DISTINCT ON target"),
+                    &column.get(index).expect("validated DISTINCT ON target"),
                     &mut key,
                     context.query,
                 )?;
@@ -954,8 +954,8 @@ fn grouped_distinct_on_signed_columns(
                     match value {
                         crate::common::Value::Null => {}
                         crate::common::Value::Integer(value) => {
-                            minimum = Some(minimum.map_or(*value, |minimum| minimum.min(*value)));
-                            maximum = Some(maximum.map_or(*value, |maximum| maximum.max(*value)));
+                            minimum = Some(minimum.map_or(value, |minimum| minimum.min(value)));
+                            maximum = Some(maximum.map_or(value, |maximum| maximum.max(value)));
                         }
                         _ => unreachable!("validated signed integer DISTINCT ON target"),
                     }
@@ -984,7 +984,7 @@ fn grouped_distinct_on_signed_columns(
                         .expect("validated DISTINCT ON target")
                     {
                         crate::common::Value::Null => None,
-                        crate::common::Value::Integer(value) => Some(*value),
+                        crate::common::Value::Integer(value) => Some(value),
                         _ => unreachable!("validated signed integer DISTINCT ON target"),
                     };
                     let group = groups.get(key);
@@ -1008,13 +1008,13 @@ fn grouped_distinct_on_signed_columns(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn shared_dense_signed_dictionary(batches: &[DataChunk], column: usize) -> Option<usize> {
     let (parent, _) = batches.first()?.columns().get(column)?.dictionary()?;
-    let mut minimum = None;
+    let mut minimum = None::<i128>;
     let mut saw_null = false;
     for (index, value) in parent.values().enumerate() {
         match value {
             crate::common::Value::Integer(value) if !saw_null => {
-                let minimum = *minimum.get_or_insert(*value);
-                if *value != minimum.checked_add(index as i128)? {
+                let minimum = *minimum.get_or_insert(value);
+                if value != minimum.checked_add(index as i128)? {
                     return None;
                 }
             }
@@ -1109,7 +1109,7 @@ fn compare_signed_order_rows(
                 }
             }
             (crate::common::Value::Integer(left), crate::common::Value::Integer(right)) => {
-                let comparison = left.cmp(right);
+                let comparison = left.cmp(&right);
                 if order.descending {
                     comparison.reverse()
                 } else {
@@ -1164,7 +1164,7 @@ fn compare_order_columns(
                         _ => unreachable!("validated signed integer order key"),
                     }
                 } else {
-                    data_type.compare(left, right, context.query)?
+                    data_type.compare(&left, right, context.query)?
                 };
                 if order.descending {
                     comparison.reverse()

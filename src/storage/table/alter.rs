@@ -337,7 +337,7 @@ impl Snapshot {
                 let index = before.definition.column_index(column)?;
                 for row in before.rows.values() {
                     context.check()?;
-                    if matches!(row[index], Value::Null) {
+                    if matches!(row.get(index), Some(Value::Null)) {
                         return Err(not_null(name, column));
                     }
                 }

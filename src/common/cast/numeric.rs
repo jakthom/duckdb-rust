@@ -33,11 +33,11 @@ impl CastFunction for ExactNumericCast {
             && spec.source.is_signed_integer()
             && matches!(spec.target, DataType::Decimal { width: 1..=18, .. })
         {
-            let convert = |(index, value): (usize, &Value)| {
+            let convert = |(index, value): (usize, Value)| {
                 if index % 1024 == 0 {
                     query.check()?;
                 }
-                let Value::Decimal { value, .. } = self.cast(value, spec, query)? else {
+                let Value::Decimal { value, .. } = self.cast(&value, spec, query)? else {
                     unreachable!("narrow decimal cast result")
                 };
                 i64::try_from(value).map_err(|_| {
@@ -47,6 +47,7 @@ impl CastFunction for ExactNumericCast {
             let coefficients = if let Some(values) = input.flat_values() {
                 values
                     .iter()
+                    .cloned()
                     .enumerate()
                     .map(convert)
                     .collect::<Result<Vec<_>>>()?
@@ -64,18 +65,20 @@ impl CastFunction for ExactNumericCast {
             );
         }
         if spec.target == DataType::HugeInt && self.is_total(spec) {
-            let convert = |(index, value): (usize, &Value)| {
+            let convert = |(index, value): (usize, Value)| {
                 if index % 1024 == 0 {
                     query.check()?;
                 }
                 Ok(match value {
                     Value::Null => None,
-                    Value::Unsigned(value) => Some(*value as i128),
+                    Value::Unsigned(value) => Some(value as i128),
                     _ => unreachable!("validated unsigned widening cast"),
                 })
             };
             return if let Some(values) = input.flat_values() {
-                crate::common::vector::Vector::try_hugeints(values.iter().enumerate().map(convert))
+                crate::common::vector::Vector::try_hugeints(
+                    values.iter().cloned().enumerate().map(convert),
+                )
             } else {
                 crate::common::vector::Vector::try_hugeints(input.values().enumerate().map(convert))
             };
@@ -111,7 +114,7 @@ impl CastFunction for ExactNumericCast {
                 if index % 1024 == 0 {
                     query.check()?;
                 }
-                output.push(convert(value)?);
+                output.push(convert(&value)?);
             }
         }
         query.check()?;

@@ -67,11 +67,10 @@ fn enums_flow_through_selected_casts_functions_vectors_and_nested_children() -> 
         assert_eq!(
             cast.apply_batch(&vector, &query)?
                 .values()
-                .cloned()
                 .collect::<Vec<_>>(),
             vector
                 .values()
-                .map(|value| cast.apply(value, &query))
+                .map(|value| cast.apply(&value, &query))
                 .collect::<Result<Vec<_>>>()?
         );
         let bound = types.bind(&ty)?;
@@ -79,8 +78,8 @@ fn enums_flow_through_selected_casts_functions_vectors_and_nested_children() -> 
             for b in vector.values() {
                 let mut ak = Vec::new();
                 let mut bk = Vec::new();
-                bound.append_key(a, &mut ak, &query)?;
-                bound.append_key(b, &mut bk, &query)?;
+                bound.append_key(&a, &mut ak, &query)?;
+                bound.append_key(&b, &mut bk, &query)?;
                 assert_eq!(ak == bk, a == b);
             }
         }

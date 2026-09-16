@@ -1154,7 +1154,7 @@ impl TableData {
                         )),
                         other => other,
                     })?;
-                if !definition.nullable && column.values().any(Value::is_null) {
+                if !definition.nullable && column.values().any(|value| value.is_null()) {
                     return Err(Error::Constraint(format!(
                         "NOT NULL constraint failed: {}.{}",
                         self.definition.name, definition.name
@@ -1175,11 +1175,11 @@ impl TableData {
                 .zip(&types)
                 .enumerate()
             {
-                if shared_value_identity(value)
+                if shared_value_identity(&value)
                     .is_none_or(|identity| validated[index].insert(identity))
                 {
                     data_type
-                        .validate(value, context)
+                        .validate(&value, context)
                         .map_err(|error| match error {
                             Error::Conversion(message) => Error::Constraint(format!(
                                 "invalid value for {}: {message}",
@@ -1228,10 +1228,15 @@ impl TableData {
                     .collect(),
                 unique: true,
             };
-            let mut entries = self
-                .rows
-                .iter()
-                .map(|(&id, row)| (id, key.columns.iter().map(|&i| row[i].clone()).collect()));
+            let mut entries = self.rows.iter().map(|(&id, row)| {
+                (
+                    id,
+                    key.columns
+                        .iter()
+                        .map(|&i| row.get(i).expect("validated row key"))
+                        .collect(),
+                )
+            });
             indexes.push(factory.build(spec, &mut entries, context)?);
         }
         Ok(indexes)

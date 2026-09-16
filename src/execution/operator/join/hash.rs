@@ -72,7 +72,7 @@ impl Index {
             if i % 1024 == 0 {
                 context.query.check()?;
             }
-            if let Some(value) = keys.data_type.key_representation().integer_key(value)? {
+            if let Some(value) = keys.data_type.key_representation().integer_key(&value)? {
                 minimum = minimum.min(value);
                 maximum = maximum.max(value);
             }
@@ -338,13 +338,13 @@ impl Probe {
         if let Some(values) = self.keys.flat_values() {
             // Dispatch the encoding and key representation once per batch.
             for value in &values[start..] {
-                if !visit(value)? {
+                if !visit(&value)? {
                     break;
                 }
             }
         } else {
             for value in self.keys.slice(start, self.keys.len() - start)?.values() {
-                if !visit(value)? {
+                if !visit(&value)? {
                     break;
                 }
             }
@@ -389,7 +389,7 @@ pub(super) fn open<'a>(
                     if row % 1024 == 0 {
                         context.query.check()?;
                     }
-                    index.insert(value, start + row, &keys, context)?;
+                    index.insert(&value, start + row, &keys, context)?;
                 }
                 for (output, column) in input_columns.iter_mut().zip(batch.columns()) {
                     output.push(column.clone());

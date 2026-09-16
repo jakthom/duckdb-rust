@@ -344,10 +344,10 @@ fn packed_bit_lengths_native_padding_vectors_and_numeric_patterns_are_exact() ->
         )?;
         let output = cast.apply_batch(&vector, &query)?;
         assert_eq!(
-            output.values().cloned().collect::<Vec<_>>(),
+            output.values().collect::<Vec<_>>(),
             vector
                 .values()
-                .map(|v| cast.apply(v, &query))
+                .map(|v| cast.apply(&v, &query))
                 .collect::<Result<Vec<_>>>()?
         );
     }
@@ -585,7 +585,7 @@ fn numeric_bitwise_widths_shifts_and_selected_batches_preserve_full_domains() ->
                 let input = DataChunk::new(vec![vector, right], count)?;
                 let output = bound.apply_batch(&input, &query)?;
                 for (row, values) in input.rows().enumerate() {
-                    assert_eq!(output.get(row).unwrap(), &bound.apply(&values, &query)?);
+                    assert_eq!(output.get(row).unwrap(), bound.apply(&values, &query)?);
                 }
             }
         }

@@ -203,7 +203,7 @@ impl ScalarFunction for BoundConstructor {
             key.clear();
             for column in arguments.columns() {
                 if !append_physical_identity(
-                    column.get(index).expect("validated constructor column"),
+                    &column.get(index).expect("validated constructor column"),
                     &mut key,
                 ) {
                     return Ok(None);

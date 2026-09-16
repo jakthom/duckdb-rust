@@ -190,7 +190,7 @@ fn nested_shape_null_keys_and_vector_encodings() -> Result<()> {
     let selected = Arc::new(vector).select(vec![2, 0, 0, 1])?;
     bound.validate_vector(&selected, &query)?;
     assert_eq!(
-        selected.values().cloned().collect::<Vec<_>>(),
+        selected.values().collect::<Vec<_>>(),
         vec![Value::Null, a.clone(), a, b]
     );
     assert!(

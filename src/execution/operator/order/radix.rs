@@ -50,7 +50,7 @@ impl SortAlgorithm for RadixSort {
                         context.query.check()?;
                     }
                     match value {
-                        Value::Integer(value) => column.push(Some(*value)),
+                        Value::Integer(value) => column.push(Some(value)),
                         Value::Null => column.push(None),
                         _ => {
                             return Err(Error::Internal(

@@ -41,7 +41,7 @@ fn signed_column_copies_preserve_prefixes_extrema_nulls_and_selected_views() -> 
         ] {
             for column in encodings(&data_type, &values)? {
                 let expected = std::iter::once(Value::Varchar("prefix".into()))
-                    .chain(column.values().cloned())
+                    .chain(column.values())
                     .collect::<Vec<_>>();
                 let mut output = vec![Value::Varchar("prefix".into())];
                 column.append_to(&mut output);
@@ -146,7 +146,7 @@ fn unsigned_batch_division_matches_scalar_extrema_nulls_encodings_and_errors() -
                             &DataChunk::new(vec![left.clone(), right], left.len())?,
                             &query,
                         )
-                        .map(|v| v.values().cloned().collect::<Vec<_>>());
+                        .map(|v| v.values().collect::<Vec<_>>());
                     assert_eq!(
                         format!("{expected:?}"),
                         format!("{actual:?}"),
@@ -202,7 +202,7 @@ fn small_unsigned_remainder_dictionaries_preserve_values_nulls_and_views() -> Re
                     )?;
                     assert!(result.dictionary().is_some());
                     assert_eq!(result.all_valid(), !nullable);
-                    assert_eq!(result.values().cloned().collect::<Vec<_>>(), expected);
+                    assert_eq!(result.values().collect::<Vec<_>>(), expected);
                     if data_type != DataType::UHugeInt {
                         let cast = CastRegistry::builtins().bind(
                             &data_type,
@@ -268,7 +268,7 @@ fn numeric_comparison_batches_match_both_scalar_type_adapters() -> Result<()> {
                             if a.is_null() || value.is_null() {
                                 Ok(None)
                             } else {
-                                bound.compare(a, value, &query).map(Some)
+                                bound.compare(&a, &value, &query).map(Some)
                             }
                         })
                         .collect::<Result<Vec<_>>>()?;
@@ -450,7 +450,7 @@ fn numeric_vector_order_proofs_and_concatenation_preserve_physical_values() -> R
                 assert!(
                     values
                         .windows(2)
-                        .all(|pair| !pair[0].compare(pair[1]).unwrap().is_gt())
+                        .all(|pair| !pair[0].compare(&pair[1]).unwrap().is_gt())
                 );
             }
             let parts = [
@@ -495,7 +495,7 @@ fn exact_sum_batches_match_scalar_prefixes_nulls_and_wide_fallbacks() -> Result<
                     sum.create_state(std::slice::from_ref(&data_type), query.types())?;
                 let expected = column
                     .values()
-                    .try_for_each(|value| scalar.update(std::slice::from_ref(value), &query))
+                    .try_for_each(|value| scalar.update(std::slice::from_ref(&value), &query))
                     .and_then(|_| scalar.finish());
                 let actual = (0..column.len())
                     .step_by(size)
@@ -648,11 +648,11 @@ fn numeric_cast_batches_retain_scalar_domains_nulls_and_totality() -> Result<()>
             for input in encodings(&source, &samples)? {
                 let expected = input
                     .values()
-                    .map(|value| bound.apply(value, &query))
+                    .map(|value| bound.apply(&value, &query))
                     .collect::<Result<Vec<_>>>();
                 let actual = bound
                     .apply_batch(&input, &query)
-                    .map(|column| column.values().cloned().collect::<Vec<_>>());
+                    .map(|column| column.values().collect::<Vec<_>>());
                 if bound.is_total() {
                     assert!(expected.is_ok(), "total cast {source} -> {target}");
                 }
@@ -770,7 +770,7 @@ fn grouped_numeric_sums_preserve_scalar_states_and_decline_unbounded_overflow() 
                         .map(|_| sum.create_state(std::slice::from_ref(&data_type), query.types()))
                         .collect::<Result<Vec<_>>>()?;
                     for (row, value) in column.values().enumerate() {
-                        scalar[row % destinations].update(std::slice::from_ref(value), &query)?;
+                        scalar[row % destinations].update(std::slice::from_ref(&value), &query)?;
                     }
                     for offset in (0..column.len()).step_by(batch_size) {
                         let len = batch_size.min(column.len() - offset);

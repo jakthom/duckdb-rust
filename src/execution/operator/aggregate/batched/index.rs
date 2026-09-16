@@ -42,7 +42,7 @@ impl Dense {
                 if i % 1024 == 0 {
                     query.check()?;
                 }
-                if let Some(value) = representation.integer_key(value)? {
+                if let Some(value) = representation.integer_key(&value)? {
                     minimum = Some(minimum.map_or(value, |v| v.min(value)));
                     maximum = Some(maximum.map_or(value, |v| v.max(value)));
                 }
@@ -154,7 +154,7 @@ impl IntegerIndex {
                 if groups[index] == EMPTY {
                     let value = dictionary.get(index).expect("checked dictionary position");
                     groups[index] = self.locate_one(
-                        [representations[0].integer_key(value)?],
+                        [representations[0].integer_key(&value)?],
                         row,
                         &mut create,
                     )?;
@@ -186,20 +186,25 @@ impl IntegerIndex {
             {
                 // Select the declared physical mapping outside the hot loop.
                 // The capability remains separate from signed ordering.
-                let coefficient = |value: &Value| match value {
-                    Value::Unsigned(value) => Ok([Some(*value as i128)]),
+                let coefficient = |value: Value| match value {
+                    Value::Unsigned(value) => Ok([Some(value as i128)]),
                     Value::Null => Ok([None]),
                     _ => Err(Error::Internal("unsigned grouping key type".into())),
                 };
                 if let Some(values) = column.flat_values() {
-                    self.locate_coefficients(values.iter().map(coefficient), rows, query, create)
+                    self.locate_coefficients(
+                        values.iter().cloned().map(coefficient),
+                        rows,
+                        query,
+                        create,
+                    )
                 } else {
                     self.locate_coefficients(column.values().map(coefficient), rows, query, create)
                 }
             }
             [column] => match column.flat_values() {
                 Some(values) => self.locate_values(
-                    values.iter().map(|v| [v]),
+                    values.iter().cloned().map(|v| [v]),
                     representations,
                     rows,
                     query,
@@ -215,7 +220,10 @@ impl IntegerIndex {
             },
             [a, b] => match a.flat_values().zip(b.flat_values()) {
                 Some((a, b)) => self.locate_values(
-                    a.iter().zip(b).map(|(a, b)| [a, b]),
+                    a.iter()
+                        .cloned()
+                        .zip(b.iter().cloned())
+                        .map(|(a, b)| [a, b]),
                     representations,
                     rows,
                     query,
@@ -235,9 +243,9 @@ impl IntegerIndex {
         }
     }
     #[inline]
-    fn locate_values<'a, const N: usize>(
+    fn locate_values<const N: usize>(
         &mut self,
-        values: impl Iterator<Item = [&'a Value; N]>,
+        values: impl Iterator<Item = [Value; N]>,
         representations: &[KeyRepresentation],
         rows: usize,
         query: &QueryContext,
@@ -251,7 +259,7 @@ impl IntegerIndex {
             // row loop. Keep small coefficient tuples in the lookup's frame.
             let coefficients = values.map(|values| {
                 Ok(values.map(|value| match value {
-                    Value::Integer(value) => Some(*value),
+                    Value::Integer(value) => Some(value),
                     Value::Null => None,
                     _ => unreachable!("validated signed grouping key"),
                 }))
@@ -261,7 +269,7 @@ impl IntegerIndex {
         let coefficients = values.map(|values| {
             let mut coefficients = [None; N];
             for (i, value) in values.iter().enumerate() {
-                coefficients[i] = representations[i].integer_key(value)?;
+                coefficients[i] = representations[i].integer_key(&value)?;
             }
             Ok(coefficients)
         });

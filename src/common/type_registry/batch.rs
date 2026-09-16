@@ -28,7 +28,7 @@ pub(super) fn select_values(
             if index % 1024 == 0 {
                 context.check()?;
             }
-            if !a.is_null() && !b.is_null() && predicate.matches(compare(a, b)?) {
+            if !a.is_null() && !b.is_null() && predicate.matches(compare(&a, &b)?) {
                 selected.push(index);
             }
         }
@@ -65,7 +65,7 @@ pub(super) fn compare_values(
         values.push(if a.is_null() || b.is_null() {
             None
         } else {
-            Some(compare(a, b)?)
+            Some(compare(&a, &b)?)
         });
     }
     context.check()?;
@@ -154,8 +154,8 @@ impl BoundType {
                 ));
             }
             if !(left.all_valid() && right.all_valid())
-                && (left.get(index).is_some_and(Value::is_null)
-                    || right.get(index).is_some_and(Value::is_null))
+                && (left.get(index).is_some_and(|value| value.is_null())
+                    || right.get(index).is_some_and(|value| value.is_null()))
             {
                 return Err(Error::Internal("comparison selected a NULL input".into()));
             }
@@ -172,7 +172,7 @@ impl BoundType {
         }
         if self.requires_logical_validation() {
             if let Some(value) = column.constant_value() {
-                self.validate(value, context)?;
+                self.validate(&value, context)?;
             } else if let Some((parent, selection)) = column.dictionary() {
                 // A dictionary position denotes one exact physical value, so
                 // repeated logical rows share the same logical-validation
@@ -189,7 +189,7 @@ impl BoundType {
                         })?;
                         if !*validated {
                             self.validate(
-                                parent.get(index).expect("checked parent index"),
+                                &parent.get(index).expect("checked parent index"),
                                 context,
                             )?;
                             *validated = true;
@@ -203,7 +203,7 @@ impl BoundType {
                         }
                         if validated.insert(index) {
                             self.validate(
-                                parent.get(index).ok_or_else(|| {
+                                &parent.get(index).ok_or_else(|| {
                                     Error::Internal("dictionary selection outside parent".into())
                                 })?,
                                 context,
@@ -213,7 +213,7 @@ impl BoundType {
                 }
             } else {
                 for value in column.values() {
-                    self.validate(value, context)?;
+                    self.validate(&value, context)?;
                 }
             }
         }
@@ -255,8 +255,8 @@ impl BoundType {
                 context.check()?;
             }
             if value.is_none()
-                != (left.get(index).is_some_and(Value::is_null)
-                    || right.get(index).is_some_and(Value::is_null))
+                != (left.get(index).is_some_and(|value| value.is_null())
+                    || right.get(index).is_some_and(|value| value.is_null()))
             {
                 return Err(Error::Internal(
                     "comparison batch violated NULL semantics".into(),

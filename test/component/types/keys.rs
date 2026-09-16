@@ -427,7 +427,7 @@ fn column_keys_match_scalar_keys_and_validate_before_visiting() -> Result<()> {
                         return Ok(None);
                     }
                     let mut key = Vec::new();
-                    bound.append_key(value, &mut key, &query)?;
+                    bound.append_key(&value, &mut key, &query)?;
                     Ok(Some(key))
                 })
                 .collect::<Result<Vec<_>>>()?;

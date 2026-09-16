@@ -128,7 +128,6 @@ fn variant_retains_dynamic_child_selection_across_replacement_and_batch_executio
     assert_eq!(
         cast.apply_batch(&batch, &query)?
             .values()
-            .cloned()
             .collect::<Vec<_>>(),
         vec![Value::Integer(1), Value::Null, Value::Integer(2)]
     );
