@@ -43,5 +43,24 @@ class FeedbackPerformanceTests(unittest.TestCase):
         self.assertEqual(feedback.failure_diagnostic(measure.SampleFailure("failed", details)), details)
         self.assertIsNone(feedback.failure_diagnostic(ValueError("other failure")))
 
+    def test_snapshot_rehashes_every_selected_cache_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); workloads = root / "workloads.json"; workloads.write_text("{}")
+            runner = root / "runner"; runner.write_bytes(b"runner")
+            sidecar = root / "runner.provenance.json"; sidecar.write_text("{}")
+            prepared = {}
+            for workload in ("one", "two"):
+                source = root / workload / "source"; source.mkdir(parents=True)
+                path = "test/a.test"; file = source / path; file.parent.mkdir(); file.write_text(workload)
+                suite = source.parent / "suite.json"; suite.write_text(workload)
+                prepared[(workload, "release")] = (source, suite, feedback.digest(file), feedback.digest(suite), {"id": workload}, path)
+            args = type("Args", (), {"workloads": workloads, "rust_provenance": sidecar})()
+            with patch.object(feedback, "checked_worker_provenance", return_value=(sidecar, {"profile": "release"})):
+                snapshot = feedback.campaign_snapshot(args, runner, {}, prepared)
+                self.assertEqual(set(snapshot["caches"]), {"one/release", "two/release"})
+                (root / "two/source/test/a.test").write_text("drift")
+                with self.assertRaises(ValueError):
+                    feedback.campaign_snapshot(args, runner, {}, prepared)
+
 
 if __name__ == "__main__": unittest.main()

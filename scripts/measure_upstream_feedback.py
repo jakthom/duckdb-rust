@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 
 import measure_sqllogic_performance as measure
 from reference_version import ROOT, TARGETS, require_checkout, require_reference
@@ -110,8 +111,17 @@ def campaign_snapshot(args, rust, references, prepared):
         build = binary.parent.parent
         cache = measure.release_cache(build)
         pins[target] = {"revision": revision, "unittest_sha256": digest(binary), "cmake_cache_sha256": digest(cache)}
-    caches = {key: {"source_sha256": value[2], "suite_sha256": value[3], "identity": value[4]}
-               for key, value in prepared.items()}
+    caches = {}
+    for (workload_id, target), value in prepared.items():
+        source, suite, expected_source, expected_suite, identity, path = value
+        source_file = source / path
+        # Re-read every selected byte at both boundaries. The expected digest
+        # comes from the cache materialization; this is not a copied snapshot.
+        actual_source, actual_suite = digest(source_file), digest(suite)
+        if actual_source != expected_source or actual_suite != expected_suite:
+            raise ValueError(f"selected feedback cache drifted: {workload_id}/{target}")
+        caches[f"{workload_id}/{target}"] = {"path": path, "source_sha256": actual_source,
+                                               "suite_sha256": actual_suite, "identity": identity}
     return {"workloads_sha256": digest(args.workloads), "harness_sha256": {name: digest(ROOT / "scripts" / name) for name in
             ("measure_upstream_feedback.py", "run_upstream.py", "upstream_suite.py")}, "runner_sha256": digest(rust),
             "sidecar_sha256": digest(runner_sidecar), "provenance": provenance, "pins": pins, "caches": caches}
@@ -171,23 +181,32 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix="ddb-feedback-performance-") as directory:
             scratch = Path(directory)
+            prepared_all = {}
+            cold_materialization = {}
+            # Materialize all selected singleton caches before the timed phase,
+            # then snapshot every one together. This one-time setup is retained
+            # separately rather than charged to a warm invocation.
+            for workload in workloads:
+                for target in ("release", "development"):
+                    cache = cache_run_root / workload["id"] / target
+                    started = time.perf_counter_ns()
+                    source, manifest, identity = selected_feedback_population(target, [workload["path"]], cache)
+                    wall_ns = time.perf_counter_ns() - started
+                    suite = source.parent / "suite.json"; source_file = source / workload["path"]
+                    prepared_all[(workload["id"], target)] = (source, suite, digest(source_file), digest(suite), identity, workload["path"])
+                    cold_materialization[f"{workload['id']}/{target}"] = {"wall_ns": wall_ns, "cache": identity}
+            snapshot_before = campaign_snapshot(args, rust, references, prepared_all)
             for workload in workloads:
                 observations = {name: [] for name in ("release_cpp", "development_cpp", "release_rust", "development_rust")}
                 cold_setup = {}
                 commands = {}
-                prepared = {}
                 for target, binary in (("release", args.release_cpp), ("development", args.development_cpp)):
                     commands[f"{target}_cpp"] = [binary, "--test-dir", TARGETS[target].source,
                                                    workload["path"], "--use-colour", "no", "--durations", "no"]
                 for target in ("release", "development"):
-                    cache = cache_run_root / workload["id"] / target
-                    source, manifest, identity = selected_feedback_population(target, [workload["path"]], cache)
-                    suite = source.parent / "suite.json"
-                    source_file = source / workload["path"]
-                    prepared[target] = (source, suite, digest(source_file), digest(suite), identity)
-                    cold_setup[target] = {"cache": identity}
-                if snapshot_before is None:
-                    snapshot_before = campaign_snapshot(args, rust, references, prepared)
+                    source, suite, source_sha256, suite_sha256, identity, _ = prepared_all[(workload["id"], target)]
+                    prepared[target] = (source, suite, source_sha256, suite_sha256, identity)
+                    cold_setup[target] = cold_materialization[f"{workload['id']}/{target}"]
                 for iteration in range(args.warmups + args.samples):
                     names = ["release_cpp", "development_cpp", "release_rust", "development_rust"]
                     names = names[iteration % len(names):] + names[:iteration % len(names)]
@@ -203,7 +222,7 @@ def main():
                         if iteration >= args.warmups: observations[name].append(sample)
                 raw.append({**workload, "cold_setup": cold_setup, "observations": observations})
         provenance_path_after, provenance_after = checked_worker_provenance(rust, args.rust_provenance)
-        snapshot_after = campaign_snapshot(args, rust, references, prepared)
+        snapshot_after = campaign_snapshot(args, rust, references, prepared_all)
         if provenance_path_after != provenance_path or provenance_after != provenance_before or snapshot_after != snapshot_before:
             raise ValueError("feedback campaign authority changed during campaign")
         result = gate(raw, workloads)
@@ -216,7 +235,7 @@ def main():
                   "harness_sha256": {name: digest(ROOT / "scripts" / name) for name in
                                       ("measure_upstream_feedback.py", "run_upstream.py", "upstream_suite.py")},
                   "samples": args.samples, "warmups": args.warmups,
-                  "scope": "Selected upstream SQLLogic source paths. Gate P times repeated warm feedback: cache validation, worker launch, execution, unchanged assertions, report emission and caller-visible process startup, matched to pinned C++ unittest startup/execution/assertions over its materialized source. `cold_setup` separately retains the one-time Rust cache materialization cost, which has no C++ runner analogue. Compilation is excluded."}
+                  "scope": "Selected upstream SQLLogic source paths. Gate P times repeated warm feedback: cache validation, worker launch, execution, unchanged assertions, report emission and caller-visible process startup, matched to pinned C++ unittest startup/execution/assertions over its materialized source. `cold_setup` retains one-time cache materialization wall time and identity; its CPU, RSS and I/O dimensions are not collected and it is not gated. Compilation is excluded."}
     except Exception as error:
         report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "workloads": raw, "references": references,
                   "passed": False, "error": str(error)}
