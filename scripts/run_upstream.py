@@ -237,7 +237,7 @@ def watch_feedback(args):
     """Continuously rerun settled edits; each child retains a distinct report."""
     original = list(sys.argv[1:])
     original.remove("--watch")
-    index, observed = 0, None
+    index = 0
     while True:
         # A change resets the debounce interval rather than starting an
         # overlapping build or accepting a source state that is still moving.
@@ -251,13 +251,28 @@ def watch_feedback(args):
         report = args.report if index == 0 else args.report.with_name(
             f"{args.report.stem}.watch-{index}{args.report.suffix}")
         command = original.copy()
-        report_position = command.index("--report") + 1
-        command[report_position] = str(report)
+        rewrite_report_argument(command, report)
         subprocess.run([sys.executable, str(Path(__file__)), *command], check=False)
         index += 1
-        observed = validation_fingerprint()
-        while validation_fingerprint() == observed:
+        # A child that became stale must not leave the newest edit waiting for
+        # another edit event: debounce and validate that state immediately.
+        if validation_fingerprint() != candidate:
+            continue
+        while validation_fingerprint() == candidate:
             time.sleep(0.1)
+
+
+def rewrite_report_argument(command, report):
+    """Replace either argparse spelling without accidentally adding a second report."""
+    for index, value in enumerate(command):
+        if value == "--report":
+            if index + 1 == len(command): raise ValueError("--report requires a path")
+            command[index + 1] = str(report)
+            return
+        if value.startswith("--report="):
+            command[index] = "--report=" + str(report)
+            return
+    raise ValueError("watch requires --report")
 
 
 def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):

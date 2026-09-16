@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 import sqllogic
 from run_upstream import (cached_population, comparable_outcome, failure_class,
-                          run_case, selected_entries, summarize)
+                          rewrite_report_argument, run_case, selected_entries, summarize,
+                          watch_feedback)
 
 
 class RunUpstreamTests(unittest.TestCase):
@@ -90,6 +91,32 @@ class RunUpstreamTests(unittest.TestCase):
                   "source_sql_records": 1, "elapsed_seconds": 0.01}
         self.assertEqual(comparable_outcome(passed), comparable_outcome({**passed, "elapsed_seconds": 10}))
         self.assertNotEqual(comparable_outcome(passed), comparable_outcome({**passed, "status": "failed"}))
+
+    def test_watch_reruns_settled_source_after_a_stale_child_and_rewrites_equals_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "watch.json"
+            args = type("Args", (), {"report": report, "debounce_seconds": .01})()
+            calls = []
+            def child(command, **unused):
+                calls.append(command)
+                if len(calls) == 2:
+                    raise KeyboardInterrupt()
+            # First child starts at A and source changes to B.  The second must
+            # run B after it settles; no additional mutation is supplied.
+            fingerprints = iter(["A", "A", "B", "B", "B"])
+            with patch("run_upstream.sys.argv", ["run_upstream.py", "--watch", f"--report={report}"]), \
+                 patch("run_upstream.validation_fingerprint", side_effect=lambda: next(fingerprints)), \
+                 patch("run_upstream.time.sleep"), patch("run_upstream.subprocess.run", side_effect=child):
+                with self.assertRaises(KeyboardInterrupt): watch_feedback(args)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[0][-1], f"--report={report}")
+            self.assertEqual(calls[1][-1], f"--report={report.with_name('watch.watch-1.json')}")
+
+    def test_report_argument_rewrite_rejects_missing_and_handles_split_form(self):
+        command = ["--report", "old.json"]
+        rewrite_report_argument(command, Path("new.json"))
+        self.assertEqual(command, ["--report", "new.json"])
+        with self.assertRaises(ValueError): rewrite_report_argument(["--jobs", "1"], Path("new.json"))
 
 
 if __name__ == "__main__":
