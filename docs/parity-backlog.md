@@ -181,7 +181,7 @@ global and main-session configuration, including `search_path`. Its source-match
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
 zero skips). Its final-tree three-warmup, nine-sample Gate P campaign records a
 1.409x Rust/faster-C++ wall ratio; invocation throughput is 0.710x and fails by
-the same wall-time comparison. Rust CPU is 1.000x and RSS 0.414x the faster C++
+the same wall-time comparison. Rust CPU is 0.667x and RSS 0.415x the faster C++
 medians, and block I/O is equal. Thus **at-parity or better performance:
 fail** for G01.2c. A focused split attributes the wall deficit to file-backed
 commit/lifecycle work rather than concurrent-loop scheduling; the exact engine
@@ -269,19 +269,19 @@ demand or checked numeric semantics merely to improve the numbers.
 
 The final Wave C source-bound workloads were measured serially with three warmups
 and nine samples against both pins (raw evidence remains under
-`target/g01-wave-c-20260915/performance-final-7/`). All reports retain the same
+`target/g01-wave-c-20260915/performance-final-8/`). All reports retain the same
 final-tree source and release-binary digests, and every measured invocation exited
 successfully. Their Gate P results are explicit: G01.2c lifecycle is **at-parity
-or better performance: fail** (wall 1.409x, CPU 1.000x, RSS 0.414x, throughput
-0.710x); G03.3a ENUM is **fail** after adding nested-parent work (wall 1.139x,
-CPU 1.143x, RSS 1.242x, throughput 0.878x); G04.2a `make_date(STRUCT)` is
-**fail** (wall 10.139x, CPU 29.000x, RSS 1.855x, throughput 0.099x); G06.1a case
-conversion is **fail** (wall 2.961x, CPU 4.000x, RSS 0.792x, throughput 0.338x);
-G07.3a DISTINCT ON is **fail** (wall 2.509x, CPU 3.000x, RSS 2.040x,
-throughput 0.398x); and G08.1a `product` is **fail** (wall 18.199x, CPU 25.333x,
-RSS 0.275x, throughput 0.055x). G10.4a profiling with `no_output` is a measured
-**pass** (wall 0.623x, CPU 0.000x at timer resolution, RSS 0.749x, throughput
-1.606x), but its overall Gate P remains
+or better performance: fail** (wall 1.409x, CPU 0.667x, RSS 0.415x, throughput
+0.710x); G03.3a ENUM is **fail** after adding nested-parent work (wall 1.131x,
+CPU 1.143x, RSS 1.241x, throughput 0.884x); G04.2a `make_date(STRUCT)` is
+**fail** (wall 10.355x, CPU 30.000x, RSS 1.855x, throughput 0.097x); G06.1a case
+conversion is **fail** (wall 2.968x, CPU 4.000x, RSS 0.800x, throughput 0.337x);
+G07.3a DISTINCT ON is **fail** (wall 2.596x, CPU 3.500x, RSS 2.049x,
+throughput 0.385x); and G08.1a `product` is **fail** (wall 18.331x, CPU 25.667x,
+RSS 0.290x, throughput 0.055x). G10.4a profiling with `no_output` is a measured
+**pass** (wall 0.627x, CPU 0.000x at timer resolution, RSS 0.744x, throughput
+1.595x), but its overall Gate P remains
 **open** because operational verification
 is incomparable with the development pin's no-op and forced-external execution is
 absent. None of these goal groups is complete while its Gate P is fail or open.
@@ -725,12 +725,16 @@ partial leading bit groups and pinned strict/replace/ignore malformed-UTF-8 beha
 including deferred mode validation and provable-NULL demand. SQL operator spelling
 for exponentiation/postfix factorial, the conversion matrix and the remaining
 scalar-family catalog stay open.
+Rounding now preserves the pins' bind-time default-NULL demand: a provably constant
+NULL argument suppresses failing siblings with the selected result metadata, while
+row-sourced NULL retains ordinary source-order demand. Decimal known-NULL calls keep
+their distinct NULL result metadata.
 G03.3a now ports `enum_range_boundary` through a source-shaped scalar batch hook,
 including casts, scalar/binary parents, predicates, lazy selected branches,
 shared projections, constant/column/NULL endpoints and prepared execution; its
 final-tree independent suite passes 29/29 SQL plus six native paths against each
 pin. The function-family **at-parity or better performance** gate fails (wall
-1.139x, CPU 1.143x, RSS 1.242x and throughput 0.878x the faster pin).
+1.131x, CPU 1.143x, RSS 1.241x and throughput 0.884x the faster pin).
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -775,7 +779,7 @@ G04.2a now supports `make_date(STRUCT(year, month, day))` with case-insensitive
 and reordered fields, NULL propagation, checked INT64-to-INT32 field errors before
 calendar validation, scalar/batch and prepared
 execution. The temporal component passes its assigned cases, but this slice's
-**at-parity or better performance** gate fails (wall 10.139x, CPU 29.000x and RSS
+**at-parity or better performance** gate fails (wall 10.355x, CPU 30.000x and RSS
 1.855x the faster pin).
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
@@ -855,8 +859,8 @@ utf8proc 2.9 / Unicode 15.1 table rather than host or current-Unicode full case
 mappings. Its Rust FFI property layout and exported symbol set also match that
 pinned header, including the full 16-bit combination index. The full upstream
 function catalog and collation system do not. Its **at-parity or better
-performance** gate fails (wall 2.961x and CPU 4.000x the faster pin, despite
-0.792x RSS).
+performance** gate fails (wall 2.968x and CPU 4.000x the faster pin, despite
+0.800x RSS).
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
@@ -883,7 +887,7 @@ subqueries and recursive UNION are implemented. G07.3a additionally implements
 `DISTINCT ON` target de-duplication, typed NULL equality and source-shaped ORDER
 selection through aliases, nested queries, prepared and batched execution. Its
 assigned execution cases pass, but **at-parity or better performance** fails (wall
-2.509x, CPU 3.000x, RSS 2.040x and throughput 0.398x the faster pin). This is
+2.596x, CPU 3.500x, RSS 2.049x and throughput 0.385x the faster pin). This is
 completion work, not a rewrite.
 
 - **G07.1 Finish join and correlation forms.** Add lateral/dependent relations,
@@ -910,7 +914,7 @@ registered in their built-in modules; grouping sets and core frames already work
 G08.1a adds unary numeric `product`, including NULL/empty behavior, IEEE DOUBLE
 multiplication and BIGNUM conversion coverage; its source `product` cases pass
 against both pins. Its **at-parity or better performance** gate fails (wall
-18.199x, CPU 25.333x and throughput 0.055x the faster pin, despite 0.275x RSS).
+18.331x, CPU 25.667x and throughput 0.055x the faster pin, despite 0.290x RSS).
 
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
