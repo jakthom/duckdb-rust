@@ -149,8 +149,15 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
     let mut generation = DataSet {
         schema: plan.schema.clone(),
         rows: Vec::new(),
-        chunks: plan.all.then(Vec::new),
+        // The seed and each ordinary recursive step commonly produce one
+        // vector batch; avoid allocating their batch list on every correlated
+        // fixed point while still allowing larger generations to grow.
+        chunks: plan.all.then(|| Vec::with_capacity(1)),
     };
+    // UNION ALL generations retain their batches instead of materializing
+    // rows.  Keep their cardinality beside the batches: repeatedly summing
+    // every batch made small correlated fixed points quadratic in generations.
+    let mut generation_len = 0;
     let mut position = 0;
     Ok(stream::from_fn(move |max_rows| {
         loop {
@@ -158,7 +165,7 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
             if let Some(seed_input) = &mut seed {
                 if let Some(batch) = seed_input.next(max_rows)? {
                     if plan.all {
-                        append_chunk(&mut generation, batch, context.query)?;
+                        append_chunk(&mut generation, batch, &mut generation_len, context.query)?;
                     } else {
                         retain(
                             batch.rows(),
@@ -168,20 +175,21 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
                             &mut generation.rows,
                             context.query,
                         )?;
+                        generation_len = generation.rows.len();
                         context.query.check_rows(generation.rows.len())?;
                     }
                 } else {
                     seed = None;
                 }
             }
-            if position < generation.len() {
+            if position < generation_len {
                 let output = generation.next_batch(&mut position, max_rows)?;
                 return Ok(output);
             }
             if seed.is_some() {
                 continue;
             }
-            if generation.len() == 0 {
+            if generation_len == 0 {
                 return Ok(None);
             }
             let frame = RecursiveFrame::new(plan.id, &generation, context.recursive);
@@ -189,15 +197,11 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
                 recursive: Some(&frame),
                 ..*context
             };
-            let next = if plan.all {
-                collect_chunks(plan.step, &nested)?
-            } else {
-                stream::collect(plan.step, &nested)?
-            };
             // The step no longer borrows this generation after collection.
             if plan.all {
-                generation = next;
+                (generation, generation_len) = collect_chunks(plan.step, &nested)?;
             } else {
+                let next = stream::collect(plan.step, &nested)?;
                 generation.rows.clear();
                 retain(
                     next.rows,
@@ -207,6 +211,7 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
                     &mut generation.rows,
                     context.query,
                 )?;
+                generation_len = generation.rows.len();
             }
             position = 0;
         }
@@ -216,9 +221,11 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
 fn append_chunk(
     data: &mut DataSet,
     chunk: crate::common::vector::DataChunk,
+    len: &mut usize,
     context: &QueryContext,
 ) -> Result<()> {
-    context.check_rows(data.len().saturating_add(chunk.len()))?;
+    context.check_rows(len.saturating_add(chunk.len()))?;
+    *len = len.saturating_add(chunk.len());
     data.chunks
         .as_mut()
         .expect("UNION ALL dataset retains chunks")
@@ -229,17 +236,21 @@ fn append_chunk(
 /// Keep each UNION ALL step in its produced vector batches. This is the same
 /// raw-generation limit that `stream::collect` enforces before rows are
 /// materialized, without the row-to-vector round trip at every iteration.
-fn collect_chunks(plan: &dyn PhysicalOperator, context: &ExecutionContext<'_>) -> Result<DataSet> {
+fn collect_chunks(
+    plan: &dyn PhysicalOperator,
+    context: &ExecutionContext<'_>,
+) -> Result<(DataSet, usize)> {
     let mut input = stream::open(plan, context)?;
     let mut data = DataSet {
         schema: plan.schema().clone(),
         rows: Vec::new(),
-        chunks: Some(Vec::new()),
+        chunks: Some(Vec::with_capacity(1)),
     };
+    let mut len = 0;
     while let Some(chunk) = input.next(context.query.batch_size())? {
-        append_chunk(&mut data, chunk, context.query)?;
+        append_chunk(&mut data, chunk, &mut len, context.query)?;
     }
-    Ok(data)
+    Ok((data, len))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
