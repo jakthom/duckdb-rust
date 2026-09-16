@@ -1,7 +1,13 @@
-"""Fail-closed dual-pin performance acceptance for native SQLLogic runners.
+"""Fail-closed dual-pin performance acceptance for custom SQLLogic workloads.
 
 The input manifest is JSON ``{"workloads": [{"id": "...", "path": "..."}]}``.
-Paths are relative to ``--test-root`` and must name unchanged SQLLogic files.
+Paths are relative to ``--test-root`` and name one immutable shared workload file
+used by all three runners. The shared root lets both pinned C++ unittest binaries
+register that exact custom file; it is not claimed to be an upstream fixture.
+Custom workloads with external fixture directives are rejected until every
+resolved dependency can be recorded and hashed individually. Unchanged upstream
+files require a separate pin-specific source path/hash campaign.
+
 This adapter intentionally measures process-level runner costs: it is for runner,
 parser, fixture, and oracle changes, rather than engine microbenchmarks.
 """
@@ -140,7 +146,27 @@ def validate_manifest(path, test_root):
         candidate = (root / item["path"]).resolve()
         if not candidate.is_relative_to(root) or not candidate.is_file() or not candidate.name.endswith((".test", ".test_slow", ".test_coverage")):
             raise ValueError("invalid SQLLogic workload path: " + item["path"])
-        prepared.append({**item, "sha256": digest(candidate), "bytes": candidate.stat().st_size})
+        contents = candidate.read_text(errors="replace")
+        fixture_directives = []
+        for line_number, line in enumerate(contents.splitlines(), 1):
+            directive = line.strip().lower()
+            if (directive.startswith(("include ", "load ", "unzip "))
+                    or "<file>:" in directive or "{test_dir}" in directive):
+                fixture_directives.append(line_number)
+        if fixture_directives:
+            lines = ", ".join(map(str, fixture_directives))
+            raise ValueError(
+                f"custom SQLLogic workload {item['id']} has external fixture directives "
+                f"on lines {lines}; individually hashed resolved dependencies are required"
+            )
+        prepared.append({
+            **item,
+            "kind": "custom_comparable",
+            "shared_test_dir": str(root),
+            "shared_workload_path": str(candidate),
+            "shared_workload_sha256": digest(candidate),
+            "shared_workload_bytes": candidate.stat().st_size,
+        })
     return prepared
 
 
@@ -309,8 +335,10 @@ def run_campaign(args):
         for workload in workloads:
             relative = workload["path"]
             commands = {
-                "release": [args.release_cpp, "--test-dir", root, relative, "--use-colour", "no", "--durations", "no"],
-                "development": [args.development_cpp, "--test-dir", root, relative, "--use-colour", "no", "--durations", "no"],
+                "release": [args.release_cpp, "--test-dir", root, relative,
+                            "--use-colour", "no", "--durations", "no"],
+                "development": [args.development_cpp, "--test-dir", root, relative,
+                                "--use-colour", "no", "--durations", "no"],
                 "rust": [rust, root, relative],
             }
             samples = {name: [] for name in commands}

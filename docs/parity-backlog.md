@@ -1278,7 +1278,7 @@ DECIMAL physical-width boundaries and table SUM. Full functional acceptance adds
 the complete `numeric_batches`, `numeric_contracts`, `grouping` and SQL
 `relational.test` targets so scalar/batch, checked overflow/cancellation,
 dictionary, alternate aggregation, grouping and downstream decimal arithmetic
-remain consumers. Performance workloads are the unchanged native
+remain consumers. Performance workloads are the shared immutable custom native
 `decimal_total_cents` case (50,000 stored `DECIMAL(12,2)` rows) and the maintained
 substantial SQLLogic total-cents case, serial/one thread, release/no tracing,
 three warmups and 21 alternating samples against both pins. Each workload must
@@ -1297,8 +1297,13 @@ checked prefix-overflow paths stay on the existing general kernels. The shared
 scan prerequisite `be47ada` removes only the diagnosed stable-order identity
 rebuild and retains hole/relocation/snapshot/rollback/checkpoint coverage. On the
 post-change tree, the focused tests pass, the complete numeric target is 67/67,
-grouping is 64/64, local relational/performance SQL is 14/14, and the unchanged
-decimal aggregate upstream file is 1/1 per pin. A nine-sample diagnostic (not
+grouping is 64/64, local relational/performance SQL is 14/14, and each pin's own
+decimal aggregate upstream file is 1/1: release hash
+`5a5367993d562fd9a5cd3fdd20b82171113588dcf92cb43db2d4bce0b7d79158` and
+development hash
+`f3d88b5044ca1f8dc2f6ff45c1c60f0ae71404037eec96817d1532ac020ff8e0`.
+The files differ and remain separate pin-specific source inputs rather than one
+claimed unchanged fixture. A nine-sample diagnostic (not
 quiet-host acceptance) measured the 50,000-row embedded latency scope at 0.775x
 the release pin after an earlier post-scan 1.142x result. Performance remains
 **open** until the final identical-source dual-pin 21-sample latency reports and

@@ -21,7 +21,10 @@ def sample(**overrides):
 
 class PerformanceGateTests(unittest.TestCase):
     def reports(self):
-        workloads = [{"id": "a", "path": "a.test", "sha256": "x", "bytes": 1}]
+        workloads = [{"id": "a", "path": "a.test", "kind": "custom_comparable",
+                      "shared_test_dir": "/shared",
+                      "shared_workload_path": "/shared/a.test",
+                      "shared_workload_sha256": "x", "shared_workload_bytes": 1}]
         entry = {**workloads[0], "cpp": [sample() for _ in range(9)], "rust": [sample(wall_ns=90, cpu_ns=90, max_rss_bytes=90) for _ in range(9)], "cpp_records": 2, "rust_records": 2}
         return workloads, {"workloads": [copy.deepcopy(entry)]}, {"workloads": [copy.deepcopy(entry)]}
 
@@ -108,6 +111,13 @@ class PerformanceGateTests(unittest.TestCase):
             self.assertEqual(report["gate"], measure.gate_report(disk, measure.validate_manifest(manifest, root)))
             self.assertEqual(set(disk["workloads"][0]["observations"]), {"release", "development", "rust"})
             self.assertNotEqual(disk["workloads"], disk["gate"]["workloads"])
+            observations = disk["workloads"][0]["observations"]
+            shared_root = str(root.resolve())
+            self.assertEqual(observations["release"][0]["command"][1:4],
+                             ["--test-dir", shared_root, "a.test"])
+            self.assertEqual(observations["development"][0]["command"][1:4],
+                             ["--test-dir", shared_root, "a.test"])
+            self.assertEqual(observations["rust"][0]["command"][1:], [shared_root, "a.test"])
 
     def test_manifest_rejects_bad_and_duplicate_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -121,9 +131,22 @@ class PerformanceGateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 measure.validate_manifest(manifest, root)
 
+    def test_manifest_rejects_unhashed_fixture_resolution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "workloads.json"
+            manifest.write_text(json.dumps({"workloads": [{"id": "a", "path": "a.test"}]}))
+            for directive in ("include another.test", "load {TEST_DIR}/db.duckdb",
+                              "unzip test/data/archive.gz", "<FILE>:expected.csv"):
+                (root / "a.test").write_text(directive + "\n")
+                with self.subTest(directive=directive), self.assertRaises(ValueError):
+                    measure.validate_manifest(manifest, root)
+
     def test_wrong_marker_nonzero_and_zero_record_fail(self):
         with self.assertRaises(ValueError):
             measure.records_from_output("PASS a.test (0 records)\n0 records passed; 0 skipped\n", "rust")
+        with self.assertRaises(ValueError):
+            measure.records_from_output("No tests ran\n", "cpp")
         with patch.object(measure.platform, "system", return_value="Darwin"):
             with self.assertRaises(RuntimeError):
                 measure.run_timed(["x"], "cpp", execute=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 2, "", "bad"))
@@ -176,9 +199,9 @@ class PerformanceGateTests(unittest.TestCase):
             with patch.object(measure, "require_checkout", return_value="revision"), \
                  patch.object(measure, "require_reference", return_value=(cli, {"target": "release"})):
                 result = measure.identity("release", cpp, source, build, cli, test_root, workloads)
-            self.assertEqual(result["source_directory"], str(source))
-            self.assertEqual(result["build_directory"], str(build))
-            self.assertEqual(result["test_directory"], str(test_root))
+            self.assertEqual(result["source_directory"], str(source.resolve()))
+            self.assertEqual(result["build_directory"], str(build.resolve()))
+            self.assertEqual(result["test_directory"], str(test_root.resolve()))
             self.assertEqual(result["shared_workloads"], workloads)
 
 
