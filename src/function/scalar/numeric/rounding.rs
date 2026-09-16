@@ -150,7 +150,9 @@ impl ScalarFunction for Rounding {
             .map(|i| arguments.data_type(i))
             .collect::<Result<Vec<_>>>()?;
         let targets = self.targets(&source)?;
-        if arguments.len() == 2 && arguments.is_provably_null(1)? {
+        if arguments.is_provably_null(0)?
+            || (arguments.len() == 2 && arguments.is_provably_null(1)?)
+        {
             return Ok(Some(Arc::new(Self {
                 name: self.name,
                 policy: self.policy,
