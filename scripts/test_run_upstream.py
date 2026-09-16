@@ -5,11 +5,12 @@ from pathlib import Path
 import stat
 import tarfile
 from unittest.mock import patch
+import subprocess
 
 import sqllogic
 from run_upstream import (cached_files, cached_manifest_matches_source, cached_population, comparable_outcome, extract_source_archive, failure_class, main,
                           rewrite_report_argument, run_case, selected_entries, selected_feedback_population, selected_path_list, summarize,
-                          watch_feedback, checked_worker_provenance, worker_provenance_path, worker_source_digest)
+                          watch_feedback, checked_worker_provenance, record_release_worker_provenance, worker_provenance_path, worker_source_digest)
 
 
 class RunUpstreamTests(unittest.TestCase):
@@ -152,6 +153,23 @@ class RunUpstreamTests(unittest.TestCase):
             sidecar.write_text('{"profile":"release","source_sha256":"stale","binary_sha256":"stale"}')
             with self.assertRaisesRegex(ValueError, "stale"):
                 checked_worker_provenance(worker)
+
+    def test_provenance_record_builds_only_canonical_release_worker(self):
+        expected = Path(__import__("run_upstream").ROOT) / "target/release/duckdb-rust-test-worker"
+        with patch("run_upstream.subprocess.run") as build, \
+             patch("run_upstream.write_worker_provenance", return_value=(Path("sidecar"), {})) as write:
+            self.assertEqual(record_release_worker_provenance(expected)[0], Path("sidecar"))
+            build.assert_called_once_with(["cargo", "build", "--offline", "--release", "--no-default-features", "--bin", "duckdb-rust-test-worker"], cwd=__import__("run_upstream").ROOT, check=True)
+            write.assert_called_once_with(expected, "release")
+        with patch("run_upstream.subprocess.run") as build:
+            with self.assertRaisesRegex(ValueError, "only attest"):
+                record_release_worker_provenance(Path("/tmp/foreign-worker"))
+            build.assert_not_called()
+        with patch("run_upstream.subprocess.run", side_effect=subprocess.CalledProcessError(1, "cargo")), \
+             patch("run_upstream.write_worker_provenance") as write:
+            with self.assertRaises(subprocess.CalledProcessError):
+                record_release_worker_provenance(expected)
+            write.assert_not_called()
 
     def test_run_case_counts_sent_sql_and_source_reach_honestly(self):
         with tempfile.TemporaryDirectory() as d:

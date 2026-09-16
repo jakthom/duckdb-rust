@@ -336,6 +336,17 @@ def write_worker_provenance(binary, profile):
     return path, provenance
 
 
+def record_release_worker_provenance(binary):
+    """Build the sole accepted release worker before attesting to its bytes."""
+    expected = ROOT / "target/release/duckdb-rust-test-worker"
+    if Path(binary).absolute() != expected.absolute():
+        raise ValueError("worker provenance may only attest target/release/duckdb-rust-test-worker")
+    command = ["cargo", "build", "--offline", "--release", "--no-default-features",
+               "--bin", "duckdb-rust-test-worker"]
+    subprocess.run(command, cwd=ROOT, check=True)
+    return write_worker_provenance(expected, "release")
+
+
 def checked_worker_provenance(binary, path=None):
     path = worker_provenance_path(binary) if path is None else Path(path)
     try:
@@ -359,14 +370,14 @@ def validation_fingerprint(args=None):
     # Feedback inputs are assertion-visible too.  Hash the retained source
     # authority, explicit selection, and prebuilt worker rather than allowing a
     # watcher to report an edit state evaluated against old external inputs.
-    external = [DESTINATION / "manifest.json"]
-    if (DESTINATION / "manifest.json").is_file():
-        try:
-            archive = json.loads((DESTINATION / "manifest.json").read_text()).get("archive")
-            if isinstance(archive, str): external.append(DESTINATION / archive)
-        except json.JSONDecodeError:
-            external.append(DESTINATION / "manifest.json")
+    external = []
     if args:
+        selected_feedback = args.path_list and (args.debug_worker or args.worker or args.feedback_watch_child)
+        # The selected development path reads pinned Git objects, not mutable
+        # archive bytes. Keep the compact retained manifest as its agreement
+        # record without charging a 100 MiB archive hash to warm feedback.
+        if selected_feedback:
+            external.append(DESTINATION / "manifest.json")
         external.extend(path for path in (args.path_list, getattr(args, "worker", None),
                                            getattr(args, "worker_provenance", None)) if path)
     for path in external:
@@ -489,25 +500,17 @@ def selected_source_file(target, path):
     expected = {entry["path"]: entry for entry in manifest.get("files", [])}.get(path)
     if not expected or expected.get("kind") != "file":
         raise ValueError("selected upstream path is absent from retained development source: " + path)
-    archive_name = manifest.get("archive")
-    if not isinstance(archive_name, str) or PurePosixPath(archive_name).name != archive_name:
-        raise ValueError("retained development archive name is unsafe")
-    archive_path = DESTINATION / archive_name
-    if not isinstance(manifest.get("archive_sha256"), str) or digest(archive_path) != manifest["archive_sha256"]:
-        raise ValueError("retained development archive digest differs from pinned manifest")
     declared = manifest.get("files")
     if not isinstance(declared, list) or len({entry.get("path") for entry in declared if isinstance(entry, dict)}) != len(declared):
         raise ValueError("retained development manifest has duplicate or malformed paths")
-    with tarfile.open(archive_path) as archive:
-        try:
-            member = archive.getmember(path)
-        except KeyError as error:
-            raise ValueError("retained development archive omits selected path: " + path) from error
-        if not member.isfile(): raise ValueError("selected development path is not a regular file: " + path)
-        data = archive.extractfile(member).read()
+    revision = require_checkout(TARGETS[target].source, target)
+    try:
+        data = subprocess.check_output(["git", "show", f"{revision}:{path}"], cwd=TARGETS[target].source)
+    except subprocess.CalledProcessError as error:
+        raise ValueError("pinned development Git source omits selected path: " + path) from error
     if hashlib.sha256(data).hexdigest() != expected.get("sha256"):
-        raise ValueError("selected development source hash differs: " + path)
-    return REVISION, data
+        raise ValueError("pinned development Git bytes differ from retained manifest: " + path)
+    return revision, data
 
 
 def selected_feedback_population(target, paths, cache_root):
@@ -587,9 +590,7 @@ def main():
     parser.add_argument("--debounce-seconds", type=float, default=0.25)
     args = parser.parse_args()
     if args.write_worker_provenance:
-        binary = args.write_worker_provenance.resolve(strict=True)
-        if not binary.is_file(): raise ValueError("--write-worker-provenance must name a regular executable")
-        path, _ = write_worker_provenance(binary, "release")
+        path, _ = record_release_worker_provenance(args.write_worker_provenance)
         print(path)
         return
     if args.report is None:
