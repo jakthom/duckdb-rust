@@ -33,11 +33,21 @@ impl TypeAdapter for ExactNumericTypes {
         if left.is_empty() {
             return Ok(Some(false));
         }
-        let first = physical_compare(left.get(0).expect("nonempty sorted column"), right);
-        let last = physical_compare(
-            left.get(left.len() - 1).expect("nonempty sorted column"),
-            right,
-        );
+        let (first, last) =
+            if let (Some(values), Some(right)) = (left.flat_decimal_i64(), decimal_i64(right)) {
+                (
+                    values.first().expect("nonempty sorted column").cmp(&right),
+                    values.last().expect("nonempty sorted column").cmp(&right),
+                )
+            } else {
+                (
+                    physical_compare(left.get(0).expect("nonempty sorted column"), right),
+                    physical_compare(
+                        left.get(left.len() - 1).expect("nonempty sorted column"),
+                        right,
+                    ),
+                )
+            };
         Ok((first == last).then(|| predicate.matches(first)))
     }
     fn key_representation(&self, _: &DataType) -> KeyRepresentation {
@@ -138,6 +148,28 @@ impl TypeAdapter for ExactNumericTypes {
         predicate: ComparisonPredicate,
         query: &QueryContext,
     ) -> Result<Vec<usize>> {
+        if right.all_valid()
+            && let (Some(values), Some(value)) = (
+                left.flat_decimal_i64(),
+                right.constant_value().and_then(decimal_i64),
+            )
+        {
+            query.check()?;
+            if left.numeric_ascending() {
+                return select_sorted_decimal_i64(values, value, predicate, query);
+            }
+            let mut selected = Vec::new();
+            for (index, left) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                if predicate.matches(left.cmp(&value)) {
+                    selected.push(index);
+                }
+            }
+            query.check()?;
+            return Ok(selected);
+        }
         if left.numeric_ascending()
             && right.all_valid()
             && let (Some(values), Some(value)) = (left.flat_values(), right.constant_value())
@@ -184,6 +216,55 @@ impl TypeAdapter for ExactNumericTypes {
             })
         }
     }
+}
+
+fn decimal_i64(value: &Value) -> Option<i64> {
+    match value {
+        Value::Decimal { value, .. } => i64::try_from(*value).ok(),
+        _ => None,
+    }
+}
+
+fn select_sorted_decimal_i64(
+    values: &[i64],
+    value: i64,
+    predicate: ComparisonPredicate,
+    query: &QueryContext,
+) -> Result<Vec<usize>> {
+    if let Some((first, last)) = values.first().zip(values.last()) {
+        let first = first.cmp(&value);
+        if first == last.cmp(&value) {
+            let mut selected = Vec::with_capacity(if predicate.matches(first) {
+                values.len()
+            } else {
+                0
+            });
+            if predicate.matches(first) {
+                for start in (0..values.len()).step_by(1024) {
+                    query.check()?;
+                    selected.extend(start..(start + 1024).min(values.len()));
+                }
+            }
+            return Ok(selected);
+        }
+    }
+    let lower = values.partition_point(|left| *left < value);
+    let upper = values[lower..].partition_point(|left| *left == value) + lower;
+    let mut selected = Vec::new();
+    for (include, range) in [
+        (predicate.less, 0..lower),
+        (predicate.equal, lower..upper),
+        (predicate.greater, upper..values.len()),
+    ] {
+        if include {
+            for start in range.clone().step_by(1024) {
+                query.check()?;
+                selected.extend(start..(start.saturating_add(1024)).min(range.end));
+            }
+        }
+    }
+    query.check()?;
+    Ok(selected)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

@@ -2,7 +2,7 @@ use super::*;
 use duckdb_rust::{
     common::{
         type_registry::{
-            TypeRegistry,
+            ComparisonPredicate, TypeRegistry,
             numeric::{ExactNumericTypes, LexicalNumericTypes},
         },
         vector::{DataChunk, Vector},
@@ -304,6 +304,138 @@ fn numeric_comparison_batches_match_both_scalar_type_adapters() -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn narrow_decimal_selection_covers_physical_widths_orderings_and_fallbacks() -> Result<()> {
+    let query = QueryContext::background();
+    let predicates = [
+        ComparisonPredicate {
+            less: true,
+            equal: false,
+            greater: false,
+        },
+        ComparisonPredicate {
+            less: true,
+            equal: true,
+            greater: false,
+        },
+        ComparisonPredicate {
+            less: false,
+            equal: true,
+            greater: false,
+        },
+        ComparisonPredicate {
+            less: true,
+            equal: false,
+            greater: true,
+        },
+        ComparisonPredicate {
+            less: false,
+            equal: true,
+            greater: true,
+        },
+        ComparisonPredicate {
+            less: false,
+            equal: false,
+            greater: true,
+        },
+    ];
+    for (width, scale) in [(1, 0), (12, 2), (18, 9)] {
+        let data_type = DataType::Decimal { width, scale };
+        let maximum = 10_i128.pow(width as u32) - 1;
+        let sorted = Vector::flat(
+            data_type.clone(),
+            [-maximum, -1, 0, 1, maximum]
+                .into_iter()
+                .map(|value| decimal(value, width, scale))
+                .collect::<Result<Vec<_>>>()?,
+        )?;
+        let unsorted = Vector::flat(
+            data_type.clone(),
+            [maximum, -1, -maximum, 1, 0]
+                .into_iter()
+                .map(|value| decimal(value, width, scale))
+                .collect::<Result<Vec<_>>>()?,
+        )?;
+        let bound = query.types().bind(&data_type)?;
+        for left in [
+            sorted.clone(),
+            sorted.slice(1, 3)?,
+            unsorted,
+            sorted.slice(0, 0)?,
+        ] {
+            for threshold in [-maximum, -1, 0, 1, maximum] {
+                let threshold = decimal(threshold, width, scale)?;
+                let right = Vector::constant(data_type.clone(), threshold.clone(), left.len())?;
+                for predicate in predicates {
+                    let expected = left
+                        .values()
+                        .enumerate()
+                        .filter_map(|(index, value)| {
+                            predicate
+                                .matches(value.compare(&threshold).unwrap())
+                                .then_some(index)
+                        })
+                        .collect::<Vec<_>>();
+                    let actual = bound.select_comparison(&left, &right, predicate, &query)?;
+                    assert_eq!(actual, expected, "DECIMAL({width},{scale}) {threshold}");
+                    assert!(actual.windows(2).all(|pair| pair[0] < pair[1]));
+                }
+            }
+        }
+    }
+
+    // BoundType rejects mismatched logical metadata before an adapter can use
+    // either vector's physical coefficient representation.
+    let expected_type = DataType::Decimal {
+        width: 12,
+        scale: 2,
+    };
+    let mismatched = Vector::flat(
+        DataType::Decimal {
+            width: 18,
+            scale: 2,
+        },
+        vec![decimal(1, 18, 2)?],
+    )?;
+    let right = Vector::constant(expected_type.clone(), decimal(1, 12, 2)?, 1)?;
+    assert!(matches!(
+        query
+            .types()
+            .bind(&expected_type)?
+            .select_comparison(&mismatched, &right, predicates[0], &query),
+        Err(Error::Internal(message)) if message == "vector differs from its bound type"
+    ));
+
+    // Cancellation remains visible before and during the unsorted physical
+    // scan. Nullable/dictionary/wide and replacement-adapter fallbacks are
+    // covered by numeric_comparison_batches_match_both_scalar_type_adapters.
+    let handle = InterruptHandle::default();
+    let cancelled = QueryContext::new(handle.clone(), None, 2048, usize::MAX)?;
+    let data_type = DataType::Decimal {
+        width: 18,
+        scale: 3,
+    };
+    let left = Vector::flat(
+        data_type.clone(),
+        (0..4099)
+            .map(|index| decimal(i128::from((index * 7919) % 4099), 18, 3))
+            .collect::<Result<Vec<_>>>()?,
+    )?;
+    let right = Vector::constant(data_type.clone(), decimal(2000, 18, 3)?, left.len())?;
+    handle.interrupt();
+    assert!(matches!(
+        cancelled.types().bind(&data_type)?.select_comparison(
+            &left,
+            &right,
+            predicates[4],
+            &cancelled
+        ),
+        Err(Error::Interrupted)
+    ));
     Ok(())
 }
 

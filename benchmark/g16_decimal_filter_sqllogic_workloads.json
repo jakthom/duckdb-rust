@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g16_3a_3_decimal_filter_million_rows",
+      "path": "test/performance/g16_decimal_filter.test"
+    }
+  ]
+}

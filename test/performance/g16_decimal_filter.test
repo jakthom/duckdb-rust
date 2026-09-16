@@ -1,0 +1,10 @@
+# G16.3a.3 process-level narrow DECIMAL filter resource workload. This is
+# intentionally distinct from the 50,000-row prepared native latency case.
+
+statement ok
+CREATE TABLE g16_decimal_filter AS SELECT (i/100.0)::DECIMAL(12,2) AS d FROM range(1000000) t(i)
+
+query I
+SELECT count(*) FROM g16_decimal_filter WHERE d >= 5000.00
+----
+500000
