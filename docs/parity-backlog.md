@@ -180,10 +180,10 @@ distinct load/restart/reconnect lifecycles. Restart preserves the implemented
 global and main-session configuration, including `search_path`. Its source-matched local
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
 zero skips). Its final-tree three-warmup, nine-sample Gate P campaign records a
-worst-case 0.328x Rust/faster-C++ wall ratio and 0.304x RSS ratio; measured CPU is
+worst-case 0.326x Rust/faster-C++ wall ratio and 0.306x RSS ratio; measured CPU is
 0.000x at timer resolution and block I/O is equal. Thus **at-parity or better
 performance: pass** for G01.2c. Raw evidence is retained in
-`target/g01-wave-c-20260915/api-lifecycle-acceptance-8/report.json`. Explicit
+`target/g01-wave-c-20260915/api-lifecycle-acceptance-9/report.json`. Explicit
 remaining runner limits are the
 integrated test-config max-thread surface, `load ... VERSION`, the engine's absent
 `unnest(getvariable(...))` variable-iteration surface, Python concurrent-stream
@@ -268,17 +268,17 @@ demand or checked numeric semantics merely to improve the numbers.
 
 The optimized Wave C source-bound workloads were remeasured serially with three
 warmups and nine samples against both pins. SQL evidence is retained under
-`target/g01-wave-c-20260915/performance-current-final-5/`; lifecycle evidence is
-`target/g01-wave-c-20260915/api-lifecycle-acceptance-8/report.json`. The SQL
+`target/g01-wave-c-20260915/performance-current-final-7/`; lifecycle evidence is
+`target/g01-wave-c-20260915/api-lifecycle-acceptance-9/report.json`. The SQL
 reports retain one final source and release-binary digest, and every measured
 invocation exited successfully. Every bounded workload has **at-parity or better
 performance: pass** against the faster C++ median in every metric: G01.2c
-lifecycle (wall 0.328x, CPU 0.000x at timer resolution, RSS 0.304x); G03.3a ENUM
-(wall 0.502x, CPU 0.500x, RSS 0.902x); G04.2a `make_date(STRUCT)` (wall 0.760x,
-CPU 0.500x, RSS 0.588x); G06.1a case conversion (wall 0.331x, CPU 0.000x at timer
-resolution, RSS 0.470x); G07.3a DISTINCT ON (wall 0.553x, CPU 0.500x, RSS
-0.915x); G08.1a `product` (wall 0.850x, CPU 1.000x, RSS 0.284x); and G10.4a
-profiling with `no_output` (wall 0.374x, CPU 0.000x at timer resolution, RSS
+lifecycle (wall 0.326x, CPU 0.000x at timer resolution, RSS 0.306x); G03.3a ENUM
+(wall 0.521x, CPU 0.500x, RSS 0.897x); G04.2a `make_date(STRUCT)` (wall 0.763x,
+CPU 0.500x, RSS 0.589x); G06.1a case conversion (wall 0.307x, CPU 0.000x at timer
+resolution, RSS 0.464x); G07.3a DISTINCT ON (wall 0.554x, CPU 0.000x at timer
+resolution, RSS 0.882x); G08.1a `product` (wall 0.846x, CPU 1.000x, RSS 0.274x);
+and G10.4a profiling with `no_output` (wall 0.375x, CPU 0.000x at timer resolution, RSS
 0.614x). Block I/O is equal for every workload and throughput passes by the same
 wall-time comparisons. G10's broader functional scope remains open: a passing
 `no_output` performance workload does not implement forced-external execution or
@@ -731,7 +731,7 @@ including casts, scalar/binary parents, predicates, lazy selected branches,
 shared projections, constant/column/NULL endpoints and prepared execution; its
 final-tree independent suite passes 29/29 SQL plus six native paths against each
 pin. The function-family **at-parity or better performance** gate passes (wall
-0.502x, CPU 0.500x and RSS 0.902x the faster pin, with equal block I/O).
+0.521x, CPU 0.500x and RSS 0.897x the faster pin, with equal block I/O).
 
 - **G03.1 Close the conversion matrix.** Cover source/target types, literals,
   implicit/explicit/assignment/combination casts, overflow, rounding, textual forms,
@@ -779,7 +779,7 @@ execution. Dictionary-encoded STRUCT batches are converted once per used physica
 value, and proven-total COUNT/SUM states retain column updates without changing
 row-ordered failure behavior for other aggregates. The temporal component passes
 its assigned cases, and this slice's **at-parity or better performance** gate passes
-(wall 0.760x, CPU 0.500x and RSS 0.588x the faster pin, with equal block I/O).
+(wall 0.763x, CPU 0.500x and RSS 0.589x the faster pin, with equal block I/O).
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -858,8 +858,8 @@ utf8proc 2.9 / Unicode 15.1 table rather than host or current-Unicode full case
 mappings. Its Rust FFI property layout and exported symbol set also match that
 pinned header, including the full 16-bit combination index. The full upstream
 function catalog and collation system do not. Its **at-parity or better
-performance** gate passes (wall 0.331x, CPU 0.000x at timer resolution and RSS
-0.470x the faster pin, with equal block I/O).
+performance** gate passes (wall 0.307x, CPU 0.000x at timer resolution and RSS
+0.464x the faster pin, with equal block I/O).
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
@@ -886,7 +886,7 @@ subqueries and recursive UNION are implemented. G07.3a additionally implements
 `DISTINCT ON` target de-duplication, typed NULL equality and source-shaped ORDER
 selection through aliases, nested queries, prepared and batched execution. Its
 assigned execution cases and **at-parity or better performance** gate pass (wall
-0.553x, CPU 0.500x and RSS 0.915x the faster pin, with equal block I/O). This is
+0.554x, CPU 0.000x at timer resolution and RSS 0.882x the faster pin, with equal block I/O). This is
 completion work, not a rewrite.
 
 - **G07.1 Finish join and correlation forms.** Add lateral/dependent relations,
@@ -913,7 +913,7 @@ registered in their built-in modules; grouping sets and core frames already work
 G08.1a adds unary numeric `product`, including NULL/empty behavior, IEEE DOUBLE
 multiplication and BIGNUM conversion coverage; its source `product` cases pass
 against both pins. Its **at-parity or better performance** gate passes (wall
-0.850x, CPU 1.000x and RSS 0.284x the faster pin, with equal block I/O).
+0.846x, CPU 1.000x and RSS 0.274x the faster pin, with equal block I/O).
 
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
@@ -1032,7 +1032,7 @@ operator exists. Profiling mode/enable/disable/reset now share the pinned effect
 state: renderer enablement exposes the default `standard` mode and disabling
 suppresses output after a prior mode change. The profiling
 `no_output` workload has **at-parity or better
-performance: pass** at wall 0.374x, CPU 0.000x at timer resolution and RSS 0.614x
+performance: pass** at wall 0.375x, CPU 0.000x at timer resolution and RSS 0.614x
 the faster pin, with equal block I/O. G10.4a remains functionally open because
 verification is incomparable with that development no-op and forced-external
 execution is absent. There is no general catalog object model. Catalog-named ENUM types now have
