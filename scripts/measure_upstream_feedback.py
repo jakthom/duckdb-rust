@@ -10,6 +10,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -56,13 +57,13 @@ def upstream_verdict(path, target, expected):
     return results[0]["passed_records"]
 
 
-def rust_command(args, target, workload, scratch, sample_id):
+def rust_command(args, target, workload, scratch, sample_id, cache):
     selected = scratch / f"{sample_id}-{target}-{workload['id']}.paths"
     selected.write_text(workload["path"] + "\n")
     report = scratch / f"{sample_id}-{target}-{workload['id']}.json"
     return ["python3", ROOT / "scripts/run_upstream.py", "--worker", args.rust,
             "--target", target, "--path-list", selected, "--jobs", "1", "--timeout", str(args.timeout),
-            "--suite-cache", scratch / "cold-suite-cache" / sample_id / target,
+            "--suite-cache", cache,
             "--report", report], report
 
 
@@ -88,6 +89,8 @@ def main():
     parser.add_argument("--rust", type=Path, required=True)
     parser.add_argument("--release-cpp", type=Path, default=TARGETS["release"].build / "test/unittest")
     parser.add_argument("--development-cpp", type=Path, default=TARGETS["development"].build / "test/unittest")
+    parser.add_argument("--release-build", type=Path, default=TARGETS["release"].build)
+    parser.add_argument("--development-build", type=Path, default=TARGETS["development"].build)
     parser.add_argument("--suite-cache", type=Path, default=ROOT / "target/upstream-suite-cache")
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--samples", type=int, default=21)
@@ -95,17 +98,24 @@ def main():
     parser.add_argument("--timeout", type=float, default=10)
     args = parser.parse_args()
     if args.report.exists(): raise FileExistsError("preserve prior evidence: choose a new report path")
+    cache_run_root = args.suite_cache / args.report.stem
+    if cache_run_root.exists(): raise FileExistsError("choose a fresh suite-cache/report identity for cold setup evidence")
     if args.samples < 9 or args.samples % 2 != 1 or args.warmups != 3 or args.timeout <= 0:
         raise ValueError("use three warmups, odd >=9 samples, and positive timeout")
     if measure.active_peers(): raise RuntimeError("quiet host required for feedback acceptance")
     raw, references = [], {}
     workloads = validate_manifest(args.workloads)
     rust = args.rust.resolve(strict=True)
-    for target, binary in (("release", args.release_cpp), ("development", args.development_cpp)):
-        source, build = TARGETS[target].source, TARGETS[target].build
+    for target, binary, build in (("release", args.release_cpp, args.release_build),
+                                  ("development", args.development_cpp, args.development_build)):
+        source = TARGETS[target].source
+        build = build.resolve(strict=True)
         revision = require_checkout(source, target)
         _, cli = require_reference(TARGETS[target].binary, target=target)
         cache = measure.release_cache(build)
+        home = re.search(r"(?m)^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$", cache.read_text(errors="replace"))
+        if not home or Path(home.group(1)).resolve() != source.resolve():
+            raise ValueError(f"{target} CMake build is not source-mapped to its pinned checkout")
         binary = binary.resolve(strict=True)
         expected_binary = (build / "test/unittest").resolve(strict=True)
         if binary != expected_binary:
@@ -117,11 +127,21 @@ def main():
             scratch = Path(directory)
             for workload in workloads:
                 observations = {name: [] for name in ("release_cpp", "development_cpp", "release_rust", "development_rust")}
+                cold_setup = {}
                 commands = {}
                 for target, binary in (("release", args.release_cpp), ("development", args.development_cpp)):
                     commands[f"{target}_cpp"] = [binary, "--test-dir", TARGETS[target].source,
                                                    workload["path"], "--use-colour", "no", "--durations", "no"]
                 for iteration in range(args.warmups + args.samples):
+                    # The first feedback run creates the complete suite cache.
+                    # Retain that caller-visible setup cost separately; Gate P
+                    # compares the repeated, warm feedback operation to the
+                    # equivalent already-materialized C++ selected-test run.
+                    if iteration == 0:
+                        for target in ("release", "development"):
+                            cache = cache_run_root / workload["id"] / target
+                            command, result_report = rust_command(args, target, workload, scratch, "cold", cache)
+                            cold_setup[target] = timed_rust(command, result_report, target, workload)
                     names = ["release_cpp", "development_cpp", "release_rust", "development_rust"]
                     names = names[iteration % len(names):] + names[:iteration % len(names)]
                     for name in names:
@@ -129,16 +149,17 @@ def main():
                             sample = measure.run_timed(commands[name], "cpp")
                         else:
                             target = name.removesuffix("_rust")
-                            command, result_report = rust_command(args, target, workload, scratch, f"{workload['id']}-round-{iteration}")
+                            cache = cache_run_root / workload["id"] / target
+                            command, result_report = rust_command(args, target, workload, scratch, f"{workload['id']}-round-{iteration}", cache)
                             sample = timed_rust(command, result_report, target, workload)
                         if iteration >= args.warmups: observations[name].append(sample)
-                raw.append({**workload, "observations": observations})
+                raw.append({**workload, "cold_setup": cold_setup, "observations": observations})
         result = gate(raw, workloads)
         report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "workloads": raw, "gate": result,
                   "passed": result["passed"], "references": references, "rust_binary": str(rust),
                   "rust_binary_sha256": digest(rust), "workloads_sha256": digest(args.workloads),
                   "samples": args.samples, "warmups": args.warmups,
-                  "scope": "Selected upstream SQLLogic source paths. Every timed Rust sample has a fresh worktree-local cache, so timing includes cache validation and suite materialization, plus worker launch, execution, unchanged assertions, report emission and caller-visible process startup; C++ timing includes its matching pinned unittest runner startup, execution and assertions. Compilation is excluded."}
+                  "scope": "Selected upstream SQLLogic source paths. Gate P times repeated warm feedback: cache validation, worker launch, execution, unchanged assertions, report emission and caller-visible process startup, matched to pinned C++ unittest startup/execution/assertions over its materialized source. `cold_setup` separately retains the one-time Rust cache materialization cost, which has no C++ runner analogue. Compilation is excluded."}
     except Exception as error:
         report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "workloads": raw, "references": references,
                   "passed": False, "error": str(error)}

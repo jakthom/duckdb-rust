@@ -15,6 +15,7 @@ from pathlib import Path
 import selectors
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -232,6 +233,33 @@ def acquire_validation_lock(cache_root):
     return handle
 
 
+def watch_feedback(args):
+    """Continuously rerun settled edits; each child retains a distinct report."""
+    original = list(sys.argv[1:])
+    original.remove("--watch")
+    index, observed = 0, None
+    while True:
+        # A change resets the debounce interval rather than starting an
+        # overlapping build or accepting a source state that is still moving.
+        candidate = validation_fingerprint()
+        while True:
+            time.sleep(args.debounce_seconds)
+            current = validation_fingerprint()
+            if current == candidate:
+                break
+            candidate = current
+        report = args.report if index == 0 else args.report.with_name(
+            f"{args.report.stem}.watch-{index}{args.report.suffix}")
+        command = original.copy()
+        report_position = command.index("--report") + 1
+        command[report_position] = str(report)
+        subprocess.run([sys.executable, str(Path(__file__)), *command], check=False)
+        index += 1
+        observed = validation_fingerprint()
+        while validation_fingerprint() == observed:
+            time.sleep(0.1)
+
+
 def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):
     allowed = None if not path_list else {x.strip() for x in path_list.read_text().splitlines() if x.strip() and not x.startswith("#")}
     if allowed is not None:
@@ -257,15 +285,18 @@ def main():
     parser.add_argument("--compare-release", action="store_true", help="require debug-worker outcomes to equal a fresh release-worker run")
     parser.add_argument("--suite-cache", type=Path, default=ROOT / "target/upstream-suite-cache",
                         help="worktree-local, hash-validated extracted-suite cache")
-    parser.add_argument("--watch", action="store_true", help="debounce one edit-feedback validation and reject inputs changed during it")
+    parser.add_argument("--watch", action="store_true", help="continuously debounce edits and run one locked validation per settled source state")
     parser.add_argument("--debounce-seconds", type=float, default=0.25)
-    args = parser.parse_args(); journal = args.report.with_suffix(args.report.suffix + "l")
+    args = parser.parse_args()
+    if args.watch:
+        if args.debounce_seconds <= 0: raise ValueError("watch debounce must be positive")
+        watch_feedback(args)
+        return
+    journal = args.report.with_suffix(args.report.suffix + "l")
     if args.report.exists() or journal.exists(): raise FileExistsError("choose a new report path; retain earlier failures")
-    if args.timeout <= 0 or not 1 <= args.jobs <= 8 or args.debounce_seconds < 0: raise ValueError("positive timeout, 1..8 workers, and non-negative debounce required")
+    if args.timeout <= 0 or not 1 <= args.jobs <= 8 or args.debounce_seconds < 0 or (args.watch and args.debounce_seconds <= 0): raise ValueError("positive timeout, 1..8 workers, and positive watch debounce required")
     if args.compare_release and (not args.debug_worker or args.worker): raise ValueError("--compare-release requires a built debug worker")
     lock_handle = acquire_validation_lock(args.suite_cache)
-    if args.watch:
-        time.sleep(args.debounce_seconds)
     source_before = validation_fingerprint()
     if args.worker:
         binary = args.worker.resolve(strict=True)
