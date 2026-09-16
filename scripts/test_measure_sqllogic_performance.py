@@ -190,7 +190,8 @@ class PerformanceGateTests(unittest.TestCase):
             source.mkdir()
             build.mkdir()
             test_root.mkdir()
-            cpp = build / "unittest"
+            (build / "test").mkdir()
+            cpp = build / "test/unittest"
             cli = build / "duckdb"
             cpp.write_text("cpp")
             cli.write_text("cli")
@@ -203,6 +204,12 @@ class PerformanceGateTests(unittest.TestCase):
             self.assertEqual(result["build_directory"], str(build.resolve()))
             self.assertEqual(result["test_directory"], str(test_root.resolve()))
             self.assertEqual(result["shared_workloads"], workloads)
+            foreign = root / "foreign-unittest"
+            foreign.write_text("foreign")
+            with patch.object(measure, "require_checkout", return_value="revision"), \
+                 patch.object(measure, "require_reference", return_value=(cli, {"target": "release"})):
+                with self.assertRaisesRegex(ValueError, "pinned build"):
+                    measure.identity("release", foreign, source, build, cli, test_root, workloads)
 
 
 if __name__ == "__main__":

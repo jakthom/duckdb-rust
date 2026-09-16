@@ -297,8 +297,9 @@ def identity(target, cpp, source, build, cli, test_root, workloads):
     revision = require_checkout(source, target)
     _, cli_identity = require_reference(cli, target=target)
     cpp = Path(cpp).resolve(strict=True)
-    if not cpp.is_file():
-        raise ValueError("C++ unittest is not a file")
+    expected_cpp = (build / "test/unittest").resolve(strict=True)
+    if cpp != expected_cpp or not cpp.is_file():
+        raise ValueError("C++ unittest must be the binary from the pinned build")
     cache = release_cache(build)
     return {"target": target, "revision": revision, "source_directory": str(source),
             "build_directory": str(build), "test_directory": str(test_root),
