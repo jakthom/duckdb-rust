@@ -744,6 +744,12 @@ fn evaluate_speculative_expression<T: ExpressionEvaluator + ?Sized>(
             if effects.volatile
                 || effects.external_access
                 || !matches!(function.argument_evaluation(), ArgumentEvaluation::Eager)
+                || !function.supports_batch_evaluation(
+                    &arguments
+                        .iter()
+                        .map(|argument| argument.data_type.clone())
+                        .collect::<Vec<_>>(),
+                )
             {
                 return Ok(None);
             }

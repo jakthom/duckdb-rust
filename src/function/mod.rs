@@ -327,6 +327,14 @@ pub trait ScalarFunction: Debug + Send + Sync {
         false
     }
     fn evaluate(&self, arguments: &[Value], context: &QueryContext) -> Result<Value>;
+    /// True promises that `evaluate_batch` owns the supplied bound signature
+    /// and will return a column (or an error), rather than `Ok(None)`. The
+    /// speculative executor uses this declaration before evaluating children,
+    /// so an adapter without a batch callback cannot cause successful child
+    /// casts or functions to run twice.
+    fn supports_batch_evaluation(&self, _arguments: &[DataType]) -> bool {
+        false
+    }
     /// Optional physical-batch callback for pure, eager and total bound
     /// functions. Arguments have already been evaluated in source order and
     /// retain their physical vector boundaries. `None` preserves ordinary

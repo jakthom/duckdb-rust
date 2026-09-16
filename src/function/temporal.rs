@@ -413,6 +413,9 @@ impl ScalarFunction for TemporalFunction {
         }
         Ok(result)
     }
+    fn supports_batch_evaluation(&self, arguments: &[DataType]) -> bool {
+        self.name == "make_date" && matches!(arguments, [DataType::Nested(_)])
+    }
     fn evaluate_batch(
         &self,
         arguments: &DataChunk,
