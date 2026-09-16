@@ -456,6 +456,7 @@ impl DataChunk {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Append an exact physical identity for values eligible for dictionary
 /// encoding. The declared vector type supplies logical metadata, so ENUM and
 /// extension payloads retain their physical ordinal/bytes here. False keeps an
@@ -542,17 +543,20 @@ pub(crate) fn append_physical_identity(value: &Value, output: &mut Vec<u8>) -> b
     true
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn number(tag: u8, value: &[u8], output: &mut Vec<u8>) {
     output.push(tag);
     output.extend_from_slice(value);
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn bytes(tag: u8, value: &[u8], output: &mut Vec<u8>) {
     output.push(tag);
     output.extend_from_slice(&(value.len() as u64).to_le_bytes());
     output.extend_from_slice(value);
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sequence(tag: u8, values: &[Value], output: &mut Vec<u8>) -> bool {
     output.push(tag);
     output.extend_from_slice(&(values.len() as u64).to_le_bytes());

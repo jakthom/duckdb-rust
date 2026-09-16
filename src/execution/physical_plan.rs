@@ -1009,6 +1009,7 @@ fn grouped_distinct_on_signed_columns(
     Ok(Some(rows))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn shared_dense_signed_dictionary(batches: &[DataChunk], column: usize) -> Option<usize> {
     let (parent, _) = batches.first()?.columns().get(column)?.dictionary()?;
     let mut minimum = None;
@@ -1047,6 +1048,7 @@ enum SignedDistinctGroups {
     Sparse(HashMap<Option<i128>, usize>),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SignedDistinctGroups {
     fn get(&self, key: Option<i128>) -> Option<usize> {
         let group = match (self, key) {

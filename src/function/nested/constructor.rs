@@ -259,6 +259,7 @@ impl ScalarFunction for BoundConstructor {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Constructor arguments that already carry exact dictionary identities can
 /// be combined by those identities. Payload serialization remains the fallback
 /// for flat or opaque inputs.

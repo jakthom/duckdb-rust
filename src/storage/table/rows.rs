@@ -317,6 +317,7 @@ impl Rows {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Published table segments retain a compact physical dictionary when exact
 /// payload identity has a small domain. This is storage encoding, not SQL
 /// equality: floating-point bits and nested payload boundaries are preserved.
@@ -358,6 +359,7 @@ fn compact_column(data_type: &DataType, values: Vec<Value>) -> Result<Vector> {
     Arc::new(Vector::flat(data_type.clone(), unique)?).select(selection)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Merge already encoded CTAS batches by their exact dictionary entries.
 /// This avoids materializing and then re-hashing every logical row when each
 /// source batch already proved a small physical domain.
@@ -429,6 +431,7 @@ fn compact_vectors(data_type: &DataType, columns: Vec<Vector>, count: usize) -> 
     Arc::new(Vector::flat(data_type.clone(), unique)?).select(selection)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Dense fixed-width integer domains can be materially larger than the small
 /// opaque-payload dictionary limit and still use less memory than repeated
 /// row `Value`s. Build their dictionary arithmetically, without hashing every

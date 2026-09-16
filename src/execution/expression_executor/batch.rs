@@ -727,6 +727,7 @@ impl ExpressionEvaluator for BatchedEvaluator {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// A pure eager function may expose a vector callback even when one child is
 /// not proved total. Evaluate into temporary columns first; a data error
 /// discards them and returns to scalar row order, while successful work can
@@ -822,6 +823,7 @@ fn evaluate_speculative_expression<T: ExpressionEvaluator + ?Sized>(
     Ok(Some(output))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn speculative_data_error(error: &Error) -> bool {
     matches!(
         error,

@@ -198,6 +198,7 @@ pub(super) fn try_run(
     Ok(Some(rows))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Evaluate effect-free aggregate arguments as columns, then retain aggregate
 /// updates in exact row/output order. If speculative column evaluation finds a
 /// data error, replay only that untouched batch through the scalar expression
@@ -305,6 +306,7 @@ fn try_ungrouped(
         .map(|row| Some(vec![row]))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn update_scalar_batch(
     batch: &DataChunk,
     expressions: &[Vec<PreparedExpression<'_>>],
@@ -329,6 +331,7 @@ fn update_scalar_batch(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn data_error(error: &Error) -> bool {
     matches!(
         error,

@@ -306,6 +306,7 @@ impl OperatorFunction for NumericArithmetic {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
 fn dictionary_signed_remainder(
     column: &crate::common::vector::Vector,
@@ -458,6 +459,7 @@ fn map_checked_integer_column(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
 fn checked_integer_vector(
     values: impl Iterator<Item = Result<Option<i64>>>,

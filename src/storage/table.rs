@@ -1021,6 +1021,7 @@ impl TableData {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Immutable Arc-backed payloads can share one logical-validation result while
 /// every row still receives its own NULL/constraint checks.
 fn shared_value_identity(value: &Value) -> Option<(u8, usize)> {
