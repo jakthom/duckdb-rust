@@ -62,5 +62,75 @@ class FeedbackPerformanceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     feedback.campaign_snapshot(args, runner, {}, prepared)
 
+    def test_campaign_populates_per_workload_prepared_caches_before_timing_rust(self):
+        """Exercise the main campaign loop that owns the per-workload cache map."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            rust = root / "target/release/sqllogictest"
+            rust.parent.mkdir(parents=True)
+            rust.write_text("runner")
+            sidecar = Path(str(rust) + ".provenance.json")
+            sidecar.write_text("{}")
+            scripts = root / "scripts"
+            scripts.mkdir()
+            for name in ("measure_upstream_feedback.py", "run_upstream.py", "upstream_suite.py"):
+                (scripts / name).write_text(name)
+            report = root / "report.json"
+            workloads = root / "workloads.json"
+            workloads.write_text("{}")
+            binaries, builds = {}, {}
+            for target in ("release", "development"):
+                build = root / target / "build"
+                binary = build / "test/unittest"
+                binary.parent.mkdir(parents=True)
+                binary.write_text(target)
+                (build / "CMakeCache.txt").write_text(
+                    "CMAKE_BUILD_TYPE:STRING=Release\n"
+                    f"CMAKE_HOME_DIRECTORY:INTERNAL={source_root}\n"
+                )
+                binaries[target], builds[target] = binary, build
+            args = type("Args", (), {
+                "workloads": workloads, "rust": rust, "rust_provenance": sidecar,
+                "release_cpp": binaries["release"], "development_cpp": binaries["development"],
+                "release_build": builds["release"], "development_build": builds["development"],
+                "suite_cache": root / "cache", "report": report, "samples": 9, "warmups": 3,
+                "timeout": 1,
+            })()
+            target_config = {target: type("Target", (), {"source": source_root, "binary": rust,
+                                                            "build": builds[target]})()
+                             for target in ("release", "development")}
+            cache_root = root / "selected"
+            def populate(target, paths, cache):
+                selected = cache_root / target / "source"
+                selected.mkdir(parents=True, exist_ok=True)
+                (selected / "test").mkdir(exist_ok=True)
+                (selected / paths[0]).write_text(target)
+                (selected.parent / "suite.json").write_text(target)
+                return selected, {}, {"revision": target + "-revision"}
+            timed_rust = []
+            def record_rust(*call_args):
+                timed_rust.append(call_args)
+                return {"wall_ns": 1}
+            with patch.object(feedback.argparse.ArgumentParser, "parse_args", return_value=args), \
+                 patch.object(feedback, "ROOT", root), \
+                 patch.object(feedback, "TARGETS", target_config), \
+                 patch.object(feedback, "validate_manifest", return_value=[{"id": "one", "path": "test/a.test"}]), \
+                 patch.object(feedback.measure, "active_peers", return_value=[]), \
+                 patch.object(feedback, "checked_worker_provenance", return_value=(sidecar, {"binary_sha256": "runner", "source_sha256": "source"})), \
+                 patch.object(feedback, "require_checkout", side_effect=lambda source, target: target + "-revision"), \
+                 patch.object(feedback, "require_reference", return_value=(rust, "cli")), \
+                 patch.object(feedback, "selected_feedback_population", side_effect=populate), \
+                 patch.object(feedback, "campaign_snapshot", return_value={"snapshot": "stable"}), \
+                 patch.object(feedback.measure, "run_timed", return_value={"wall_ns": 1}), \
+                 patch.object(feedback, "timed_rust", side_effect=record_rust), \
+                 patch.object(feedback, "gate", return_value={"passed": True}):
+                with self.assertRaises(SystemExit) as exit:
+                    feedback.main()
+            self.assertEqual(exit.exception.code, 0)
+            self.assertEqual(len(timed_rust), 24)  # two targets across 3 warmups + 9 samples
+            self.assertTrue(report.is_file())
+
 
 if __name__ == "__main__": unittest.main()
