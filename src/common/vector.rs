@@ -7,7 +7,7 @@ enum Encoding {
     /// Typed all-valid flats are authoritative physical storage. Generic,
     /// nullable and mixed columns retain their exact logical representation.
     FlatValues(Arc<Vec<Value>>),
-    FlatSigned(Arc<Vec<i128>>),
+    FlatSigned(SignedLanes),
     FlatDecimalI64(Arc<Vec<i64>>),
     Constant(Value),
     Dictionary(Arc<Vector>, Arc<[usize]>),
@@ -18,10 +18,139 @@ enum Encoding {
     Chunks(Arc<[Vector]>, Arc<[usize]>),
 }
 
+/// The physical width of an all-valid signed column is part of its storage
+/// contract, rather than an implementation detail of `Value::Integer`.  Keep
+/// the wide logical scalar at the encoding boundary so scans of ordinary SQL
+/// integer columns do not pay the HUGEINT-sized backing cost.
+#[derive(Clone, Debug)]
+enum SignedLanes {
+    Tiny(Arc<Vec<i8>>),
+    Small(Arc<Vec<i16>>),
+    Integer(Arc<Vec<i32>>),
+    Big(Arc<Vec<i64>>),
+    Huge(Arc<Vec<i128>>),
+}
+
+impl SignedLanes {
+    fn from_values(data_type: &DataType, values: &[Value]) -> Self {
+        match data_type {
+            DataType::TinyInt => Self::Tiny(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value as i8,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            DataType::SmallInt => Self::Small(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value as i16,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            DataType::Integer => Self::Integer(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value as i32,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            DataType::BigInt => Self::Big(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value as i64,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            DataType::HugeInt => Self::Huge(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            _ => unreachable!("signed lanes require a signed integer type"),
+        }
+    }
+
+    fn value(&self, index: usize) -> Option<i128> {
+        match self {
+            Self::Tiny(values) => values.get(index).copied().map(i128::from),
+            Self::Small(values) => values.get(index).copied().map(i128::from),
+            Self::Integer(values) => values.get(index).copied().map(i128::from),
+            Self::Big(values) => values.get(index).copied().map(i128::from),
+            Self::Huge(values) => values.get(index).copied(),
+        }
+    }
+
+    fn append_values(&self, range: std::ops::Range<usize>, output: &mut Vec<Value>) {
+        match self {
+            Self::Tiny(values) => output.extend(
+                values[range]
+                    .iter()
+                    .copied()
+                    .map(i128::from)
+                    .map(Value::Integer),
+            ),
+            Self::Small(values) => output.extend(
+                values[range]
+                    .iter()
+                    .copied()
+                    .map(i128::from)
+                    .map(Value::Integer),
+            ),
+            Self::Integer(values) => output.extend(
+                values[range]
+                    .iter()
+                    .copied()
+                    .map(i128::from)
+                    .map(Value::Integer),
+            ),
+            Self::Big(values) => output.extend(
+                values[range]
+                    .iter()
+                    .copied()
+                    .map(i128::from)
+                    .map(Value::Integer),
+            ),
+            Self::Huge(values) => output.extend(values[range].iter().copied().map(Value::Integer)),
+        }
+    }
+}
+
 fn same_flat_backing(left: &Encoding, right: &Encoding) -> bool {
     match (left, right) {
         (Encoding::FlatValues(left), Encoding::FlatValues(right)) => Arc::ptr_eq(left, right),
-        (Encoding::FlatSigned(left), Encoding::FlatSigned(right)) => Arc::ptr_eq(left, right),
+        (
+            Encoding::FlatSigned(SignedLanes::Tiny(left)),
+            Encoding::FlatSigned(SignedLanes::Tiny(right)),
+        ) => Arc::ptr_eq(left, right),
+        (
+            Encoding::FlatSigned(SignedLanes::Small(left)),
+            Encoding::FlatSigned(SignedLanes::Small(right)),
+        ) => Arc::ptr_eq(left, right),
+        (
+            Encoding::FlatSigned(SignedLanes::Integer(left)),
+            Encoding::FlatSigned(SignedLanes::Integer(right)),
+        ) => Arc::ptr_eq(left, right),
+        (
+            Encoding::FlatSigned(SignedLanes::Big(left)),
+            Encoding::FlatSigned(SignedLanes::Big(right)),
+        ) => Arc::ptr_eq(left, right),
+        (
+            Encoding::FlatSigned(SignedLanes::Huge(left)),
+            Encoding::FlatSigned(SignedLanes::Huge(right)),
+        ) => Arc::ptr_eq(left, right),
         (Encoding::FlatDecimalI64(left), Encoding::FlatDecimalI64(right)) => {
             Arc::ptr_eq(left, right)
         }
@@ -142,15 +271,7 @@ impl Vector {
         }
         let count = output.len();
         let encoding = if all_valid {
-            Encoding::FlatSigned(Arc::new(
-                output
-                    .iter()
-                    .map(|value| match value {
-                        Value::Integer(value) => *value,
-                        _ => unreachable!(),
-                    })
-                    .collect(),
-            ))
+            Encoding::FlatSigned(SignedLanes::from_values(&DataType::BigInt, &output))
         } else {
             Encoding::FlatValues(Arc::new(output))
         };
@@ -183,15 +304,7 @@ impl Vector {
         }
         let count = output.len();
         let encoding = if all_valid {
-            Encoding::FlatSigned(Arc::new(
-                output
-                    .iter()
-                    .map(|value| match value {
-                        Value::Integer(value) => *value,
-                        _ => unreachable!(),
-                    })
-                    .collect(),
-            ))
+            Encoding::FlatSigned(SignedLanes::from_values(&DataType::HugeInt, &output))
         } else {
             Encoding::FlatValues(Arc::new(output))
         };
@@ -305,15 +418,7 @@ impl Vector {
         // generic representation and therefore its original fallback rules.
         let count = values.len();
         let encoding = if all_valid && data_type.is_signed_integer() {
-            Encoding::FlatSigned(Arc::new(
-                values
-                    .iter()
-                    .map(|value| match value {
-                        Value::Integer(value) => *value,
-                        _ => unreachable!("validated signed column"),
-                    })
-                    .collect(),
-            ))
+            Encoding::FlatSigned(SignedLanes::from_values(&data_type, &values))
         } else if all_valid && matches!(data_type, DataType::Decimal { width: 1..=18, .. }) {
             let mut coefficients = Vec::new();
             coefficients.try_reserve_exact(values.len()).map_err(|_| {
@@ -440,7 +545,7 @@ impl Vector {
         let index = self.offset + index;
         match &self.encoding {
             Encoding::FlatValues(v) => v.get(index).cloned(),
-            Encoding::FlatSigned(v) => v.get(index).copied().map(Value::Integer),
+            Encoding::FlatSigned(v) => v.value(index).map(Value::Integer),
             Encoding::FlatDecimalI64(v) => {
                 v.get(index).copied().map(|value| match self.data_type {
                     DataType::Decimal { width, scale } => Value::Decimal {
@@ -478,12 +583,12 @@ impl Vector {
     pub fn append_to(&self, output: &mut Vec<Value>) {
         if self.all_valid
             && self.data_type.is_signed_integer()
-            && let Some(values) = self.flat_signed()
+            && let Encoding::FlatSigned(values) = &self.encoding
         {
             // Physical validation proves every payload is an integer. Copy
             // the inline coefficient without generic heap-owning Value clone
             // dispatch in window preparation and materialization.
-            output.extend(values.iter().copied().map(Value::Integer));
+            values.append_values(self.offset..self.offset + self.count, output);
             return;
         }
         match &self.encoding {
@@ -526,13 +631,6 @@ impl Vector {
             Encoding::FlatDecimalI64(values) => {
                 Some(&values[self.offset..self.offset + self.count])
             }
-            _ => None,
-        }
-    }
-    /// Authoritative compact signed lane for all-valid flat signed columns.
-    pub(crate) fn flat_signed(&self) -> Option<&[i128]> {
-        match &self.encoding {
-            Encoding::FlatSigned(values) => Some(&values[self.offset..self.offset + self.count]),
             _ => None,
         }
     }
@@ -713,21 +811,88 @@ mod physical_tests {
     }
 
     #[test]
-    fn all_valid_signed_lanes_are_authoritative_and_nullable_or_wide_values_fallback() -> Result<()>
-    {
-        let signed = Vector::flat(
-            DataType::HugeInt,
-            vec![Value::Integer(i128::MIN), Value::Integer(42)],
-        )?;
-        assert_eq!(signed.flat_signed(), Some(&[i128::MIN, 42][..]));
-        assert!(signed.flat_values().is_none());
-        assert_eq!(
-            signed.values().collect::<Vec<_>>(),
-            vec![Value::Integer(i128::MIN), Value::Integer(42)]
-        );
+    fn all_valid_signed_lanes_use_declared_widths_and_nullable_values_fallback() -> Result<()> {
+        let cases = [
+            (
+                DataType::TinyInt,
+                i128::from(i8::MIN),
+                i128::from(i8::MAX),
+                1,
+            ),
+            (
+                DataType::SmallInt,
+                i128::from(i16::MIN),
+                i128::from(i16::MAX),
+                2,
+            ),
+            (
+                DataType::Integer,
+                i128::from(i32::MIN),
+                i128::from(i32::MAX),
+                4,
+            ),
+            (
+                DataType::BigInt,
+                i128::from(i64::MIN),
+                i128::from(i64::MAX),
+                8,
+            ),
+            (DataType::HugeInt, i128::MIN, i128::MAX, 16),
+        ];
+        for (data_type, minimum, maximum, width) in cases {
+            let signed = Vector::flat(
+                data_type,
+                vec![
+                    Value::Integer(minimum),
+                    Value::Integer(42),
+                    Value::Integer(maximum),
+                ],
+            )?;
+            assert!(signed.flat_values().is_none());
+            assert_eq!(
+                signed.values().collect::<Vec<_>>(),
+                vec![
+                    Value::Integer(minimum),
+                    Value::Integer(42),
+                    Value::Integer(maximum)
+                ]
+            );
+            match &signed.encoding {
+                Encoding::FlatSigned(SignedLanes::Tiny(values)) => {
+                    assert_eq!(
+                        width,
+                        std::mem::size_of_val(values.as_slice()) / values.len()
+                    )
+                }
+                Encoding::FlatSigned(SignedLanes::Small(values)) => {
+                    assert_eq!(
+                        width,
+                        std::mem::size_of_val(values.as_slice()) / values.len()
+                    )
+                }
+                Encoding::FlatSigned(SignedLanes::Integer(values)) => {
+                    assert_eq!(
+                        width,
+                        std::mem::size_of_val(values.as_slice()) / values.len()
+                    )
+                }
+                Encoding::FlatSigned(SignedLanes::Big(values)) => {
+                    assert_eq!(
+                        width,
+                        std::mem::size_of_val(values.as_slice()) / values.len()
+                    )
+                }
+                Encoding::FlatSigned(SignedLanes::Huge(values)) => {
+                    assert_eq!(
+                        width,
+                        std::mem::size_of_val(values.as_slice()) / values.len()
+                    )
+                }
+                _ => panic!("all-valid signed column requires a signed lane"),
+            }
+        }
 
         let nullable = Vector::flat(DataType::BigInt, vec![Value::Integer(1), Value::Null])?;
-        assert!(nullable.flat_signed().is_none());
         assert!(nullable.flat_values().is_some());
         let wide = Vector::flat(
             DataType::Decimal {
@@ -742,6 +907,50 @@ mod physical_tests {
         )?;
         assert!(wide.flat_decimal_i64().is_none());
         assert!(wide.flat_values().is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn narrow_signed_lanes_preserve_slices_dictionaries_and_concatenation() -> Result<()> {
+        let source = Arc::new(Vector::flat(
+            DataType::TinyInt,
+            vec![
+                Value::Integer(i128::from(i8::MIN)),
+                Value::Integer(-1),
+                Value::Integer(0),
+                Value::Integer(i128::from(i8::MAX)),
+            ],
+        )?);
+        let prefix = source.slice(0, 2)?;
+        let suffix = source.slice(2, 2)?;
+        let contiguous = Vector::concatenate(DataType::TinyInt, &[prefix, suffix])?;
+        assert_eq!(
+            contiguous.values().collect::<Vec<_>>(),
+            source.values().collect::<Vec<_>>(),
+        );
+        assert!(contiguous.flat_values().is_none());
+        let selected = source.select(vec![3, 0, 3])?;
+        assert_eq!(
+            selected.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(i128::from(i8::MAX)),
+                Value::Integer(i128::from(i8::MIN)),
+                Value::Integer(i128::from(i8::MAX)),
+            ]
+        );
+        assert!(selected.flat_values().is_none());
+        let copied = Vector::concatenate(
+            DataType::TinyInt,
+            &[source.slice(3, 1)?, source.slice(0, 1)?],
+        )?;
+        assert_eq!(
+            copied.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(i128::from(i8::MAX)),
+                Value::Integer(i128::from(i8::MIN))
+            ]
+        );
+        assert!(copied.flat_values().is_none());
         Ok(())
     }
 
