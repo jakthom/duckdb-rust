@@ -560,11 +560,21 @@ impl State {
 /// separately prove that every logical prefix fits the SQL accumulator.
 fn sum_narrow(values: &[Value], integer: impl Fn(&Value) -> Option<i64>) -> Option<i128> {
     let mut lanes = [0_i64; 4];
+    // A machine-width carry is not a SQL overflow: the caller recomputes the
+    // whole block in i128. Retain its fact and branch only once after the
+    // independent lanes have finished, rather than making each coefficient
+    // choose the fallback path.
+    let mut overflowed = false;
     let mut blocks = values.chunks_exact(4);
     for block in &mut blocks {
         for (lane, value) in lanes.iter_mut().zip(block) {
-            *lane = lane.checked_add(integer(value)?)?;
+            let (sum, overflow) = lane.overflowing_add(integer(value)?);
+            *lane = sum;
+            overflowed |= overflow;
         }
+    }
+    if overflowed {
+        return None;
     }
     let mut sum: i128 = lanes.into_iter().map(i128::from).sum();
     for value in blocks.remainder() {
@@ -654,5 +664,25 @@ mod reduction_tests {
                 );
             }
         }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn checked_reduction_defers_machine_carries_to_the_wide_fallback() {
+        let values = [
+            Value::Integer(i128::from(i64::MAX)),
+            Value::Integer(i128::from(i64::MAX)),
+            Value::Integer(i128::from(i64::MAX)),
+            Value::Integer(i128::from(i64::MAX)),
+            Value::Integer(1),
+            Value::Integer(1),
+            Value::Integer(1),
+            Value::Integer(1),
+        ];
+        assert!(sum_narrow(&values, |value| match value {
+            Value::Integer(value) => Some(*value as i64),
+            _ => None,
+        })
+        .is_none());
     }
 }
