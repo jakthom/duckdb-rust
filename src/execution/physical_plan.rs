@@ -919,86 +919,87 @@ fn grouped_distinct_on_signed_columns(
     }
 
     let mut winners = Vec::<(usize, usize)>::new();
-    let mut choose = |group: Option<usize>, current: (usize, usize)| -> Result<Option<usize>> {
-        if let Some(group) = group {
-            if compare_signed_order_rows(&batches, current, winners[group], &order_columns)
-                == Ordering::Less
-            {
-                winners[group] = current;
+    {
+        let mut choose = |group: Option<usize>, current: (usize, usize)| -> Result<Option<usize>> {
+            if let Some(group) = group {
+                if compare_signed_order_rows(&batches, current, winners[group], &order_columns)
+                    == Ordering::Less
+                {
+                    winners[group] = current;
+                }
+                return Ok(None);
             }
-            return Ok(None);
-        }
-        context.query.check_rows(winners.len().saturating_add(1))?;
-        let group = winners.len();
-        winners.push(current);
-        Ok(Some(group))
-    };
+            context.query.check_rows(winners.len().saturating_add(1))?;
+            let group = winners.len();
+            winners.push(current);
+            Ok(Some(group))
+        };
 
-    if let Some(dictionary_len) = shared_dense_signed_dictionary(&batches, *target_column) {
-        let mut groups = vec![usize::MAX; dictionary_len];
-        for (batch_index, batch) in batches.iter().enumerate() {
-            let (_, selected) = batch.columns()[*target_column]
-                .dictionary()
-                .expect("checked shared DISTINCT ON dictionary");
-            for (row_index, &source) in selected.iter().enumerate() {
-                if row_index % 1024 == 0 {
-                    context.query.check()?;
-                }
-                let group = (groups[source] != usize::MAX).then_some(groups[source]);
-                if let Some(group) = choose(group, (batch_index, row_index))? {
-                    groups[source] = group;
-                }
-            }
-        }
-    } else {
-        let mut minimum = None::<i128>;
-        let mut maximum = None::<i128>;
-        for batch in &batches {
-            for value in batch.columns()[*target_column].values() {
-                match value {
-                    crate::common::Value::Null => {}
-                    crate::common::Value::Integer(value) => {
-                        minimum = Some(minimum.map_or(*value, |minimum| minimum.min(*value)));
-                        maximum = Some(maximum.map_or(*value, |maximum| maximum.max(*value)));
+        if let Some(dictionary_len) = shared_dense_signed_dictionary(&batches, *target_column) {
+            let mut groups = vec![usize::MAX; dictionary_len];
+            for (batch_index, batch) in batches.iter().enumerate() {
+                let (_, selected) = batch.columns()[*target_column]
+                    .dictionary()
+                    .expect("checked shared DISTINCT ON dictionary");
+                for (row_index, &source) in selected.iter().enumerate() {
+                    if row_index % 1024 == 0 {
+                        context.query.check()?;
                     }
-                    _ => unreachable!("validated signed integer DISTINCT ON target"),
+                    let group = (groups[source] != usize::MAX).then_some(groups[source]);
+                    if let Some(group) = choose(group, (batch_index, row_index))? {
+                        groups[source] = group;
+                    }
                 }
-            }
-        }
-        let dense_width = minimum.zip(maximum).and_then(|(minimum, maximum)| {
-            usize::try_from(maximum.abs_diff(minimum).checked_add(1)?).ok()
-        });
-        let mut groups = if dense_width.is_some_and(|width| width <= row_count / 2) {
-            SignedDistinctGroups::Dense {
-                minimum: minimum.expect("nonempty dense DISTINCT ON domain"),
-                groups: vec![usize::MAX; dense_width.expect("checked dense width")],
-                null: usize::MAX,
             }
         } else {
-            SignedDistinctGroups::Sparse(HashMap::new())
-        };
-        for (batch_index, batch) in batches.iter().enumerate() {
-            let target_values = &batch.columns()[*target_column];
-            for row_index in 0..batch.len() {
-                if row_index % 1024 == 0 {
-                    context.query.check()?;
+            let mut minimum = None::<i128>;
+            let mut maximum = None::<i128>;
+            for batch in &batches {
+                for value in batch.columns()[*target_column].values() {
+                    match value {
+                        crate::common::Value::Null => {}
+                        crate::common::Value::Integer(value) => {
+                            minimum = Some(minimum.map_or(*value, |minimum| minimum.min(*value)));
+                            maximum = Some(maximum.map_or(*value, |maximum| maximum.max(*value)));
+                        }
+                        _ => unreachable!("validated signed integer DISTINCT ON target"),
+                    }
                 }
-                let key = match target_values
-                    .get(row_index)
-                    .expect("validated DISTINCT ON target")
-                {
-                    crate::common::Value::Null => None,
-                    crate::common::Value::Integer(value) => Some(*value),
-                    _ => unreachable!("validated signed integer DISTINCT ON target"),
-                };
-                let group = groups.get(key);
-                if let Some(group) = choose(group, (batch_index, row_index))? {
-                    groups.insert(key, group);
+            }
+            let dense_width = minimum.zip(maximum).and_then(|(minimum, maximum)| {
+                usize::try_from(maximum.abs_diff(minimum).checked_add(1)?).ok()
+            });
+            let mut groups = if dense_width.is_some_and(|width| width <= row_count / 2) {
+                SignedDistinctGroups::Dense {
+                    minimum: minimum.expect("nonempty dense DISTINCT ON domain"),
+                    groups: vec![usize::MAX; dense_width.expect("checked dense width")],
+                    null: usize::MAX,
+                }
+            } else {
+                SignedDistinctGroups::Sparse(HashMap::new())
+            };
+            for (batch_index, batch) in batches.iter().enumerate() {
+                let target_values = &batch.columns()[*target_column];
+                for row_index in 0..batch.len() {
+                    if row_index % 1024 == 0 {
+                        context.query.check()?;
+                    }
+                    let key = match target_values
+                        .get(row_index)
+                        .expect("validated DISTINCT ON target")
+                    {
+                        crate::common::Value::Null => None,
+                        crate::common::Value::Integer(value) => Some(*value),
+                        _ => unreachable!("validated signed integer DISTINCT ON target"),
+                    };
+                    let group = groups.get(key);
+                    if let Some(group) = choose(group, (batch_index, row_index))? {
+                        groups.insert(key, group);
+                    }
                 }
             }
         }
     }
-    drop(choose);
     context.query.check()?;
     let mut rows = Vec::with_capacity(winners.len());
     for (batch_index, row_index) in winners {

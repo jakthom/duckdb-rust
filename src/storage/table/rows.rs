@@ -376,49 +376,51 @@ fn compact_vectors(data_type: &DataType, columns: Vec<Vector>, count: usize) -> 
     let mut selection = Vec::with_capacity(count);
     let mut key = Vec::new();
     let mut failed = false;
-    let mut intern = |value: &Value| -> Option<usize> {
-        key.clear();
-        if !crate::common::vector::append_physical_identity(value, &mut key) {
-            return None;
-        }
-        if let Some(&index) = dictionary.get(key.as_slice()) {
-            return Some(index);
-        }
-        if unique.len() == limit {
-            return None;
-        }
-        let index = unique.len();
-        dictionary.insert(key.clone(), index);
-        unique.push(value.clone());
-        Some(index)
-    };
-    'columns: for column in &columns {
-        if let Some(value) = column.constant_value() {
-            let Some(index) = intern(value) else {
+    {
+        let mut intern = |value: &Value| -> Option<usize> {
+            key.clear();
+            if !crate::common::vector::append_physical_identity(value, &mut key) {
+                return None;
+            }
+            if let Some(&index) = dictionary.get(key.as_slice()) {
+                return Some(index);
+            }
+            if unique.len() == limit {
+                return None;
+            }
+            let index = unique.len();
+            dictionary.insert(key.clone(), index);
+            unique.push(value.clone());
+            Some(index)
+        };
+        'columns: for column in &columns {
+            if let Some(value) = column.constant_value() {
+                let Some(index) = intern(value) else {
+                    failed = true;
+                    break;
+                };
+                selection.extend(std::iter::repeat_n(index, column.len()));
+                continue;
+            }
+            let Some((parent, selected)) = column.dictionary() else {
                 failed = true;
                 break;
             };
-            selection.extend(std::iter::repeat_n(index, column.len()));
-            continue;
-        }
-        let Some((parent, selected)) = column.dictionary() else {
-            failed = true;
-            break;
-        };
-        let mut mapped = vec![usize::MAX; parent.len()];
-        for &source in selected {
-            if mapped[source] == usize::MAX {
-                let Some(index) = intern(parent.get(source).expect("validated dictionary index"))
-                else {
-                    failed = true;
-                    break 'columns;
-                };
-                mapped[source] = index;
+            let mut mapped = vec![usize::MAX; parent.len()];
+            for &source in selected {
+                if mapped[source] == usize::MAX {
+                    let Some(index) =
+                        intern(parent.get(source).expect("validated dictionary index"))
+                    else {
+                        failed = true;
+                        break 'columns;
+                    };
+                    mapped[source] = index;
+                }
+                selection.push(mapped[source]);
             }
-            selection.push(mapped[source]);
         }
     }
-    drop(intern);
     if failed || selection.len() != count {
         let combined = Vector::concatenate(data_type.clone(), &columns)?;
         let mut values = Vec::with_capacity(count);
