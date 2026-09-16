@@ -668,6 +668,7 @@ the following independent children enter as slots and shared contracts permit.
 | --- | --- | --- | --- |
 | G01.4a — fast feedback orchestration | T; upstream-runner/orchestration owner, coordinate other G01 edits | Add debug-worker mode and hash-validated suite caching without weakening assertions; manifest-selected tests, debounced single-process validation, zero-selection/cache-tamper/stale-source negative tests; compare selected results with the release runner. Feedback timing is not an acceptance benchmark. Validation manifest (2026-09-16): own `scripts/run_upstream.py`, `scripts/measure_upstream_feedback.py`, their focused tests, `benchmark/g01_4a_feedback_workloads.json`, and this row; fast checks: `PYTHONPATH=scripts python3 -m unittest scripts/test_run_upstream.py scripts/test_measure_upstream_feedback.py`. In explicit `--path-list` debug/prebuilt feedback only, a separate selected-feedback cache fetches exactly requested source-root-relative SQLLogic files. Development files require the pinned retained-manifest digest plus archive digest; release uses pinned `git show`; cache hits revalidate canonical selected bytes and exact metadata. Unsafe, duplicate, missing, stale, tampered or non-SQL inputs fail closed. External fixture/include dependencies are not materialized by this narrow cache and are not claimed supported. A prebuilt worker requires a matching current-source/binary/profile provenance sidecar. Its report/inventory is labeled selected-feedback and cannot claim full-suite acceptance; any failed/incomplete selection exits nonzero after retaining its report. Ordinary campaigns retain full-population accounting. Debug mode compares normalized outcomes to release. `--watch` validates modes in its parent, hashes selection/retained-source/worker inputs, continuously debounces settled edits and propagates an unchanged-state child failure; a changed source makes an in-flight report stale. Negatives: empty/unknown/duplicate/traversal selection, selected byte/metadata tamper, stale manifest/archive/pin, stale worker provenance, stale source, and deliberately wrong result all fail. Functional acceptance: selected debug+release pair with `--compare-release`, followed by the ordinary release runner on the same list. Performance: after the release worker build, create its required current provenance sidecar with `python3 scripts/run_upstream.py --write-worker-provenance target/release/duckdb-rust-test-worker`; `measure_upstream_feedback.py` then performs three warmups and 21 serial **warm-cache** samples against both source-mapped pinned C++ unittest binaries; timed Rust feedback includes selected-cache validation, worker launch, unchanged assertions and report emission. The one-time fresh-cache materialization is retained separately as caller-visible `cold_setup` evidence because C++'s selected runner has no analogous extraction step. Raw wall time, throughput, CPU, peak RSS and block I/O evidence stays under `target/`; every warm metric is gated against the faster pin, while wrong pins/binaries/results fail closed. Status: **open** until its quiet-host command passes. | [P: at-parity-or-better-performance](#at-parity-or-better-performance) |
 | G01.4a correction | Development selected-feedback now reads pinned development Git objects and verifies their selected bytes against the pinned retained-manifest digest/per-file hash; it no longer hashes or reads the 100 MiB retained archive on every warm feedback invocation. Full-suite campaigns retain archive/full-verify accounting. | — | — |
+| G01.4a final status | The integrated selected debug/release and ordinary campaigns pass both pins on revision `e25370d`; the 45-test Python harness suite is green. | Gate P passed for wall, CPU, peak RSS, block I/O and throughput; this supersedes the earlier open status. |
 | G01.2d.1 — typed native-probe comparison | T; `scripts/verify_reference.py` comparison helper/tests, coordinate oracle owner | HUGEINT number/string representation compares by declared type; changed value, NULL and VARCHAR numeric text still fail. Rerun development probe to expose its next genuine boundary. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 | G03.3a — ENUM range boundary | T; `src/function/enumeration.rs`, enumeration component/reference cases | Port both pins' constant/column/NULL endpoint behavior; `enum_reference.py` SQL 29/29 per pin plus existing native paths, scalar/batch and prepared coverage. | [P: at-parity or better performance](#at-parity-or-better-performance) |
 | G04.2a — STRUCT date construction | T; temporal function owner | Match field binding/NULLs, checked INT64-to-INT32 errors and calendar errors through scalar, batch and prepared execution. | [P: at-parity or better performance](#at-parity-or-better-performance) |
@@ -694,6 +695,17 @@ Python regression tests (wrong results, identity/selection errors, retries, fixt
 eligibility and record accounting). The final integrated tree also requires the
 delegated chunk sweep; its outcome is reported in the handoff, not inferred from
 these upstream measurements.
+
+**G01.4a integrated acceptance (revision `e25370d`, 2026-09-16).** The selected
+debug/release comparison and ordinary runner pass the exact retained path on both
+pins (`target/final-g01-debug-release-e25370d.json` and
+`target/final-g01-ordinary-release-e25370d-rerun1.json`). The quiet
+3-warmup/21-sample compiled campaign in
+`target/final-g01-feedback-performance-e25370d.json` passes every faster-pin
+gate: wall ratios are 0.740/0.745, CPU 0.75/0.75, peak RSS 0.267/0.267 and
+block I/O 1.0/1.0; both Rust throughputs exceed the faster reference. Cold-cache
+setup, exact pin identities, the Rust source/binary hashes and raw samples remain
+in that report.
 
 ## G02 — Parsing, binding, namespaces and diagnostics
 
@@ -1089,8 +1101,8 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
 - **G11.3 Finish schema changes.** Add ALTER TYPE/USING, nested-field changes and
   remaining object/column modifiers; coordinate indexes, defaults, dependent objects,
   old snapshots and catalog conflict timing.
-  - **G11.3a ADD COLUMN execution cost — functional slice ready; performance
-    completion open.** Source
+  - **G11.3a ADD COLUMN execution cost — functional and performance gates
+    passed; delegated completion sweep pending.** Source
     mapping follows `DataTable`/`RowGroupCollection::AddColumn` and
     `RowGroup::AddColumn`: stable published rows retain their existing columns and a
     simple selected default can use one constant vector, while custom evaluators and
@@ -1102,8 +1114,8 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
     (258.8–268.6x initial baseline) to 0.179x. A separate focused dual-pin diagnostic
     passed both Rust campaigns at no more than 0.238x of the faster C++ median; these
     runs are diagnostic. The final quiet 21-sample focused latency Gate P passed at
-    no more than 0.2401x of the faster C++ median. Independent process-level CPU,
-    peak-RSS and block-I/O evidence remains open.
+    no more than 0.2401x of the faster C++ median. Final integrated evidence is
+    recorded below and supersedes those earlier diagnostic/frozen results.
 
     Validation manifest: owned paths are `src/catalog/expression.rs`,
     `src/planner/stored.rs`, `src/storage/table{.rs,/alter.rs,/rows.rs,/recovery.rs}`,
@@ -1166,13 +1178,18 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
     reference divergence per pin: release accepts `DROP NOT NULL` where its corpus
     expects an error, and development accepts `ADD COLUMN ... NOT NULL` where its
     corpus expects an error. These are retained divergences, not exchange passes.
-    The final 9-sample full native campaign passed 11/12 workloads but
-    `recursive_correlated` measured 1.121x/1.087x against the faster pin. That
-    workload uses `range(16)`, recursion, a correlated subquery and SUM; it cannot
-    execute persistent-table, ADD COLUMN, physical-slot or stable scan-order code.
-    Re-measure it with 21 quiet-host samples and hand any confirmed regression to
-    its recursion/subquery/aggregation owner; G11 cannot claim full native parity
-    while the shared existing-consumer gate is red.
+    Final revision `e25370d` closes the shared consumer and resource gates. The
+    focused ADD campaign in `target/final-g11-add-native-fastest-5a1ef4b.json`
+    passes at 0.236/0.216 of the faster pin. The final 41-sample full native pair
+    and joint gate in `target/final-native-*-e25370d-41samples.json` pass all 12
+    workloads; `recursive_correlated` is 0.965/0.977 of the faster pin after
+    retaining generation cardinality without repeated batch recounting. The
+    process report `target/final-g11-add-resources-e25370d.json` independently
+    passes wall 0.324, CPU 0.167, peak RSS 0.367, block input/output 1.0 and
+    throughput. Release and development checkpoint/WAL exchanges remain green;
+    each aggregate reference command still exits nonzero solely for the one
+    explicit unchanged corpus divergence per durability configuration described
+    above.
 
     The default-demand split is pinned-source behavior, not a timing inference.
     Release `src/parser/transform/statement/transform_alter_table.cpp` keeps only a
@@ -1338,8 +1355,8 @@ Fallible cache allocation occurs only after complete logical validation and NULL
 eligibility, preserving the former type-error precedence. Clone, empty/sliced,
 contiguous/noncontiguous concatenation, width-18 extrema, metadata mismatch,
 cached cancellation and WAL/checkpoint/reopen reconstruction have focused tests.
-On the post-change tree, the focused tests pass, the complete numeric target is
-68/68,
+On the final integrated tree, the focused tests pass, the complete numeric target is
+70/70,
 grouping is 64/64, local relational/performance SQL is 14/14, and each pin's own
 decimal aggregate upstream file is 1/1: release hash
 `5a5367993d562fd9a5cd3fdd20b82171113588dcf92cb43db2d4bce0b7d79158` and
@@ -1351,9 +1368,12 @@ claimed unchanged fixture. The frozen 21-sample native reports in
 pass on their recorded source/binary identity: the joint fastest-reference gate
 is 0.761x for the release-paired campaign and 0.895x for the development-paired
 campaign. The native Gate P is therefore **passed** for that frozen source. The
-separate one-million-row SQLLogic process wall/CPU/RSS/I/O/throughput gate remains
-**open** and must be rerun on the final integrated tree; it includes runner startup
-and table construction and is not a substitute for the native prepared-query scope.
+Final integrated revision `e25370d` supersedes that frozen-source status. The
+native joint gate in `target/final-g16-decimal-total-native-fastest-5a1ef4b.json`
+passes at 0.812/0.776 of the faster reference. The one-million-row SQLLogic report
+`target/final-g16-decimal-total-resources-e25370d.json` also passes independently:
+wall 0.727, CPU 0.5, peak RSS 0.940, block input/output 1.0 and throughput. Native
+latency and the process resource scope are therefore both passed.
 
 **G16.3a.2 frozen validation manifest — ordinary ungrouped aggregation.** This
 bounded child owns `src/common/cast/mod.rs`, its focused cast regression,
@@ -1429,9 +1449,13 @@ The frozen 21-sample native reports in
 pass every prepared workload on their recorded source/binary identity: SUM is
 0.893x release-paired/0.963x development-paired and COUNT is 0.680x/0.560x at
 the joint fastest-reference gate. The native Gate P is therefore **passed** for
-that frozen source. Both process resource scopes (one-million-row SUM/count and
-128 repeated HUGEINT-to-BIGINT overflow errors) remain **open** and must be
-rerun on the final integrated tree for wall, CPU, RSS, I/O and throughput.
+that frozen source. Final integrated evidence supersedes it: the joint native gate
+in `target/final-g16-ordinary-native-fastest-5a1ef4b.json` passes SUM at
+0.753/0.865 and COUNT at 0.672/0.585 of the faster pin. The process report
+`target/final-g16-ordinary-resources-e25370d.json` passes the million-row case at
+wall 0.591, CPU 0.5, peak RSS 0.938 and block input/output 1.0, and the 128-error
+case at wall 0.259, CPU 0.0, peak RSS 0.346 and block input/output 1.0; throughput
+also passes for both. Native and both process scopes are passed.
 
 **G16.3a.3 frozen validation manifest — narrow DECIMAL filtering.** Owned paths
 are `src/common/type_registry/numeric.rs`, its `test/component/numeric_batches.rs`
@@ -1463,11 +1487,13 @@ each independently requires Rust/faster-reference <=1.0 for wall, CPU, peak RSS
 and block I/O, and throughput >= the faster reference. The frozen native reports
 `target/g16-decimal-filter-final-{release,development,fastest}-21.json` pass
 their recorded source/binary identity at 0.579x release-paired and 0.515x
-development-paired at the joint fastest-reference gate. Native Gate P is
-**passed** for that frozen source. The process resource gate is **open** and
-must be measured on a quiet host after integration; no timing claim is made
-while parallel agents are active. Raw samples, pin/binary hashes and any failed
-runs stay under `target/`.
+development-paired at the joint fastest-reference gate. Final integrated evidence
+supersedes it: `target/final-g16-decimal-filter-native-fastest-5a1ef4b.json`
+passes at 0.594/0.537 of the faster pin, and
+`target/final-g16-decimal-filter-resources-e25370d.json` passes wall 0.728, CPU
+0.5, peak RSS 0.945, block input/output 1.0 and throughput. Native and process
+Gate P scopes are passed. Raw samples, identities and earlier failed runs remain
+under `target/`.
 
 - **G16.1 Establish statistics lifecycle.** Implement ANALYZE and required table/
   column statistics, propagation, invalidation and cardinality estimates.
