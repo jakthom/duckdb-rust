@@ -160,8 +160,6 @@ impl Vector {
     pub fn flat(data_type: DataType, values: Vec<Value>) -> Result<Self> {
         let mut all_valid = true;
         let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
-        let mut decimal_i64 = matches!(data_type, DataType::Decimal { width: 1..=18, .. })
-            .then(|| Vec::with_capacity(values.len()));
         let mut previous = None;
         for value in &values {
             if !value.fits_type(&data_type) {
@@ -170,29 +168,39 @@ impl Vector {
                 ));
             }
             all_valid &= !value.is_null();
-            if let Some(coefficients) = &mut decimal_i64 {
-                match value {
-                    Value::Decimal { value, .. } => {
-                        coefficients.push(i64::try_from(*value).map_err(|_| {
-                            Error::Internal("narrow DECIMAL coefficient exceeds i64".into())
-                        })?);
-                    }
-                    Value::Null => decimal_i64 = None,
-                    _ => unreachable!("validated narrow DECIMAL column"),
-                }
-            }
             if numeric_ascending {
                 numeric_ascending =
                     !value.is_null() && previous.is_none_or(|previous| numeric_le(previous, value));
                 previous = Some(value);
             }
         }
+        // Validate the complete logical column before allocating an optional
+        // physical cache. This preserves the pre-cache type-error precedence
+        // and avoids reserving a lane that a NULL would immediately discard.
+        let decimal_i64 =
+            if all_valid && matches!(data_type, DataType::Decimal { width: 1..=18, .. }) {
+                let mut coefficients = Vec::new();
+                coefficients.try_reserve_exact(values.len()).map_err(|_| {
+                    Error::Resource("cannot allocate DECIMAL coefficient column".into())
+                })?;
+                for value in &values {
+                    let Value::Decimal { value, .. } = value else {
+                        unreachable!("validated narrow DECIMAL column");
+                    };
+                    coefficients.push(i64::try_from(*value).map_err(|_| {
+                        Error::Internal("narrow DECIMAL coefficient exceeds i64".into())
+                    })?);
+                }
+                Some(Arc::new(coefficients))
+            } else {
+                None
+            };
         Ok(Self {
             data_type,
             offset: 0,
             count: values.len(),
             encoding: Encoding::Flat(Arc::new(values)),
-            decimal_i64: decimal_i64.map(Arc::new),
+            decimal_i64,
             all_valid,
             numeric_ascending,
         })
@@ -401,7 +409,19 @@ mod physical_tests {
             vec![decimal(-100, 12), decimal(0, 12), decimal(250, 12)],
         )?;
         assert_eq!(flat.flat_decimal_i64(), Some(&[-100, 0, 250][..]));
+        assert_eq!(flat.clone().flat_decimal_i64(), Some(&[-100, 0, 250][..]));
         assert_eq!(flat.slice(1, 2)?.flat_decimal_i64(), Some(&[0, 250][..]));
+        assert_eq!(flat.slice(0, 0)?.flat_decimal_i64(), Some(&[][..]));
+        assert_eq!(
+            Vector::flat(data_type.clone(), Vec::new())?.flat_decimal_i64(),
+            Some(&[][..])
+        );
+        let contiguous =
+            Vector::concatenate(data_type.clone(), &[flat.slice(0, 1)?, flat.slice(1, 2)?])?;
+        assert_eq!(contiguous.flat_decimal_i64(), Some(&[-100, 0, 250][..]));
+        let noncontiguous =
+            Vector::concatenate(data_type.clone(), &[flat.slice(2, 1)?, flat.slice(0, 1)?])?;
+        assert_eq!(noncontiguous.flat_decimal_i64(), Some(&[250, -100][..]));
         assert!(
             Vector::flat(
                 data_type.clone(),
@@ -432,6 +452,43 @@ mod physical_tests {
             .flat_decimal_i64()
             .is_none()
         );
+        let width_18 = DataType::Decimal {
+            width: 18,
+            scale: 0,
+        };
+        let extrema = Vector::flat(
+            width_18,
+            vec![
+                Value::Decimal {
+                    value: -999_999_999_999_999_999,
+                    width: 18,
+                    scale: 0,
+                },
+                Value::Decimal {
+                    value: 999_999_999_999_999_999,
+                    width: 18,
+                    scale: 0,
+                },
+            ],
+        )?;
+        assert_eq!(
+            extrema.flat_decimal_i64(),
+            Some(&[-999_999_999_999_999_999, 999_999_999_999_999_999][..])
+        );
+        for mismatched in [
+            Value::Decimal {
+                value: 1,
+                width: 11,
+                scale: 2,
+            },
+            Value::Decimal {
+                value: 1,
+                width: 12,
+                scale: 1,
+            },
+        ] {
+            assert!(Vector::flat(data_type.clone(), vec![mismatched]).is_err());
+        }
         Ok(())
     }
 }

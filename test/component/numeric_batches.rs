@@ -427,6 +427,26 @@ fn exact_sum_batches_match_scalar_prefixes_nulls_and_wide_fallbacks() -> Result<
         ),
         Err(Error::Interrupted)
     ));
+    let cached_decimal = Vector::flat(
+        DataType::Decimal {
+            width: 18,
+            scale: 2,
+        },
+        (0..4099)
+            .map(|index| decimal(index, 18, 2))
+            .collect::<Result<Vec<_>>>()?,
+    )?;
+    let mut state = sum.create_state(
+        &[DataType::Decimal {
+            width: 18,
+            scale: 2,
+        }],
+        query.types(),
+    )?;
+    assert!(matches!(
+        state.update_column(&cached_decimal, &cancelled),
+        Err(Error::Interrupted)
+    ));
     Ok(())
 }
 

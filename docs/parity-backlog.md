@@ -1296,16 +1296,25 @@ oracle. NULL, constant, dictionary, sliced, DECIMAL(19..38), cancellation and
 checked prefix-overflow paths stay on the existing general kernels. The shared
 scan prerequisite `be47ada` removes only the diagnosed stable-order identity
 rebuild and retains hole/relocation/snapshot/rollback/checkpoint coverage. On the
-post-change tree, the focused tests pass, the complete numeric target is 67/67,
+resource gate, construction of the one-million-row narrow DECIMAL table happens
+inside every timed process and the cache remains resident through the query, so
+its allocation CPU and peak RSS are measured even though SUM is the terminal
+consumer; G16.3a.3 separately retains the same cache through a non-SUM filter.
+Fallible cache allocation occurs only after complete logical validation and NULL
+eligibility, preserving the former type-error precedence. Clone, empty/sliced,
+contiguous/noncontiguous concatenation, width-18 extrema, metadata mismatch,
+cached cancellation and WAL/checkpoint/reopen reconstruction have focused tests.
+On the post-change tree, the focused tests pass, the complete numeric target is
+68/68,
 grouping is 64/64, local relational/performance SQL is 14/14, and each pin's own
 decimal aggregate upstream file is 1/1: release hash
 `5a5367993d562fd9a5cd3fdd20b82171113588dcf92cb43db2d4bce0b7d79158` and
 development hash
 `f3d88b5044ca1f8dc2f6ff45c1c60f0ae71404037eec96817d1532ac020ff8e0`.
 The files differ and remain separate pin-specific source inputs rather than one
-claimed unchanged fixture. A nine-sample diagnostic (not
-quiet-host acceptance) measured the 50,000-row embedded latency scope at 0.775x
-the release pin after an earlier post-scan 1.142x result. Performance remains
+claimed unchanged fixture. The post-audit nine-sample diagnostics (not quiet-host
+acceptance) measured the 50,000-row embedded latency scope at 0.698x release and
+0.227x development. Performance remains
 **open** until the final identical-source dual-pin 21-sample latency reports and
 the separate one-million-row SQLLogic process wall/CPU/RSS/I/O/throughput report
 pass; the latter includes runner startup and table construction and is not a

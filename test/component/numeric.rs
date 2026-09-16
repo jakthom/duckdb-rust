@@ -554,3 +554,39 @@ fn numeric_defaults_indexes_and_snapshots_survive_restart() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn narrow_decimal_sum_cache_rebuilds_after_wal_checkpoint_and_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("narrow-decimal-sum.duckdb");
+    {
+        let mut c = Database::open_logged(&path)?.connect();
+        c.execute("CREATE TABLE d(v DECIMAL(18,2)); INSERT INTO d VALUES (9999999999999999.99),(-9999999999999999.99),(1.25),(NULL)")?;
+        assert_eq!(
+            c.query("SELECT sum(v) FROM d")?.rows,
+            vec![vec![decimal(125, 38, 2)?]]
+        );
+    }
+    assert!(std::fs::metadata(path.with_extension("duckdb.wal"))?.len() > 0);
+    {
+        let mut c = Database::open_logged(&path)?.connect();
+        assert_eq!(
+            c.query("SELECT sum(v) FROM d")?.rows,
+            vec![vec![decimal(125, 38, 2)?]]
+        );
+        c.execute("INSERT INTO d VALUES (2.50); CHECKPOINT")?;
+        assert_eq!(
+            c.query("SELECT sum(v) FROM d")?.rows,
+            vec![vec![decimal(375, 38, 2)?]]
+        );
+    }
+    assert_eq!(
+        Database::open_read_only(&path)?
+            .connect()
+            .query("SELECT sum(v) FROM d")?
+            .rows,
+        vec![vec![decimal(375, 38, 2)?]]
+    );
+    Ok(())
+}
