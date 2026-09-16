@@ -324,12 +324,24 @@ fn dictionary_signed_remainder(
         values.push(Value::Null);
     }
     let parent = Arc::new(Vector::flat(data_type.clone(), values)?);
+    let mask = magnitude
+        .is_power_of_two()
+        .then_some((magnitude - 1) as u64);
     let select = |(index, value): (usize, &Value)| {
         if index % 1024 == 0 {
             query.check()?;
         }
         Ok(match value {
-            Value::Integer(value) => ((*value as i64 % divisor) - minimum) as usize,
+            Value::Integer(value) => {
+                let value = *value as i64;
+                let remainder = if let Some(mask) = mask {
+                    let remainder = (value.unsigned_abs() & mask) as i64;
+                    if value < 0 { -remainder } else { remainder }
+                } else {
+                    value % divisor
+                };
+                (remainder - minimum) as usize
+            }
             Value::Null => null,
             _ => unreachable!("validated integer vector"),
         })

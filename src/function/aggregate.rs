@@ -297,6 +297,39 @@ impl State {
             _ => return Err(Error::Internal("product state differs from binding".into())),
         };
         let count = column.len();
+        if (product == -1.0 || product == 1.0)
+            && let Some((parent, selection)) = column.dictionary()
+        {
+            let signs = parent
+                .values()
+                .map(|value| match value {
+                    Value::Double(value) if *value == 1.0 => Some(false),
+                    Value::Double(value) if *value == -1.0 => Some(true),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>();
+            if let Some(signs) = signs {
+                let mut negative = false;
+                for (index, &source) in selection.iter().enumerate() {
+                    if index % 1024 == 0 {
+                        context.check()?;
+                    }
+                    negative ^= signs[source];
+                }
+                if negative {
+                    product = -product;
+                }
+                self.count = self
+                    .count
+                    .checked_add(count as i128)
+                    .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+                if count != 0 {
+                    self.value = Value::Double(product);
+                }
+                context.check()?;
+                return Ok(true);
+            }
+        }
         if let Some(values) = column.flat_values() {
             for block in values.chunks(1024) {
                 context.check()?;

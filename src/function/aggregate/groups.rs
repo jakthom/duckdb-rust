@@ -62,6 +62,9 @@ impl GroupedAggregateState for ProductGroups {
                 "grouped product argument differs from binding".into(),
             ));
         }
+        if self.update_sign_dictionary(groups, column, query)? {
+            return Ok(());
+        }
         if let Some(values) = column.flat_values() {
             self.update_values(groups, values.iter(), query)
         } else {
@@ -89,6 +92,58 @@ impl GroupedAggregateState for ProductGroups {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ProductGroups {
+    fn update_sign_dictionary(
+        &mut self,
+        groups: &GroupSelection<'_>,
+        column: &crate::common::vector::Vector,
+        query: &QueryContext,
+    ) -> Result<bool> {
+        if !column.all_valid()
+            || self
+                .values
+                .iter()
+                .any(|value| *value != 1.0 && *value != -1.0)
+        {
+            return Ok(false);
+        }
+        let Some(counts) = groups.counts() else {
+            return Ok(false);
+        };
+        let Some((parent, selection)) = column.dictionary() else {
+            return Ok(false);
+        };
+        let Some(signs) = parent
+            .values()
+            .map(|value| match value {
+                Value::Double(value) if *value == 1.0 => Some(false),
+                Value::Double(value) if *value == -1.0 => Some(true),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(false);
+        };
+        let mut negative = vec![false; self.group_count()];
+        for (index, (&group, &source)) in groups.indices().iter().zip(selection).enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            if signs[source] {
+                negative[group] = !negative[group];
+            }
+        }
+        for (group, (&count, negative)) in counts.iter().zip(negative).enumerate() {
+            self.counts[group] = self.counts[group]
+                .checked_add(count)
+                .ok_or_else(|| Error::Resource("aggregate update count exceeds usize".into()))?;
+            if negative {
+                self.values[group] = -self.values[group];
+            }
+        }
+        query.check()?;
+        Ok(true)
+    }
+
     fn update_values<'a>(
         &mut self,
         groups: &GroupSelection<'_>,

@@ -919,6 +919,29 @@ impl TypeAdapter for PrimitiveTypes {
         context: &QueryContext,
     ) -> Result<Vec<usize>> {
         if data_type.is_signed_integer() {
+            if left.all_valid()
+                && let Some(Value::Integer(right)) = right.constant_value()
+                && let Some((parent, selection)) = left.dictionary()
+            {
+                let mut matches = Vec::with_capacity(parent.len());
+                for value in parent.values() {
+                    let Value::Integer(left) = value else {
+                        return Err(Error::Internal("invalid integer comparison input".into()));
+                    };
+                    matches.push(predicate.matches(left.cmp(right)));
+                }
+                let mut selected = Vec::with_capacity(selection.len());
+                for (index, &source) in selection.iter().enumerate() {
+                    if index % 1024 == 0 {
+                        context.check()?;
+                    }
+                    if matches[source] {
+                        selected.push(index);
+                    }
+                }
+                context.check()?;
+                return Ok(selected);
+            }
             batch::select_values(left, right, predicate, context, |a, b| match (a, b) {
                 (Value::Integer(a), Value::Integer(b)) => Ok(a.cmp(b)),
                 _ => Err(Error::Internal("invalid integer comparison input".into())),
