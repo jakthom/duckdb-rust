@@ -1313,13 +1313,14 @@ decimal aggregate upstream file is 1/1: release hash
 development hash
 `f3d88b5044ca1f8dc2f6ff45c1c60f0ae71404037eec96817d1532ac020ff8e0`.
 The files differ and remain separate pin-specific source inputs rather than one
-claimed unchanged fixture. The post-audit nine-sample diagnostics (not quiet-host
-acceptance) measured the 50,000-row embedded latency scope at 0.698x release and
-0.227x development. Performance remains
-**open** until the final identical-source dual-pin 21-sample latency reports and
-the separate one-million-row SQLLogic process wall/CPU/RSS/I/O/throughput report
-pass; the latter includes runner startup and table construction and is not a
-substitute for the native prepared-query scope.
+claimed unchanged fixture. The frozen 21-sample native reports in
+`target/g16-decimal-total-cents-final-{release,development,fastest}-21.json`
+pass on their recorded source/binary identity: the joint fastest-reference gate
+is 0.761x for the release-paired campaign and 0.895x for the development-paired
+campaign. The native Gate P is therefore **passed** for that frozen source. The
+separate one-million-row SQLLogic process wall/CPU/RSS/I/O/throughput gate remains
+**open** and must be rerun on the final integrated tree; it includes runner startup
+and table construction and is not a substitute for the native prepared-query scope.
 
 **G16.3a.2 frozen validation manifest — ordinary ungrouped aggregation.** This
 bounded child owns `src/common/cast/mod.rs`, its focused cast regression,
@@ -1390,8 +1391,50 @@ execution tests, and the local ordinary/repeated-error fixtures on Rust and both
 pinned C++ runners (3 and 130 records respectively). Post-change nine-sample
 diagnostics (not quiet-host acceptance) measured native SUM at 0.889x release
 and 0.270x development, and COUNT at 0.682x release and 0.248x development.
-Performance remains **open** until the final identical-source 21-sample native
-and SQLLogic resource reports pass all declared metrics.
+The frozen 21-sample native reports in
+`target/g16-ordinary-aggregation-final-{release,development,fastest}-21.json`
+pass every prepared workload on their recorded source/binary identity: SUM is
+0.893x release-paired/0.963x development-paired and COUNT is 0.680x/0.560x at
+the joint fastest-reference gate. The native Gate P is therefore **passed** for
+that frozen source. Both process resource scopes (one-million-row SUM/count and
+128 repeated HUGEINT-to-BIGINT overflow errors) remain **open** and must be
+rerun on the final integrated tree for wall, CPU, RSS, I/O and throughput.
+
+**G16.3a.3 frozen validation manifest — narrow DECIMAL filtering.** Owned paths
+are `src/common/type_registry/numeric.rs`, its `test/component/numeric_batches.rs`
+coverage, `benchmark/g16_decimal_filter{,_sqllogic}_workloads.json`,
+`test/performance/g16_decimal_filter.test`, and this backlog entry. Fast checks
+are `cargo test --offline --test numeric
+batches::narrow_decimal_selection_covers_physical_widths_orderings_and_fallbacks
+-- --exact` and `cargo test --offline --test numeric
+narrow_decimal_sum_cache_rebuilds_after_wal_checkpoint_and_reopen -- --exact`.
+The latter is the latest reopen contract: WAL reconstruction must not retain a
+stale coefficient cache. Functional acceptance is the complete `numeric`,
+`execution`, `grouping`, and `casts` targets plus `cargo run --offline --bin
+sqllogictest -- test/performance/g16_decimal_filter.test test/sql/relational.test`;
+it retains NULL/selected/dictionary/sliced/width-18 fallback, ordering,
+cancellation, bad metadata, and checkpoint/WAL/reopen consumers. The unchanged
+upstream case IDs are exactly `test/sql/types/decimal/decimal_aggregates.test`,
+`test/sql/aggregate/group/test_group_null.test`, and the reachable records 1--17
+of `test/sql/aggregate/aggregates/test_sum.test`, selected against both pins with
+`scripts/run_upstream.py --target both --path-prefix` for those three paths.
+Records 18--19 remain the explicit G08.2 `ORDER BY`-in-aggregate blocker, not a
+G16 failure or a claimed full-file pass.
+
+Gate P has two independent workloads: the immutable 50,000-row prepared native
+`decimal_filter` (`d >= 250.00`, exact count 25,000) and the one-million-row
+process SQLLogic workload in `test/performance/g16_decimal_filter.test` (`d >=
+5000.00`, exact count 500,000). Both require serial, release/no-tracing,
+three warmups and 21 alternating samples against both pinned C++ references;
+each independently requires Rust/faster-reference <=1.0 for wall, CPU, peak RSS
+and block I/O, and throughput >= the faster reference. The frozen native reports
+`target/g16-decimal-filter-final-{release,development,fastest}-21.json` pass
+their recorded source/binary identity at 0.579x release-paired and 0.515x
+development-paired at the joint fastest-reference gate. Native Gate P is
+**passed** for that frozen source. The process resource gate is **open** and
+must be measured on a quiet host after integration; no timing claim is made
+while parallel agents are active. Raw samples, pin/binary hashes and any failed
+runs stay under `target/`.
 
 - **G16.1 Establish statistics lifecycle.** Implement ANALYZE and required table/
   column statistics, propagation, invalidation and cardinality estimates.
