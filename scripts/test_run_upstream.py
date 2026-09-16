@@ -3,10 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 import stat
+import tarfile
 from unittest.mock import patch
 
 import sqllogic
-from run_upstream import (cached_files, cached_manifest_matches_source, cached_population, comparable_outcome, failure_class,
+from run_upstream import (cached_files, cached_manifest_matches_source, cached_population, comparable_outcome, extract_source_archive, failure_class,
                           rewrite_report_argument, run_case, selected_entries, summarize,
                           watch_feedback)
 
@@ -107,6 +108,28 @@ class RunUpstreamTests(unittest.TestCase):
             for changed in [{**manifest, "counts": {}}, {**manifest, "tests": []},
                             {**manifest, "files": [{**files[0], "kind": "symlink"}]}]:
                 self.assertFalse(cached_manifest_matches_source(source, changed))
+
+    def test_archive_extraction_allows_member_relative_link_but_rejects_escape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "source.tar"
+            with tarfile.open(archive, "w") as contents:
+                data = b"ok"
+                entry = tarfile.TarInfo("data/csv/glob/crawl/symbolic_link")
+                entry.size = len(data)
+                import io
+                contents.addfile(entry, io.BytesIO(data))
+                link = tarfile.TarInfo("data/csv/glob/crawl/.symbolic_link/mydir/link_to_upper_dir")
+                link.type = tarfile.SYMTYPE; link.linkname = "../../symbolic_link"
+                contents.addfile(link)
+            with tarfile.open(archive) as contents:
+                extract_source_archive(contents, Path(directory) / "tree")
+            self.assertEqual((Path(directory) / "tree/data/csv/glob/crawl/.symbolic_link/mydir/link_to_upper_dir").resolve().read_bytes(), b"ok")
+            for name, target in [("absolute", "/etc/passwd"), ("escape", "../../outside")]:
+                with tarfile.open(archive, "w") as contents:
+                    link = tarfile.TarInfo("a/link"); link.type = tarfile.SYMTYPE; link.linkname = target
+                    contents.addfile(link)
+                with tarfile.open(archive) as contents:
+                    with self.assertRaises(ValueError): extract_source_archive(contents, Path(directory) / name)
 
     def test_debug_release_comparison_includes_all_assertion_visible_fields(self):
         passed = {"id": "a", "path": "a.test", "status": "passed", "passed_records": 1,

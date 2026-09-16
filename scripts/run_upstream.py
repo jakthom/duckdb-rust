@@ -19,6 +19,7 @@ import sys
 import tarfile
 import tempfile
 import time
+from pathlib import PurePosixPath
 
 import sqllogic
 from reference_version import ROOT, TARGETS, require_checkout
@@ -133,12 +134,73 @@ def archive_population(target, temporary):
     with archive.open("xb") as output: subprocess.run(["git", "archive", "--format=tar", revision], cwd=source, stdout=output, check=True)
     files, tests = [], []
     with tarfile.open(archive) as contents:
-        contents.extractall(temporary / "tree", filter="data")
-        for member in contents:
+        members = extract_source_archive(contents, temporary / "tree")
+        for member in members:
             if member.isfile():
                 data = contents.extractfile(member).read(); files.append({"path": member.name, "sha256": hashlib.sha256(data).hexdigest()}); tests.extend(declarations(member.name, data))
     manifest = {"revision": revision, "files": files, "tests": tests, "counts": dict(Counter(t["kind"] for t in tests))}
     return temporary / "tree", manifest, {"kind": "git_archive", "revision": revision, "archive_sha256": digest(archive), "source_path": str(source), "source_tree_sha256": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()}
+
+
+def safe_archive_path(path):
+    """Normalize a POSIX tar name, rejecting any escape from its root."""
+    candidate = PurePosixPath(path)
+    if candidate.is_absolute():
+        raise ValueError("archive member path is absolute: " + path)
+    result = []
+    for part in candidate.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not result:
+                raise ValueError("archive member path escapes root: " + path)
+            result.pop()
+        else:
+            result.append(part)
+    if not result:
+        raise ValueError("archive member path is empty: " + path)
+    return PurePosixPath(*result)
+
+
+def extract_source_archive(contents, destination):
+    """Extract Git's source archive without allowing link/path traversal."""
+    destination.mkdir(parents=True, exist_ok=True)
+    members = list(contents)
+    seen, links = set(), []
+    for member in members:
+        path = safe_archive_path(member.name)
+        if member.isdir():
+            continue
+        if str(path) in seen:
+            raise ValueError("duplicate archive member: " + member.name)
+        seen.add(str(path))
+        target = destination / path
+        if member.isfile():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("xb") as output:
+                shutil.copyfileobj(contents.extractfile(member), output)
+            target.chmod(member.mode & 0o777)
+        elif member.issym() or member.islnk():
+            link = member.linkname
+            if not link or PurePosixPath(link).is_absolute():
+                raise ValueError("archive link is absolute or empty: " + member.name)
+            # Symlink names are interpreted relative to their parent; tar hard
+            # link names are archive-root names, not paths relative to member.
+            linked = safe_archive_path(str(path.parent / link) if member.issym() else link)
+            links.append((target, linked, member.issym(), member.mode))
+        else:
+            raise ValueError("unsupported archive member: " + member.name)
+    for target, linked, symbolic, mode in links:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        resolved = destination / linked
+        if symbolic:
+            target.symlink_to(os.path.relpath(resolved, target.parent))
+        else:
+            if not resolved.is_file():
+                raise ValueError("archive hard link target is absent: " + str(linked))
+            os.link(resolved, target)
+            target.chmod(mode & 0o777)
+    return members
 
 
 def cached_files(source):
