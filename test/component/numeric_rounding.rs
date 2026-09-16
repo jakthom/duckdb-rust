@@ -7,6 +7,40 @@ use duckdb_rust::{
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn rounding_constant_null_skips_only_constant_siblings() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut c = DatabaseBuilder::new()
+            .expressions(expressions)
+            .batch_size(2)
+            .build()?
+            .connect();
+        for name in ["round", "round_even", "trunc"] {
+            for sql in [
+                format!("SELECT {name}(CAST('bad' AS DOUBLE),NULL::INTEGER)"),
+                format!("SELECT {name}(NULL::DOUBLE,CAST('bad' AS INTEGER))"),
+            ] {
+                assert_eq!(c.query(&sql)?.rows, vec![vec![Value::Null]], "{sql}");
+                assert_eq!(
+                    c.execute_prepared(&c.prepare(&sql)?, &[])?.rows,
+                    vec![vec![Value::Null]],
+                    "{sql}"
+                );
+            }
+        }
+        c.execute("CREATE TABLE dynamic_round(v DOUBLE,p VARCHAR); INSERT INTO dynamic_round VALUES (NULL,'bad')")?;
+        assert!(
+            c.query("SELECT round(v,p::INTEGER) FROM dynamic_round")
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn expected(value: f64, target: &DataType) -> Option<Value> {
     if !value.is_finite() {
         return None;
