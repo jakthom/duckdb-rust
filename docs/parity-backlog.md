@@ -180,10 +180,10 @@ distinct load/restart/reconnect lifecycles. Restart preserves the implemented
 global and main-session configuration, including `search_path`. Its source-matched local
 fixture passes both pins (20 Catch assertions each) and Rust (16 executed records,
 zero skips). Its final-tree three-warmup, nine-sample Gate P campaign records a
-worst-case 0.341x Rust/faster-C++ wall ratio and 0.303x RSS ratio; measured CPU is
+worst-case 0.330x Rust/faster-C++ wall ratio and 0.305x RSS ratio; measured CPU is
 0.000x at timer resolution and block I/O is equal. Thus **at-parity or better
 performance: pass** for G01.2c. Raw evidence is retained in
-`target/g01-wave-c-20260915/api-lifecycle-acceptance-6/report.json`. Explicit
+`target/g01-wave-c-20260915/api-lifecycle-acceptance-7/report.json`. Explicit
 remaining runner limits are the
 integrated test-config max-thread surface, `load ... VERSION`, the engine's absent
 `unnest(getvariable(...))` variable-iteration surface, Python concurrent-stream
@@ -269,11 +269,11 @@ demand or checked numeric semantics merely to improve the numbers.
 The optimized Wave C source-bound workloads were remeasured serially with three
 warmups and nine samples against both pins. SQL evidence is retained under
 `target/g01-wave-c-20260915/performance-current-final-4/`; lifecycle evidence is
-`target/g01-wave-c-20260915/api-lifecycle-acceptance-6/report.json`. The SQL
+`target/g01-wave-c-20260915/api-lifecycle-acceptance-7/report.json`. The SQL
 reports retain one final source and release-binary digest, and every measured
 invocation exited successfully. Every bounded workload has **at-parity or better
 performance: pass** against the faster C++ median in every metric: G01.2c
-lifecycle (wall 0.341x, CPU 0.000x at timer resolution, RSS 0.303x); G03.3a ENUM
+lifecycle (wall 0.330x, CPU 0.000x at timer resolution, RSS 0.305x); G03.3a ENUM
 (wall 0.516x, CPU 0.500x, RSS 0.868x); G04.2a `make_date(STRUCT)` (wall 0.768x,
 CPU 0.500x, RSS 0.589x); G06.1a case conversion (wall 0.317x, CPU 0.000x at timer
 resolution, RSS 0.471x); G07.3a DISTINCT ON (wall 0.548x, CPU 0.000x at timer
