@@ -78,13 +78,12 @@ struct TableData {
     /// Physical evaluation order retained between checkpoints. Deleted slots
     /// retain their old identity until checkpoint reclamation; live slots
     /// identify the logical row that receives an ADD COLUMN default result.
-    #[serde(default = "missing_physical_slots")]
-    physical_slots: Arc<Vec<PhysicalSlot>>,
-    /// True only when filtering deleted slots preserves `rows` key order.
-    /// This is derived after recovery and maintained by mutations, so ordinary
-    /// scans can retain the published ID vector without rebuilding it.
-    #[serde(skip)]
-    physical_order_matches_rows: bool,
+    /// Append-only tables imply their physical stream from `next_id`; a slot
+    /// vector is allocated only once a delete, relocation, or legacy restore
+    /// makes that stream non-contiguous.  This deliberately avoids retaining a
+    /// second million-entry RowId allocation next to published CTAS columns.
+    #[serde(default, alias = "physical_slots")]
+    physical_order: PhysicalOrder,
     #[serde(skip)]
     indexes: Vec<Arc<dyn KeyIndex>>,
 }
@@ -111,10 +110,50 @@ const DELETED_SLOT_BIT: RowId = RowId::MAX ^ (RowId::MAX >> 1);
 const PHYSICAL_ROW_ID_MAX: RowId = DELETED_SLOT_BIT - 1;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn missing_physical_slots() -> Arc<Vec<PhysicalSlot>> {
-    // This legacy-field marker is never a physical slot. It lets old JSON
-    // snapshots distinguish an omitted field from an empty table.
-    Arc::new(vec![PhysicalSlot(RowId::MAX)])
+#[derive(Clone, Debug, Default)]
+enum PhysicalOrder {
+    #[default]
+    ImplicitAppend,
+    Explicit(Arc<Vec<PhysicalSlot>>),
+}
+
+#[derive(Serialize, Deserialize)]
+enum PhysicalOrderWire {
+    ImplicitAppend,
+    Explicit(Vec<PhysicalSlot>),
+}
+
+impl Serialize for PhysicalOrder {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            Self::ImplicitAppend => PhysicalOrderWire::ImplicitAppend.serialize(serializer),
+            Self::Explicit(slots) => {
+                PhysicalOrderWire::Explicit((**slots).clone()).serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PhysicalOrder {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Current(PhysicalOrderWire),
+            Legacy(Vec<PhysicalSlot>),
+        }
+        Ok(match Wire::deserialize(deserializer)? {
+            Wire::Current(PhysicalOrderWire::ImplicitAppend) => Self::ImplicitAppend,
+            Wire::Current(PhysicalOrderWire::Explicit(slots)) | Wire::Legacy(slots) => {
+                Self::Explicit(Arc::new(slots))
+            }
+        })
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -189,19 +228,85 @@ mod physical_slot_tests {
         let restored: PhysicalSlot = serde_json::from_str(r#"{"Deleted":42}"#).unwrap();
         assert_eq!(restored, deleted);
         assert_eq!(serde_json::to_string(&live).unwrap(), r#"{"Live":42}"#);
+        assert!(PhysicalSlot::present(PHYSICAL_ROW_ID_MAX).is_ok());
         assert!(PhysicalSlot::present(DELETED_SLOT_BIT).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn implicit_append_stream_is_range_backed_and_materializes_only_for_holes() -> Result<()> {
+        let mut order = PhysicalOrder::ImplicitAppend;
+        let legacy: PhysicalOrder = serde_json::from_str(r#"[{"Live":0},{"Deleted":1}]"#).unwrap();
+        assert_eq!(
+            legacy
+                .slots(2)
+                .filter_map(|slot| slot.live())
+                .collect::<Vec<_>>(),
+            vec![0]
+        );
+        assert_eq!(
+            serde_json::to_string(&order).unwrap(),
+            r#""ImplicitAppend""#
+        );
+        assert_eq!(
+            order
+                .slots(3)
+                .filter_map(|slot| slot.live())
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert!(matches!(order, PhysicalOrder::ImplicitAppend));
+        order.materialize(3)[1] = PhysicalSlot::deleted(1)?;
+        assert!(matches!(order, PhysicalOrder::Explicit(_)));
+        assert_eq!(
+            order
+                .slots(3)
+                .filter_map(|slot| slot.live())
+                .collect::<Vec<_>>(),
+            vec![0, 2]
+        );
         Ok(())
     }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl TableData {
-    fn refresh_physical_order(&mut self) {
-        self.physical_order_matches_rows = self
-            .physical_slots
-            .iter()
-            .filter_map(|slot| slot.live())
-            .eq(self.rows.keys().copied());
+impl PhysicalOrder {
+    fn slots(&self, next_id: RowId) -> Box<dyn Iterator<Item = PhysicalSlot> + '_> {
+        match self {
+            Self::ImplicitAppend => Box::new(
+                (0..next_id).map(|id| PhysicalSlot::present(id).expect("next ID is representable")),
+            ),
+            Self::Explicit(slots) => Box::new(slots.iter().copied()),
+        }
+    }
+    fn materialize(&mut self, next_id: RowId) -> &mut Vec<PhysicalSlot> {
+        if matches!(self, Self::ImplicitAppend) {
+            *self = Self::Explicit(Arc::new(
+                (0..next_id)
+                    .map(|id| PhysicalSlot::present(id).expect("next ID is representable"))
+                    .collect(),
+            ));
+        }
+        match self {
+            Self::Explicit(slots) => Arc::make_mut(slots),
+            Self::ImplicitAppend => unreachable!(),
+        }
+    }
+    fn append(&mut self, next_id_before: RowId, id: RowId) -> Result<()> {
+        debug_assert_eq!(id, next_id_before);
+        if let Self::Explicit(slots) = self {
+            Arc::make_mut(slots).push(PhysicalSlot::present(id)?);
+        }
+        Ok(())
+    }
+    fn explicit(slots: Vec<PhysicalSlot>, next_id: RowId) -> Self {
+        if slots.iter().filter_map(|slot| slot.live()).eq(0..next_id)
+            && slots.len() == usize::try_from(next_id).unwrap_or(usize::MAX)
+        {
+            Self::ImplicitAppend
+        } else {
+            Self::Explicit(Arc::new(slots))
+        }
     }
 }
 
@@ -250,8 +355,12 @@ impl Snapshot {
     ) -> Result<Self> {
         for table in state.tables.values_mut() {
             let table = Arc::make_mut(table);
-            if table.physical_slots == missing_physical_slots() {
-                table.physical_slots = Arc::new(
+            // Older snapshots omit the field entirely.  Their row map is the
+            // only available provenance, so reconstruct the legacy stream.
+            if matches!(table.physical_order, PhysicalOrder::ImplicitAppend)
+                && !table.rows.keys().copied().eq(0..table.next_id)
+            {
+                table.physical_order = PhysicalOrder::Explicit(Arc::new(
                     (0..table.next_id)
                         .map(|id| {
                             if table.rows.contains_key(&id) {
@@ -261,9 +370,8 @@ impl Snapshot {
                             }
                         })
                         .collect(),
-                );
+                ));
             }
-            table.refresh_physical_order();
         }
         let registry = CatalogRegistry::rebuild_with_types(
             state.schemas.iter().cloned(),
@@ -314,8 +422,8 @@ impl Snapshot {
     pub(crate) fn physical_row_ids(&self, table: &TableName) -> Result<Vec<RowId>> {
         Ok(self
             .get(table)?
-            .physical_slots
-            .iter()
+            .physical_order
+            .slots(self.get(table)?.next_id)
             .filter_map(|slot| slot.live())
             .collect())
     }
@@ -343,13 +451,14 @@ impl Snapshot {
         let mut compacted = self.clone();
         for table in compacted.tables.values_mut() {
             let table = Arc::make_mut(table);
-            table.physical_slots = Arc::new(
+            table.physical_order = PhysicalOrder::explicit(
                 table
-                    .physical_slots
-                    .iter()
+                    .physical_order
+                    .slots(table.next_id)
                     .filter_map(|slot| slot.live().map(PhysicalSlot::present))
                     .collect::<Result<Vec<_>>>()
                     .expect("existing physical identities remain representable"),
+                table.next_id,
             );
         }
         compacted
@@ -368,8 +477,8 @@ impl Snapshot {
             .map(|table| {
                 let name = table.definition.name.clone();
                 let deleted = table
-                    .physical_slots
-                    .iter()
+                    .physical_order
+                    .slots(table.next_id)
                     .filter_map(|slot| slot.is_deleted().then_some(slot.row_id()))
                     .collect::<HashSet<_>>();
                 (name, deleted)
@@ -399,7 +508,10 @@ impl Snapshot {
                 continue;
             }
             if let Some(table) = result.tables.get_mut(&name.key()) {
-                Arc::make_mut(&mut Arc::make_mut(table).physical_slots)
+                let table = Arc::make_mut(table);
+                table
+                    .physical_order
+                    .materialize(table.next_id)
                     .retain(|slot| !(slot.is_deleted() && deleted.contains(&slot.row_id())));
             }
         }
@@ -486,6 +598,7 @@ impl Snapshot {
         for (key, table) in &self.tables {
             if *key != table.definition.name.key()
                 || table.rows.keys().any(|&id| id >= table.next_id)
+                || table.next_id > DELETED_SLOT_BIT
                 || !self.schemas.contains(&table.definition.name.schema)
             {
                 return Err(Error::Corrupt("invalid table or row identity".into()));
@@ -501,26 +614,22 @@ impl Snapshot {
             }
             validate_definition(&table.definition, &self.types)?;
             let live_slots = table
-                .physical_slots
-                .iter()
+                .physical_order
+                .slots(table.next_id)
                 .filter_map(|slot| slot.live())
                 .collect::<Vec<_>>();
             if live_slots.len() != table.rows.len()
                 || live_slots.iter().copied().collect::<HashSet<_>>().len() != live_slots.len()
                 || live_slots.iter().any(|id| !table.rows.contains_key(id))
                 || table
-                    .physical_slots
-                    .iter()
+                    .physical_order
+                    .slots(table.next_id)
                     .any(|slot| slot.row_id() >= table.next_id)
             {
                 return Err(Error::Corrupt("invalid physical row slots".into()));
             }
-            if table.physical_order_matches_rows
-                && !table
-                    .physical_slots
-                    .iter()
-                    .filter_map(|slot| slot.live())
-                    .eq(table.rows.keys().copied())
+            if matches!(table.physical_order, PhysicalOrder::ImplicitAppend)
+                && !table.rows.keys().copied().eq(0..table.next_id)
             {
                 return Err(Error::Corrupt(
                     "table physical-order metadata differs from rows".into(),
@@ -997,8 +1106,7 @@ impl Snapshot {
             definition,
             rows: Rows::default(),
             next_id: 0,
-            physical_slots: Arc::new(Vec::new()),
-            physical_order_matches_rows: true,
+            physical_order: PhysicalOrder::ImplicitAppend,
             indexes: Vec::new(),
         };
         table.rebuild_indexes(
@@ -1167,15 +1275,18 @@ impl TableStorage for Snapshot {
     }
     fn open_scan(&self, table: &TableName) -> Result<Box<dyn super::scan::TableScan + '_>> {
         let table = self.get(table)?;
-        if table.physical_order_matches_rows {
-            return Ok(Box::new(table.rows.scan_stored_order()));
+        match &table.physical_order {
+            PhysicalOrder::ImplicitAppend => {
+                Ok(Box::new(table.rows.scan_implicit_append(table.next_id)?))
+            }
+            PhysicalOrder::Explicit(slots) => {
+                let order = slots
+                    .iter()
+                    .filter_map(|slot| slot.live())
+                    .collect::<Vec<_>>();
+                Ok(Box::new(table.rows.scan_ordered(&order)?))
+            }
         }
-        let order = table
-            .physical_slots
-            .iter()
-            .filter_map(|slot| slot.live())
-            .collect::<Vec<_>>();
-        Ok(Box::new(table.rows.scan_ordered(&order)?))
     }
     fn fetch(
         &self,
@@ -1241,11 +1352,14 @@ impl TableStorageMut for Snapshot {
         for row in rows {
             context.check()?;
             let id = next.next_id;
+            if id > PHYSICAL_ROW_ID_MAX {
+                return Err(Error::Resource("physical row identity exhausted".into()));
+            }
             next.next_id = id
                 .checked_add(1)
                 .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
             next.rows.insert(id, row);
-            Arc::make_mut(&mut next.physical_slots).push(PhysicalSlot::present(id)?);
+            next.physical_order.append(id, id)?;
         }
         next.validate(
             self.indexes.as_ref(),
@@ -1281,11 +1395,14 @@ impl TableStorageMut for Snapshot {
         for _ in 0..count {
             context.check()?;
             let id = next.next_id;
+            if id > PHYSICAL_ROW_ID_MAX {
+                return Err(Error::Resource("physical row identity exhausted".into()));
+            }
             next.next_id = id
                 .checked_add(1)
                 .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
             ids.push(id);
-            Arc::make_mut(&mut next.physical_slots).push(PhysicalSlot::present(id)?);
+            next.physical_order.append(id, id)?;
         }
         let types = next
             .definition
@@ -1326,7 +1443,9 @@ impl TableStorageMut for Snapshot {
         if metadata.mode == UpdateMode::DeleteInsert {
             let mut relocated = Vec::with_capacity(count);
             for (id, _) in &rows {
-                let slot = Arc::make_mut(&mut next.physical_slots)
+                let slot = next
+                    .physical_order
+                    .materialize(next.next_id)
                     .iter_mut()
                     .find(|slot| slot.live() == Some(*id))
                     .ok_or_else(|| {
@@ -1335,10 +1454,9 @@ impl TableStorageMut for Snapshot {
                 *slot = PhysicalSlot::deleted(*id)?;
                 relocated.push(PhysicalSlot::present(*id)?);
             }
-            Arc::make_mut(&mut next.physical_slots).extend(relocated);
-            if count != 0 {
-                next.physical_order_matches_rows = false;
-            }
+            next.physical_order
+                .materialize(next.next_id)
+                .extend(relocated);
         }
         next.validate(
             self.indexes.as_ref(),
@@ -1359,7 +1477,9 @@ impl TableStorageMut for Snapshot {
         for id in ids {
             context.check()?;
             if next.rows.remove(id).is_some() {
-                let slot = Arc::make_mut(&mut next.physical_slots)
+                let slot = next
+                    .physical_order
+                    .materialize(next.next_id)
                     .iter_mut()
                     .find(|slot| slot.live() == Some(*id))
                     .ok_or_else(|| Error::Internal("live row has no physical slot".into()))?;

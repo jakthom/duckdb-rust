@@ -15,7 +15,10 @@ use crate::{
         vector::{DataChunk, Vector},
     },
     parallel::QueryContext,
-    storage::{RowId, scan::SnapshotScan},
+    storage::{
+        RowId,
+        scan::{RowIdentities, SnapshotScan},
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -334,7 +337,11 @@ impl Rows {
                 }
                 if order == ids.as_ref() {
                     return Ok(SnapshotScan {
-                        ids: ids.clone(),
+                        identities: RowIdentities::Shared {
+                            ids: ids.clone(),
+                            offset: 0,
+                        },
+                        len: ids.len(),
                         data: data.clone(),
                         types: types.clone(),
                         position: 0,
@@ -350,7 +357,8 @@ impl Rows {
                     })
                     .collect::<Result<Vec<_>>>()?;
                 Ok(SnapshotScan {
-                    ids: order.into(),
+                    identities: RowIdentities::Owned(order.to_vec()),
+                    len: order.len(),
                     data: data.select(&selection)?,
                     types: types.clone(),
                     position: 0,
@@ -360,16 +368,24 @@ impl Rows {
             Self::Writable(_) => Err(Error::Internal("unpublished table scan".into())),
         }
     }
-    pub fn scan_stored_order(&self) -> SnapshotScan {
+    pub fn scan_implicit_append(&self, next_id: RowId) -> Result<SnapshotScan> {
         match self {
-            Self::Published { ids, data, types } => SnapshotScan {
-                ids: ids.clone(),
-                data: data.clone(),
-                types: types.clone(),
-                position: 0,
-                finished: false,
-            },
-            Self::Writable(_) => unreachable!("unpublished table scan"),
+            Self::Published { ids, data, types }
+                if ids.len() == usize::try_from(next_id).unwrap_or(usize::MAX) =>
+            {
+                Ok(SnapshotScan {
+                    identities: RowIdentities::Range { start: 0 },
+                    len: ids.len(),
+                    data: data.clone(),
+                    types: types.clone(),
+                    position: 0,
+                    finished: false,
+                })
+            }
+            Self::Published { .. } => Err(Error::Internal(
+                "implicit physical stream differs from live rows".into(),
+            )),
+            Self::Writable(_) => Err(Error::Internal("unpublished table scan".into())),
         }
     }
 }

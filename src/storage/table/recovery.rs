@@ -48,8 +48,7 @@ impl Snapshot {
             physical_slots.push(physical_slot);
         }
         table.next_id = next_id;
-        table.physical_slots = Arc::new(physical_slots);
-        table.refresh_physical_order();
+        table.physical_order = PhysicalOrder::explicit(physical_slots, next_id);
         table.validate(
             self.indexes.as_ref(),
             &context.clone().with_types(self.types.clone()),
@@ -110,11 +109,14 @@ impl RecoveryTarget for Snapshot {
                     for row in rows {
                         context.check()?;
                         let id = table.next_id;
+                        if id > PHYSICAL_ROW_ID_MAX {
+                            return Err(Error::Resource("physical row identity exhausted".into()));
+                        }
                         table.next_id = id
                             .checked_add(1)
                             .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
                         table.rows.insert(id, row.clone());
-                        Arc::make_mut(&mut table.physical_slots).push(PhysicalSlot::present(id)?);
+                        table.physical_order.append(id, id)?;
                     }
                 }
                 RecoveredChange::Delete { table, ids } => {
@@ -125,7 +127,9 @@ impl RecoveryTarget for Snapshot {
                             return Err(Error::Corrupt("WAL delete row ID out of bounds".into()));
                         }
                         if table.rows.remove(id).is_some() {
-                            let slot = Arc::make_mut(&mut table.physical_slots)
+                            let slot = table
+                                .physical_order
+                                .materialize(table.next_id)
                                 .iter_mut()
                                 .find(|slot| slot.live() == Some(*id))
                                 .ok_or_else(|| {

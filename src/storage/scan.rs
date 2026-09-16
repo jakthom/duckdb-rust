@@ -24,9 +24,10 @@ enum BatchData {
     },
 }
 
-enum RowIdentities {
+pub(crate) enum RowIdentities {
     Owned(Vec<RowId>),
     Shared { ids: Arc<[RowId]>, offset: usize },
+    Range { start: RowId },
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -35,6 +36,9 @@ impl RowIdentities {
         match self {
             Self::Owned(ids) => ids[index],
             Self::Shared { ids, offset } => ids[offset + index],
+            Self::Range { start } => start
+                .checked_add(index as RowId)
+                .expect("validated row identity range"),
         }
     }
 }
@@ -62,6 +66,15 @@ impl ScanBatch {
         }
         Ok(Self(BatchData::Columns {
             row_ids: RowIdentities::Shared { ids, offset },
+            data,
+        }))
+    }
+    pub(crate) fn range(start: RowId, data: DataChunk) -> Result<Self> {
+        start
+            .checked_add(data.len() as RowId)
+            .ok_or_else(|| Error::Resource("row identity exhausted".into()))?;
+        Ok(Self(BatchData::Columns {
+            row_ids: RowIdentities::Range { start },
             data,
         }))
     }
@@ -209,7 +222,8 @@ pub fn next_batch(
 }
 
 pub(crate) struct SnapshotScan {
-    pub ids: Arc<[RowId]>,
+    pub identities: RowIdentities,
+    pub len: usize,
     pub data: DataChunk,
     pub types: Arc<[DataType]>,
     pub position: usize,
@@ -224,19 +238,29 @@ impl TableScan for SnapshotScan {
         }
         let result = (|| {
             let max_rows = context.batch_demand(max_rows)?;
-            let count = max_rows.min(self.ids.len() - self.position);
+            let count = max_rows.min(self.len - self.position);
             if count == 0 {
                 return Ok(None);
             }
             if count == 1 {
-                let id = self.ids[self.position];
+                let id = self.identities.get(self.position);
                 let mut row = Vec::with_capacity(self.types.len());
                 self.data.read_row(self.position, &mut row)?;
                 self.position += 1;
                 return ScanBatch::single(id, row, self.types.clone()).map(Some);
             }
             let data = self.data.slice(self.position, count)?;
-            let batch = ScanBatch::shared(self.ids.clone(), self.position, data)?;
+            let batch = match &self.identities {
+                RowIdentities::Shared { ids, offset } => {
+                    ScanBatch::shared(ids.clone(), offset + self.position, data)?
+                }
+                RowIdentities::Owned(ids) => {
+                    ScanBatch::new(ids[self.position..self.position + count].to_vec(), data)?
+                }
+                RowIdentities::Range { start } => {
+                    ScanBatch::range(start + self.position as RowId, data)?
+                }
+            };
             self.position += count;
             Ok(Some(batch))
         })();

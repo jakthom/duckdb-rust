@@ -15,7 +15,7 @@ enum PreparedAddValues {
     /// slots so applying the same preparation to the transaction's catalog
     /// basis still verifies its corresponding physical prefix.
     Constant {
-        source_slots: Arc<Vec<PhysicalSlot>>,
+        source_slots: Arc<[PhysicalSlot]>,
         value: Value,
     },
     /// Non-literal defaults retain one result per current physical slot,
@@ -31,18 +31,13 @@ impl PreparedTableAlteration {
             return Ok(());
         };
         match resolved {
-            PreparedAddValues::Constant { source_slots, .. } => {
-                if Arc::ptr_eq(source_slots, &before.physical_slots) {
-                    return Ok(());
-                }
-                validate_slot_prefix(
-                    &before.physical_slots,
-                    source_slots.iter().copied(),
-                    source_slots.len(),
-                )
-            }
+            PreparedAddValues::Constant { source_slots, .. } => validate_slot_prefix(
+                before.physical_order.slots(before.next_id),
+                source_slots.iter().copied(),
+                source_slots.len(),
+            ),
             PreparedAddValues::Materialized(values) => validate_slot_prefix(
-                &before.physical_slots,
+                before.physical_order.slots(before.next_id),
                 values.iter().map(|(slot, _)| *slot),
                 values.len(),
             ),
@@ -51,10 +46,11 @@ impl PreparedTableAlteration {
 }
 
 fn validate_slot_prefix(
-    before: &[PhysicalSlot],
+    before: impl Iterator<Item = PhysicalSlot>,
     source: impl Iterator<Item = PhysicalSlot>,
     source_len: usize,
 ) -> Result<()> {
+    let before = before.collect::<Vec<_>>();
     if source_len < before.len() {
         return Err(Error::Internal(
             "ADD COLUMN preparation omits physical slots".into(),
@@ -78,7 +74,9 @@ impl PreparedTableAlteration {
         };
         self.validate_add_slots(before)?;
         let mut values = BTreeMap::new();
-        for (slot, (resolved_slot, value)) in before.physical_slots.iter().zip(resolved) {
+        for (slot, (resolved_slot, value)) in
+            before.physical_order.slots(before.next_id).zip(resolved)
+        {
             debug_assert_eq!(slot.row_id(), resolved_slot.row_id());
             if let Some(id) = slot.live() {
                 values.insert(id, value.clone());
@@ -109,6 +107,15 @@ impl Snapshot {
         let context = &context.clone().with_types(self.types.clone());
         context.check()?;
         let before = self.get(name)?;
+        // Prepared ALTER work must retain a stable owned physical stream.  A
+        // later COW publication may use a distinct Arc while preserving the
+        // same logical slots, so validation compares streams rather than Arc
+        // pointer identity.
+        let source_slots: Arc<[PhysicalSlot]> = before
+            .physical_order
+            .slots(before.next_id)
+            .collect::<Vec<_>>()
+            .into();
         let Some(definition) = alteration.definition(&before.definition)? else {
             return Ok(PreparedTableAlteration {
                 definition: None,
@@ -131,7 +138,7 @@ impl Snapshot {
                     .map(|(_, value)| value.clone()),
             };
             if let Some(value) = literal {
-                if !before.physical_slots.is_empty() {
+                if !source_slots.is_empty() {
                     self.types
                         .bind(&column.data_type)?
                         .validate(&value, context)?;
@@ -140,7 +147,7 @@ impl Snapshot {
                     }
                 }
                 Some(PreparedAddValues::Constant {
-                    source_slots: before.physical_slots.clone(),
+                    source_slots: source_slots.clone(),
                     value,
                 })
             } else if column
@@ -154,7 +161,7 @@ impl Snapshot {
                     &column.data_type,
                     self,
                     context,
-                    before.physical_slots.len(),
+                    source_slots.len(),
                 )? {
                     StoredDefaultValues::Repeated(value) => {
                         self.types
@@ -164,19 +171,19 @@ impl Snapshot {
                             return Err(not_null(name, &column.name));
                         }
                         Some(PreparedAddValues::Constant {
-                            source_slots: before.physical_slots.clone(),
+                            source_slots: source_slots.clone(),
                             value,
                         })
                     }
                     StoredDefaultValues::Materialized(values) => {
-                        if values.len() != before.physical_slots.len() {
+                        if values.len() != source_slots.len() {
                             return Err(Error::Internal(
                                 "simple ADD default returned the wrong row count".into(),
                             ));
                         }
                         let data_type = self.types.bind(&column.data_type)?;
                         let mut resolved = Vec::with_capacity(values.len());
-                        for (&slot, value) in before.physical_slots.iter().zip(values) {
+                        for (&slot, value) in source_slots.iter().zip(values) {
                             data_type.validate(&value, context)?;
                             if value.is_null() && !column.nullable {
                                 return Err(not_null(name, &column.name));
@@ -187,12 +194,12 @@ impl Snapshot {
                     }
                 }
             } else {
-                let mut values = Vec::with_capacity(before.physical_slots.len());
+                let mut values = Vec::with_capacity(source_slots.len());
                 let visible_only = column
                     .default
                     .as_ref()
                     .is_some_and(|expression| !expression.is_simple_default());
-                for &slot in before.physical_slots.iter() {
+                for &slot in source_slots.iter() {
                     context.check()?;
                     let value = if visible_only && slot.live().is_none() {
                         // DuckDB rewrites non-simple ADD defaults to ADD NULL,
