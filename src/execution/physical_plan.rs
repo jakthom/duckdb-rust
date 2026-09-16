@@ -418,12 +418,7 @@ impl PhysicalOperator for Operator {
                     ));
                 }
                 let mut position = 0usize;
-                stream::from_fn(move |max_rows| {
-                    let end = position.saturating_add(max_rows).min(data.rows.len());
-                    let batch = stream::chunk(schema, &data.rows[position..end])?;
-                    position = end;
-                    Ok(batch)
-                })
+                stream::from_fn(move |max_rows| data.next_batch(&mut position, max_rows))
             }
             Node::Values(values) => {
                 let mut values = values

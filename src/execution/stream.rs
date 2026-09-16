@@ -1,6 +1,6 @@
-use super::{DataSet, ExecutionContext, physical_plan::PhysicalOperator};
+use super::{physical_plan::PhysicalOperator, DataSet, ExecutionContext};
 use crate::{
-    common::{Error, Result, Row, vector::DataChunk},
+    common::{vector::DataChunk, Error, Result, Row},
     parallel::QueryContext,
     planner::Schema,
 };
@@ -107,6 +107,7 @@ pub fn collect(plan: &dyn PhysicalOperator, context: &ExecutionContext<'_>) -> R
     Ok(DataSet {
         schema: plan.schema().clone(),
         rows,
+        chunks: None,
     })
 }
 

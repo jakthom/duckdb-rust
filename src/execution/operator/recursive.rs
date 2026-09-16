@@ -2,11 +2,11 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use crate::{
-    common::{Error, Result, Row, type_registry::BoundType},
+    common::{type_registry::BoundType, Error, Result, Row},
     execution::{
-        DataSet, ExecutionContext,
         physical_plan::{DeliveryMode, PhysicalOperator},
         stream::{self, Stream},
+        DataSet, ExecutionContext,
     },
     parallel::QueryContext,
     planner::{RecursiveId, Schema},
@@ -149,6 +149,7 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
     let mut generation = DataSet {
         schema: plan.schema.clone(),
         rows: Vec::new(),
+        chunks: plan.all.then(Vec::new),
     };
     let mut position = 0;
     Ok(stream::from_fn(move |max_rows| {
@@ -156,30 +157,31 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
             context.query.check()?;
             if let Some(seed_input) = &mut seed {
                 if let Some(batch) = seed_input.next(max_rows)? {
-                    retain(
-                        batch.rows(),
-                        plan.all,
-                        plan.schema.len(),
-                        types.as_deref(),
-                        &mut seen,
-                        &mut generation.rows,
-                        context.query,
-                    )?;
-                    context.query.check_rows(generation.rows.len())?;
+                    if plan.all {
+                        append_chunk(&mut generation, batch, context.query)?;
+                    } else {
+                        retain(
+                            batch.rows(),
+                            plan.schema.len(),
+                            types.as_deref().expect("UNION requires key types"),
+                            &mut seen,
+                            &mut generation.rows,
+                            context.query,
+                        )?;
+                        context.query.check_rows(generation.rows.len())?;
+                    }
                 } else {
                     seed = None;
                 }
             }
-            if position < generation.rows.len() {
-                let end = position.saturating_add(max_rows).min(generation.rows.len());
-                let output = stream::chunk(plan.schema, &generation.rows[position..end])?;
-                position = end;
+            if position < generation.len() {
+                let output = generation.next_batch(&mut position, max_rows)?;
                 return Ok(output);
             }
             if seed.is_some() {
                 continue;
             }
-            if generation.rows.is_empty() {
+            if generation.len() == 0 {
                 return Ok(None);
             }
             let frame = RecursiveFrame::new(plan.id, &generation, context.recursive);
@@ -187,31 +189,64 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
                 recursive: Some(&frame),
                 ..*context
             };
-            let next = stream::collect(plan.step, &nested)?;
+            let next = if plan.all {
+                collect_chunks(plan.step, &nested)?
+            } else {
+                stream::collect(plan.step, &nested)?
+            };
             // The step no longer borrows this generation after collection.
-            // Keep its allocation for the following generation instead of
-            // allocating a tiny row buffer for every fixed-point turn.
-            generation.rows.clear();
-            retain(
-                next.rows,
-                plan.all,
-                plan.schema.len(),
-                types.as_deref(),
-                &mut seen,
-                &mut generation.rows,
-                context.query,
-            )?;
+            if plan.all {
+                generation = next;
+            } else {
+                generation.rows.clear();
+                retain(
+                    next.rows,
+                    plan.schema.len(),
+                    types.as_deref().expect("UNION requires key types"),
+                    &mut seen,
+                    &mut generation.rows,
+                    context.query,
+                )?;
+            }
             position = 0;
         }
     }))
 }
 
+fn append_chunk(
+    data: &mut DataSet,
+    chunk: crate::common::vector::DataChunk,
+    context: &QueryContext,
+) -> Result<()> {
+    context.check_rows(data.len().saturating_add(chunk.len()))?;
+    data.chunks
+        .as_mut()
+        .expect("UNION ALL dataset retains chunks")
+        .push(chunk);
+    Ok(())
+}
+
+/// Keep each UNION ALL step in its produced vector batches. This is the same
+/// raw-generation limit that `stream::collect` enforces before rows are
+/// materialized, without the row-to-vector round trip at every iteration.
+fn collect_chunks(plan: &dyn PhysicalOperator, context: &ExecutionContext<'_>) -> Result<DataSet> {
+    let mut input = stream::open(plan, context)?;
+    let mut data = DataSet {
+        schema: plan.schema().clone(),
+        rows: Vec::new(),
+        chunks: Some(Vec::new()),
+    };
+    while let Some(chunk) = input.next(context.query.batch_size())? {
+        append_chunk(&mut data, chunk, context.query)?;
+    }
+    Ok(data)
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn retain(
     rows: impl IntoIterator<Item = Row>,
-    all: bool,
     width: usize,
-    types: Option<&[BoundType]>,
+    types: &[BoundType],
     seen: &mut HashSet<Vec<u8>>,
     output: &mut Vec<Row>,
     context: &QueryContext,
@@ -221,16 +256,14 @@ fn retain(
         if row.len() != width {
             return Err(Error::Internal("recursive row width mismatch".into()));
         }
-        if !all {
-            let mut key = Vec::new();
-            for (data_type, value) in types.expect("UNION requires key types").iter().zip(&row) {
-                data_type.append_key(value, &mut key, context)?;
-            }
-            if !seen.insert(key) {
-                continue;
-            }
-            context.check_rows(seen.len())?;
+        let mut key = Vec::new();
+        for (data_type, value) in types.iter().zip(&row) {
+            data_type.append_key(value, &mut key, context)?;
         }
+        if !seen.insert(key) {
+            continue;
+        }
+        context.check_rows(seen.len())?;
         context.check_rows(output.len().saturating_add(1))?;
         output.push(row);
     }

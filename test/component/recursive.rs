@@ -110,16 +110,19 @@ fn recursive_limit_cancellation_and_owned_results() -> Result<()> {
 
 #[test]
 fn correlated_union_all_recursion_reuses_each_outer_scope() -> Result<()> {
-    let db = Database::memory()?;
-    let actual = db.connect().query(
-        "SELECT (WITH RECURSIVE r(i) AS (SELECT j UNION ALL SELECT i+1 FROM r WHERE i<j+8) SELECT sum(i) FROM r) FROM range(16) x(j)",
-    )?;
-    assert_eq!(
-        actual.rows,
-        (0..16)
-            .map(|j| { vec![Value::Integer((j..=j + 8).map(i128::from).sum::<i128>(),)] })
-            .collect::<Vec<_>>(),
-    );
+    for batch_size in [1, 3, 2048] {
+        let db = DatabaseBuilder::new().batch_size(batch_size).build()?;
+        let actual = db.connect().query(
+            "SELECT (WITH RECURSIVE r(i) AS (SELECT j UNION ALL SELECT i+1 FROM r WHERE i<j+8) SELECT sum(i) FROM r) FROM range(16) x(j)",
+        )?;
+        assert_eq!(
+            actual.rows,
+            (0..16)
+                .map(|j| { vec![Value::Integer((j..=j + 8).map(i128::from).sum::<i128>(),)] })
+                .collect::<Vec<_>>(),
+            "batch size {batch_size}",
+        );
+    }
     Ok(())
 }
 

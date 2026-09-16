@@ -18,6 +18,49 @@ use physical_plan::PhysicalOperator;
 pub struct DataSet {
     pub schema: Schema,
     pub rows: Vec<Row>,
+    /// Recursive UNION ALL generations retain their producer batches directly.
+    /// Other materialized consumers keep rows, so the two representations are
+    /// deliberately exclusive rather than a second copy of the same values.
+    pub chunks: Option<Vec<DataChunk>>,
+}
+impl DataSet {
+    pub fn len(&self) -> usize {
+        self.chunks
+            .as_ref()
+            .map(|chunks| chunks.iter().map(DataChunk::len).sum())
+            .unwrap_or(self.rows.len())
+    }
+    pub fn next_batch(&self, position: &mut usize, max_rows: usize) -> Result<Option<DataChunk>> {
+        if let Some(chunks) = &self.chunks {
+            let mut start = 0usize;
+            for chunk in chunks {
+                let end = start.saturating_add(chunk.len());
+                if *position < end {
+                    let offset = position.saturating_sub(start);
+                    let count = max_rows.min(chunk.len().saturating_sub(offset));
+                    *position = position.saturating_add(count);
+                    return chunk.slice(offset, count).map(Some);
+                }
+                start = end;
+            }
+            return Ok(None);
+        }
+        let end = position.saturating_add(max_rows).min(self.rows.len());
+        let rows = &self.rows[*position..end];
+        *position = end;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        DataChunk::from_rows(
+            &self
+                .schema
+                .iter()
+                .map(|field| field.data_type.clone())
+                .collect::<Vec<_>>(),
+            rows,
+        )
+        .map(Some)
+    }
 }
 
 pub struct ExecutionContext<'a> {
