@@ -46,6 +46,29 @@ impl OperatorFunction for NumericArithmetic {
     ) -> Result<crate::common::vector::Vector> {
         use crate::common::vector::Vector;
         use Operator::*;
+        if signature.result == DataType::Double
+            && signature.operator == Divide
+            && arguments.columns().len() == 2
+            && let Some(Value::Double(divisor)) = arguments.columns()[1].constant_value()
+            && arguments.columns()[0].all_valid()
+            && let Some(values) = arguments.columns()[0].flat_doubles()
+        {
+            // Floating division is total, including zero and IEEE special
+            // values.  The scalar evaluator's only work here is extracting
+            // Values and redispatching this exact operation.
+            let mut output = Vec::new();
+            output
+                .try_reserve_exact(values.len())
+                .map_err(|_| Error::Resource("cannot allocate DOUBLE column".into()))?;
+            for (index, &value) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                output.push(value / *divisor);
+            }
+            query.check()?;
+            return Vector::try_doubles(output);
+        }
         if signature.result.is_unsigned_integer()
             && matches!(signature.operator, IntegerDivide | Modulo)
             && let Some(Value::Unsigned(divisor)) = arguments.columns()[1].constant_value()

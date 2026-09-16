@@ -767,6 +767,50 @@ impl CastFunction for PrimitiveCast {
                 || (spec.source.is_integer() && spec.target.is_floating())
                 || (spec.source == DataType::Float && spec.target == DataType::Double))
     }
+    fn cast_batch(
+        &self,
+        input: &super::vector::Vector,
+        spec: &CastSpec,
+        context: &QueryContext,
+    ) -> Result<super::vector::Vector> {
+        // Retain the selected PrimitiveCast identity while avoiding temporary
+        // HUGEINT Values for the all-valid BIGINT -> DOUBLE physical lane.
+        // Other widths/encodings deliberately use the trait default.
+        if spec.source == DataType::BigInt
+            && spec.target == DataType::Double
+            && input.all_valid()
+            && let Some(values) = input.flat_bigints()
+        {
+            let mut output = Vec::new();
+            output
+                .try_reserve_exact(values.len())
+                .map_err(|_| Error::Resource("cannot allocate DOUBLE column".into()))?;
+            for (index, &value) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                output.push(value as f64);
+            }
+            context.check()?;
+            return super::vector::Vector::try_doubles(output);
+        }
+        let values = input
+            .values()
+            .enumerate()
+            .map(|(index, value)| {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                if value.is_null() {
+                    Ok(Value::Null)
+                } else {
+                    self.cast(&value, spec, context)
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
+        context.check()?;
+        super::vector::Vector::flat(spec.target.clone(), values)
+    }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {
         context.check()?;
         builtin::primitive(value, &spec.target).map_err(|error| match error {

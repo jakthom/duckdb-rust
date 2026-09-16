@@ -29,6 +29,50 @@ impl CastFunction for ExactNumericCast {
         spec: &CastSpec,
         query: &QueryContext,
     ) -> Result<crate::common::vector::Vector> {
+        // The expression executor commonly produces this shape after a
+        // floating operation.  Keep it native through the final narrow
+        // decimal materialization; dictionary/NULL inputs deliberately retain
+        // the selected adapter's ordinary scalar path below.
+        if input.all_valid()
+            && spec.source == DataType::Double
+            && let DataType::Decimal {
+                width: width @ 1..=18,
+                scale,
+            } = &spec.target
+            && let Some(values) = input.flat_doubles()
+        {
+            let factor = 10_f64.powi(i32::from(*scale));
+            let limit = crate::common::numeric::DECIMAL_POWERS[usize::from(*width)];
+            let mut coefficients = Vec::new();
+            coefficients.try_reserve_exact(values.len()).map_err(|_| {
+                Error::Resource("cannot allocate DECIMAL coefficient column".into())
+            })?;
+            for (index, &value) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                // This intentionally matches convert's `round`, not the
+                // integer-cast ties-to-even rule.
+                let coefficient = (value * factor).round();
+                if !coefficient.is_finite()
+                    || coefficient >= -(i128::MIN as f64)
+                    || coefficient < i128::MIN as f64
+                    || coefficient.abs() >= limit as f64
+                {
+                    return Err(Error::Conversion(format!(
+                        "Could not cast value {} to {}",
+                        Value::Double(value),
+                        spec.target
+                    )));
+                }
+                coefficients.push(coefficient as i64);
+            }
+            query.check()?;
+            return Ok(crate::common::vector::Vector::decimal_i64_prevalidated(
+                spec.target.clone(),
+                coefficients,
+            ));
+        }
         if input.all_valid()
             && spec.source.is_signed_integer()
             && matches!(spec.target, DataType::Decimal { width: 1..=18, .. })

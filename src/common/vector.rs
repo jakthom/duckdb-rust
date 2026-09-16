@@ -7,6 +7,10 @@ enum Encoding {
     /// Typed all-valid flats are authoritative physical storage. Generic,
     /// nullable and mixed columns retain their exact logical representation.
     FlatValues(Arc<Vec<Value>>),
+    /// All-valid DOUBLE values retain their native lane.  This is deliberately
+    /// separate from generic values: NULL and selected vectors still use the
+    /// authoritative generic representation.
+    FlatDouble(Arc<Vec<f64>>),
     FlatSigned(SignedLanes),
     FlatDecimalI64(Arc<Vec<i64>>),
     Constant(Value),
@@ -131,6 +135,7 @@ impl SignedLanes {
 fn same_flat_backing(left: &Encoding, right: &Encoding) -> bool {
     match (left, right) {
         (Encoding::FlatValues(left), Encoding::FlatValues(right)) => Arc::ptr_eq(left, right),
+        (Encoding::FlatDouble(left), Encoding::FlatDouble(right)) => Arc::ptr_eq(left, right),
         (
             Encoding::FlatSigned(SignedLanes::Tiny(left)),
             Encoding::FlatSigned(SignedLanes::Tiny(right)),
@@ -226,7 +231,10 @@ impl Vector {
         if let Some(first) = columns.first()
             && matches!(
                 first.encoding,
-                Encoding::FlatValues(_) | Encoding::FlatSigned(_) | Encoding::FlatDecimalI64(_)
+                Encoding::FlatValues(_)
+                    | Encoding::FlatDouble(_)
+                    | Encoding::FlatSigned(_)
+                    | Encoding::FlatDecimalI64(_)
             )
         {
             let mut end = first.offset;
@@ -396,6 +404,34 @@ impl Vector {
             numeric_ascending,
         })
     }
+    /// Transfer coefficients after a cast kernel has checked the declared
+    /// range.  Do not rescan them here: this constructor is deliberately
+    /// narrower than `try_decimal_i64` and remains crate-private.
+    pub(crate) fn decimal_i64_prevalidated(data_type: DataType, coefficients: Vec<i64>) -> Self {
+        debug_assert!(matches!(data_type, DataType::Decimal { width: 1..=18, .. }));
+        Self {
+            data_type,
+            count: coefficients.len(),
+            encoding: Encoding::FlatDecimalI64(Arc::new(coefficients)),
+            offset: 0,
+            all_valid: true,
+            // A cast does not establish ordering; conservatively decline
+            // ordering-only consumers rather than paying another full scan.
+            numeric_ascending: false,
+        }
+    }
+    /// Construct an all-valid DOUBLE column from values already known to be
+    /// DOUBLE payloads.  IEEE special values are valid SQL DOUBLE values.
+    pub(crate) fn try_doubles(values: Vec<f64>) -> Result<Self> {
+        Ok(Self {
+            data_type: DataType::Double,
+            count: values.len(),
+            encoding: Encoding::FlatDouble(Arc::new(values)),
+            offset: 0,
+            all_valid: true,
+            numeric_ascending: false,
+        })
+    }
     pub fn flat(data_type: DataType, values: Vec<Value>) -> Result<Self> {
         let mut all_valid = true;
         let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
@@ -433,6 +469,16 @@ impl Vector {
                 })?);
             }
             Encoding::FlatDecimalI64(Arc::new(coefficients))
+        } else if all_valid && data_type == DataType::Double {
+            Encoding::FlatDouble(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Double(value) => *value,
+                        _ => unreachable!("validated DOUBLE column"),
+                    })
+                    .collect(),
+            ))
         } else {
             Encoding::FlatValues(Arc::new(values))
         };
@@ -545,6 +591,7 @@ impl Vector {
         let index = self.offset + index;
         match &self.encoding {
             Encoding::FlatValues(v) => v.get(index).cloned(),
+            Encoding::FlatDouble(v) => v.get(index).copied().map(Value::Double),
             Encoding::FlatSigned(v) => v.value(index).map(Value::Integer),
             Encoding::FlatDecimalI64(v) => {
                 v.get(index).copied().map(|value| match self.data_type {
@@ -595,6 +642,12 @@ impl Vector {
             Encoding::FlatValues(values) => {
                 output.extend_from_slice(&values[self.offset..self.offset + self.count])
             }
+            Encoding::FlatDouble(values) => output.extend(
+                values[self.offset..self.offset + self.count]
+                    .iter()
+                    .copied()
+                    .map(Value::Double),
+            ),
             Encoding::Constant(value) => {
                 output.extend(std::iter::repeat_n(value, self.count).cloned())
             }
@@ -620,6 +673,23 @@ impl Vector {
     pub fn flat_values(&self) -> Option<&[Value]> {
         match &self.encoding {
             Encoding::FlatValues(values) => Some(&values[self.offset..self.offset + self.count]),
+            _ => None,
+        }
+    }
+    /// Borrow an all-valid native DOUBLE lane for an ordinary flat view.
+    pub(crate) fn flat_doubles(&self) -> Option<&[f64]> {
+        match &self.encoding {
+            Encoding::FlatDouble(values) => Some(&values[self.offset..self.offset + self.count]),
+            _ => None,
+        }
+    }
+    /// Borrow an all-valid BIGINT lane.  Other signed widths intentionally
+    /// retain their declared physical representation.
+    pub(crate) fn flat_bigints(&self) -> Option<&[i64]> {
+        match &self.encoding {
+            Encoding::FlatSigned(SignedLanes::Big(values)) => {
+                Some(&values[self.offset..self.offset + self.count])
+            }
             _ => None,
         }
     }
