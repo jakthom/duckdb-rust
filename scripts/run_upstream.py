@@ -196,7 +196,9 @@ def cached_population(target, cache_root):
     root.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="ddb-upstream-cache-", dir=root.parent) as temporary:
         temporary = Path(temporary)
-        source, manifest, population_identity = archive_population(target, temporary / "input")
+        input_directory = temporary / "input"
+        input_directory.mkdir()
+        source, manifest, population_identity = archive_population(target, input_directory)
         staging = temporary / "ready"
         shutil.copytree(source, staging / "source", symlinks=True)
         saved = {"identity": identity, "manifest": manifest,

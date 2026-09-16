@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import measure_upstream_feedback as feedback
+import measure_sqllogic_performance as measure
 
 
 class FeedbackPerformanceTests(unittest.TestCase):
@@ -29,6 +30,12 @@ class FeedbackPerformanceTests(unittest.TestCase):
             self.assertEqual(feedback.upstream_verdict(report, "development", "test/a.test"), 3)
             report.write_text(report.read_text().replace('"passed"', '"failed"'))
             with self.assertRaises(ValueError): feedback.upstream_verdict(report, "development", "test/a.test")
+
+    def test_timed_failure_keeps_raw_process_diagnostic(self):
+        details = {"command": ["runner", "case"], "returncode": 1, "stdout": "wrong",
+                   "stderr": "resource evidence"}
+        self.assertEqual(feedback.failure_diagnostic(measure.SampleFailure("failed", details)), details)
+        self.assertIsNone(feedback.failure_diagnostic(ValueError("other failure")))
 
 
 if __name__ == "__main__": unittest.main()

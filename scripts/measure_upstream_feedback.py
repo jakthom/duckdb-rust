@@ -83,6 +83,13 @@ def gate(raw, workloads):
     return measure.gate(release, development, workloads)
 
 
+def failure_diagnostic(error):
+    """Preserve failed timed-process evidence rather than only its summary."""
+    if isinstance(error, measure.SampleFailure):
+        return error.details
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workloads", type=Path, required=True)
@@ -163,6 +170,9 @@ def main():
     except Exception as error:
         report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "workloads": raw, "references": references,
                   "passed": False, "error": str(error)}
+        diagnostic = failure_diagnostic(error)
+        if diagnostic is not None:
+            report["failed_run"] = diagnostic
     args.report.parent.mkdir(parents=True, exist_ok=True); args.report.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"passed": report["passed"], "report": str(args.report), "error": report.get("error")}))
     raise SystemExit(0 if report["passed"] else 1)

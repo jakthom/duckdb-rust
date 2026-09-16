@@ -72,6 +72,7 @@ class RunUpstreamTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             def population(target, temporary):
+                self.assertTrue(temporary.is_dir())
                 source = temporary / "tree"; source.mkdir(parents=True)
                 (source / "case.test").write_text("statement ok\nSELECT 1\n")
                 return source, {"tests": [], "counts": {}}, {"revision": "r"}
