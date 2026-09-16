@@ -150,13 +150,36 @@ class PerformanceGateTests(unittest.TestCase):
     def test_identity_failure_and_overwrite_rejected(self):
         with patch.object(measure, "require_checkout", side_effect=ValueError("wrong pin")):
             with self.assertRaises(ValueError):
-                measure.identity("release", __file__, Path("."), Path("."), Path("x"))
+                measure.identity("release", __file__, Path("."), Path("."), Path("x"), Path("."), [])
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "old.json"
             report.write_text("old")
             args = type("Args", (), {"report": report})()
             with self.assertRaises(FileExistsError):
                 measure.run_campaign(args)
+
+    def test_identity_records_pin_build_test_directory_and_shared_workload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            build = root / "build"
+            test_root = root / "tests"
+            source.mkdir()
+            build.mkdir()
+            test_root.mkdir()
+            cpp = build / "unittest"
+            cli = build / "duckdb"
+            cpp.write_text("cpp")
+            cli.write_text("cli")
+            (build / "CMakeCache.txt").write_text("CMAKE_BUILD_TYPE:STRING=Release\n")
+            workloads = [{"id": "g11", "path": "g11.test", "sha256": "abc", "bytes": 7}]
+            with patch.object(measure, "require_checkout", return_value="revision"), \
+                 patch.object(measure, "require_reference", return_value=(cli, {"target": "release"})):
+                result = measure.identity("release", cpp, source, build, cli, test_root, workloads)
+            self.assertEqual(result["source_directory"], str(source))
+            self.assertEqual(result["build_directory"], str(build))
+            self.assertEqual(result["test_directory"], str(test_root))
+            self.assertEqual(result["shared_workloads"], workloads)
 
 
 if __name__ == "__main__":

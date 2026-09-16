@@ -1088,16 +1088,21 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
     `alter_add_column` from 177.634x on the immediately preceding literal-only tree
     (258.8–268.6x initial baseline) to 0.179x. A separate focused dual-pin diagnostic
     passed both Rust campaigns at no more than 0.238x of the faster C++ median; these
-    runs are diagnostic, not final Gate P.
-    Final quiet dual-pin performance and resource evidence remains open.
+    runs are diagnostic. The final quiet 21-sample focused latency Gate P passed at
+    no more than 0.2401x of the faster C++ median. Independent process-level CPU,
+    peak-RSS and block-I/O evidence remains open.
 
     Validation manifest: owned paths are `src/catalog/expression.rs`,
     `src/planner/stored.rs`, `src/storage/table{.rs,/alter.rs,/rows.rs,/recovery.rs}`,
-    `test/component/alter.rs`, `benchmark/g11_add_column_workloads.json`, and this
-    entry. Focused checks are `cargo test --offline --test alter`,
+    `test/component/alter.rs`, `benchmark/g11_add_column_workloads.json`,
+    `test/performance/g11_add_column.test`,
+    `benchmark/g11_add_column_sqllogic_workloads.json`,
+    `scripts/{measure_sqllogic_performance.py,test_measure_sqllogic_performance.py}`,
+    and this entry. Focused checks are `cargo test --offline --test alter`,
     `cargo test --offline --test contracts
     add_default_demand_distinguishes_materialized_and_simple_physical_paths --
-    --exact`, and `cargo test --offline --test sql sql_logic_corpus -- --exact`.
+    --exact`, `cargo test --offline --test sql sql_logic_corpus -- --exact`, and
+    `python3 scripts/test_measure_sqllogic_performance.py`.
     Negative/boundary coverage includes empty and deleted-only tables, literal and
     one-cast simple defaults, non-simple/custom per-slot results and failures, NOT
     NULL, differing catalog-basis append/delete prefixes, relocation/holes, old
@@ -1115,6 +1120,25 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
     `sum(added)=350000`; run both pins then `scripts/fastest_reference.py` on their
     reports. Preserve wall, CPU, peak-memory and I/O evidence under `target/` and
     require every applicable metric to beat the faster pin independently.
+
+    The process-resource manifest is
+    `benchmark/g11_add_column_sqllogic_workloads.json`. Its shared SQLLogic file
+    creates one 50,000-row table, repeats 128 transactional literal-default ADDs
+    with rollback, then commits and verifies one ADD. This keeps table construction
+    explicit while excluding repeated DROP work and making ADD dominate the narrow
+    process-level observation. `measure_sqllogic_performance.py` records the shared
+    file hash and bytes inside each pin's identity together with that pin's source,
+    build and test directories, CMake cache, runner and CLI identities. After the
+    quiet-host window, build `target/release/sqllogictest` with
+    `cargo build --release --no-default-features --bin sqllogictest`, then run:
+    `python3 scripts/measure_sqllogic_performance.py --release-cpp
+    ../duckdb-v1.5.5/build/rewrite-reference/test/unittest --development-cpp
+    ../duckdb/build/engine-walkthrough/test/unittest --rust
+    target/release/sqllogictest --test-root . --workloads
+    benchmark/g11_add_column_sqllogic_workloads.json --report
+    target/g11_add_column_sqllogic_resources.json --samples 21 --warmups 3`.
+    Acceptance requires wall latency, invocation throughput, CPU, peak RSS, block
+    input and block output to pass independently against the faster pin.
 
     The default-demand split is pinned-source behavior, not a timing inference.
     Release `src/parser/transform/statement/transform_alter_table.cpp` keeps only a

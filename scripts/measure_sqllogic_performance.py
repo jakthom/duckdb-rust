@@ -264,14 +264,19 @@ def gate_report(report, workloads):
     return gate(release, development, workloads)
 
 
-def identity(target, cpp, source, build, cli):
+def identity(target, cpp, source, build, cli, test_root, workloads):
+    source = Path(source).resolve(strict=True)
+    build = Path(build).resolve(strict=True)
+    test_root = Path(test_root).resolve(strict=True)
     revision = require_checkout(source, target)
     _, cli_identity = require_reference(cli, target=target)
     cpp = Path(cpp).resolve(strict=True)
     if not cpp.is_file():
         raise ValueError("C++ unittest is not a file")
     cache = release_cache(build)
-    return {"target": target, "revision": revision, "cli": cli_identity,
+    return {"target": target, "revision": revision, "source_directory": str(source),
+            "build_directory": str(build), "test_directory": str(test_root),
+            "shared_workloads": workloads, "cli": cli_identity,
             "unittest": str(cpp), "unittest_sha256": digest(cpp),
             "cmake_cache": str(cache), "cmake_cache_sha256": digest(cache)}
 
@@ -287,8 +292,10 @@ def run_campaign(args):
     workloads = validate_manifest(args.workloads, args.test_root)
     root = Path(args.test_root).resolve(strict=True)
     references = {
-        "release": identity("release", args.release_cpp, args.release_source, args.release_build, args.release_cli),
-        "development": identity("development", args.development_cpp, args.development_source, args.development_build, args.development_cli),
+        "release": identity("release", args.release_cpp, args.release_source, args.release_build,
+                            args.release_cli, root, workloads),
+        "development": identity("development", args.development_cpp, args.development_source,
+                                args.development_build, args.development_cli, root, workloads),
     }
     rust = Path(args.rust).resolve(strict=True)
     report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "samples": args.samples, "warmups": args.warmups,
