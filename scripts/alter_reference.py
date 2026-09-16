@@ -32,13 +32,67 @@ INSERT INTO renamed(id) VALUES(5);
 """
 
 
-def verify(rust, reference, command, directory):
+def run_configuration(rust, reference, command, directory, durability):
+    """Record corpus and native exchange results without letting one hide the other.
+
+    The local corpus deliberately remains an assertion against each pinned
+    engine.  Pins can disagree with it, however, and that observation must not
+    prevent the independent checkpoint/WAL exchange from running.  Neither a
+    corpus divergence nor an exchange failure is a passing configuration.
+    """
+    selected = replace(rust, arguments=("--durability", durability))
+    configuration = {
+        "durability": durability,
+        "records": [],
+        "corpus_passed": False,
+        "exchange": {"passed": False},
+        "passed": False,
+    }
+    try:
+        verify_corpus(
+            CORPUS,
+            [(selected, directory / f"rust-{durability}.duckdb"),
+             (reference, directory / f"cpp-{durability}.duckdb")],
+            command,
+            configuration["records"],
+            fail_fast=False,
+        )
+        configuration["corpus_passed"] = True
+    except Exception as error:
+        configuration["corpus_error"] = str(error)
+    try:
+        exchange_directory = directory / f"exchange-{durability}"
+        exchange_directory.mkdir()
+        configuration["exchange"] = verify(
+            rust,
+            reference,
+            command,
+            exchange_directory,
+            durabilities=(durability,),
+            include_native_wal=durability == "checkpoint",
+        )
+        configuration["exchange"]["passed"] = all(
+            item["passed"] for item in configuration["exchange"]["configurations"]
+        ) and configuration["exchange"].get("native_wal", {"passed": True})["passed"]
+    except Exception as error:
+        configuration["exchange"] = {
+            "passed": False,
+            "error": {"type": type(error).__name__, "message": str(error)},
+        }
+    configuration["passed"] = (
+        configuration["corpus_passed"] and configuration["exchange"]["passed"]
+    )
+    return configuration
+
+
+def verify(rust, reference, command, directory, *, durabilities=("checkpoint", "wal"),
+           include_native_wal=True):
     report = {
         "mutations_sha256": hashlib.sha256(MUTATIONS.read_bytes()).hexdigest(),
         "configurations": [],
         "scope": "Checkpoint/WAL publication, native ALTER records and continued writes against the selected file oracle. The full SQL corpus uses the separate pinned C++ oracle: DuckDB 1.3 permits DROP NOT NULL on primary keys whereas the pinned source rejects it. Development storage version 999 and complete catalog parity remain open.",
     }
-    for durability in ["checkpoint", "wal"]:
+    for durability in durabilities:
         selected = replace(rust, arguments=("--durability", durability))
         mixed = directory / f"alter-mixed-{durability}.duckdb"
         command(selected, mixed, SETUP)
@@ -47,17 +101,18 @@ def verify(rust, reference, command, directory):
         command(reference, mixed, "ALTER TABLE renamed RENAME TO restored; INSERT INTO restored VALUES(7,70); CHECKPOINT")
         assert command(rust, mixed, "SELECT sum(id) AS ids,sum(value) AS vals FROM restored", json_output=True, readonly=True) == [{"ids": 22, "vals": 224}]
         report["configurations"].append({"durability": durability, "mixed_transaction": True, "passed": True})
-    path = directory / "alter-native-wal.duckdb"
-    command(reference, path, SETUP)
-    command(reference, path, NATIVE_ALTER)
-    before = path.read_bytes(), Path(str(path) + ".wal").read_bytes()
-    expected = [{"id": 1, "extra": 8}, {"id": 2, "extra": 8}, {"id": 3, "extra": 8}, {"id": 4, "extra": 9}, {"id": 5, "extra": None}]
-    for engine in [reference, rust]:
-        assert command(engine, path, "SELECT * FROM renamed ORDER BY id", json_output=True, readonly=True) == expected
-    assert before == (path.read_bytes(), Path(str(path) + ".wal").read_bytes())
-    command(rust, path, "ALTER TABLE renamed RENAME COLUMN extra TO n; INSERT INTO renamed VALUES(6,12); CHECKPOINT")
-    assert command(reference, path, "SELECT sum(n) AS total FROM renamed", json_output=True, readonly=True) == [{"total": 45}]
-    report["native_wal"] = {"sql": NATIVE_ALTER, "checkpoint_sha256": hashlib.sha256(before[0]).hexdigest(), "wal_sha256": hashlib.sha256(before[1]).hexdigest(), "passed": True}
+    if include_native_wal:
+        path = directory / "alter-native-wal.duckdb"
+        command(reference, path, SETUP)
+        command(reference, path, NATIVE_ALTER)
+        before = path.read_bytes(), Path(str(path) + ".wal").read_bytes()
+        expected = [{"id": 1, "extra": 8}, {"id": 2, "extra": 8}, {"id": 3, "extra": 8}, {"id": 4, "extra": 9}, {"id": 5, "extra": None}]
+        for engine in [reference, rust]:
+            assert command(engine, path, "SELECT * FROM renamed ORDER BY id", json_output=True, readonly=True) == expected
+        assert before == (path.read_bytes(), Path(str(path) + ".wal").read_bytes())
+        command(rust, path, "ALTER TABLE renamed RENAME COLUMN extra TO n; INSERT INTO renamed VALUES(6,12); CHECKPOINT")
+        assert command(reference, path, "SELECT sum(n) AS total FROM renamed", json_output=True, readonly=True) == [{"total": 45}]
+        report["native_wal"] = {"sql": NATIVE_ALTER, "checkpoint_sha256": hashlib.sha256(before[0]).hexdigest(), "wal_sha256": hashlib.sha256(before[1]).hexdigest(), "passed": True}
     return report
 
 
@@ -87,12 +142,9 @@ def main():
     with tempfile.TemporaryDirectory() as temp:
         directory = Path(temp)
         for durability in ["checkpoint", "wal"]:
-            selected = replace(rust, arguments=("--durability", durability))
-            try:
-                records = verify_corpus(CORPUS, [(selected, directory / f"rust-{durability}.duckdb"), (cpp, directory / f"cpp-{durability}.duckdb")], command)
-                report["configurations"].append({"durability": durability, "records": records, "passed": True})
-            except Exception as error:
-                report["configurations"].append({"durability": durability, "error": str(error), "passed": False})
+            report["configurations"].append(
+                run_configuration(rust, cpp, command, directory, durability)
+            )
     report["passed"] = all(c["passed"] for c in report["configurations"])
     args.report.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"passed": report["passed"], "report": str(args.report)}))
