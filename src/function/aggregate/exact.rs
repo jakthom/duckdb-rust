@@ -143,6 +143,35 @@ impl SumKernel {
         query.check()?;
         Ok(sum)
     }
+    /// BIGINT's authoritative physical lane is a contiguous i64 slice. Keep
+    /// SUM on that lane rather than reconstructing `Value::Integer` for each
+    /// row through the generic encoding seam.
+    pub(super) fn column_sum_signed_i64(
+        self,
+        values: &[i64],
+        query: &crate::parallel::QueryContext,
+    ) -> Result<i128> {
+        let Self::Signed(64) = self else {
+            return Err(Error::Internal(
+                "BIGINT physical coefficients used by another SUM domain".into(),
+            ));
+        };
+        let narrow = self
+            .maximum_magnitude()
+            .checked_mul(values.len().min(1024) as i128)
+            .is_some_and(|bound| bound <= i64::MAX as i128);
+        let mut sum = 0_i128;
+        for block in values.chunks(1024) {
+            query.check()?;
+            sum += if narrow {
+                sum_proven_i64(block)
+            } else {
+                sum_i64_wide(block)
+            };
+        }
+        query.check()?;
+        Ok(sum)
+    }
     /// Caller proves every prefix fits the result domain. Decode the physical
     /// kind once per block, retaining checked machine-width partial sums.
     pub(super) fn block_sum(self, values: &[Value]) -> i128 {
