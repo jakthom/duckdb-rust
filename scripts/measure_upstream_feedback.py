@@ -200,6 +200,7 @@ def main():
                 observations = {name: [] for name in ("release_cpp", "development_cpp", "release_rust", "development_rust")}
                 cold_setup = {}
                 commands = {}
+                prepared = {}
                 for target, binary in (("release", args.release_cpp), ("development", args.development_cpp)):
                     commands[f"{target}_cpp"] = [binary, "--test-dir", TARGETS[target].source,
                                                    workload["path"], "--use-colour", "no", "--durations", "no"]
