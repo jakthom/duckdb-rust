@@ -27,6 +27,9 @@ from upstream_suite import DESTINATION, REVISION, declarations, digest, verify
 
 REQUIRED_SCOPES = ("compiled_registry", "generated_cases", "configurations", "platforms", "external_suites")
 HARNESS_WORDS = ("condition ", "test directive", "loop ", "external expected", "reserved harness", "load options", " options", "record limit", "halt leaves", "regular-expression", "require ", "mode ", "concurrent")
+# This is deliberately outside the retained manifest: the latter is input, not
+# authority.  Updating the development pin requires reviewing this value too.
+RETAINED_DEVELOPMENT_MANIFEST_SHA256 = "c54bdd99d413a14de5b08b0edc2edd0fbf38455cd237b3092b5cfeb20e821525"
 
 
 def summarize(sql, selected, results, unported, obligations):
@@ -299,7 +302,9 @@ def worker_build(debug_worker):
     command.extend(["--no-default-features", "--bin", "duckdb-rust-test-worker"])
     subprocess.run(command, cwd=ROOT, check=True)
     profile = "debug" if debug_worker else "release"
-    return command, ROOT / "target" / profile / "duckdb-rust-test-worker"
+    binary = ROOT / "target" / profile / "duckdb-rust-test-worker"
+    write_worker_provenance(binary, profile)
+    return command, binary
 
 
 def comparable_outcome(result):
@@ -309,13 +314,66 @@ def comparable_outcome(result):
                                                "unreached_source_records", "source_sql_records")}
 
 
-def validation_fingerprint():
+def worker_source_digest():
+    """The source set a feedback worker is allowed to attest to."""
+    from source_identity import vendored_sources
+    digestor = hashlib.sha256()
+    for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock",
+                        *(ROOT / "src").rglob("*.rs"), ROOT / "test/runner/worker.rs"]):
+        digestor.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
+    return digestor.hexdigest()
+
+
+def worker_provenance_path(binary):
+    return Path(str(binary) + ".provenance.json")
+
+
+def write_worker_provenance(binary, profile):
+    provenance = {"profile": profile, "source_sha256": worker_source_digest(),
+                  "binary_sha256": digest(binary)}
+    path = worker_provenance_path(binary)
+    path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
+    return path, provenance
+
+
+def checked_worker_provenance(binary, path=None):
+    path = worker_provenance_path(binary) if path is None else Path(path)
+    try:
+        provenance = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("prebuilt worker requires readable provenance sidecar") from error
+    expected = {"profile": "release", "source_sha256": worker_source_digest(),
+                "binary_sha256": digest(binary)}
+    if provenance != expected:
+        raise ValueError("prebuilt worker provenance is stale, ambiguous, or does not match current source")
+    return path, provenance
+
+
+def validation_fingerprint(args=None):
     """Inputs that can change a worker result; a changed run is never green."""
     digestor = hashlib.sha256()
     paths = [ROOT / "Cargo.toml", ROOT / "Cargo.lock", ROOT / "test/runner/worker.rs",
              *(ROOT / "src").rglob("*.rs"), *(ROOT / "scripts").glob("*.py")]
     for path in sorted(paths):
         digestor.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
+    # Feedback inputs are assertion-visible too.  Hash the retained source
+    # authority, explicit selection, and prebuilt worker rather than allowing a
+    # watcher to report an edit state evaluated against old external inputs.
+    external = [DESTINATION / "manifest.json"]
+    if (DESTINATION / "manifest.json").is_file():
+        try:
+            archive = json.loads((DESTINATION / "manifest.json").read_text()).get("archive")
+            if isinstance(archive, str): external.append(DESTINATION / archive)
+        except json.JSONDecodeError:
+            external.append(DESTINATION / "manifest.json")
+    if args:
+        external.extend(path for path in (args.path_list, getattr(args, "worker", None),
+                                           getattr(args, "worker_provenance", None)) if path)
+    for path in external:
+        path = Path(path)
+        digestor.update(b"external\0" + str(path).encode() + b"\0")
+        if path.is_file(): digestor.update(path.read_bytes())
+        else: digestor.update(b"missing")
     return digestor.hexdigest()
 
 
@@ -342,10 +400,10 @@ def watch_feedback(args):
     while True:
         # A change resets the debounce interval rather than starting an
         # overlapping build or accepting a source state that is still moving.
-        candidate = validation_fingerprint()
+        candidate = validation_fingerprint(args)
         while True:
             time.sleep(args.debounce_seconds)
-            current = validation_fingerprint()
+            current = validation_fingerprint(args)
             if current == candidate:
                 break
             candidate = current
@@ -353,13 +411,15 @@ def watch_feedback(args):
             f"{args.report.stem}.watch-{index}{args.report.suffix}")
         command = original.copy()
         rewrite_report_argument(command, report)
-        subprocess.run([sys.executable, str(Path(__file__)), *command], check=False)
+        child = subprocess.run([sys.executable, str(Path(__file__)), *command], check=False)
         index += 1
         # A child that became stale must not leave the newest edit waiting for
         # another edit event: debounce and validate that state immediately.
-        if validation_fingerprint() != candidate:
+        if validation_fingerprint(args) != candidate:
             continue
-        while validation_fingerprint() == candidate:
+        if getattr(child, "returncode", 0):
+            raise RuntimeError(f"watch child failed with exit {child.returncode}; retained report: {report}")
+        while validation_fingerprint(args) == candidate:
             time.sleep(0.1)
 
 
@@ -377,7 +437,8 @@ def rewrite_report_argument(command, report):
 
 
 def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):
-    allowed = None if not path_list else set(selected_path_list(path_list))
+    requested = None if not path_list else selected_path_list(path_list)
+    allowed = None if requested is None else set(requested)
     if allowed is not None:
         unknown = allowed - {e["path"] for e in sql}
         if unknown: raise ValueError(f"path list contains unknown upstream paths: {sorted(unknown)[:5]}")
@@ -386,6 +447,9 @@ def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):
         retries = {r["path"] for r in prior["results"] if r.get("failure_class") == "timeout"}
         allowed = retries if allowed is None else allowed & retries
     selected = [e for e in sql if (not prefixes or any(e["path"].startswith(p) for p in prefixes)) and (allowed is None or e["path"] in allowed)]
+    if requested is not None:
+        by_path = {entry["path"]: entry for entry in selected}
+        selected = [by_path[path] for path in requested if path in by_path]
     if not selected: raise ValueError("selection contains no upstream SQL files")
     return selected
 
@@ -416,7 +480,10 @@ def selected_source_file(target, path):
         except subprocess.CalledProcessError as error:
             raise ValueError("selected upstream path is absent from pinned release: " + path) from error
         return revision, data
-    manifest = json.loads((DESTINATION / "manifest.json").read_text())
+    manifest_path = DESTINATION / "manifest.json"
+    if digest(manifest_path) != RETAINED_DEVELOPMENT_MANIFEST_SHA256:
+        raise ValueError("retained development manifest digest is not the pinned authority")
+    manifest = json.loads(manifest_path.read_text())
     if manifest.get("revision") != REVISION:
         raise ValueError("unexpected retained development revision")
     expected = {entry["path"]: entry for entry in manifest.get("files", [])}.get(path)
@@ -425,7 +492,13 @@ def selected_source_file(target, path):
     archive_name = manifest.get("archive")
     if not isinstance(archive_name, str) or PurePosixPath(archive_name).name != archive_name:
         raise ValueError("retained development archive name is unsafe")
-    with tarfile.open(DESTINATION / archive_name) as archive:
+    archive_path = DESTINATION / archive_name
+    if not isinstance(manifest.get("archive_sha256"), str) or digest(archive_path) != manifest["archive_sha256"]:
+        raise ValueError("retained development archive digest differs from pinned manifest")
+    declared = manifest.get("files")
+    if not isinstance(declared, list) or len({entry.get("path") for entry in declared if isinstance(entry, dict)}) != len(declared):
+        raise ValueError("retained development manifest has duplicate or malformed paths")
+    with tarfile.open(archive_path) as archive:
         try:
             member = archive.getmember(path)
         except KeyError as error:
@@ -439,20 +512,25 @@ def selected_source_file(target, path):
 
 def selected_feedback_population(target, paths, cache_root):
     """Small, hash-validated source root for explicit debug/prebuilt feedback."""
-    fetched = [(*selected_source_file(target, path), path) for path in paths]
+    # Cache identity is canonical so reordering a requested list is a warm hit;
+    # selected_entries retains the caller's requested execution order.
+    fetched = [(*selected_source_file(target, path), path) for path in sorted(paths)]
     revisions = {revision for revision, _, _ in fetched}
     if len(revisions) != 1: raise ValueError("selected source revision changed during feedback setup")
     revision = revisions.pop()
     files = [{"path": path, "kind": "file", "sha256": hashlib.sha256(data).hexdigest()}
              for _, data, path in fetched]
-    identity = {"target": target, "revision": revision, "paths": paths, "files": files}
+    identity = {"target": target, "revision": revision, "paths": sorted(paths), "files": files}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     root = cache_root / "selected-feedback" / target / key
     metadata = root / "suite.json"
     if metadata.exists():
         try:
             saved = json.loads(metadata.read_text())
-            if (saved.get("identity") != identity or not cached_manifest_matches_source(root / "source", saved.get("manifest"))):
+            if (set(saved) != {"identity", "manifest"}
+                    or set(saved.get("manifest", {})) != {"revision", "files", "tests", "counts"}
+                    or saved.get("identity") != identity or saved.get("manifest", {}).get("revision") != revision
+                    or not cached_manifest_matches_source(root / "source", saved.get("manifest"))):
                 raise ValueError("selected feedback cache differs")
             return root / "source", saved["manifest"], {"kind": "selected_feedback", **identity, "cache": "validated"}
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
@@ -474,14 +552,33 @@ def selected_feedback_population(target, paths, cache_root):
     return root / "source", manifest, {"kind": "selected_feedback", **identity, "cache": "created"}
 
 
+def validate_args(args):
+    if args.timeout <= 0 or not 1 <= args.jobs <= 8 or args.debounce_seconds < 0:
+        raise ValueError("positive timeout, 1..8 workers, and nonnegative debounce required")
+    if args.watch and args.debounce_seconds <= 0:
+        raise ValueError("watch debounce must be positive")
+    if args.compare_release and (not args.debug_worker or args.worker):
+        raise ValueError("--compare-release requires a built debug worker")
+    if args.path_list:
+        selected_path_list(args.path_list)
+    if args.worker:
+        binary = args.worker.resolve(strict=True)
+        if not binary.is_file():
+            raise ValueError("--worker must name a regular executable")
+        checked_worker_provenance(binary, args.worker_provenance)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--report", type=Path, required=True); parser.add_argument("--target", choices=("development", "release", "both"), default="both")
+    parser.add_argument("--report", type=Path); parser.add_argument("--target", choices=("development", "release", "both"), default="both")
     parser.add_argument("--timeout", type=float, default=10); parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--path-prefix", action="append", default=[]); parser.add_argument("--path-list", type=Path)
     parser.add_argument("--retry-timeouts-from", type=Path, help="select only timeouts from an earlier campaign report")
     parser.add_argument("--debug-worker", action="store_true", help="build and run the debug worker for edit feedback")
     parser.add_argument("--worker", type=Path, help="prebuilt worker; preserves caller-visible launch/cache costs but excludes compilation")
+    parser.add_argument("--worker-provenance", type=Path, help="required matching release-worker provenance sidecar")
+    parser.add_argument("--write-worker-provenance", type=Path, metavar="WORKER",
+                        help="write a current release provenance sidecar and exit")
     parser.add_argument("--compare-release", action="store_true", help="require debug-worker outcomes to equal a fresh release-worker run")
     parser.add_argument("--suite-cache", type=Path, default=ROOT / "target/upstream-suite-cache",
                         help="worktree-local, hash-validated extracted-suite cache")
@@ -489,33 +586,36 @@ def main():
     parser.add_argument("--feedback-watch-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--debounce-seconds", type=float, default=0.25)
     args = parser.parse_args()
+    if args.write_worker_provenance:
+        binary = args.write_worker_provenance.resolve(strict=True)
+        if not binary.is_file(): raise ValueError("--write-worker-provenance must name a regular executable")
+        path, _ = write_worker_provenance(binary, "release")
+        print(path)
+        return
+    if args.report is None:
+        raise ValueError("--report is required unless writing worker provenance")
+    validate_args(args)
     if args.watch:
-        if args.debounce_seconds <= 0: raise ValueError("watch debounce must be positive")
         watch_feedback(args)
         return
     journal = args.report.with_suffix(args.report.suffix + "l")
     if args.report.exists() or journal.exists(): raise FileExistsError("choose a new report path; retain earlier failures")
-    if args.timeout <= 0 or not 1 <= args.jobs <= 8 or args.debounce_seconds < 0 or (args.watch and args.debounce_seconds <= 0): raise ValueError("positive timeout, 1..8 workers, and positive watch debounce required")
-    if args.compare_release and (not args.debug_worker or args.worker): raise ValueError("--compare-release requires a built debug worker")
     # This deliberately narrow path is an edit-feedback operation, not a way to
     # make a full-suite campaign appear complete.  It keeps worker/cache costs in
     # the caller-visible path while avoiding 14k unrelated source files.
     feedback_paths = (selected_path_list(args.path_list)
                       if args.path_list and (args.debug_worker or args.worker or args.feedback_watch_child) else None)
     lock_handle = acquire_validation_lock(args.suite_cache)
-    source_before = validation_fingerprint()
+    source_before = validation_fingerprint(args)
     if args.worker:
         binary = args.worker.resolve(strict=True)
-        if not binary.is_file(): raise ValueError("--worker must name a regular executable")
-        rust_build = ["prebuilt-worker", str(binary)]
+        provenance_path, provenance = checked_worker_provenance(binary, args.worker_provenance)
+        rust_build = ["prebuilt-worker", str(binary), "provenance", str(provenance_path)]
     else:
         rust_build, binary = worker_build(args.debug_worker)
-    source_hash = hashlib.sha256()
-    from source_identity import vendored_sources
-    for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "test/runner/worker.rs"]):
-        source_hash.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
+    source_hash = worker_source_digest()
     targets = ("development", "release") if args.target == "both" else (args.target,)
-    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "rust_source_sha256": source_hash.hexdigest(), "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "campaign_kind": "selected-feedback" if feedback_paths else "suite-campaign", "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign." + (" Selected-feedback is deliberately not full-suite acceptance." if feedback_paths else "")}
+    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "worker_provenance": provenance if args.worker else None, "rust_source_sha256": source_hash, "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "campaign_kind": "selected-feedback" if feedback_paths else "suite-campaign", "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign." + (" Selected-feedback is deliberately not full-suite acceptance." if feedback_paths else "")}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with journal.open("x") as progress:
         progress.write(json.dumps({"event": "started", "metadata": report}) + "\n"); progress.flush()
@@ -550,12 +650,14 @@ def main():
         compared["passed"] = all(item["passed"] for item in compared["targets"].values())
         report["release_comparison"] = compared
     report["source_fingerprint_before"] = source_before
-    report["source_fingerprint_after"] = validation_fingerprint()
+    report["source_fingerprint_after"] = validation_fingerprint(args)
     report["stale_source"] = report["source_fingerprint_before"] != report["source_fingerprint_after"]
     report["journal_sha256"] = digest(journal); report["outcomes"] = {t: p["outcomes"] for t, p in report["populations"].items()}; args.report.write_text(json.dumps(report, indent=2) + "\n"); lock_handle.close()
     if report["stale_source"]: raise RuntimeError("source changed during validation; report is stale and not green")
     if args.compare_release and not report["release_comparison"]["passed"]:
         raise RuntimeError("debug-worker outcomes differ from the release worker")
+    if not all(population["sql_selection_passed"] for population in report["populations"].values()):
+        raise RuntimeError("selected SQLLogic feedback did not pass; retained report is not green")
     print(json.dumps({"outcomes": report["outcomes"], "report": str(args.report)}))
 
 

@@ -24,6 +24,8 @@ class FeedbackPerformanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "result.json"
             report.write_text(json.dumps({"worker_profile": "release", "stale_source": False,
+                                          "rust_source_sha256": "source", "rust_binary_sha256": "binary",
+                                          "worker_provenance": {"profile": "release", "source_sha256": "source", "binary_sha256": "binary"},
                                           "populations": {"development": {"sql_files_selected": 1,
                                           "selected": [{"id": "test/a.test", "kind": "sqllogictest", "path": "test/a.test", "line": 1}],
                                           "results": [{"status": "passed", "passed_records": 3}]}}}))

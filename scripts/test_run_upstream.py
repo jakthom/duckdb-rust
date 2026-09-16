@@ -9,7 +9,7 @@ from unittest.mock import patch
 import sqllogic
 from run_upstream import (cached_files, cached_manifest_matches_source, cached_population, comparable_outcome, extract_source_archive, failure_class, main,
                           rewrite_report_argument, run_case, selected_entries, selected_feedback_population, selected_path_list, summarize,
-                          watch_feedback)
+                          watch_feedback, checked_worker_provenance, worker_provenance_path, worker_source_digest)
 
 
 class RunUpstreamTests(unittest.TestCase):
@@ -81,6 +81,25 @@ class RunUpstreamTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "revision changed"):
                     selected_feedback_population("release", ["a.test", "b.test"], root)
 
+    def test_selected_feedback_cache_is_order_independent_but_execution_is_not(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def source(target, path): return "pin", b"statement ok\nSELECT 1\n"
+            with patch("run_upstream.selected_source_file", side_effect=source):
+                _, _, first = selected_feedback_population("release", ["b.test", "a.test"], root)
+                _, _, second = selected_feedback_population("release", ["a.test", "b.test"], root)
+            self.assertEqual(first["cache"], "created")
+            self.assertEqual(second["cache"], "validated")
+            sql = [{"id": "a.test", "path": "a.test"}, {"id": "b.test", "path": "b.test"}]
+            paths = root / "paths"; paths.write_text("b.test\na.test\n")
+            self.assertEqual([item["path"] for item in selected_entries(sql, [], paths)], ["b.test", "a.test"])
+
+    def test_selected_development_source_rejects_untrusted_manifest(self):
+        from run_upstream import selected_source_file
+        with patch("run_upstream.digest", return_value="tampered"):
+            with self.assertRaisesRegex(ValueError, "manifest digest"):
+                selected_source_file("development", "test/sql/cte/cte_schema.test")
+
     def test_selected_feedback_does_not_supply_an_unlisted_fixture(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -101,6 +120,7 @@ class RunUpstreamTests(unittest.TestCase):
             worker, paths, report = root / "worker", root / "paths", root / "report.json"
             worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin: print(json.dumps({'ok':True}),flush=True)\n")
             worker.chmod(worker.stat().st_mode | stat.S_IXUSR); paths.write_text("case.test\n")
+            worker_provenance_path(worker).write_text(__import__("json").dumps({"profile": "release", "source_sha256": worker_source_digest(), "binary_sha256": __import__("hashlib").sha256(worker.read_bytes()).hexdigest()}))
             manifest = {"files": cached_files(source), "tests": [{"id":"case.test", "kind":"sqllogictest", "path":"case.test", "line":1}], "counts":{"sqllogictest":1}}
             with patch("run_upstream.cached_population", side_effect=AssertionError("must not materialize full suite")), \
                  patch("run_upstream.selected_feedback_population", return_value=(source, manifest, {"kind":"selected_feedback", "revision":"pin", "cache":"validated"})), \
@@ -109,6 +129,29 @@ class RunUpstreamTests(unittest.TestCase):
             saved = __import__("json").loads(report.read_text())
             self.assertEqual(saved["campaign_kind"], "selected-feedback")
             self.assertFalse(saved["populations"]["release"]["full_suite_passed"])
+
+    def test_prebuilt_failure_persists_report_then_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); source = root / "source"; source.mkdir()
+            (source / "case.test").write_text("statement ok\nSELECT 1\n")
+            worker, paths, report = root / "worker", root / "paths", root / "failed.json"
+            worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin: print(json.dumps({'ok':False,'message':'wrong'}),flush=True)\n")
+            worker.chmod(worker.stat().st_mode | stat.S_IXUSR); paths.write_text("case.test\n")
+            worker_provenance_path(worker).write_text(__import__("json").dumps({"profile":"release", "source_sha256":worker_source_digest(), "binary_sha256":__import__("hashlib").sha256(worker.read_bytes()).hexdigest()}))
+            manifest = {"files": cached_files(source), "tests": [{"id":"case.test", "kind":"sqllogictest", "path":"case.test", "line":1}], "counts":{"sqllogictest":1}}
+            with patch("run_upstream.selected_feedback_population", return_value=(source, manifest, {"kind":"selected_feedback", "revision":"pin", "cache":"validated"})), \
+                 patch("run_upstream.sys.argv", ["run_upstream.py", "--target", "release", "--worker", str(worker), "--path-list", str(paths), "--report", str(report), "--suite-cache", str(root / "cache")]):
+                with self.assertRaisesRegex(RuntimeError, "did not pass"):
+                    main()
+            self.assertEqual(__import__("json").loads(report.read_text())["populations"]["release"]["results"][0]["status"], "failed")
+
+    def test_prebuilt_worker_requires_matching_current_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Path(directory) / "worker"; worker.write_bytes(b"worker")
+            sidecar = worker_provenance_path(worker)
+            sidecar.write_text('{"profile":"release","source_sha256":"stale","binary_sha256":"stale"}')
+            with self.assertRaisesRegex(ValueError, "stale"):
+                checked_worker_provenance(worker)
 
     def test_run_case_counts_sent_sql_and_source_reach_honestly(self):
         with tempfile.TemporaryDirectory() as d:
@@ -213,7 +256,7 @@ class RunUpstreamTests(unittest.TestCase):
             # run B after it settles; no additional mutation is supplied.
             fingerprints = iter(["A", "A", "B", "B", "B"])
             with patch("run_upstream.sys.argv", ["run_upstream.py", "--watch", f"--report={report}"]), \
-                 patch("run_upstream.validation_fingerprint", side_effect=lambda: next(fingerprints)), \
+                 patch("run_upstream.validation_fingerprint", side_effect=lambda *unused: next(fingerprints)), \
                  patch("run_upstream.time.sleep"), patch("run_upstream.subprocess.run", side_effect=child):
                 with self.assertRaises(KeyboardInterrupt): watch_feedback(args)
             self.assertEqual(len(calls), 2)

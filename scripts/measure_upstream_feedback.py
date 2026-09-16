@@ -43,7 +43,11 @@ def validate_manifest(path):
 
 def upstream_verdict(path, target, expected):
     report = json.loads(path.read_text())
-    if report.get("stale_source") or report.get("worker_profile") != "release":
+    provenance = report.get("worker_provenance")
+    if (report.get("stale_source") or report.get("worker_profile") != "release"
+            or not isinstance(provenance, dict)
+            or provenance.get("source_sha256") != report.get("rust_source_sha256")
+            or provenance.get("binary_sha256") != report.get("rust_binary_sha256")):
         raise ValueError("stale or non-release Rust feedback run")
     population = report.get("populations", {}).get(target)
     if not population or population.get("sql_files_selected") != 1:
@@ -62,6 +66,7 @@ def rust_command(args, target, workload, scratch, sample_id, cache):
     selected.write_text(workload["path"] + "\n")
     report = scratch / f"{sample_id}-{target}-{workload['id']}.json"
     return ["python3", ROOT / "scripts/run_upstream.py", "--worker", args.rust,
+            "--worker-provenance", args.rust_provenance,
             "--target", target, "--path-list", selected, "--jobs", "1", "--timeout", str(args.timeout),
             "--suite-cache", cache,
             "--report", report], report
@@ -94,6 +99,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workloads", type=Path, required=True)
     parser.add_argument("--rust", type=Path, required=True)
+    parser.add_argument("--rust-provenance", type=Path,
+                        help="matching run_upstream prebuilt-worker provenance sidecar")
     parser.add_argument("--release-cpp", type=Path, default=TARGETS["release"].build / "test/unittest")
     parser.add_argument("--development-cpp", type=Path, default=TARGETS["development"].build / "test/unittest")
     parser.add_argument("--release-build", type=Path, default=TARGETS["release"].build)
@@ -104,6 +111,8 @@ def main():
     parser.add_argument("--warmups", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=10)
     args = parser.parse_args()
+    if args.rust_provenance is None:
+        args.rust_provenance = Path(str(args.rust) + ".provenance.json")
     if args.report.exists(): raise FileExistsError("preserve prior evidence: choose a new report path")
     cache_run_root = args.suite_cache / args.report.stem
     if cache_run_root.exists(): raise FileExistsError("choose a fresh suite-cache/report identity for cold setup evidence")
