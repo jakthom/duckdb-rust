@@ -1,0 +1,5 @@
+{
+  "workloads": [
+    {"id": "cte-schema", "path": "test/sql/cte/cte_schema.test"}
+  ]
+}

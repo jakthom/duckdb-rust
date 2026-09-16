@@ -253,6 +253,7 @@ def main():
     parser.add_argument("--path-prefix", action="append", default=[]); parser.add_argument("--path-list", type=Path)
     parser.add_argument("--retry-timeouts-from", type=Path, help="select only timeouts from an earlier campaign report")
     parser.add_argument("--debug-worker", action="store_true", help="build and run the debug worker for edit feedback")
+    parser.add_argument("--worker", type=Path, help="prebuilt worker; preserves caller-visible launch/cache costs but excludes compilation")
     parser.add_argument("--compare-release", action="store_true", help="require debug-worker outcomes to equal a fresh release-worker run")
     parser.add_argument("--suite-cache", type=Path, default=ROOT / "target/upstream-suite-cache",
                         help="worktree-local, hash-validated extracted-suite cache")
@@ -261,12 +262,18 @@ def main():
     args = parser.parse_args(); journal = args.report.with_suffix(args.report.suffix + "l")
     if args.report.exists() or journal.exists(): raise FileExistsError("choose a new report path; retain earlier failures")
     if args.timeout <= 0 or not 1 <= args.jobs <= 8 or args.debounce_seconds < 0: raise ValueError("positive timeout, 1..8 workers, and non-negative debounce required")
-    if args.compare_release and not args.debug_worker: raise ValueError("--compare-release requires --debug-worker")
+    if args.compare_release and (not args.debug_worker or args.worker): raise ValueError("--compare-release requires a built debug worker")
     lock_handle = acquire_validation_lock(args.suite_cache)
     if args.watch:
         time.sleep(args.debounce_seconds)
     source_before = validation_fingerprint()
-    rust_build, binary = worker_build(args.debug_worker); source_hash = hashlib.sha256()
+    if args.worker:
+        binary = args.worker.resolve(strict=True)
+        if not binary.is_file(): raise ValueError("--worker must name a regular executable")
+        rust_build = ["prebuilt-worker", str(binary)]
+    else:
+        rust_build, binary = worker_build(args.debug_worker)
+    source_hash = hashlib.sha256()
     from source_identity import vendored_sources
     for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "test/runner/worker.rs"]):
         source_hash.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
