@@ -164,6 +164,9 @@ impl ScalarFunction for BoundConstructor {
     fn is_total(&self, _: &[Option<&Value>]) -> bool {
         true
     }
+    fn supports_batch_evaluation(&self, _: &[DataType]) -> bool {
+        true
+    }
     fn evaluate_batch(
         &self,
         arguments: &DataChunk,

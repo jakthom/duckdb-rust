@@ -788,7 +788,12 @@ fn evaluate_speculative_expression<T: ExpressionEvaluator + ?Sized>(
                 | Error::OutOfRange(_)
                 | Error::InvalidInput(_)
                 | Error::InvalidType(_),
-            ) => return Ok(None),
+            ) => materialized_scalar_rows(
+                function.as_ref(),
+                &arguments,
+                &expression.data_type,
+                context.query(),
+            )?,
             Err(error) => return Err(error),
         },
         ExprKind::Operator(function, _) => {
@@ -827,6 +832,30 @@ fn evaluate_speculative_expression<T: ExpressionEvaluator + ?Sized>(
         .bind_type(&expression.data_type)?
         .validate_vector(&output, context.query())?;
     Ok(Some(output))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Replay only the scalar callback after speculative child columns have
+/// succeeded. This retains row-ordered function errors without invoking child
+/// casts or functions a second time when a batch callback declines or reports
+/// a data error.
+fn materialized_scalar_rows(
+    function: &dyn crate::function::ScalarFunction,
+    arguments: &DataChunk,
+    data_type: &DataType,
+    query: &QueryContext,
+) -> Result<Vector> {
+    let mut row = Vec::with_capacity(arguments.columns().len());
+    let mut values = Vec::with_capacity(arguments.len());
+    for index in 0..arguments.len() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        arguments.read_row(index, &mut row)?;
+        values.push(function.evaluate(&row, query)?);
+    }
+    query.check()?;
+    Vector::flat(data_type.clone(), values)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
