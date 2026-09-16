@@ -23,17 +23,21 @@ fn rounding_constant_null_skips_only_constant_siblings() -> Result<()> {
                 format!("SELECT {name}(CAST('bad' AS DOUBLE),NULL::INTEGER)"),
                 format!("SELECT {name}(NULL::DOUBLE,CAST('bad' AS INTEGER))"),
             ] {
-                assert_eq!(c.query(&sql)?.rows, vec![vec![Value::Null]], "{sql}");
-                assert_eq!(
-                    c.execute_prepared(&c.prepare(&sql)?, &[])?.rows,
-                    vec![vec![Value::Null]],
-                    "{sql}"
-                );
+                let result = c.query(&sql)?;
+                assert_eq!(result.columns[0].data_type, DataType::Double, "{sql}");
+                assert_eq!(result.rows, vec![vec![Value::Null]], "{sql}");
+                let prepared = c.execute_prepared(&c.prepare(&sql)?, &[])?;
+                assert_eq!(prepared.columns[0].data_type, DataType::Double, "{sql}");
+                assert_eq!(prepared.rows, vec![vec![Value::Null]], "{sql}");
             }
         }
-        c.execute("CREATE TABLE dynamic_round(v DOUBLE,p VARCHAR); INSERT INTO dynamic_round VALUES (NULL,'bad')")?;
+        c.execute("CREATE TABLE dynamic_round(v VARCHAR,p VARCHAR); INSERT INTO dynamic_round VALUES (NULL,'bad'),('bad',NULL)")?;
         assert!(
-            c.query("SELECT round(v,p::INTEGER) FROM dynamic_round")
+            c.query("SELECT round(v::DOUBLE,p::INTEGER) FROM dynamic_round WHERE p IS NOT NULL")
+                .is_err()
+        );
+        assert!(
+            c.query("SELECT round(v::DOUBLE,p::INTEGER) FROM dynamic_round WHERE v IS NOT NULL")
                 .is_err()
         );
     }
