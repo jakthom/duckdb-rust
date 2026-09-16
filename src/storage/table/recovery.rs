@@ -47,6 +47,7 @@ impl Snapshot {
         }
         table.next_id = next_id;
         table.physical_slots = physical_slots;
+        table.refresh_physical_order();
         table.validate(
             self.indexes.as_ref(),
             &context.clone().with_types(self.types.clone()),

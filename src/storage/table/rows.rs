@@ -315,6 +315,18 @@ impl Rows {
             Self::Writable(_) => Err(Error::Internal("unpublished table scan".into())),
         }
     }
+    pub fn scan_stored_order(&self) -> SnapshotScan {
+        match self {
+            Self::Published { ids, data, types } => SnapshotScan {
+                ids: ids.clone(),
+                data: data.clone(),
+                types: types.clone(),
+                position: 0,
+                finished: false,
+            },
+            Self::Writable(_) => unreachable!("unpublished table scan"),
+        }
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

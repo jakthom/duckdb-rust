@@ -80,6 +80,11 @@ struct TableData {
     /// identify the logical row that receives an ADD COLUMN default result.
     #[serde(default = "missing_physical_slots")]
     physical_slots: Vec<PhysicalSlot>,
+    /// True only when filtering deleted slots preserves `rows` key order.
+    /// This is derived after recovery and maintained by mutations, so ordinary
+    /// scans can retain the published ID vector without rebuilding it.
+    #[serde(skip)]
+    physical_order_matches_rows: bool,
     #[serde(skip)]
     indexes: Vec<Arc<dyn KeyIndex>>,
 }
@@ -107,6 +112,17 @@ impl PhysicalSlot {
             Self::Live(id) => Some(id),
             Self::Deleted(_) => None,
         }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TableData {
+    fn refresh_physical_order(&mut self) {
+        self.physical_order_matches_rows = self
+            .physical_slots
+            .iter()
+            .filter_map(|slot| slot.live())
+            .eq(self.rows.keys().copied());
     }
 }
 
@@ -166,6 +182,7 @@ impl Snapshot {
                     })
                     .collect();
             }
+            table.refresh_physical_order();
         }
         let registry = CatalogRegistry::rebuild_with_types(
             state.schemas.iter().cloned(),
@@ -417,6 +434,17 @@ impl Snapshot {
                     .any(|slot| slot.row_id() >= table.next_id)
             {
                 return Err(Error::Corrupt("invalid physical row slots".into()));
+            }
+            if table.physical_order_matches_rows
+                && !table
+                    .physical_slots
+                    .iter()
+                    .filter_map(|slot| slot.live())
+                    .eq(table.rows.keys().copied())
+            {
+                return Err(Error::Corrupt(
+                    "table physical-order metadata differs from rows".into(),
+                ));
             }
             table.validate_rows(context)?;
         }
@@ -890,6 +918,7 @@ impl Snapshot {
             rows: Rows::default(),
             next_id: 0,
             physical_slots: Vec::new(),
+            physical_order_matches_rows: true,
             indexes: Vec::new(),
         };
         table.rebuild_indexes(
@@ -1058,6 +1087,9 @@ impl TableStorage for Snapshot {
     }
     fn open_scan(&self, table: &TableName) -> Result<Box<dyn super::scan::TableScan + '_>> {
         let table = self.get(table)?;
+        if table.physical_order_matches_rows {
+            return Ok(Box::new(table.rows.scan_stored_order()));
+        }
         let order = table
             .physical_slots
             .iter()
@@ -1225,6 +1257,9 @@ impl TableStorageMut for Snapshot {
                 relocated.push(PhysicalSlot::Live(*id));
             }
             next.physical_slots.extend(relocated);
+            if count != 0 {
+                next.physical_order_matches_rows = false;
+            }
         }
         next.validate(
             self.indexes.as_ref(),

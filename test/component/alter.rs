@@ -510,6 +510,53 @@ fn alter_rollback_prepared_rebinding_and_writer_conflicts() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn scan_order_survives_holes_relocation_snapshots_rollback_and_checkpoint() -> Result<()> {
+    let integers = |values: &[i128]| {
+        values
+            .iter()
+            .copied()
+            .map(Value::Integer)
+            .collect::<Vec<_>>()
+    };
+    let db = Database::memory()?;
+    let mut reader = db.connect();
+    let mut writer = db.connect();
+    writer.execute(
+        "CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER); \
+         INSERT INTO t VALUES (1,10),(2,20),(3,30)",
+    )?;
+    reader.execute("BEGIN")?;
+    assert_eq!(
+        reader.query("SELECT id FROM t")?.rows,
+        vec![integers(&[1]), integers(&[2]), integers(&[3])]
+    );
+
+    writer.execute("DELETE FROM t WHERE id=2; UPDATE t SET id=10 WHERE id=1")?;
+    assert_eq!(
+        writer.query("SELECT id FROM t")?.rows,
+        vec![integers(&[3]), integers(&[10])]
+    );
+    writer.execute("BEGIN; UPDATE t SET id=30 WHERE id=3; ROLLBACK")?;
+    assert_eq!(
+        writer.query("SELECT id FROM t")?.rows,
+        vec![integers(&[3]), integers(&[10])]
+    );
+    assert_eq!(
+        reader.query("SELECT id FROM t")?.rows,
+        vec![integers(&[1]), integers(&[2]), integers(&[3])]
+    );
+    reader.execute("ROLLBACK")?;
+
+    writer.execute("CHECKPOINT; ALTER TABLE t ADD COLUMN added INTEGER DEFAULT 7")?;
+    assert_eq!(
+        writer.query("SELECT id,added FROM t")?.rows,
+        vec![integers(&[3, 7]), integers(&[10, 7])]
+    );
+    Ok(())
+}
+
 const MUTATIONS: &str = include_str!("../sql/alter_transactions.sql");
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
