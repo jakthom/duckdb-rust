@@ -17,8 +17,7 @@ import tempfile
 import measure_sqllogic_performance as measure
 from reference_version import ROOT, TARGETS, require_checkout, require_reference
 from upstream_suite import digest
-from run_upstream import (checked_worker_provenance, selected_feedback_population,
-                          selected_path_list)
+from run_upstream import (checked_worker_provenance, selected_feedback_population)
 
 
 def validate_manifest(path):
@@ -43,29 +42,42 @@ def validate_manifest(path):
     return result
 
 
-def upstream_verdict(path, target, expected, source_sha256, suite_sha256):
+def upstream_verdict(path, target, revision, workload, sample_id, source_sha256, suite_sha256, token_sha256, runner_sha256):
     report = json.loads(path.read_text())
-    if (report.get("version") != 1 or report.get("path") != expected
+    required = {"kind", "version", "status", "target", "revision", "workload_id", "sample_id", "path", "declarations",
+                "passed_records", "skipped_records", "generated_records", "source_sha256", "suite_sha256", "token_sha256", "runner_binary_sha256"}
+    if (set(report) != required or report.get("kind") != "duckdb-rust-selected-feedback" or report.get("version") != 1
+            or report.get("target") != target or report.get("revision") != revision or report.get("workload_id") != workload["id"]
+            or report.get("sample_id") != sample_id or report.get("path") != workload["path"]
             or report.get("source_sha256") != source_sha256
             or report.get("suite_sha256") != suite_sha256
+            or report.get("token_sha256") != token_sha256 or report.get("runner_binary_sha256") != runner_sha256
             or report.get("status") != "passed" or not isinstance(report.get("passed_records"), int)
-            or report["passed_records"] <= 0):
+            or report["passed_records"] <= 0 or not isinstance(report.get("declarations"), int)
+            or report["declarations"] <= 0 or report.get("skipped_records") != 0 or report.get("generated_records") != 0):
         raise ValueError("Rust feedback result did not validate every assertion")
     return report["passed_records"]
 
 
-def rust_command(args, target, workload, scratch, sample_id, source, suite, source_sha256, suite_sha256):
-    token = scratch / f"{sample_id}-{workload['id']}.token.json"
-    token.write_text(json.dumps({"version": 1, "source_root": str(source), "path": workload["path"],
-                                 "source_sha256": source_sha256, "suite_path": str(suite),
-                                 "suite_sha256": suite_sha256}, sort_keys=True))
+def rust_command(args, target, revision, workload, scratch, sample_id, source, suite, source_sha256, suite_sha256, provenance):
+    token = scratch / f"{sample_id}-{target}-{workload['id']}.token.json"
+    token_body = {"kind": "duckdb-rust-selected-feedback", "version": 1, "target": target, "revision": revision,
+                  "workload_id": workload["id"], "sample_id": sample_id, "source_root": str(source), "path": workload["path"],
+                  "source_sha256": source_sha256, "source_bytes": (source / workload["path"]).stat().st_size,
+                  "suite_path": str(suite), "suite_sha256": suite_sha256, "runner_path": str(args.rust.resolve()),
+                  "runner_binary_sha256": provenance["binary_sha256"], "runner_source_sha256": provenance["source_sha256"],
+                  "runner_profile": "release", "provenance_sha256": digest(args.rust_provenance),
+                  "timeout_ms": int(args.timeout * 1000)}
+    token.write_text(json.dumps(token_body, sort_keys=True, separators=(",", ":")))
+    token_sha256 = digest(token)
     report = scratch / f"{sample_id}-{target}-{workload['id']}.json"
-    return [args.rust, "--feedback-token", token, "--feedback-report", report], report
+    return [args.rust, "--feedback-token", token, "--token-sha256", token_sha256, "--feedback-report", report], report, token, token_sha256
 
 
-def timed_rust(command, report, workload, source_sha256, suite_sha256, timeout):
+def timed_rust(command, report, token, token_sha256, target, revision, workload, sample_id, source_sha256, suite_sha256, runner_sha256, timeout):
     sample = measure.run_timed(command, "feedback", execute=lambda *args, **kwargs: subprocess.run(*args, timeout=timeout, **kwargs))
-    sample["records"] = upstream_verdict(report, None, workload["path"], source_sha256, suite_sha256)
+    sample["records"] = upstream_verdict(report, target, revision, workload, sample_id, source_sha256, suite_sha256, token_sha256, runner_sha256)
+    sample["token_sha256"] = token_sha256; sample["token"] = json.loads(token.read_text()); sample["compiled_report"] = json.loads(report.read_text())
     return sample
 
 
@@ -84,6 +96,25 @@ def failure_diagnostic(error):
     if isinstance(error, measure.SampleFailure):
         return error.details
     return None
+
+
+def campaign_snapshot(args, rust, references, prepared):
+    """All authority outside a timed child; equality makes drift fail closed."""
+    runner_sidecar = args.rust_provenance.resolve(strict=True)
+    _, provenance = checked_worker_provenance(rust, runner_sidecar)
+    pins = {}
+    for target, reference in references.items():
+        source = TARGETS[target].source
+        revision = require_checkout(source, target)
+        binary = Path(reference["unittest"]).resolve(strict=True)
+        build = binary.parent.parent
+        cache = measure.release_cache(build)
+        pins[target] = {"revision": revision, "unittest_sha256": digest(binary), "cmake_cache_sha256": digest(cache)}
+    caches = {key: {"source_sha256": value[2], "suite_sha256": value[3], "identity": value[4]}
+               for key, value in prepared.items()}
+    return {"workloads_sha256": digest(args.workloads), "harness_sha256": {name: digest(ROOT / "scripts" / name) for name in
+            ("measure_upstream_feedback.py", "run_upstream.py", "upstream_suite.py")}, "runner_sha256": digest(rust),
+            "sidecar_sha256": digest(runner_sidecar), "provenance": provenance, "pins": pins, "caches": caches}
 
 
 def main():
@@ -112,7 +143,10 @@ def main():
     if measure.active_peers(): raise RuntimeError("quiet host required for feedback acceptance")
     raw, references = [], {}
     workloads = validate_manifest(args.workloads)
+    canonical_rust = (ROOT / "target/release/sqllogictest").resolve(strict=True)
     rust = args.rust.resolve(strict=True)
+    if rust != canonical_rust or args.rust_provenance.resolve(strict=True) != Path(str(canonical_rust) + ".provenance.json").resolve(strict=True):
+        raise ValueError("feedback acceptance requires canonical target/release/sqllogictest and sidecar")
     # Full source/binary provenance belongs to campaign setup, matching the
     # pinned C++ build/source checks below. Timed invocations still validate the
     # exact cache metadata and selected source bytes through their token.
@@ -133,6 +167,7 @@ def main():
             raise ValueError(f"{target} unittest must be the binary from its pinned release build")
         references[target] = {"revision": revision, "cli": cli, "unittest": str(binary),
                               "unittest_sha256": digest(binary), "cmake_cache_sha256": digest(cache)}
+    snapshot_before = None
     try:
         with tempfile.TemporaryDirectory(prefix="ddb-feedback-performance-") as directory:
             scratch = Path(directory)
@@ -151,6 +186,8 @@ def main():
                     source_file = source / workload["path"]
                     prepared[target] = (source, suite, digest(source_file), digest(suite), identity)
                     cold_setup[target] = {"cache": identity}
+                if snapshot_before is None:
+                    snapshot_before = campaign_snapshot(args, rust, references, prepared)
                 for iteration in range(args.warmups + args.samples):
                     names = ["release_cpp", "development_cpp", "release_rust", "development_rust"]
                     names = names[iteration % len(names):] + names[:iteration % len(names)]
@@ -159,20 +196,23 @@ def main():
                             sample = measure.run_timed(commands[name], "cpp")
                         else:
                             target = name.removesuffix("_rust")
-                            source, suite, source_sha256, suite_sha256, _ = prepared[target]
-                            command, result_report = rust_command(args, target, workload, scratch, f"{workload['id']}-round-{iteration}", source, suite, source_sha256, suite_sha256)
-                            sample = timed_rust(command, result_report, workload, source_sha256, suite_sha256, args.timeout)
+                            source, suite, source_sha256, suite_sha256, identity = prepared[target]
+                            sample_id = f"{workload['id']}-round-{iteration}"
+                            command, result_report, token, token_sha256 = rust_command(args, target, identity["revision"], workload, scratch, sample_id, source, suite, source_sha256, suite_sha256, provenance_before)
+                            sample = timed_rust(command, result_report, token, token_sha256, target, identity["revision"], workload, sample_id, source_sha256, suite_sha256, provenance_before["binary_sha256"], args.timeout)
                         if iteration >= args.warmups: observations[name].append(sample)
                 raw.append({**workload, "cold_setup": cold_setup, "observations": observations})
         provenance_path_after, provenance_after = checked_worker_provenance(rust, args.rust_provenance)
-        if provenance_path_after != provenance_path or provenance_after != provenance_before:
-            raise ValueError("Rust feedback provenance changed during campaign")
+        snapshot_after = campaign_snapshot(args, rust, references, prepared)
+        if provenance_path_after != provenance_path or provenance_after != provenance_before or snapshot_after != snapshot_before:
+            raise ValueError("feedback campaign authority changed during campaign")
         result = gate(raw, workloads)
         report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "workloads": raw, "gate": result,
                   "passed": result["passed"], "references": references, "rust_binary": str(rust),
                   "rust_binary_sha256": digest(rust), "workloads_sha256": digest(args.workloads),
                   "rust_provenance_before": provenance_before, "rust_provenance_after": provenance_after,
                   "rust_provenance_path": str(provenance_path), "stale_source": False,
+                  "preflight": snapshot_before, "postflight": snapshot_after,
                   "harness_sha256": {name: digest(ROOT / "scripts" / name) for name in
                                       ("measure_upstream_feedback.py", "run_upstream.py", "upstream_suite.py")},
                   "samples": args.samples, "warmups": args.warmups,
