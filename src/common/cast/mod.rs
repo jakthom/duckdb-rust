@@ -794,6 +794,39 @@ impl CastFunction for PrimitiveCast {
             context.check()?;
             return super::vector::Vector::try_doubles(output);
         }
+        if let Some(value) = input.constant_value() {
+            let value = if value.is_null() {
+                Value::Null
+            } else {
+                self.cast(value, spec, context)?
+            };
+            return super::vector::Vector::constant(spec.target.clone(), value, input.len());
+        }
+        if let Some((parent, selection)) = input.dictionary()
+            && parent.len() <= input.len() / 4
+        {
+            let mut entries = vec![usize::MAX; parent.len()];
+            let mut values = Vec::with_capacity(parent.len());
+            let mut mapped = Vec::with_capacity(selection.len());
+            for (offset, &source) in selection.iter().enumerate() {
+                if offset % 1024 == 0 {
+                    context.check()?;
+                }
+                if entries[source] == usize::MAX {
+                    entries[source] = values.len();
+                    let value = parent.get(source).expect("validated dictionary index");
+                    values.push(if value.is_null() {
+                        Value::Null
+                    } else {
+                        self.cast(&value, spec, context)?
+                    });
+                }
+                mapped.push(entries[source]);
+            }
+            context.check()?;
+            return Arc::new(super::vector::Vector::flat(spec.target.clone(), values)?)
+                .select(mapped);
+        }
         let values = input
             .values()
             .enumerate()
