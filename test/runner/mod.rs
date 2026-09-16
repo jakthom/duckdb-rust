@@ -2043,12 +2043,20 @@ fn execute_parsed_query(
             .record(execution, ExecutionOutcome::Failed);
         at(token, &error)
     })?;
-    // The pinned wire conversion is also the oracle's rendered cell input.
-    // Reuse it instead of retaining a second allocation for every result cell;
-    // BOOLEAN, NULL, empty and NUL-containing values are already canonical.
+    // The pinned wire conversion is also the oracle's rendered non-NULL cell
+    // input. Retain NULL as typed cell metadata: the text "NULL" can also be a
+    // valid non-NULL VARCHAR, and BOOLEAN conversion must not parse SQL NULL as
+    // a Boolean token.
     let cells: Vec<_> = actual_values
         .iter()
-        .map(|value| ActualCell::Text(value))
+        .zip(result.rows.iter().flat_map(|row| row.iter()))
+        .map(|(rendered, value)| {
+            if value.is_null() {
+                ActualCell::Null
+            } else {
+                ActualCell::Text(rendered)
+            }
+        })
         .collect();
     if mode.output_result {
         append_output_result(output, &result, &actual_values);
