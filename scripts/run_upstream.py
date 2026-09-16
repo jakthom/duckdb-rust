@@ -7,10 +7,13 @@ import argparse
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path
 import selectors
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -137,6 +140,98 @@ def archive_population(target, temporary):
     return temporary / "tree", manifest, {"kind": "git_archive", "revision": revision, "archive_sha256": digest(archive), "source_path": str(source), "source_tree_sha256": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()}
 
 
+def cached_files(source):
+    """Return a complete, content-addressed inventory of a cached suite tree."""
+    files = []
+    for path in sorted(source.rglob("*")):
+        if path.is_dir():
+            continue
+        relative = str(path.relative_to(source))
+        data = os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
+        files.append({"path": relative, "kind": "symlink" if path.is_symlink() else "file",
+                      "sha256": hashlib.sha256(data).hexdigest()})
+    return files
+
+
+def cache_identity(target):
+    """Identity available without trusting the cache itself."""
+    if target == "development":
+        manifest = verify(DESTINATION)
+        return {"target": target, "revision": REVISION,
+                "archive_sha256": manifest["archive_sha256"],
+                "manifest_sha256": digest(DESTINATION / "manifest.json")}
+    revision = require_checkout(TARGETS[target].source, target)
+    return {"target": target, "revision": revision}
+
+
+def cached_population(target, cache_root):
+    """Materialize a suite once, but validate every cached byte on every use."""
+    identity = cache_identity(target)
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    root = cache_root / target / key
+    metadata = root / "suite.json"
+    if metadata.exists():
+        try:
+            saved = json.loads(metadata.read_text())
+            if saved.get("identity") != identity or saved.get("files") != cached_files(root / "source"):
+                raise ValueError("cached suite content differs")
+            return root / "source", saved["manifest"], {**saved["population_identity"], "cache": "validated"}
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            # This directory is created and owned solely by this cache key.
+            shutil.rmtree(root, ignore_errors=True)
+    root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="ddb-upstream-cache-", dir=root.parent) as temporary:
+        temporary = Path(temporary)
+        source, manifest, population_identity = archive_population(target, temporary / "input")
+        staging = temporary / "ready"
+        shutil.copytree(source, staging / "source", symlinks=True)
+        saved = {"identity": identity, "manifest": manifest,
+                 "population_identity": population_identity,
+                 "files": cached_files(staging / "source")}
+        (staging / "suite.json").write_text(json.dumps(saved, sort_keys=True) + "\n")
+        os.replace(staging, root)
+    return root / "source", manifest, {**population_identity, "cache": "created"}
+
+
+def worker_build(debug_worker):
+    command = ["cargo", "build", "--offline"]
+    if not debug_worker:
+        command.append("--release")
+    command.extend(["--no-default-features", "--bin", "duckdb-rust-test-worker"])
+    subprocess.run(command, cwd=ROOT, check=True)
+    profile = "debug" if debug_worker else "release"
+    return command, ROOT / "target" / profile / "duckdb-rust-test-worker"
+
+
+def comparable_outcome(result):
+    """Only assertion-visible result fields participate in debug/release equivalence."""
+    return {key: result.get(key) for key in ("id", "path", "status", "failure_class", "reason",
+                                               "passed_records", "skipped_records", "attempted_records",
+                                               "unreached_source_records", "source_sql_records")}
+
+
+def validation_fingerprint():
+    """Inputs that can change a worker result; a changed run is never green."""
+    digestor = hashlib.sha256()
+    paths = [ROOT / "Cargo.toml", ROOT / "Cargo.lock", ROOT / "test/runner/worker.rs",
+             *(ROOT / "src").rglob("*.rs"), *(ROOT / "scripts").glob("*.py")]
+    for path in sorted(paths):
+        digestor.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
+    return digestor.hexdigest()
+
+
+def acquire_validation_lock(cache_root):
+    """One campaign per worktree/cache; do not overlap builds or result journals."""
+    cache_root.mkdir(parents=True, exist_ok=True)
+    handle = (cache_root / ".validation.lock").open("a+")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        handle.close()
+        raise RuntimeError("another upstream validation is active for this worktree") from error
+    return handle
+
+
 def selected_entries(sql, prefixes, path_list, retry_report=None, target=None):
     allowed = None if not path_list else {x.strip() for x in path_list.read_text().splitlines() if x.strip() and not x.startswith("#")}
     if allowed is not None:
@@ -157,29 +252,57 @@ def main():
     parser.add_argument("--timeout", type=float, default=10); parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--path-prefix", action="append", default=[]); parser.add_argument("--path-list", type=Path)
     parser.add_argument("--retry-timeouts-from", type=Path, help="select only timeouts from an earlier campaign report")
+    parser.add_argument("--debug-worker", action="store_true", help="build and run the debug worker for edit feedback")
+    parser.add_argument("--compare-release", action="store_true", help="require debug-worker outcomes to equal a fresh release-worker run")
+    parser.add_argument("--suite-cache", type=Path, default=ROOT / "target/upstream-suite-cache",
+                        help="worktree-local, hash-validated extracted-suite cache")
+    parser.add_argument("--watch", action="store_true", help="debounce one edit-feedback validation and reject inputs changed during it")
+    parser.add_argument("--debounce-seconds", type=float, default=0.25)
     args = parser.parse_args(); journal = args.report.with_suffix(args.report.suffix + "l")
     if args.report.exists() or journal.exists(): raise FileExistsError("choose a new report path; retain earlier failures")
-    if args.timeout <= 0 or not 1 <= args.jobs <= 8: raise ValueError("positive timeout and 1..8 workers required")
-    rust_build = ["cargo", "build", "--offline", "--release", "--no-default-features", "--bin", "duckdb-rust-test-worker"]
-    subprocess.run(rust_build, cwd=ROOT, check=True); binary = ROOT / "target/release/duckdb-rust-test-worker"; source_hash = hashlib.sha256()
+    if args.timeout <= 0 or not 1 <= args.jobs <= 8 or args.debounce_seconds < 0: raise ValueError("positive timeout, 1..8 workers, and non-negative debounce required")
+    if args.compare_release and not args.debug_worker: raise ValueError("--compare-release requires --debug-worker")
+    lock_handle = acquire_validation_lock(args.suite_cache)
+    if args.watch:
+        time.sleep(args.debounce_seconds)
+    source_before = validation_fingerprint()
+    rust_build, binary = worker_build(args.debug_worker); source_hash = hashlib.sha256()
     from source_identity import vendored_sources
     for path in sorted([*vendored_sources(ROOT), ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*.rs"), ROOT / "test/runner/worker.rs"]):
         source_hash.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
     targets = ("development", "release") if args.target == "both" else (args.target,)
-    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "rust_source_sha256": source_hash.hexdigest(), "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign."}
+    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "rust_source_sha256": source_hash.hexdigest(), "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign."}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with journal.open("x") as progress:
         progress.write(json.dumps({"event": "started", "metadata": report}) + "\n"); progress.flush()
         for target in targets:
-            with tempfile.TemporaryDirectory(prefix=f"ddb-upstream-{target}-") as directory:
-                source, manifest, identity = archive_population(target, Path(directory)); sql = [e for e in manifest["tests"] if e["kind"] == "sqllogictest"]; selected = selected_entries(sql, args.path_prefix, args.path_list, args.retry_timeouts_from, target)
-                population = {"identity": identity, "inventory": manifest["counts"], "sql_files_total": len(sql), "selected": selected, "sql_files_selected": len(selected), "results": [], "unported": [e for e in manifest["tests"] if e["kind"] != "sqllogictest"], "obligations": {scope: "unverified" for scope in REQUIRED_SCOPES}}
-                with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-                    for outcome in pool.map(lambda e: run_case(binary, source, e, args.timeout), selected):
-                        population["results"].append(outcome); progress.write(json.dumps({"event": "result", "target": target, **outcome}) + "\n"); progress.flush()
-                        if len(population["results"]) % 250 == 0: print(f"{target}: {len(population['results'])}/{len(selected)} files recorded", flush=True)
-                population.update(summarize(sql, selected, population["results"], population["unported"], population["obligations"])); report["populations"][target] = population
-    report["journal_sha256"] = digest(journal); report["outcomes"] = {t: p["outcomes"] for t, p in report["populations"].items()}; args.report.write_text(json.dumps(report, indent=2) + "\n"); print(json.dumps({"outcomes": report["outcomes"], "report": str(args.report)}))
+            source, manifest, identity = cached_population(target, args.suite_cache); sql = [e for e in manifest["tests"] if e["kind"] == "sqllogictest"]; selected = selected_entries(sql, args.path_prefix, args.path_list, args.retry_timeouts_from, target)
+            population = {"identity": identity, "inventory": manifest["counts"], "sql_files_total": len(sql), "selected": selected, "sql_files_selected": len(selected), "results": [], "unported": [e for e in manifest["tests"] if e["kind"] != "sqllogictest"], "obligations": {scope: "unverified" for scope in REQUIRED_SCOPES}}
+            with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+                for outcome in pool.map(lambda e: run_case(binary, source, e, args.timeout), selected):
+                    population["results"].append(outcome); progress.write(json.dumps({"event": "result", "target": target, **outcome}) + "\n"); progress.flush()
+                    if len(population["results"]) % 250 == 0: print(f"{target}: {len(population['results'])}/{len(selected)} files recorded", flush=True)
+            population.update(summarize(sql, selected, population["results"], population["unported"], population["obligations"])); report["populations"][target] = population
+    if args.compare_release:
+        release_build, release_binary = worker_build(False)
+        compared = {"rust_build_command": release_build, "rust_binary_sha256": digest(release_binary), "targets": {}}
+        for target, population in report["populations"].items():
+            source, _, _ = cached_population(target, args.suite_cache)
+            with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+                release_results = list(pool.map(lambda e: run_case(release_binary, source, e, args.timeout), population["selected"]))
+            differences = [(comparable_outcome(debug), comparable_outcome(release)) for debug, release in zip(population["results"], release_results) if comparable_outcome(debug) != comparable_outcome(release)]
+            if len(release_results) != len(population["results"]): differences.append(("result count", [len(population["results"]), len(release_results)]))
+            compared["targets"][target] = {"passed": not differences, "differences": differences[:10]}
+        compared["passed"] = all(item["passed"] for item in compared["targets"].values())
+        report["release_comparison"] = compared
+    report["source_fingerprint_before"] = source_before
+    report["source_fingerprint_after"] = validation_fingerprint()
+    report["stale_source"] = report["source_fingerprint_before"] != report["source_fingerprint_after"]
+    report["journal_sha256"] = digest(journal); report["outcomes"] = {t: p["outcomes"] for t, p in report["populations"].items()}; args.report.write_text(json.dumps(report, indent=2) + "\n"); lock_handle.close()
+    if report["stale_source"]: raise RuntimeError("source changed during validation; report is stale and not green")
+    if args.compare_release and not report["release_comparison"]["passed"]:
+        raise RuntimeError("debug-worker outcomes differ from the release worker")
+    print(json.dumps({"outcomes": report["outcomes"], "report": str(args.report)}))
 
 
 if __name__ == "__main__": main()

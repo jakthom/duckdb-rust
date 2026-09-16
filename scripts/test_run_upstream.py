@@ -3,9 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 import stat
+from unittest.mock import patch
 
 import sqllogic
-from run_upstream import failure_class, run_case, selected_entries, summarize
+from run_upstream import (cached_population, comparable_outcome, failure_class,
+                          run_case, selected_entries, summarize)
 
 
 class RunUpstreamTests(unittest.TestCase):
@@ -41,6 +43,8 @@ class RunUpstreamTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             paths = Path(d) / "retry.txt"; paths.write_text("missing.test\n")
             with self.assertRaises(ValueError): selected_entries([{"id": "a", "path": "a.test"}], [], paths)
+        with self.assertRaises(ValueError):
+            selected_entries([{"id": "a", "path": "a.test"}], ["other/"], None)
 
     def test_run_case_counts_sent_sql_and_source_reach_honestly(self):
         with tempfile.TemporaryDirectory() as d:
@@ -62,6 +66,30 @@ class RunUpstreamTests(unittest.TestCase):
             self.assertEqual((restarted["attempted_records"], restarted["worker_requests"]), (1, 2))
             empty = run_case(worker, source, {"id":"e","path":"empty.test"}, 2)
             self.assertEqual(empty["failure_class"], "no_sql_records")
+
+    def test_cache_tamper_is_rebuilt_from_the_population_not_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def population(target, temporary):
+                source = temporary / "tree"; source.mkdir(parents=True)
+                (source / "case.test").write_text("statement ok\nSELECT 1\n")
+                return source, {"tests": [], "counts": {}}, {"revision": "r"}
+            with patch("run_upstream.cache_identity", return_value={"target": "release", "revision": "r"}), \
+                 patch("run_upstream.archive_population", side_effect=population) as archive:
+                source, _, identity = cached_population("release", root)
+                self.assertEqual(identity["cache"], "created")
+                (source / "case.test").write_text("tampered")
+                rebuilt, _, identity = cached_population("release", root)
+                self.assertEqual(identity["cache"], "created")
+                self.assertEqual((rebuilt / "case.test").read_text(), "statement ok\nSELECT 1\n")
+                self.assertEqual(archive.call_count, 2)
+
+    def test_debug_release_comparison_includes_all_assertion_visible_fields(self):
+        passed = {"id": "a", "path": "a.test", "status": "passed", "passed_records": 1,
+                  "skipped_records": 0, "attempted_records": 1, "unreached_source_records": 0,
+                  "source_sql_records": 1, "elapsed_seconds": 0.01}
+        self.assertEqual(comparable_outcome(passed), comparable_outcome({**passed, "elapsed_seconds": 10}))
+        self.assertNotEqual(comparable_outcome(passed), comparable_outcome({**passed, "status": "failed"}))
 
 
 if __name__ == "__main__":
