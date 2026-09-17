@@ -341,9 +341,9 @@ fn candidate_replaces(
             Ok(compare_ordered(order, current, expressions, types, context)? == Ordering::Less)
         }
         OrderedAggregateStrategy::Last => {
-            // Stable ascending LAST retains the newest row whose key is at
-            // least the current candidate, including an equal-key tie.
-            Ok(compare_ordered(order, current, expressions, types, context)? != Ordering::Less)
+            // DuckDB keeps the first source row among equal extreme keys.
+            // Replace only when the new key is strictly greater.
+            Ok(compare_ordered(order, current, expressions, types, context)? == Ordering::Greater)
         }
     }
 }

@@ -13,7 +13,7 @@ SELECT first(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS FIRST),
        last(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS LAST)
 FROM range(1000000) t(i);
 ----
-0	999991
+0	0
 
 query III
 SELECT sum(first_i),sum(last_i)
@@ -24,4 +24,4 @@ FROM (
     GROUP BY i%257
 ) ordered;
 ----
-559232	256438455
+559232	559232

@@ -14,19 +14,19 @@
       "name": "ordered_first_last_ungrouped_ties_nulls",
       "sql": "SELECT first(i ORDER BY k NULLS FIRST), last(i ORDER BY k NULLS LAST) FROM ordered",
       "rows": 1,
-      "sum": "49997"
+      "sum": "0"
     },
     {
       "name": "ordered_first_last_grouped_high_cardinality",
       "sql": "SELECT first(i ORDER BY k NULLS FIRST), last(i ORDER BY k NULLS LAST) FROM ordered GROUP BY i%257",
       "rows": 257,
-      "sum": "12849229"
+      "sum": "1118464"
     },
     {
       "name": "ordered_first_last_grouped_ties_nulls",
       "sql": "SELECT first(i ORDER BY k NULLS FIRST), last(i ORDER BY k NULLS LAST) FROM ordered GROUP BY i%64",
       "rows": 64,
-      "sum": "3199808"
+      "sum": "68544"
     }
   ]
 }

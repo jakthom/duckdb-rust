@@ -352,7 +352,7 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
                 vec![
                     Value::Integer(3),
                     Value::Integer(8),
-                    Value::Integer(9),
+                    Value::Integer(8),
                     Value::Integer(17),
                     Value::Integer(2),
                 ],
@@ -367,13 +367,13 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
                 .rows,
             vec![vec![Value::Integer(30), Value::Integer(20)]],
         );
-        // The blocking sort is stable: equal argument-order keys preserve the
-        // stream order used by FIRST and LAST.
+        // Equal extreme keys preserve their first source row for FIRST and
+        // LAST, matching DuckDB's stable ordered-aggregate wrapper.
         assert_eq!(
             connection
                 .query("SELECT first(v ORDER BY k),last(v ORDER BY k) FROM ordered WHERE g=3")?
                 .rows,
-            vec![vec![Value::Integer(8), Value::Integer(9)]],
+            vec![vec![Value::Integer(8), Value::Integer(8)]],
         );
         // FIRST/LAST keep one stable candidate: multi-key comparisons, NULL
         // arguments, and ties retain exactly the sorted-wrapper result.
