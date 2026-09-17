@@ -1,0 +1,20 @@
+# name: test/performance/g08_ordered_aggregate.test
+# description: Ordered aggregate argument workload with ungrouped and grouped states
+# group: [performance]
+
+query I
+SELECT sum(i ORDER BY i DESC)
+FROM range(1000000) t(i);
+----
+499999500000
+
+query II
+SELECT sum(first_i),sum(last_i)
+FROM (
+    SELECT first(i ORDER BY i DESC) AS first_i,
+           last(i ORDER BY i DESC) AS last_i
+    FROM range(1000000) t(i)
+    GROUP BY i%64
+) ordered;
+----
+63997920	2016

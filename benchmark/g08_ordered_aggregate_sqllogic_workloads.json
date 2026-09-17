@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g08_2a_ordered_aggregate_million_rows",
+      "path": "test/performance/g08_ordered_aggregate.test"
+    }
+  ]
+}

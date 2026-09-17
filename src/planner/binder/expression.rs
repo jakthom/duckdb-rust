@@ -404,6 +404,31 @@ impl State<'_, '_> {
                     recurse(expr)?,
                 ],
             ),
+            ast::Expr::Substring {
+                expr,
+                substring_from,
+                substring_for,
+                shorthand,
+                ..
+            } => {
+                if substring_from.is_none() && substring_for.is_none() {
+                    return Err(Error::Bind(
+                        "substring requires a start or length argument".into(),
+                    ));
+                }
+                let mut arguments = Vec::with_capacity(3);
+                arguments.push(recurse(expr)?);
+                arguments.push(match substring_from {
+                    Some(start) => recurse(start)?,
+                    // `substring(value FOR length)` is a source-level
+                    // shorthand for a one-based start at the first character.
+                    None => BoundExpr::literal(Value::Integer(1)),
+                });
+                if let Some(length) = substring_for {
+                    arguments.push(recurse(length)?);
+                }
+                self.scalar_call(if *shorthand { "substr" } else { "substring" }, arguments)
+            }
             ast::Expr::Interval(interval) => {
                 let explicit_cast = |inner: BoundExpr, target: DataType| -> Result<BoundExpr> {
                     let cast = self.context.casts.bind(

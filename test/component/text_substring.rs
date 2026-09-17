@@ -18,10 +18,11 @@ fn substring_and_substr_match_character_indexed_reference_boundaries() -> Result
             .build()?
             .connect();
         assert_eq!(
-            connection.query("SELECT length('é🦆x'),char_length('é🦆x'),character_length('é🦆x'),len('é🦆x'),substring('abcdef',2,3),substr('abcdef',2,3),substring('abcdef',2),substring('abcdef',-2),substring('abcdef',0,3),substring('abcdef',3,-2),substring('é🦆x',2,1),substring('',1,1),substring(NULL,2,3)")?.rows,
+            connection.query("SELECT length('é🦆x'),char_length('é🦆x'),character_length('é🦆x'),len('é🦆x'),substring('abcdef',2,3),substr('abcdef',2,3),substring('abcdef' FROM 2 FOR 3),substring('abcdef' FOR 2),substring('abcdef',2),substring('abcdef',-2),substring('abcdef',0,3),substring('abcdef',3,-2),substring('é🦆x',2,1),substring('',1,1),substring(NULL,2,3)")?.rows,
             vec![vec![
                 Value::Integer(3), Value::Integer(3), Value::Integer(3), Value::Integer(3),
                 Value::Varchar("bcd".into()), Value::Varchar("bcd".into()),
+                Value::Varchar("bcd".into()), Value::Varchar("ab".into()),
                 Value::Varchar("bcdef".into()), Value::Varchar("ef".into()),
                 Value::Varchar("ab".into()), Value::Varchar("ab".into()),
                 Value::Varchar("🦆".into()), Value::Varchar("".into()), Value::Null,
