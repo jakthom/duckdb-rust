@@ -725,14 +725,27 @@ impl State<'_, '_> {
                             aggregate.data_type().clone(),
                         ));
                     }
-                    let (arguments, order_by) = aggregate_arguments(function)?;
-                    let arguments = arguments
+                    let (argument_syntax, order_syntax) = aggregate_arguments(function)?;
+                    let distinct = matches!(&function.args, ast::FunctionArguments::List(a) if a.duplicate_treatment == Some(ast::DuplicateTreatment::Distinct));
+                    if distinct
+                        && order_syntax.iter().any(|order| {
+                            !argument_syntax
+                                .iter()
+                                .any(|argument| argument == &order.expr)
+                        })
+                    {
+                        return Err(Error::Bind(
+                            "In a DISTINCT aggregate, ORDER BY expressions must appear in the argument list"
+                                .into(),
+                        ));
+                    }
+                    let arguments = argument_syntax
                         .iter()
                         .map(|e| self.expr(e, fields, None))
                         .collect::<Result<Vec<_>>>()?;
-                    let order_by = order_by
+                    let order_by = order_syntax
                         .iter()
-                        .map(|order| self.order(order, fields, None))
+                        .map(|order| self.aggregate_order(order, fields))
                         .collect::<Result<Vec<_>>>()?;
                     let data_type = aggregate.return_type(
                         &arguments
@@ -741,7 +754,6 @@ impl State<'_, '_> {
                             .collect::<Vec<_>>(),
                         self.context.query.types(),
                     )?;
-                    let distinct = matches!(&function.args, ast::FunctionArguments::List(a) if a.duplicate_treatment == Some(ast::DuplicateTreatment::Distinct));
                     if distinct && arguments.is_empty() {
                         return Err(Error::Bind(
                             "DISTINCT aggregate requires an argument".into(),
@@ -883,6 +895,23 @@ impl State<'_, '_> {
             ),
             _ => Err(unsupported(expr)),
         }
+    }
+
+    /// Aggregate argument ORDER BY expressions use the input scope, but SQL
+    /// numeric literals here are ordinary constants rather than query-output
+    /// ordinals. The query ORDER BY binder deliberately has different rules.
+    fn aggregate_order(&self, order: &ast::OrderByExpr, fields: &Scope) -> Result<OrderExpr> {
+        let expression = self.expr(&order.expr, fields, None)?;
+        let (descending, nulls_first) = self.context.query.settings().ordering(
+            order.options.asc,
+            order.options.nulls_first,
+            self.context.query,
+        )?;
+        Ok(OrderExpr {
+            expression,
+            descending,
+            nulls_first,
+        })
     }
 }
 

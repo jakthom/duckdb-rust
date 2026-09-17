@@ -244,6 +244,38 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
                 .query("SELECT sum(v ORDER BY missing) FROM ordered")
                 .is_err()
         );
+        assert!(matches!(
+            connection.query(
+                "SELECT first(DISTINCT v ORDER BY k) \
+                 FROM (VALUES (1,9),(1,2),(2,1)) AS distinct_order(v,k)",
+            ),
+            Err(Error::Bind(message)) if message == "In a DISTINCT aggregate, ORDER BY expressions must appear in the argument list"
+        ));
+        // Numeric argument-order literals are constants, never SELECT-list
+        // ordinals. A stable tie therefore preserves the input order.
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT first(v ORDER BY 2) FROM (VALUES (10,2),(20,1)) AS literal_order(v,k)"
+                )?
+                .rows,
+            vec![vec![Value::Integer(10)]],
+        );
+    }
+    for algorithm in algorithms() {
+        let db = DatabaseBuilder::new()
+            .max_intermediate_rows(8)
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(algorithm),
+            ))
+            .build()?;
+        assert!(matches!(
+            db.connect().query(
+                "SELECT first(v ORDER BY k),last(v ORDER BY k) \
+                 FROM (VALUES (1,10,1),(2,20,1)) AS limited(g,v,k) GROUP BY g",
+            ),
+            Err(Error::Resource(_))
+        ));
     }
     Ok(())
 }

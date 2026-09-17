@@ -146,9 +146,19 @@ pub(super) fn run<I: GroupIndex>(
         .collect::<Result<Vec<_>>>()?;
     let mut indices: Vec<I> = (0..aggregation.sets.len()).map(|_| I::default()).collect();
     let mut states = Vec::new();
+    // Ordered aggregates retain argument rows as well as sort permutations.
+    // Reserve three row units per retained input conservatively: one buffered
+    // row and the two index vectors used by the stable merge sort. This is a
+    // shared total across every group and aggregate, not a per-buffer limit.
+    let mut ordered_rows = 0usize;
     for (set_index, set) in aggregation.sets.iter().enumerate() {
         if set.is_empty() {
-            context.query.check_rows(states.len() + 1)?;
+            context.query.check_rows(
+                states
+                    .len()
+                    .saturating_add(1)
+                    .saturating_add(ordered_rows.saturating_mul(3)),
+            )?;
             indices[set_index].add(Vec::new(), states.len());
             states.push(Group::new(
                 vec![Value::Null; groups.len()],
@@ -176,7 +186,12 @@ pub(super) fn run<I: GroupIndex>(
                 let index = if let Some(index) = indices[set_index].find(&key) {
                     index
                 } else {
-                    context.query.check_rows(states.len() + 1)?;
+                    context.query.check_rows(
+                        states
+                            .len()
+                            .saturating_add(1)
+                            .saturating_add(ordered_rows.saturating_mul(3)),
+                    )?;
                     let index = states.len();
                     let keys = values
                         .iter()
@@ -227,7 +242,13 @@ pub(super) fn run<I: GroupIndex>(
                     if functions[i].order_by.is_empty() {
                         group.states[i].update(&args, context.query)?;
                     } else {
-                        context.query.check_rows(group.ordered[i].len() + 1)?;
+                        let next = ordered_rows.checked_add(1).ok_or_else(|| {
+                            Error::Resource("ordered aggregate row count overflow".into())
+                        })?;
+                        context
+                            .query
+                            .check_rows(states.len().saturating_add(next.saturating_mul(3)))?;
+                        ordered_rows = next;
                         group.ordered[i].push((args.clone(), order.clone()));
                     }
                 }
