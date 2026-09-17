@@ -130,6 +130,45 @@ impl SignedLanes {
             Self::Huge(values) => output.extend(values[range].iter().copied().map(Value::Integer)),
         }
     }
+
+    fn append_indices(&self, indices: &[usize], offset: usize, output: &mut Vec<Value>) {
+        match self {
+            Self::Tiny(values) => output.extend(
+                indices
+                    .iter()
+                    .map(|&index| values[offset + index])
+                    .map(i128::from)
+                    .map(Value::Integer),
+            ),
+            Self::Small(values) => output.extend(
+                indices
+                    .iter()
+                    .map(|&index| values[offset + index])
+                    .map(i128::from)
+                    .map(Value::Integer),
+            ),
+            Self::Integer(values) => output.extend(
+                indices
+                    .iter()
+                    .map(|&index| values[offset + index])
+                    .map(i128::from)
+                    .map(Value::Integer),
+            ),
+            Self::Big(values) => output.extend(
+                indices
+                    .iter()
+                    .map(|&index| values[offset + index])
+                    .map(i128::from)
+                    .map(Value::Integer),
+            ),
+            Self::Huge(values) => output.extend(
+                indices
+                    .iter()
+                    .map(|&index| values[offset + index])
+                    .map(Value::Integer),
+            ),
+        }
+    }
 }
 
 fn same_flat_backing(left: &Encoding, right: &Encoding) -> bool {
@@ -657,12 +696,13 @@ impl Vector {
                 output.extend(std::iter::repeat_n(value, self.count).cloned())
             }
             Encoding::Dictionary(parent, selection) => {
-                if let Some(values) = parent.flat_values() {
-                    output.extend(
-                        selection[self.offset..self.offset + self.count]
-                            .iter()
-                            .map(|&index| values[index].clone()),
-                    );
+                let selection = &selection[self.offset..self.offset + self.count];
+                if parent.all_valid
+                    && let Encoding::FlatSigned(values) = &parent.encoding
+                {
+                    values.append_indices(selection, parent.offset, output);
+                } else if let Some(values) = parent.flat_values() {
+                    output.extend(selection.iter().map(|&index| values[index].clone()));
                 } else {
                     output.extend(self.values());
                 }
@@ -748,6 +788,43 @@ mod physical_tests {
             width,
             scale: 2,
         }
+    }
+
+    #[test]
+    fn dictionary_append_borrows_every_signed_lane_through_parent_slices() -> Result<()> {
+        for data_type in [
+            DataType::TinyInt,
+            DataType::SmallInt,
+            DataType::Integer,
+            DataType::BigInt,
+            DataType::HugeInt,
+        ] {
+            let parent = Arc::new(
+                Vector::flat(
+                    data_type,
+                    vec![
+                        Value::Integer(10),
+                        Value::Integer(11),
+                        Value::Integer(12),
+                        Value::Integer(13),
+                    ],
+                )?
+                .slice(1, 3)?,
+            );
+            let dictionary = parent.select(vec![2, 0, 2, 1])?;
+            let mut output = Vec::new();
+            dictionary.append_to(&mut output);
+            assert_eq!(
+                output,
+                vec![
+                    Value::Integer(13),
+                    Value::Integer(11),
+                    Value::Integer(13),
+                    Value::Integer(12),
+                ]
+            );
+        }
+        Ok(())
     }
 
     #[test]

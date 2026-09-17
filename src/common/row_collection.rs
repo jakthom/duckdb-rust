@@ -212,6 +212,43 @@ impl PartialEq<RowCollection> for Vec<Row> {
         other == self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::common::{DataType, vector::Vector};
+
+    #[test]
+    fn append_preserves_dictionary_selected_bigint_parent_slice() -> Result<()> {
+        let parent = Arc::new(
+            Vector::flat(
+                DataType::BigInt,
+                vec![
+                    Value::Integer(10),
+                    Value::Integer(11),
+                    Value::Integer(12),
+                    Value::Integer(13),
+                ],
+            )?
+            .slice(1, 3)?,
+        );
+        let dictionary = parent.select(vec![2, 0, 2])?;
+        let chunk = DataChunk::new(vec![dictionary], 3)?;
+        let mut rows = RowCollection::new(1);
+        rows.append(&chunk)?;
+        assert_eq!(
+            rows.into_rows(),
+            vec![
+                vec![Value::Integer(13)],
+                vec![Value::Integer(11)],
+                vec![Value::Integer(13)],
+            ]
+        );
+        Ok(())
+    }
+}
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl serde::Serialize for RowCollection {
     fn serialize<S: serde::Serializer>(
