@@ -1010,6 +1010,48 @@ projected `strpos`. The companion process report is
 block input/output and throughput pass independently. This completes G06.1c;
 `substring_grapheme`, `chr`, `contains` and regex work remain later G06.1 slices.
 
+**G06.1d frozen validation manifest — grapheme and NUL-safe text primitives.**
+This slice owns new implementation modules below `src/function/scalar/text/`,
+the shared registration seam in `src/function/scalar/text.rs`, focused component
+targets for grapheme and codepoint/predicate behavior, the G06.1d SQLLogic and
+performance fixtures, their native/process workload manifests, and this entry.
+It implements `substring_grapheme`, `length_grapheme`, `chr`, `ascii` and
+VARCHAR `contains`; regex, collation, grapheme-aware `reverse` and the remaining
+text catalog stay outside the slice. Fast checks are the new complete component
+targets plus the existing `text_substring` and `text_search` targets and focused
+scalar batch filters. Shared consumers include prepared execution, direct
+flat/constant/dictionary/selected batches, `sum(length_grapheme(...))`,
+`sum(ascii(chr(...)))`, `count(*) FILTER(contains(...))`, concatenation, BLOB
+casts, LIKE, `instr` and nested display of embedded NULs.
+The exact unchanged upstream paths for each pin are
+`test/sql/function/string/test_ascii.test`, `test_contains.test`,
+`test_contains_utf8.test`, `test_length.test`, `test_substring.test`,
+`test_substring_utf8.test`, `test_complex_unicode.test` and `null_byte.test`,
+selected with an exact path list. The two substring files must pass their complete
+grapheme loops; the first
+three `length_grapheme` records of `test_complex_unicode.test` are the selected
+reachable prefix before the separately unimplemented `reverse`; `null_byte.test`
+must advance through `chr`, `ascii`, storage, `contains`, `instr` and LIKE before
+its separately unimplemented regex records. Prefix blockers remain explicit and
+are not full-file passes.
+Negative/boundary coverage includes U+0000, ASCII and multibyte scalar values,
+combining marks, emoji modifiers and ZWJ sequences, variation selectors, empty
+strings, empty needles, NULLs, invalid negative/surrogate/out-of-range codepoints,
+large positive/negative substring bounds, invalid overloads, prepared parameters,
+and scalar/batch error order with cancellation and bounded allocation. Final
+functional acceptance runs both new component targets, the existing substring
+and search targets, the local G06.1d SQLLogic fixture and the exact dual-pin path
+list; `cargo dev coverage` and `cargo dev trace check --workspace --all-targets`
+apply because this slice adds Rust interfaces/files.
+Gate P declares two 50,000-row, single-thread, release/no-tracing native cases:
+grapheme substring/length over low- and high-cardinality complex Unicode values,
+and codepoint/NUL construction plus `ascii`/`contains` through aggregate
+consumers. The process workload repeats stored-column equivalents with validated
+one-row results. Three warmups and 21 serial samples compare both exact pins;
+every native wall ratio and process wall, throughput, CPU, peak-RSS and block-I/O
+ratio must independently be no worse than the faster reference. Exact results,
+samples, pin/source/binary identities and failed attempts remain under `target/`.
+
 **G06.1b frozen validation manifest — VARCHAR length and substring.** Owned paths
 are `src/function/scalar{.rs,/text.rs}`, the shared vector/batch/cast seams changed
 by substring composition, `test/component/{text_substring,casts}.rs`, the G06
