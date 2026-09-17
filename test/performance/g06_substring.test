@@ -23,9 +23,9 @@ SELECT sum(length(substring(v,start,count))) FROM g06_substring;
 query T
 SELECT substring(v,start,count) FROM g06_substring;
 ----
-50000 values hashing to 81079a12d43c2172212ce0278ad143f3
+50000 values hashing to c724fbd1c62f3ae905ce46379614e947
 
 query T
 SELECT substring(v,unique_start,1) FROM g06_substring;
 ----
-50000 values hashing to a18d57fb2a2221b82d1ada186974e057
+50000 values hashing to 792e45d309f01b4940a8ef69e43dab87

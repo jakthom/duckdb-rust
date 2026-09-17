@@ -20,7 +20,7 @@
       "name": "g06_1b_substring_varchar_projection_high_cardinality_50k",
       "sql": "SELECT substring(v,unique_start,1) FROM g06_substring",
       "rows": 50000,
-      "sum": "883500"
+      "sum": "956000"
     }
   ]
 }
