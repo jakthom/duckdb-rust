@@ -20,7 +20,7 @@ fn grapheme_text_functions_preserve_clusters_bounds_nuls_and_nulls() -> Result<(
         assert_eq!(connection.query(&format!(
             "SELECT length_grapheme('{graphemes}'),substring_grapheme('{graphemes}',1,1),substring_grapheme('{graphemes}',2,1),substring_grapheme('{graphemes}',-1),substring_grapheme('{graphemes}',0,2),substring_grapheme('{graphemes}',3,-2),substring_grapheme('',1,1),length_grapheme(NULL),substring_grapheme(NULL,4294967296,1)"
         ))?.rows, vec![vec![
-            Value::Integer(3), Value::Varchar("e\u{301}".into()), Value::Varchar("👍🏽\u{200d}❤️\u{fe0f}".into()), Value::Varchar("x".into()), Value::Varchar("e\u{301}".into()), Value::Varchar("e\u{301}".into()), Value::Varchar("".into()), Value::Null, Value::Null,
+            Value::Integer(3), Value::Varchar("e\u{301}".into()), Value::Varchar("👍🏽\u{200d}❤️\u{fe0f}".into()), Value::Varchar("x".into()), Value::Varchar("e\u{301}".into()), Value::Varchar("e\u{301}👍🏽\u{200d}❤️\u{fe0f}".into()), Value::Varchar("".into()), Value::Null, Value::Null,
         ]]);
         connection.execute("CREATE TABLE graphemes(v VARCHAR, start BIGINT, count BIGINT)")?;
         let insert = connection.prepare("INSERT INTO graphemes VALUES ($1,$2,$3)")?;
@@ -63,6 +63,23 @@ fn grapheme_text_functions_preserve_clusters_bounds_nuls_and_nulls() -> Result<(
             connection.query("SELECT substring_grapheme('abc',4294967296,1)"),
             Err(Error::OutOfRange(_))
         ));
+        assert!(matches!(
+            connection.query("SELECT substring_grapheme('abc',-4294967297,1)"),
+            Err(Error::OutOfRange(_))
+        ));
+        connection.execute(
+            "CREATE TABLE grapheme_error_order(active BOOLEAN, start BIGINT); \
+             INSERT INTO grapheme_error_order VALUES (false,4294967296),(true,1)",
+        )?;
+        assert_eq!(
+            connection
+                .query("SELECT CASE WHEN active THEN substring_grapheme('abc',start,1) ELSE 'ok' END FROM grapheme_error_order")?
+                .rows,
+            vec![
+                vec![Value::Varchar("ok".into())],
+                vec![Value::Varchar("a".into())],
+            ]
+        );
         assert!(matches!(
             connection.query("SELECT substring_grapheme('abc')"),
             Err(Error::Bind(_))

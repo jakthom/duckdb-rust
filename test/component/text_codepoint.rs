@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use duckdb_rust::{
-    execution::expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
     DatabaseBuilder, Error, Result, Value,
+    execution::expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
 };
 
 #[test]
@@ -25,6 +25,10 @@ fn codepoint_varchar_functions_are_nul_safe_and_prepared() -> Result<()> {
         }
         assert!(connection.query("SELECT chr('x')").is_err());
         assert!(connection.query("SELECT contains(['x'],'x')").is_err());
+        assert!(matches!(
+            connection.query("SELECT contains(NULL,NULL)"),
+            Err(Error::Bind(message)) if message.contains("Could not choose a best candidate function")
+        ));
         let prepared = connection
             .prepare("SELECT chr($1), ascii(chr($1)), contains(concat('a',chr($1),'b'),chr($1))")?;
         assert_eq!(

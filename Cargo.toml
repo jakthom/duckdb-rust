@@ -100,6 +100,14 @@ name = "text_search"
 path = "test/component/text_search.rs"
 
 [[test]]
+name = "text_grapheme"
+path = "test/component/text_grapheme.rs"
+
+[[test]]
+name = "text_codepoint"
+path = "test/component/text_codepoint.rs"
+
+[[test]]
 name = "casts"
 path = "test/component/casts.rs"
 

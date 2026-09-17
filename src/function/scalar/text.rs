@@ -3,6 +3,9 @@
 //! DuckDB's `substring` operates on decoded characters, while the returned
 //! value must retain the source's original UTF-8 bytes (including NULs).
 
+mod codepoint;
+mod grapheme;
+
 use std::sync::Arc;
 
 use super::super::{FunctionRegistry, ScalarBatchKind, ScalarFunction};
@@ -241,6 +244,8 @@ impl<'a> BigintBatch<'a> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
+    codepoint::register(registry);
+    grapheme::register(registry);
     for name in ["substring", "substr"] {
         registry
             .register_scalar(Arc::new(Substring(name)))
