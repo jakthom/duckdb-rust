@@ -153,6 +153,17 @@ impl ScalarFunction for Builtin {
             )
             .map(Some);
         }
+        if let Some(values) = column.flat_values() {
+            let values = values.iter().enumerate().map(|(index, value)| {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                length_value(value)
+            });
+            let output = Vector::try_bigints(values)?;
+            query.check()?;
+            return Ok(Some(output));
+        }
         if let Some((parent, selection)) = column.dictionary() {
             let values = parent.values().enumerate().map(|(index, value)| {
                 if index % 1024 == 0 {
