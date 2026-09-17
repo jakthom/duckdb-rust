@@ -186,17 +186,9 @@ impl IntegerIndex {
             [column] if representations[0] == KeyRepresentation::Integer => {
                 if let Some(values) = column.flat_bigints() {
                     // The flat all-valid BIGINT lane is already a signed
-                    // coefficient sequence; avoid reconstructing Value for
-                    // every row before compact lookup.
-                    self.locate_coefficients(
-                        values
-                            .iter()
-                            .copied()
-                            .map(|value| Ok([Some(i128::from(value))])),
-                        rows,
-                        query,
-                        create,
-                    )
+                    // coefficient sequence. Its direct locator avoids both
+                    // reconstructing Value and the generic nullable tuple.
+                    self.locate_flat_bigints(values, rows, query, create)
                 } else {
                     self.locate_values(
                         column.values().map(|value| [value]),
@@ -402,6 +394,47 @@ impl IntegerIndex {
         query.check()?;
         Ok(result)
     }
+    #[inline]
+    fn locate_flat_bigints(
+        &mut self,
+        values: &[i64],
+        rows: usize,
+        query: &QueryContext,
+        mut create: impl FnMut(usize) -> Result<usize>,
+    ) -> Result<Vec<usize>> {
+        let mut result = Vec::with_capacity(rows);
+        for (row, &value) in values.iter().enumerate() {
+            if row % 1024 == 0 {
+                query.check()?;
+            }
+            let value = i128::from(value);
+            // This is Dense::position for a single present value, inlined to
+            // avoid its dimension loop and the [Option<i128>; 1] temporary.
+            let dense_slot = self.dense.as_mut().and_then(|dense| {
+                let dimension = dense.dimensions[0];
+                let offset = value.wrapping_sub(dimension.minimum?) as u128;
+                (offset < dimension.values as u128).then(|| &mut dense.slots[offset as usize])
+            });
+            if let Some(slot) = dense_slot {
+                if *slot == EMPTY {
+                    *slot = create(row)?;
+                }
+                result.push(*slot);
+                continue;
+            }
+            let key = Key {
+                values: [value, 0],
+                nulls: 0,
+            };
+            let group = match self.sparse.entry(key) {
+                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::hash_map::Entry::Vacant(entry) => *entry.insert(create(row)?),
+            };
+            result.push(group);
+        }
+        query.check()?;
+        Ok(result)
+    }
     // This is the per-row hot path; an out-of-line call copies the wide
     // nullable key tuple for every row and every grouping set.
     #[inline(always)]
@@ -502,6 +535,31 @@ mod tests {
         assert_eq!(
             locate_one_column(&mut index, &second, &mut next_group, &query)?,
             vec![2, 1]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn flat_bigint_locator_preserves_dense_and_sparse_group_ordinals() -> Result<()> {
+        let query = QueryContext::background();
+        let dense = Vector::flat(DataType::BigInt, vec![Value::Integer(0), Value::Integer(1)])?;
+        let sparse = Vector::flat(
+            DataType::BigInt,
+            vec![Value::Integer(-1), Value::Integer(-1)],
+        )?;
+        assert!(dense.flat_bigints().is_some());
+        assert!(sparse.flat_bigints().is_some());
+        let mut index = IntegerIndex::default();
+        let mut next_group = 0;
+        assert_eq!(
+            locate_one_column(&mut index, &dense, &mut next_group, &query)?,
+            vec![0, 1]
+        );
+        // The later lower key cannot extend the monotonic dense range and
+        // must retain sparse identity and first-logical-row creation.
+        assert_eq!(
+            locate_one_column(&mut index, &sparse, &mut next_group, &query)?,
+            vec![2, 2]
         );
         Ok(())
     }
