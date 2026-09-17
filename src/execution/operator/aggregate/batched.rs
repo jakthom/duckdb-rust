@@ -377,6 +377,9 @@ fn try_ordered_candidates(
         })
         .collect::<Result<Vec<_>>>()?;
     let mut candidate_units = 0usize;
+    let needs_group_selection = accumulators
+        .iter()
+        .any(|accumulator| matches!(accumulator, OrderedAccumulator::State(_)));
     while let Some(batch) = input.next(context.query.batch_size())? {
         let columns = group_expressions
             .iter()
@@ -439,16 +442,17 @@ fn try_ordered_candidates(
                     Ok(index)
                 },
             )?;
-            let destinations = GroupSelection::new(&destinations, groups.len(), context.query)?;
+            let selection = needs_group_selection
+                .then(|| GroupSelection::new(&destinations, groups.len(), context.query))
+                .transpose()?;
             for (function_index, accumulator) in accumulators.iter_mut().enumerate() {
                 match accumulator {
                     OrderedAccumulator::State(state) => {
+                        let selection = selection
+                            .as_ref()
+                            .expect("ordinary grouped state requires validated destinations");
                         state.resize(groups.len(), context.query)?;
-                        state.update_batch(
-                            &destinations,
-                            &inputs[function_index],
-                            context.query,
-                        )?;
+                        state.update_batch(selection, &inputs[function_index], context.query)?;
                     }
                     OrderedAccumulator::Candidate {
                         strategy,
@@ -457,7 +461,7 @@ fn try_ordered_candidates(
                         values,
                     } => {
                         values.resize_with(groups.len(), || None);
-                        for (row, &group) in destinations.indices().iter().enumerate() {
+                        for (row, &group) in destinations.iter().enumerate() {
                             if row % 1024 == 0 {
                                 context.query.check()?;
                             }
@@ -545,14 +549,12 @@ fn try_ordered_candidates(
     groups
         .into_iter()
         .enumerate()
-        .map(|(group, (row, _))| {
+        .map(|(group, (mut row, _))| {
             context.query.check()?;
-            let mut output = Vec::with_capacity(row.len() + functions.len());
-            output.extend(row);
             for function in 0..functions.len() {
-                output.push(values[function][group].clone());
+                row.push(values[function][group].clone());
             }
-            Ok(output)
+            Ok(row)
         })
         .collect::<Result<Vec<_>>>()
         .map(Some)
