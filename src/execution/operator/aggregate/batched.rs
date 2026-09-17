@@ -2,8 +2,9 @@
 mod index;
 use super::*;
 use crate::{
-    Value,
+    DataType, Value,
     common::type_registry::BoundType,
+    common::vector::Vector,
     execution::subquery::PreparedExpression,
     function::{
         OrderedAggregateStrategy,
@@ -25,6 +26,11 @@ enum OrderedAccumulator {
 
 enum CandidateOrder {
     One(Value),
+    /// A one-key signed integer candidate keeps its nullable physical
+    /// coefficient. This is intentionally separate from `One`: nullable
+    /// BIGINT vectors use flat `Value` storage, while all-valid vectors use
+    /// signed lanes, and neither needs an owned scalar in the hot loop.
+    SignedI64(Option<i64>),
     Many(Vec<Value>),
 }
 
@@ -497,9 +503,16 @@ fn try_ordered_candidates(
                                     .expect("validated candidate argument");
                                 let columns = orders[function_index].columns();
                                 let key = if let [column] = columns {
-                                    CandidateOrder::One(
-                                        column.value(row).expect("validated candidate order"),
-                                    )
+                                    if order.len() == 1
+                                        && signed_i64_type(&order[0].expression.data_type)
+                                        && let Some(value) = signed_integer_order(column, row)
+                                    {
+                                        CandidateOrder::SignedI64(value)
+                                    } else {
+                                        CandidateOrder::One(
+                                            column.value(row).expect("validated candidate order"),
+                                        )
+                                    }
                                 } else {
                                     CandidateOrder::Many(
                                         columns
@@ -572,8 +585,20 @@ fn compare_candidate_order(
     types: &[BoundType],
     context: &ExecutionContext<'_>,
 ) -> Result<Ordering> {
+    if let CandidateOrder::SignedI64(current) = current {
+        let [column] = columns.columns() else {
+            unreachable!("signed candidates have exactly one order key");
+        };
+        let [order] = order else {
+            unreachable!("signed candidates have exactly one order expression");
+        };
+        let value = signed_integer_order(column, row)
+            .expect("signed candidate order keeps a stable physical representation");
+        return Ok(compare_signed_integer_order(value, *current, order));
+    }
     let current: &[Value] = match current {
         CandidateOrder::One(value) => std::slice::from_ref(value),
+        CandidateOrder::SignedI64(_) => unreachable!("handled above"),
         CandidateOrder::Many(values) => values,
     };
     for (((column, current), order), data_type) in
@@ -610,6 +635,75 @@ fn compare_candidate_order(
         }
     }
     Ok(Ordering::Equal)
+}
+
+/// Return a nullable signed coefficient without materializing a `Value`.
+/// All-valid signed lanes and nullable flat BIGINT values are the common scan
+/// representations; encoded vectors deliberately use the generic comparator.
+fn signed_integer_order(column: &Vector, row: usize) -> Option<Option<i64>> {
+    if let Some(value) = column.flat_signed_i64_at(row) {
+        return Some(Some(value));
+    }
+    if let Some(value) = column
+        .flat_values()
+        .and_then(|values| values.get(row))
+        .or_else(|| column.constant_value())
+    {
+        return signed_integer_value(value);
+    }
+    // A dictionary or chunk can enter on a later batch even when the first
+    // batch admitted the physical fast path. Decode it through the normal
+    // vector seam rather than abandoning the retained candidate or panicking.
+    column
+        .value(row)
+        .and_then(|value| signed_integer_value(&value))
+}
+
+fn signed_integer_value(value: &Value) -> Option<Option<i64>> {
+    match value {
+        Value::Null => Some(None),
+        Value::Integer(value) => i64::try_from(*value).ok().map(Some),
+        _ => None,
+    }
+}
+
+fn signed_i64_type(data_type: &DataType) -> bool {
+    matches!(
+        data_type,
+        DataType::TinyInt | DataType::SmallInt | DataType::Integer | DataType::BigInt
+    )
+}
+
+fn compare_signed_integer_order(
+    value: Option<i64>,
+    current: Option<i64>,
+    order: &crate::planner::logical::OrderExpr,
+) -> Ordering {
+    match (value, current) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => {
+            if order.nulls_first {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        }
+        (Some(_), None) => {
+            if order.nulls_first {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        }
+        (Some(value), Some(current)) => {
+            let comparison = value.cmp(&current);
+            if order.descending {
+                comparison.reverse()
+            } else {
+                comparison
+            }
+        }
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
