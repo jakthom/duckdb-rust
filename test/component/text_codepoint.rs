@@ -23,7 +23,14 @@ fn codepoint_varchar_functions_are_nul_safe_and_prepared() -> Result<()> {
                 matches!(connection.query(&format!("SELECT chr({value})")), Err(Error::InvalidInput(message)) if message.contains("Invalid UTF8 Codepoint"))
             );
         }
-        assert!(connection.query("SELECT chr('x')").is_err());
+        assert!(matches!(
+            connection.query("SELECT chr('x')"),
+            Err(Error::Bind(message)) if message.contains("No function matches")
+        ));
+        assert!(matches!(
+            connection.query("SELECT chr()"),
+            Err(Error::Bind(message)) if message.contains("No function matches")
+        ));
         assert!(connection.query("SELECT contains(['x'],'x')").is_err());
         assert!(matches!(
             connection.query("SELECT contains(NULL,NULL)"),

@@ -389,13 +389,19 @@ impl ScalarFunction for Chr {
             [argument] if argument.is_integer() || *argument == DataType::Null => {
                 Ok(vec![DataType::Integer])
             }
-            _ => Err(Error::Bind("chr requires an INTEGER argument".into())),
+            _ => Err(Error::Bind(format!(
+                "No function matches the given name and argument types 'chr({arguments:?})'"
+            ))),
         }
     }
     fn return_type(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<DataType> {
         match arguments {
             [argument] if argument.is_integer() || *argument == DataType::Null => {}
-            _ => return Err(Error::Bind(format!("no overload for chr({arguments:?})"))),
+            _ => {
+                return Err(Error::Bind(format!(
+                    "No function matches the given name and argument types 'chr({arguments:?})'"
+                )));
+            }
         }
         Ok(DataType::Varchar)
     }
