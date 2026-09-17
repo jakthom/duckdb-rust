@@ -3,7 +3,7 @@
 //! DuckDB's `substring` operates on decoded characters, while the returned
 //! value must retain the source's original UTF-8 bytes (including NULs).
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use super::super::{FunctionRegistry, ScalarFunction};
 use crate::{
@@ -140,11 +140,10 @@ fn batch_flat_substring(
     // Keep the compact dictionary path only while repeated physical triples
     // dominate. A high-cardinality batch switches to a plain flat result
     // before the map can become a second per-row payload store.
-    let maximum_unique = (input.len() / 8).max(1);
-    let mut entries = HashMap::new();
-    entries
-        .try_reserve(maximum_unique.saturating_add(1))
-        .map_err(|_| Error::Resource("cannot allocate substring dictionary".into()))?;
+    let maximum_unique = (input.len() / 8).clamp(1, 32);
+    let mut keys = Vec::new();
+    keys.try_reserve_exact(maximum_unique.saturating_add(1))
+        .map_err(|_| Error::Resource("cannot allocate substring dictionary keys".into()))?;
     let mut values = Vec::new();
     values
         .try_reserve_exact(maximum_unique.saturating_add(1))
@@ -169,12 +168,15 @@ fn batch_flat_substring(
             }
         };
         let key = (text, starts[index], length);
-        let entry = if let Some(&entry) = entries.get(&key) {
+        // Typical SQL batches repeat a small number of physical triples. A
+        // tiny linear cache avoids hashing short VARCHARs with a randomized
+        // hasher, while the hard cap bounds high-cardinality prefix work.
+        let entry = if let Some(entry) = keys.iter().position(|candidate| *candidate == key) {
             entry
         } else {
             let value = flat_substring_value(&input[index], starts[index], length)?;
             let entry = values.len();
-            entries.insert(key, entry);
+            keys.push(key);
             values.push(value);
             entry
         };
