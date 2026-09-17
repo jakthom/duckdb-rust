@@ -9,7 +9,9 @@ pub mod grouped;
 pub(crate) mod nested;
 pub mod operator;
 mod scalar;
-pub(crate) use scalar::substring_lengths_batch;
+pub(crate) use scalar::{
+    grapheme_substring_lengths_batch, select_varchar_contains, substring_lengths_batch,
+};
 mod settings;
 mod signature;
 pub use signature::ScalarSignature;
@@ -46,10 +48,33 @@ pub enum ArgumentEvaluation {
     TypeOnly,
 }
 
+/// Opaque identity for a built-in physical scalar implementation.
+#[derive(Debug)]
+pub(crate) struct ScalarBatchKind(ScalarBatchIdentity);
+
+/// Capability supplied only by crate-owned executors. Keeping this type out of
+/// the public API lets external `ScalarFunction` implementations inherit, but
+/// not override, the physical built-in identity hook.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ScalarBatchAccess;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScalarBatchKind {
+pub(crate) enum ScalarBatchIdentity {
     CharacterLength,
+    GraphemeLength,
+    GraphemeSubstring,
     Substring,
+    VarcharContains,
+}
+
+impl ScalarBatchKind {
+    pub(crate) const fn builtin(identity: ScalarBatchIdentity) -> Self {
+        Self(identity)
+    }
+
+    pub(crate) const fn is(&self, identity: ScalarBatchIdentity) -> bool {
+        self.0 as u8 == identity as u8
+    }
 }
 
 /// Execution-owned encoding information for an already evaluated argument.
@@ -252,10 +277,12 @@ pub trait ScalarBindArguments {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait ScalarFunction: Debug + Send + Sync {
     fn name(&self) -> &str;
-    /// Stable built-in identity for narrowly source-compatible physical
-    /// compositions. Names are insufficient because external registries may
-    /// supply unrelated adapters with the same SQL spelling.
-    fn batch_kind(&self) -> Option<ScalarBatchKind> {
+    /// Crate-private built-in identity for narrowly source-compatible physical
+    /// compositions. The inaccessible capability parameter prevents external
+    /// registries from overriding this hook for an unrelated adapter.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn batch_kind(&self, _access: ScalarBatchAccess) -> Option<ScalarBatchKind> {
         None
     }
     /// Explicit opt-in to named argument metadata, checked by the frontend

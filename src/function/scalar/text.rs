@@ -6,9 +6,14 @@
 mod codepoint;
 mod grapheme;
 
+pub(crate) use codepoint::select_contains as select_varchar_contains;
+pub(crate) use grapheme::substring_lengths_batch as grapheme_substring_lengths_batch;
+
 use std::sync::Arc;
 
-use super::super::{FunctionRegistry, ScalarBatchKind, ScalarFunction};
+use super::super::{
+    FunctionRegistry, ScalarBatchAccess, ScalarBatchIdentity, ScalarBatchKind, ScalarFunction,
+};
 use crate::{
     common::{
         DataType, Error, Result, Value,
@@ -402,8 +407,8 @@ impl ScalarFunction for Substring {
         self.0
     }
 
-    fn batch_kind(&self) -> Option<ScalarBatchKind> {
-        Some(ScalarBatchKind::Substring)
+    fn batch_kind(&self, _: ScalarBatchAccess) -> Option<ScalarBatchKind> {
+        Some(ScalarBatchKind::builtin(ScalarBatchIdentity::Substring))
     }
 
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {

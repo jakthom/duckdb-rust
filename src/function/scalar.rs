@@ -2,7 +2,9 @@ use std::sync::Arc;
 mod conditional;
 mod numeric;
 mod text;
-pub(crate) use text::substring_lengths_batch;
+pub(crate) use text::{
+    grapheme_substring_lengths_batch, select_varchar_contains, substring_lengths_batch,
+};
 
 use super::{ArgumentEvaluation, FunctionRegistry, ScalarFunction};
 use crate::{
@@ -46,12 +48,12 @@ impl ScalarFunction for Builtin {
     fn name(&self) -> &str {
         self.0
     }
-    fn batch_kind(&self) -> Option<super::ScalarBatchKind> {
+    fn batch_kind(&self, _: super::ScalarBatchAccess) -> Option<super::ScalarBatchKind> {
         matches!(
             self.0,
             "length" | "char_length" | "character_length" | "len"
         )
-        .then_some(super::ScalarBatchKind::CharacterLength)
+        .then(|| super::ScalarBatchKind::builtin(super::ScalarBatchIdentity::CharacterLength))
     }
     fn bind(
         &self,

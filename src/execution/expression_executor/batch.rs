@@ -683,6 +683,22 @@ impl ExpressionEvaluator for BatchedEvaluator {
         }
         if input.len() > 1
             && expression.is_pure_and_total()
+            && let ExprKind::Scalar(function, arguments) = &expression.kind
+            && function
+                .batch_kind(crate::function::ScalarBatchAccess)
+                .is_some_and(|kind| kind.is(crate::function::ScalarBatchIdentity::VarcharContains))
+        {
+            let columns = arguments
+                .iter()
+                .map(|argument| evaluate_columns(argument, input, context))
+                .collect::<Result<Vec<_>>>()?;
+            return crate::function::select_varchar_contains(
+                &DataChunk::new(columns, input.len())?,
+                context.query(),
+            );
+        }
+        if input.len() > 1
+            && expression.is_pure_and_total()
             && let ExprKind::Binary(op, left, right, data_type) = &expression.kind
         {
             use std::cmp::Ordering;
@@ -738,21 +754,45 @@ fn evaluate_scalar_composition<T: ExpressionEvaluator + ?Sized>(
     input: &DataChunk,
     context: &dyn EvaluationContext,
 ) -> Result<Option<Vector>> {
-    use crate::function::ScalarBatchKind;
+    use crate::function::ScalarBatchIdentity;
 
     let ExprKind::Scalar(outer, outer_arguments) = &expression.kind else {
         return Ok(None);
     };
-    if outer.batch_kind() != Some(ScalarBatchKind::CharacterLength) || outer_arguments.len() != 1 {
+    let outer_kind = outer.batch_kind(crate::function::ScalarBatchAccess);
+    if !outer_kind.as_ref().is_some_and(|kind| {
+        kind.is(ScalarBatchIdentity::CharacterLength)
+            || kind.is(ScalarBatchIdentity::GraphemeLength)
+    }) || outer_arguments.len() != 1
+    {
         return Ok(None);
     }
     let ExprKind::Scalar(inner, inner_arguments) = &outer_arguments[0].kind else {
         return Ok(None);
     };
-    if inner.batch_kind() != Some(ScalarBatchKind::Substring)
-        || inner_arguments
-            .iter()
-            .any(|argument| !argument.is_effect_free())
+    let inner_kind = inner.batch_kind(crate::function::ScalarBatchAccess);
+    let composition = if outer_kind
+        .as_ref()
+        .is_some_and(|kind| kind.is(ScalarBatchIdentity::CharacterLength))
+        && inner_kind
+            .as_ref()
+            .is_some_and(|kind| kind.is(ScalarBatchIdentity::Substring))
+    {
+        false
+    } else if outer_kind
+        .as_ref()
+        .is_some_and(|kind| kind.is(ScalarBatchIdentity::GraphemeLength))
+        && inner_kind
+            .as_ref()
+            .is_some_and(|kind| kind.is(ScalarBatchIdentity::GraphemeSubstring))
+    {
+        true
+    } else {
+        return Ok(None);
+    };
+    if inner_arguments
+        .iter()
+        .any(|argument| !argument.is_effect_free())
     {
         return Ok(None);
     }
@@ -776,7 +816,12 @@ fn evaluate_scalar_composition<T: ExpressionEvaluator + ?Sized>(
         }
     }
     let arguments = DataChunk::new(columns, input.len())?;
-    match crate::function::substring_lengths_batch(&arguments, context.query()) {
+    let output = if composition {
+        crate::function::grapheme_substring_lengths_batch(&arguments, context.query())
+    } else {
+        crate::function::substring_lengths_batch(&arguments, context.query())
+    };
+    match output {
         Ok(output) => Ok(Some(output)),
         Err(error) if speculative_data_error(&error) => Ok(None),
         Err(error) => Err(error),

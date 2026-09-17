@@ -2,14 +2,15 @@
 # stored-column row-visits through the SQLLogic runner.
 statement ok
 CREATE TABLE g06_text_grapheme_high_process AS
-SELECT CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v,
-       i
-FROM range(50000) t(i);
+SELECT v || i::VARCHAR AS high_v
+FROM (SELECT CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v,
+             i
+      FROM range(50000) t(i));
 
 loop iteration 0 128
 
 query I
-SELECT sum(length_grapheme(substring_grapheme(v || i::VARCHAR, 2, 2)))
+SELECT sum(length_grapheme(substring_grapheme(high_v, 2, 2)))
 FROM g06_text_grapheme_high_process;
 ----
 99973

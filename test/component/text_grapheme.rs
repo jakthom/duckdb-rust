@@ -39,10 +39,10 @@ fn grapheme_text_functions_preserve_clusters_bounds_nuls_and_nulls() -> Result<(
         ] {
             connection.execute_prepared(&insert, &row)?;
         }
-        assert_eq!(connection.query("SELECT substring_grapheme(v,start,count),length_grapheme(v),sum(length_grapheme(v)) OVER () FROM graphemes")?.rows, vec![
-            vec![Value::Varchar("e\u{301}\0".into()), Value::Integer(3), Value::Integer(5)],
-            vec![Value::Varchar("👍🏽".into()), Value::Integer(2), Value::Integer(5)],
-            vec![Value::Null, Value::Null, Value::Integer(5)],
+        assert_eq!(connection.query("SELECT substring_grapheme(v,start,count),length_grapheme(v),length_grapheme(substring_grapheme(v,start,count)),sum(length_grapheme(v)) OVER () FROM graphemes")?.rows, vec![
+            vec![Value::Varchar("e\u{301}\0".into()), Value::Integer(3), Value::Integer(2), Value::Integer(5)],
+            vec![Value::Varchar("👍🏽".into()), Value::Integer(2), Value::Integer(1), Value::Integer(5)],
+            vec![Value::Null, Value::Null, Value::Null, Value::Integer(5)],
         ]);
         let prepared =
             connection.prepare("SELECT substring_grapheme($1,$2,$3),length_grapheme($1)")?;

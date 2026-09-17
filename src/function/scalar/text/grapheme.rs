@@ -38,6 +38,18 @@ impl crate::function::ScalarFunction for GraphemeFunction {
         self.0
     }
 
+    fn batch_kind(
+        &self,
+        _: crate::function::ScalarBatchAccess,
+    ) -> Option<crate::function::ScalarBatchKind> {
+        let identity = match self.0 {
+            "length_grapheme" => crate::function::ScalarBatchIdentity::GraphemeLength,
+            "substring_grapheme" => crate::function::ScalarBatchIdentity::GraphemeSubstring,
+            _ => return None,
+        };
+        Some(crate::function::ScalarBatchKind::builtin(identity))
+    }
+
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
         match self.0 {
             "length_grapheme"
@@ -117,7 +129,16 @@ impl crate::function::ScalarFunction for GraphemeFunction {
             if let (Some(input), Some(starts), Some(length)) =
                 (VarcharBatch::new(&columns[0]), starts, length)
             {
-                return batch_substring(input, starts, length, arguments.len(), query).map(Some);
+                return batch_transform(
+                    input,
+                    starts,
+                    length,
+                    arguments.len(),
+                    DataType::Varchar,
+                    flat_grapheme_substring_value,
+                    query,
+                )
+                .map(Some);
             }
         }
         let mut output = Vec::new();
@@ -221,23 +242,25 @@ fn batch_length(input: VarcharBatch<'_>, count: usize, query: &QueryContext) -> 
     }
 }
 
-fn batch_substring(
+fn batch_transform(
     input: VarcharBatch<'_>,
     starts: BigintBatch<'_>,
     lengths: Option<BigintBatch<'_>>,
     count: usize,
+    output_type: DataType,
+    evaluate: fn(&Value, i64, Option<i64>) -> Result<Value>,
     query: &QueryContext,
 ) -> Result<Vector> {
     if count == 0 {
-        return Vector::flat(DataType::Varchar, Vec::new());
+        return Vector::flat(output_type, Vec::new());
     }
     if let Some(output) = batch_dictionary_substring(
         input,
         starts,
         lengths,
         count,
-        DataType::Varchar,
-        flat_grapheme_substring_value,
+        output_type.clone(),
+        evaluate,
         query,
     )? {
         return Ok(output);
@@ -277,7 +300,7 @@ fn batch_substring(
         } else {
             let entry = values.len();
             keys.push(key);
-            values.push(flat_grapheme_substring_value(input_value, start, length)?);
+            values.push(evaluate(input_value, start, length)?);
             entry
         };
         selection.push(entry);
@@ -292,7 +315,7 @@ fn batch_substring(
                 if index % 1024 == 0 {
                     query.check()?;
                 }
-                output.push(flat_grapheme_substring_value(
+                output.push(evaluate(
                     input.get(index)?,
                     starts.get(index)?,
                     lengths.map(|lengths| lengths.get(index)).transpose()?,
@@ -300,11 +323,77 @@ fn batch_substring(
                 index += 1;
             }
             query.check()?;
-            return Vector::flat(DataType::Varchar, output);
+            return Vector::flat(output_type, output);
         }
     }
     query.check()?;
-    Arc::new(Vector::flat(DataType::Varchar, values)?).select(selection)
+    Arc::new(Vector::flat(output_type, values)?).select(selection)
+}
+
+pub(crate) fn substring_lengths_batch(
+    arguments: &DataChunk,
+    query: &QueryContext,
+) -> Result<Vector> {
+    let columns = arguments.columns();
+    let length = match columns.len() {
+        2 => Some(None),
+        3 => BigintBatch::new(&columns[2], query)?.map(Some),
+        _ => None,
+    };
+    let starts = columns
+        .get(1)
+        .map(|column| BigintBatch::new(column, query))
+        .transpose()?
+        .flatten();
+    if let (Some(input), Some(starts), Some(length)) =
+        (columns.first().and_then(VarcharBatch::new), starts, length)
+    {
+        return batch_transform(
+            input,
+            starts,
+            length,
+            arguments.len(),
+            DataType::BigInt,
+            flat_grapheme_substring_length_value,
+            query,
+        );
+    }
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(arguments.len())
+        .map_err(|_| Error::Resource("cannot allocate grapheme substring length column".into()))?;
+    let mut row = Vec::with_capacity(columns.len());
+    for index in 0..arguments.len() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        arguments.read_row(index, &mut row)?;
+        output.push(grapheme_substring_length_value(&row)?);
+    }
+    query.check()?;
+    Vector::flat(DataType::BigInt, output)
+}
+
+fn grapheme_substring_length_value(arguments: &[Value]) -> Result<Value> {
+    if !matches!(arguments.len(), 2 | 3) {
+        return Err(Error::Internal(
+            "grapheme substring argument count changed after binding".into(),
+        ));
+    }
+    if arguments.iter().any(Value::is_null) {
+        return Ok(Value::Null);
+    }
+    let Value::Varchar(input) = &arguments[0] else {
+        return Err(Error::Internal(
+            "grapheme substring input is not VARCHAR".into(),
+        ));
+    };
+    let start = bound(&arguments[1], "offset")?;
+    let length = arguments
+        .get(2)
+        .map(|value| bound(value, "length"))
+        .transpose()?;
+    Ok(Value::Integer(slice_length(input, start, length)))
 }
 
 fn grapheme_length_value(value: &Value) -> Result<Value> {
@@ -334,6 +423,27 @@ fn flat_grapheme_substring_value(input: &Value, start: i64, length: Option<i64>)
     slice(input, start, length).map(Value::Varchar)
 }
 
+fn flat_grapheme_substring_length_value(
+    input: &Value,
+    start: i64,
+    length: Option<i64>,
+) -> Result<Value> {
+    let Value::Varchar(input) = input else {
+        return if input.is_null() {
+            Ok(Value::Null)
+        } else {
+            Err(Error::Internal(
+                "grapheme substring input encoding is not VARCHAR".into(),
+            ))
+        };
+    };
+    let start = bound_i128(i128::from(start), "offset")?;
+    let length = length
+        .map(|length| bound_i128(i128::from(length), "length"))
+        .transpose()?;
+    Ok(Value::Integer(slice_length(input, start, length)))
+}
+
 fn bound(value: &Value, name: &str) -> Result<i128> {
     bound_i128(value.as_i128()?, name)
 }
@@ -361,29 +471,67 @@ fn grapheme_count(input: &str) -> i128 {
     }
 }
 
-fn slice(input: &str, start: i128, length: Option<i128>) -> Result<String> {
+fn slice_length(input: &str, start: i128, length: Option<i128>) -> i128 {
+    if start >= 0 {
+        let raw_start = if start > 0 { start - 1 } else { -1 };
+        let (raw_begin, raw_end) = match length {
+            Some(length) if length < 0 => (raw_start + length, raw_start),
+            Some(length) => (raw_start, raw_start + length),
+            None => (raw_start, i128::MAX),
+        };
+        let begin = raw_begin.max(0);
+        let end = raw_end.max(0);
+        if begin >= end || input.is_empty() {
+            return 0;
+        }
+        let mut available = 1_i128;
+        for _ in utf8proc::grapheme::grapheme_breaks(input) {
+            available += 1;
+            if available >= end {
+                break;
+            }
+        }
+        return (end.min(available) - begin.min(available)).max(0);
+    }
     let count = grapheme_count(input);
-    let raw_start = if start > 0 {
-        start - 1
-    } else if start == 0 {
-        -1
-    } else {
-        count + start
-    };
+    let raw_start = count + start;
     let (raw_begin, raw_end) = match length {
         Some(length) if length < 0 => (raw_start + length, raw_start),
         Some(length) => (raw_start, raw_start + length),
         None => (raw_start, count),
     };
-    let begin = raw_begin.clamp(0, count) as usize;
-    let end = raw_end.clamp(0, count) as usize;
+    let begin = raw_begin.clamp(0, count);
+    let end = raw_end.clamp(0, count);
+    (end - begin).max(0)
+}
+
+fn slice(input: &str, start: i128, length: Option<i128>) -> Result<String> {
+    let suffix_count = (start < 0).then(|| grapheme_count(input));
+    let raw_start = if start > 0 {
+        start - 1
+    } else if start == 0 {
+        -1
+    } else {
+        suffix_count.expect("negative starts have a grapheme count") + start
+    };
+    let (raw_begin, raw_end) = match length {
+        Some(length) if length < 0 => (raw_start + length, raw_start),
+        Some(length) => (raw_start, raw_start + length),
+        None if start >= 0 => (raw_start, i128::MAX),
+        None => (
+            raw_start,
+            suffix_count.expect("negative starts have a grapheme count"),
+        ),
+    };
+    let begin = raw_begin.max(0);
+    let end = raw_end.max(0);
     if begin >= end {
         return Ok(String::new());
     }
     let mut begin_offset = (begin == 0).then_some(0);
-    let mut end_offset = (end == count as usize).then_some(input.len());
+    let mut end_offset = None;
     for (ordinal, offset) in utf8proc::grapheme::grapheme_breaks(input).enumerate() {
-        let ordinal = ordinal + 1;
+        let ordinal = ordinal as i128 + 1;
         if ordinal == begin {
             begin_offset = Some(offset);
         }
@@ -392,10 +540,13 @@ fn slice(input: &str, start: i128, length: Option<i128>) -> Result<String> {
             break;
         }
     }
-    let begin_offset =
-        begin_offset.ok_or_else(|| Error::Internal("grapheme start boundary is missing".into()))?;
-    let end_offset =
-        end_offset.ok_or_else(|| Error::Internal("grapheme end boundary is missing".into()))?;
+    // A requested boundary beyond the last cluster clamps to the terminal
+    // byte offset without requiring an initial counting pass.
+    let begin_offset = begin_offset.unwrap_or(input.len());
+    let end_offset = end_offset.unwrap_or(input.len());
+    if begin_offset >= end_offset {
+        return Ok(String::new());
+    }
     let source = &input[begin_offset..end_offset];
     let mut output = String::new();
     output
@@ -422,6 +573,36 @@ mod tests {
             slice(input, 3, Some(-2)).unwrap(),
             "e\u{301}👍🏽\u{200d}❤️\u{fe0f}"
         );
+    }
+
+    #[test]
+    fn fused_substring_lengths_match_materialized_grapheme_slices_at_boundaries() {
+        let inputs = ["", "\0", "abc", "e\u{301}x\0", "👍🏽\u{200d}❤️\u{fe0f}x"];
+        let starts = [MIN_BOUND, -9, -2, -1, 0, 1, 2, 9, MAX_BOUND];
+        let lengths = [
+            None,
+            Some(MIN_BOUND),
+            Some(-9),
+            Some(-2),
+            Some(-1),
+            Some(0),
+            Some(1),
+            Some(2),
+            Some(9),
+            Some(MAX_BOUND),
+        ];
+        for input in inputs {
+            for start in starts {
+                for length in lengths {
+                    let materialized = slice(input, start, length).unwrap();
+                    assert_eq!(
+                        slice_length(input, start, length),
+                        grapheme_count(&materialized),
+                        "input={input:?} start={start} length={length:?} slice={materialized:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

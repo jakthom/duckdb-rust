@@ -2,13 +2,15 @@
 # stored-column row-visits through the SQLLogic runner.
 statement ok
 CREATE TABLE g06_text_contains_process AS
-SELECT CASE i % 4 WHEN 0 THEN 0 WHEN 1 THEN 65 WHEN 2 THEN 129414 ELSE 233 END AS code
-FROM range(50000) t(i);
+SELECT 'p' || chr(code) || chr(0) || 's' AS haystack,
+       chr(code) AS needle
+FROM (SELECT CASE i % 4 WHEN 0 THEN 0 WHEN 1 THEN 65 WHEN 2 THEN 129414 ELSE 233 END AS code
+      FROM range(50000) t(i));
 
 loop iteration 0 128
 
 query I
-SELECT sum(CASE WHEN contains('p' || chr(code) || chr(0) || 's', chr(code)) THEN 1 ELSE 0 END)
+SELECT count(*) FILTER (WHERE contains(haystack, needle))
 FROM g06_text_contains_process;
 ----
 50000

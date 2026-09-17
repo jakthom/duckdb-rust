@@ -2,8 +2,98 @@ use std::sync::Arc;
 
 use duckdb_rust::{
     DatabaseBuilder, Error, Result, Value,
+    common::{
+        DataType,
+        vector::{DataChunk, Vector},
+    },
     execution::expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
+    function::{FunctionRegistry, ScalarFunction},
+    parallel::QueryContext,
+    planner::{BoundExpr, ExprKind},
 };
+
+#[derive(Debug)]
+struct UnrelatedContains;
+
+impl ScalarFunction for UnrelatedContains {
+    fn name(&self) -> &str {
+        "contains"
+    }
+
+    fn return_type(
+        &self,
+        _: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+
+    fn is_total(&self, _: &[Option<&Value>]) -> bool {
+        true
+    }
+
+    fn evaluate(&self, _: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        Ok(Value::Boolean(true))
+    }
+}
+
+#[test]
+fn batched_contains_selection_uses_builtin_identity_and_exact_offsets() -> Result<()> {
+    let query = QueryContext::background();
+    let input = DataChunk::new(
+        vec![
+            Vector::flat(
+                DataType::Varchar,
+                vec![
+                    Value::Varchar("a\0é".into()),
+                    Value::Varchar("abc".into()),
+                    Value::Null,
+                    Value::Varchar("".into()),
+                    Value::Varchar("é".into()),
+                ],
+            )?,
+            Vector::flat(
+                DataType::Varchar,
+                vec![
+                    Value::Varchar("\0é".into()),
+                    Value::Varchar("z".into()),
+                    Value::Varchar("".into()),
+                    Value::Varchar("".into()),
+                    Value::Varchar("é".into()),
+                ],
+            )?,
+        ],
+        5,
+    )?;
+    let arguments = vec![
+        BoundExpr::column(0, DataType::Varchar),
+        BoundExpr::column(1, DataType::Varchar),
+    ];
+    let builtin = BoundExpr {
+        kind: ExprKind::Scalar(
+            FunctionRegistry::builtins().scalar("contains")?,
+            arguments.clone(),
+        ),
+        data_type: DataType::Boolean,
+    };
+    assert_eq!(
+        BatchedEvaluator.select_batch(&builtin, &input, &query)?,
+        vec![0, 3, 4]
+    );
+
+    // Matching SQL spelling is not a built-in identity. An external adapter
+    // must retain its own callback semantics in predicate mode.
+    let unrelated = BoundExpr {
+        kind: ExprKind::Scalar(Arc::new(UnrelatedContains), arguments),
+        data_type: DataType::Boolean,
+    };
+    assert_eq!(
+        BatchedEvaluator.select_batch(&unrelated, &input, &query)?,
+        vec![0, 1, 2, 3, 4]
+    );
+    Ok(())
+}
 
 #[test]
 fn codepoint_varchar_functions_are_nul_safe_and_prepared() -> Result<()> {

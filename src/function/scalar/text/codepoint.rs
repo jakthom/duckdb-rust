@@ -182,14 +182,92 @@ fn contains_value(arguments: &[Value]) -> Result<Value> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn contains_values(haystack: &Value, needle: &Value) -> Result<Value> {
+    contains_match(haystack, needle).map(|value| match value {
+        Some(value) => Value::Boolean(value),
+        None => Value::Null,
+    })
+}
+
+fn contains_match(haystack: &Value, needle: &Value) -> Result<Option<bool>> {
     match (haystack, needle) {
-        (Value::Null, _) | (_, Value::Null) => Ok(Value::Null),
+        (Value::Null, _) | (_, Value::Null) => Ok(None),
         (Value::Varchar(haystack), Value::Varchar(needle)) => {
-            Ok(Value::Boolean(haystack.contains(needle)))
+            Ok(Some(contains_text(haystack, needle)))
         }
         _ => Err(Error::Internal(
             "VARCHAR contains arguments are not VARCHAR".into(),
         )),
+    }
+}
+
+#[inline(always)]
+fn contains_text(haystack: &str, needle: &str) -> bool {
+    let haystack = haystack.as_bytes();
+    let needle = needle.as_bytes();
+    match needle {
+        [] => true,
+        [byte] => haystack.contains(byte),
+        [a, b] => haystack
+            .windows(2)
+            .any(|window| window[0] == *a && window[1] == *b),
+        [a, b, c] => haystack
+            .windows(3)
+            .any(|window| window[0] == *a && window[1] == *b && window[2] == *c),
+        [a, b, c, d] => haystack
+            .windows(4)
+            .any(|window| window[0] == *a && window[1] == *b && window[2] == *c && window[3] == *d),
+        _ if needle.len() > haystack.len() => false,
+        _ => haystack
+            .windows(needle.len())
+            .any(|window| window == needle),
+    }
+}
+
+fn batch_contains_matches(
+    count: usize,
+    query: &QueryContext,
+    mut matched: impl FnMut(usize) -> Result<Option<bool>>,
+) -> Result<Vector> {
+    let mut common = None;
+    let mut output: Option<Vec<Value>> = None;
+    for index in 0..count {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        let matched = matched(index)?;
+        match (common, &mut output) {
+            (None, _) => common = Some(matched),
+            (Some(_), Some(output)) => output.push(match matched {
+                Some(value) => Value::Boolean(value),
+                None => Value::Null,
+            }),
+            (Some(common_value), None) if common_value != matched => {
+                let mut result = Vec::new();
+                result.try_reserve_exact(count).map_err(|_| {
+                    Error::Resource("cannot allocate VARCHAR contains result column".into())
+                })?;
+                let common_value = match common_value {
+                    Some(value) => Value::Boolean(value),
+                    None => Value::Null,
+                };
+                result.extend(std::iter::repeat_n(common_value, index));
+                result.push(match matched {
+                    Some(value) => Value::Boolean(value),
+                    None => Value::Null,
+                });
+                output = Some(result);
+            }
+            (Some(_), None) => {}
+        }
+    }
+    query.check()?;
+    if let Some(output) = output {
+        return Vector::flat(DataType::Boolean, output);
+    }
+    match common {
+        Some(Some(value)) => Vector::constant(DataType::Boolean, Value::Boolean(value), count),
+        Some(None) => Vector::constant(DataType::Boolean, Value::Null, count),
+        None => Vector::flat(DataType::Boolean, Vec::new()),
     }
 }
 
@@ -222,6 +300,14 @@ fn batch_contains(arguments: &DataChunk, query: &QueryContext) -> Result<Option<
                 contains_values(left, right)?,
                 arguments.len(),
             )
+            .map(Some);
+        }
+        if !matches!(left, VarcharBatch::Dictionary { .. })
+            && !matches!(right, VarcharBatch::Dictionary { .. })
+        {
+            return batch_contains_matches(arguments.len(), query, |index| {
+                contains_match(left.get(index)?, right.get(index)?)
+            })
             .map(Some);
         }
         // Projection and CASE commonly produce a small set of physical string
@@ -285,6 +371,11 @@ fn batch_contains(arguments: &DataChunk, query: &QueryContext) -> Result<Option<
             }
         }
         query.check()?;
+        if let Some(first) = values.first()
+            && values.iter().all(|value| value == first)
+        {
+            return Vector::constant(DataType::Boolean, first.clone(), arguments.len()).map(Some);
+        }
         return Arc::new(Vector::flat(DataType::Boolean, values)?)
             .select(selection)
             .map(Some);
@@ -307,6 +398,50 @@ fn batch_contains(arguments: &DataChunk, query: &QueryContext) -> Result<Option<
     }
     query.check()?;
     Vector::flat(DataType::Boolean, output).map(Some)
+}
+
+pub(crate) fn select_contains(arguments: &DataChunk, query: &QueryContext) -> Result<Vec<usize>> {
+    let [left, right] = arguments.columns() else {
+        return Err(Error::Internal(
+            "VARCHAR contains selection argument count changed after binding".into(),
+        ));
+    };
+    if left.data_type() != &DataType::Varchar || right.data_type() != &DataType::Varchar {
+        return Err(Error::Internal(
+            "VARCHAR contains selection types changed after binding".into(),
+        ));
+    }
+    let mut selected = Vec::new();
+    selected
+        .try_reserve_exact(arguments.len())
+        .map_err(|_| Error::Resource("cannot allocate VARCHAR contains selection".into()))?;
+    if let (Some(left), Some(right)) = (VarcharBatch::new(left), VarcharBatch::new(right)) {
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            if contains_match(left.get(index)?, right.get(index)?)? == Some(true) {
+                selected.push(index);
+            }
+        }
+    } else {
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let left = left.value(index).ok_or_else(|| {
+                Error::Internal("VARCHAR contains left selection is out of bounds".into())
+            })?;
+            let right = right.value(index).ok_or_else(|| {
+                Error::Internal("VARCHAR contains right selection is out of bounds".into())
+            })?;
+            if contains_match(&left, &right)? == Some(true) {
+                selected.push(index);
+            }
+        }
+    }
+    query.check()?;
+    Ok(selected)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -347,6 +482,14 @@ impl ScalarFunction for Ascii {
 impl ScalarFunction for Contains {
     fn name(&self) -> &str {
         "contains"
+    }
+    fn batch_kind(
+        &self,
+        _: crate::function::ScalarBatchAccess,
+    ) -> Option<crate::function::ScalarBatchKind> {
+        Some(crate::function::ScalarBatchKind::builtin(
+            crate::function::ScalarBatchIdentity::VarcharContains,
+        ))
     }
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
         if arguments == [DataType::Null, DataType::Null] {
@@ -466,6 +609,83 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    fn varchar(values: &[Option<&str>]) -> Result<Vector> {
+        Vector::flat(
+            DataType::Varchar,
+            values
+                .iter()
+                .map(|value| match value {
+                    Some(value) => Value::Varchar((*value).into()),
+                    None => Value::Null,
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn contains_selection_preserves_offsets_across_supported_and_fallback_encodings() -> Result<()>
+    {
+        let query = QueryContext::background();
+        let haystacks = varchar(&[
+            Some("abc"),
+            Some("abc"),
+            None,
+            Some(""),
+            Some("\0é"),
+            Some("é"),
+            Some("é"),
+        ])?;
+        let needles = varchar(&[
+            Some("b"),
+            Some("z"),
+            Some("x"),
+            Some(""),
+            Some("\0"),
+            Some("é"),
+            Some("x"),
+        ])?;
+        let flat = DataChunk::new(vec![haystacks.clone(), needles.clone()], 7)?;
+        assert_eq!(select_contains(&flat, &query)?, vec![0, 3, 4, 5]);
+
+        let empty = Vector::constant(DataType::Varchar, Value::Varchar("".into()), 7)?;
+        assert_eq!(
+            select_contains(&DataChunk::new(vec![haystacks.clone(), empty], 7)?, &query)?,
+            vec![0, 1, 3, 4, 5, 6]
+        );
+
+        let selection = vec![5, 2, 0, 3, 1, 4, 6];
+        let direct = DataChunk::new(
+            vec![
+                Arc::new(haystacks.clone()).select(selection.clone())?,
+                Arc::new(needles.clone()).select(selection.clone())?,
+            ],
+            7,
+        )?;
+        assert_eq!(select_contains(&direct, &query)?, vec![0, 2, 3, 5]);
+
+        let nested_selection = vec![6, 0, 2, 1, 4, 3, 5];
+        let nested = DataChunk::new(
+            vec![
+                Arc::new(direct.columns()[0].clone()).select(nested_selection.clone())?,
+                Arc::new(direct.columns()[1].clone()).select(nested_selection)?,
+            ],
+            7,
+        )?;
+        assert_eq!(select_contains(&nested, &query)?, vec![1, 2, 5, 6]);
+
+        let chunked_haystacks = Vector::chunked(
+            DataType::Varchar,
+            vec![haystacks.slice(0, 3)?, haystacks.slice(3, 4)?],
+        )?;
+        let chunked_needles = Vector::chunked(
+            DataType::Varchar,
+            vec![needles.slice(0, 2)?, needles.slice(2, 5)?],
+        )?;
+        let chunked = DataChunk::new(vec![chunked_haystacks, chunked_needles], 7)?;
+        assert_eq!(select_contains(&chunked, &query)?, vec![0, 3, 4, 5]);
+        Ok(())
+    }
 
     #[test]
     fn codepoint_batches_cover_flat_constant_dictionary_selected_and_chunked_vectors() -> Result<()>

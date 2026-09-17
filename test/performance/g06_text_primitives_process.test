@@ -3,15 +3,14 @@
 statement ok
 CREATE TABLE g06_text_primitives_process AS
 SELECT CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v,
-       i
+       CASE i % 4 WHEN 0 THEN 2 WHEN 1 THEN -1 WHEN 2 THEN 1 ELSE 1 END AS start_at,
+       CASE i % 4 WHEN 0 THEN 1 WHEN 1 THEN 1 WHEN 2 THEN 2 ELSE 1 END AS take
 FROM range(50000) t(i);
 
 loop iteration 0 128
 
 query I
-SELECT sum(length_grapheme(substring_grapheme(v,
-           CASE i % 4 WHEN 0 THEN 2 WHEN 1 THEN -1 WHEN 2 THEN 1 ELSE 1 END,
-           CASE i % 4 WHEN 0 THEN 1 WHEN 1 THEN 1 WHEN 2 THEN 2 ELSE 1 END)))
+SELECT sum(length_grapheme(substring_grapheme(v, start_at, take)))
 FROM g06_text_primitives_process;
 ----
 50000

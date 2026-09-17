@@ -1043,11 +1043,13 @@ functional acceptance runs both new component targets, the existing substring
 and search targets, the local G06.1d SQLLogic fixture and the exact dual-pin path
 list; `cargo dev coverage` and `cargo dev trace check --workspace --all-targets`
 apply because this slice adds Rust interfaces/files.
-Gate P declares two 50,000-row, single-thread, release/no-tracing native cases:
-grapheme substring/length over low- and high-cardinality complex Unicode values,
-and codepoint/NUL construction plus `ascii`/`contains` through aggregate
-consumers. The process workload repeats stored-column equivalents with validated
-one-row results. Three warmups and 21 serial samples compare both exact pins;
+Gate P declares four independent 50,000-row, single-thread,
+release/no-tracing native cases: fused grapheme substring/length over
+low-cardinality and high-cardinality complex Unicode values, codepoint/NUL
+construction consumed by `ascii`, and variable-needle VARCHAR `contains`.
+Four process fixtures repeat the corresponding stored-operand aggregate
+consumers 128 times (6.4 million row visits each) with validated one-row
+results. Three warmups and 21 serial samples compare both exact pins;
 every native wall ratio and process wall, throughput, CPU, peak-RSS and block-I/O
 ratio must independently be no worse than the faster reference. Exact results,
 samples, pin/source/binary identities and failed attempts remain under `target/`.
