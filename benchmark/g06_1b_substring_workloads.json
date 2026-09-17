@@ -11,16 +11,16 @@
       "sum": "112500"
     },
     {
-      "name": "g06_1b_substring_materialized_varchar_50k",
-      "sql": "SELECT sum(length(lower(substring(v,start,count)))) FROM g06_substring",
-      "rows": 1,
-      "sum": "112500"
+      "name": "g06_1b_substring_varchar_projection_low_cardinality_50k",
+      "sql": "SELECT substring(v,start,count) FROM g06_substring",
+      "rows": 50000,
+      "sum": "22762500"
     },
     {
-      "name": "g06_1b_substring_high_cardinality_cache_cap_50k",
-      "sql": "SELECT sum(length(lower(substring(v,unique_start,1)))) FROM g06_substring",
-      "rows": 1,
-      "sum": "2500"
+      "name": "g06_1b_substring_varchar_projection_high_cardinality_50k",
+      "sql": "SELECT substring(v,unique_start,1) FROM g06_substring",
+      "rows": 50000,
+      "sum": "883500"
     }
   ]
 }

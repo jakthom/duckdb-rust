@@ -13,6 +13,29 @@ static std::string Read(const char *path) {
     return text.str();
 }
 
+static void AddChecksum(int64_t &sum, const duckdb::Value &value, const char *overflow) {
+    if (value.IsNull()) throw std::runtime_error("unexpected NULL checksum");
+    int64_t contribution;
+    if (value.type().id() == duckdb::LogicalTypeId::VARCHAR) {
+        auto text = value.GetValue<std::string>();
+        contribution = 7;
+        int64_t next;
+        if (__builtin_add_overflow(contribution, static_cast<int64_t>(text.size()), &next))
+            throw std::runtime_error(overflow);
+        contribution = next;
+        for (auto byte : text) {
+            if (__builtin_add_overflow(contribution, static_cast<unsigned char>(byte), &next))
+                throw std::runtime_error(overflow);
+            contribution = next;
+        }
+    } else {
+        contribution = value.GetValue<int64_t>();
+    }
+    int64_t next;
+    if (__builtin_add_overflow(sum, contribution, &next)) throw std::runtime_error(overflow);
+    sum = next;
+}
+
 int main(int argc, char **argv) {
     try {
         if (argc != 3 && argc != 5) throw std::runtime_error("expected setup/query and optional reset/verification paths");
@@ -52,11 +75,7 @@ int main(int argc, char **argv) {
                 for (duckdb::idx_t row = 0; row < chunk->size(); row++) {
                     for (duckdb::idx_t column = 0; column < chunk->ColumnCount(); column++) {
                         auto value = chunk->GetValue(column, row);
-                        if (value.IsNull()) throw std::runtime_error("unexpected NULL checksum");
-                        int64_t next;
-                        if (__builtin_add_overflow(sum, value.GetValue<int64_t>(), &next))
-                            throw std::runtime_error("checksum overflow");
-                        sum = next;
+                        AddChecksum(sum, value, "checksum overflow");
                     }
                 }
             }
@@ -71,11 +90,7 @@ int main(int argc, char **argv) {
                     for (duckdb::idx_t row = 0; row < chunk->size(); row++) {
                         for (duckdb::idx_t column = 0; column < chunk->ColumnCount(); column++) {
                             auto value = chunk->GetValue(column, row);
-                            if (value.IsNull()) throw std::runtime_error("unexpected NULL verification");
-                            int64_t next;
-                            if (__builtin_add_overflow(sum, value.GetValue<int64_t>(), &next))
-                                throw std::runtime_error("verification overflow");
-                            sum = next;
+                            AddChecksum(sum, value, "verification overflow");
                         }
                     }
                 }

@@ -40,8 +40,22 @@ fn main() -> Result<()> {
         let mut sum = 0_i128;
         for row in &result.rows {
             for value in row {
+                // Numeric columns retain the original numeric checksum. VARCHAR
+                // outputs contribute a fixed type tag, their UTF-8 byte length,
+                // and the sum of their UTF-8 bytes. This consumes projection
+                // output without relying on a SQL-side surrogate operation.
+                let contribution = match value {
+                    duckdb_rust::Value::Varchar(text) => text
+                        .as_bytes()
+                        .iter()
+                        .try_fold(7_i128 + text.len() as i128, |sum, byte| {
+                            sum.checked_add(i128::from(*byte))
+                        })
+                        .ok_or_else(|| Error::Execution("checksum overflow".into()))?,
+                    _ => value.as_i128()?,
+                };
                 sum = sum
-                    .checked_add(value.as_i128()?)
+                    .checked_add(contribution)
                     .ok_or_else(|| Error::Execution("checksum overflow".into()))?;
             }
         }

@@ -1,9 +1,9 @@
 # G06.1b VARCHAR character-length and substring workloads. The source data
 # retains ASCII, Unicode and empty values while exercising dictionary batches.
-# The first query is the fused character-count consumer. The second puts the
-# VARCHAR result through lower before counting it, requiring a materialized
-# VARCHAR result. The final query has more than the substring cache cap's
-# distinct (value, start, length) triples per batch.
+# The first query is the fused character-count consumer. The remaining queries
+# project VARCHAR directly, so the runner transports the produced text. The
+# final query has more than the substring cache cap's distinct
+# (value, start, length) triples per batch.
 statement ok
 CREATE TABLE g06_substring(v VARCHAR, start BIGINT, count BIGINT, unique_start BIGINT);
 
@@ -20,12 +20,12 @@ SELECT sum(length(substring(v,start,count))) FROM g06_substring;
 ----
 112500
 
-query I
-SELECT sum(length(lower(substring(v,start,count)))) FROM g06_substring;
+query T
+SELECT substring(v,start,count) FROM g06_substring;
 ----
-112500
+50000 values hashing to 81079a12d43c2172212ce0278ad143f3
 
-query I
-SELECT sum(length(lower(substring(v,unique_start,1)))) FROM g06_substring;
+query T
+SELECT substring(v,unique_start,1) FROM g06_substring;
 ----
-2500
+50000 values hashing to a18d57fb2a2221b82d1ada186974e057
