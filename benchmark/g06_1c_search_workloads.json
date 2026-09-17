@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE g06_search AS SELECT CASE i % 4 WHEN 0 THEN 'alphabet soup' WHEN 1 THEN 'é🦆x' WHEN 2 THEN 'a\\0é' ELSE '' END AS haystack, CASE i % 4 WHEN 0 THEN 's' WHEN 1 THEN '🦆' WHEN 2 THEN '\\0é' ELSE '' END AS needle FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "g06_1c_instr_fused_low_cardinality_50k",
+      "sql": "SELECT sum(instr(haystack,needle)) FROM g06_search",
+      "rows": 1,
+      "sum": "187500"
+    },
+    {
+      "name": "g06_1c_strpos_projection_low_cardinality_50k",
+      "sql": "SELECT strpos(haystack,needle) FROM g06_search",
+      "rows": 50000,
+      "sum": "187500"
+    }
+  ]
+}

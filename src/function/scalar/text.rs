@@ -21,6 +21,9 @@ const MAX_BOUND: i128 = 4_294_967_295;
 #[derive(Debug)]
 struct Substring(&'static str);
 
+#[derive(Debug)]
+struct StringSearch(&'static str);
+
 #[derive(Clone, Copy)]
 enum VarcharBatch<'a> {
     Flat(&'a [Value]),
@@ -242,6 +245,149 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         registry
             .register_scalar(Arc::new(Substring(name)))
             .expect("unique substring function");
+    }
+    for name in ["instr", "strpos", "position"] {
+        registry
+            .register_scalar(Arc::new(StringSearch(name)))
+            .expect("unique string search function");
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for StringSearch {
+    fn name(&self) -> &str {
+        self.0
+    }
+
+    fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
+        if arguments.len() != 2 {
+            return Err(Error::Bind(format!(
+                "{} requires a string and search string",
+                self.0
+            )));
+        }
+        if !arguments
+            .iter()
+            .all(|argument| matches!(argument, DataType::Varchar | DataType::Null))
+        {
+            return Err(Error::Bind(format!(
+                "{} requires VARCHAR arguments",
+                self.0
+            )));
+        }
+        Ok(vec![DataType::Varchar, DataType::Varchar])
+    }
+
+    fn return_type(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        if matches!(arguments, [DataType::Varchar, DataType::Varchar]) {
+            Ok(DataType::BigInt)
+        } else {
+            Err(Error::Bind(format!(
+                "no overload for {}({arguments:?})",
+                self.0
+            )))
+        }
+    }
+
+    fn is_total(&self, _arguments: &[Option<&Value>]) -> bool {
+        true
+    }
+
+    fn supports_batch_evaluation(&self, arguments: &[DataType]) -> bool {
+        matches!(arguments, [DataType::Varchar, DataType::Varchar])
+    }
+
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        if !self.supports_batch_evaluation(
+            &arguments
+                .columns()
+                .iter()
+                .map(|column| column.data_type().clone())
+                .collect::<Vec<_>>(),
+        ) {
+            return Ok(None);
+        }
+        let columns = arguments.columns();
+        let Some(haystack) = VarcharBatch::new(&columns[0]) else {
+            return Ok(None);
+        };
+        let Some(needle) = VarcharBatch::new(&columns[1]) else {
+            return Ok(None);
+        };
+        // Low-cardinality string columns are common after projection and CASE.
+        // Cache physical pairs for the whole batch, retaining a dictionary result
+        // while distinct pairs stay bounded; high-cardinality input immediately
+        // switches back to a flat result rather than growing a second payload.
+        let maximum_unique = (arguments.len() / 8).clamp(1, 32);
+        let mut keys = Vec::new();
+        keys.try_reserve_exact(maximum_unique.saturating_add(1))
+            .map_err(|_| Error::Resource("cannot allocate string search keys".into()))?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(maximum_unique.saturating_add(1))
+            .map_err(|_| Error::Resource("cannot allocate string search values".into()))?;
+        let mut selection = Vec::new();
+        selection
+            .try_reserve_exact(arguments.len())
+            .map_err(|_| Error::Resource("cannot allocate string search selection".into()))?;
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let haystack_value = haystack.get(index)?;
+            let needle_value = needle.get(index)?;
+            let key = match (haystack_value, needle_value) {
+                (Value::Varchar(haystack), Value::Varchar(needle)) => {
+                    Some((haystack.as_str(), needle.as_str()))
+                }
+                (Value::Null, _) | (_, Value::Null) => None,
+                _ => {
+                    return Err(Error::Internal(
+                        "string search arguments are not VARCHAR".into(),
+                    ));
+                }
+            };
+            let entry = if let Some(entry) = keys.iter().position(|candidate| *candidate == key) {
+                entry
+            } else {
+                let entry = values.len();
+                keys.push(key);
+                values.push(string_search_values(haystack_value, needle_value)?);
+                entry
+            };
+            selection.push(entry);
+            if values.len() > maximum_unique {
+                let mut output = Vec::new();
+                output.try_reserve_exact(arguments.len()).map_err(|_| {
+                    Error::Resource("cannot allocate string search result column".into())
+                })?;
+                output.extend(selection.iter().map(|&entry| values[entry].clone()));
+                for index in index + 1..arguments.len() {
+                    if index % 1024 == 0 {
+                        query.check()?;
+                    }
+                    output.push(string_search_values(
+                        haystack.get(index)?,
+                        needle.get(index)?,
+                    )?);
+                }
+                query.check()?;
+                return Vector::flat(DataType::BigInt, output).map(Some);
+            }
+        }
+        query.check()?;
+        Arc::new(Vector::flat(DataType::BigInt, values)?)
+            .select(selection)
+            .map(Some)
+    }
+
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        string_search_value(arguments)
     }
 }
 
@@ -886,6 +1032,38 @@ fn substring_value(arguments: &[Value]) -> Result<Value> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn string_search_value(arguments: &[Value]) -> Result<Value> {
+    if arguments.len() != 2 {
+        return Err(Error::Internal(
+            "string search argument count changed after binding".into(),
+        ));
+    }
+    string_search_values(&arguments[0], &arguments[1])
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn string_search_values(haystack: &Value, needle: &Value) -> Result<Value> {
+    // DuckDB searches raw VARCHAR bytes, then converts the matching byte
+    // boundary into a one-based UTF-8 character offset. `str::find` has the
+    // same byte-preserving match semantics (including embedded NULs) and only
+    // yields valid character boundaries for valid Rust UTF-8.
+    let (Value::Varchar(haystack), Value::Varchar(needle)) = (haystack, needle) else {
+        return if haystack.is_null() || needle.is_null() {
+            Ok(Value::Null)
+        } else {
+            Err(Error::Internal(
+                "string search arguments are not VARCHAR".into(),
+            ))
+        };
+    };
+    let position = haystack
+        .find(needle)
+        .map(|byte_offset| haystack[..byte_offset].chars().count() as i128 + 1)
+        .unwrap_or(0);
+    Ok(Value::Integer(position))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn substring_length_value(arguments: &[Value]) -> Result<Value> {
     if !matches!(arguments.len(), 2 | 3) {
         return Err(Error::Internal(
@@ -1038,6 +1216,78 @@ mod tests {
         assert_eq!(slice_length("abcdef", 3, Some(-2)), 2);
         let long = "é🦆".repeat(50_000);
         assert_eq!(slice(&long, 99_999, Some(2)), "é🦆");
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn string_search_batch_handles_flat_constant_dictionary_and_selected_inputs() -> Result<()> {
+        let query = QueryContext::background();
+        let function = StringSearch("instr");
+        let flat = DataChunk::new(
+            vec![
+                Vector::flat(
+                    DataType::Varchar,
+                    vec![Value::Varchar("é🦆x".into()), Value::Varchar("a\0é".into())],
+                )?,
+                Vector::flat(
+                    DataType::Varchar,
+                    vec![Value::Varchar("🦆".into()), Value::Varchar("\0é".into())],
+                )?,
+            ],
+            2,
+        )?;
+        assert_eq!(
+            function
+                .evaluate_batch(&flat, &query)?
+                .expect("flat search batch callback")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![Value::Integer(2), Value::Integer(2)]
+        );
+
+        let constants = DataChunk::new(
+            vec![
+                Vector::constant(DataType::Varchar, Value::Varchar("hello".into()), 2)?,
+                Vector::constant(DataType::Varchar, Value::Varchar("l".into()), 2)?,
+            ],
+            2,
+        )?;
+        assert_eq!(
+            function
+                .evaluate_batch(&constants, &query)?
+                .expect("constant search batch callback")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![Value::Integer(3); 2]
+        );
+
+        let haystacks = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("world".into()),
+                Value::Varchar("é🦆x".into()),
+            ],
+        )?);
+        let needles = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![Value::Varchar("o".into()), Value::Varchar("🦆".into())],
+        )?);
+        let selected = DataChunk::new(
+            vec![
+                haystacks.select(vec![1, 0, 1])?,
+                needles.select(vec![1, 0, 1])?,
+            ],
+            3,
+        )?;
+        assert_eq!(
+            function
+                .evaluate_batch(&selected, &query)?
+                .expect("dictionary search batch callback")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![Value::Integer(2), Value::Integer(2), Value::Integer(2)]
+        );
+        Ok(())
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

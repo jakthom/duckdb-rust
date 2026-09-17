@@ -96,6 +96,10 @@ name = "text_substring"
 path = "test/component/text_substring.rs"
 
 [[test]]
+name = "text_search"
+path = "test/component/text_search.rs"
+
+[[test]]
 name = "casts"
 path = "test/component/casts.rs"
 

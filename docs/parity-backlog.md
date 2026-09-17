@@ -908,6 +908,45 @@ function catalog and collation system do not. Its **at-parity or better
 performance** gate passes (wall 0.324x, CPU 0.000x at timer resolution and RSS
 0.468x the faster pin, with equal block I/O).
 
+**G06.1c frozen validation manifest — VARCHAR search (`instr`, `strpos`, and
+source alias `position`).** Owned paths are `src/function/scalar/text.rs`,
+`src/function/scalar.rs` only if registration needs it, `test/component/text_search.rs`,
+the G06 search SQLLogic fixture, `benchmark/g06_1c_search*_workloads.json`, and
+this entry. Fast checks are `cargo test -p duckdb-rust --test text_search`, the
+scalar text unit module, and focused flat/constant/dictionary/selected and prepared
+filters; the shared consumers are batched expression evaluation and a fused
+`sum(instr(...))` aggregate. The unchanged upstream IDs selected exactly against
+both pins are `test/sql/function/string/test_instr.test`,
+`test/sql/function/string/test_instr_utf8.test`, the `instr` record in
+`test/sql/function/string/null_byte.test`, and the newly exposed `instr` prefixes
+of `test/sql/function/string/test_substring{,_utf8}.test`; separately unimplemented
+`substring_grapheme`, `chr`, `contains`, and regex records remain visible rather
+than counted as G06.1c passes. Boundary/negative coverage includes Unicode character
+positions, empty needle/haystack, no match, embedded NUL, NULLs, invalid overloads,
+constant/flat/dictionary/selected batches, prepared execution and scalar/batch error
+order. Full functional acceptance runs the listed upstream paths with
+`scripts/run_upstream.py --path-list` for each pin plus the complete text-search
+target and relevant batched-expression target. Gate P declares native 50,000-row
+low-cardinality fused and direct search workloads plus a process
+SQLLogic workload with repeated aggregate consumers. Final release/no-tracing
+measurements require three warmups and 21 serial samples against both exact pinned
+C++ identities; wall latency/throughput, CPU, peak RSS and block I/O each gate
+independently against the faster pin, with raw identities, hashes and samples under
+`target/`.
+The implementation registers callable `instr`, `strpos`, and `position` with
+byte-preserving search and one-based Unicode character positions across scalar and
+physical batch encodings. The exact dual-pin selected run reaches the separately
+owned `POSITION(needle IN haystack)` AST/binder handoff after 3/4 ordinary instr
+records and 6/7 UTF-8 records (development/release); callable aliases and the
+dedicated component coverage pass. `substring_grapheme` and `chr` remain visible
+later blockers in the selected substring/NUL files. Final Gate P evidence is
+`target/g06-1c/performance/{native-release-final-21,native-development-final-21,
+native-fastest-final-21,process-final-21}.json`: the native fused/projection
+Rust-to-faster-pin wall ratios are 0.832/0.425 worst retained-rust ratios, and the
+process workload passes independently for wall 0.914x, CPU 0.864x, RSS 0.838x,
+equal block I/O and throughput. Thus **at-parity or better performance: pass** for
+this bounded callable-search slice; its source-syntax handoff remains open.
+
 **G06.1b frozen validation manifest — VARCHAR length and substring.** Owned paths
 are `src/function/scalar{.rs,/text.rs}`, the shared vector/batch/cast seams changed
 by substring composition, `test/component/{text_substring,casts}.rs`, the G06
