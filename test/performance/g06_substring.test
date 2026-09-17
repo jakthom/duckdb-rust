@@ -1,0 +1,18 @@
+# G06.1b VARCHAR character-length and substring workload. The two populations
+# retain ASCII, Unicode and empty values while exercising scalar and column
+# execution with positive, zero and negative bounds. Embedded-NUL coverage is
+# retained in the component suite, where parameters can carry it verbatim.
+statement ok
+CREATE TABLE g06_substring(v VARCHAR, start BIGINT, count BIGINT);
+
+statement ok
+INSERT INTO g06_substring
+SELECT CASE i % 4 WHEN 0 THEN 'alphabet soup' WHEN 1 THEN 'é🦆x' WHEN 2 THEN 'aé' ELSE '' END,
+       CASE i % 4 WHEN 0 THEN 2 WHEN 1 THEN -2 WHEN 2 THEN 0 ELSE 1 END,
+       CASE i % 4 WHEN 0 THEN 6 WHEN 1 THEN 1 WHEN 2 THEN 3 ELSE 0 END
+FROM range(50000) t(i);
+
+query I
+SELECT sum(length(v)) + sum(char_length(v)) + sum(length(substring(v,start,count))) FROM g06_substring;
+----
+562500

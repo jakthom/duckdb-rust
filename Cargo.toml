@@ -92,6 +92,10 @@ name = "text_caseconvert"
 path = "test/component/text_caseconvert.rs"
 
 [[test]]
+name = "text_substring"
+path = "test/component/text_substring.rs"
+
+[[test]]
 name = "casts"
 path = "test/component/casts.rs"
 

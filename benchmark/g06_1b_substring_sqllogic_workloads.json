@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g06_1b_varchar_substring_50k",
+      "path": "test/performance/g06_substring.test"
+    }
+  ]
+}

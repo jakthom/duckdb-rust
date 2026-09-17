@@ -1,6 +1,7 @@
 use std::sync::Arc;
 mod conditional;
 mod numeric;
+mod text;
 
 use super::{ArgumentEvaluation, FunctionRegistry, ScalarFunction};
 use crate::{
@@ -15,6 +16,7 @@ struct Builtin(&'static str);
 pub(super) fn register(registry: &mut FunctionRegistry) {
     numeric::register(registry);
     conditional::register(registry);
+    text::register(registry);
     registry
         .register_scalar(Arc::new(TypeOf(None)))
         .expect("unique typeof");
