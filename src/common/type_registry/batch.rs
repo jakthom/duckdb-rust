@@ -172,7 +172,7 @@ impl BoundType {
         }
         if self.requires_logical_validation() {
             if let Some(value) = column.constant_value() {
-                self.validate(&value, context)?;
+                self.validate(value, context)?;
             } else if let Some((parent, selection)) = column.dictionary() {
                 // A dictionary position denotes one exact physical value, so
                 // repeated logical rows share the same logical-validation

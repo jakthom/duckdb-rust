@@ -338,7 +338,7 @@ impl Probe {
         if let Some(values) = self.keys.flat_values() {
             // Dispatch the encoding and key representation once per batch.
             for value in &values[start..] {
-                if !visit(&value)? {
+                if !visit(value)? {
                     break;
                 }
             }

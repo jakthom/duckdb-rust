@@ -382,8 +382,8 @@ impl State {
             let signs = parent
                 .values()
                 .map(|value| match value {
-                    Value::Double(value) if value == 1.0 => Some(false),
-                    Value::Double(value) if value == -1.0 => Some(true),
+                    Value::Double(1.0) => Some(false),
+                    Value::Double(-1.0) => Some(true),
                     _ => None,
                 })
                 .collect::<Option<Vec<_>>>();

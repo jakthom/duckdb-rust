@@ -30,6 +30,9 @@ impl DataSet {
             .map(|chunks| chunks.iter().map(DataChunk::len).sum())
             .unwrap_or(self.rows.len())
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn next_batch(&self, position: &mut usize, max_rows: usize) -> Result<Option<DataChunk>> {
         if let Some(chunks) = &self.chunks {
             let mut start = 0usize;

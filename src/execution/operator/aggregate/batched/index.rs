@@ -269,7 +269,7 @@ impl IntegerIndex {
         let coefficients = values.map(|values| {
             let mut coefficients = [None; N];
             for (i, value) in values.iter().enumerate() {
-                coefficients[i] = representations[i].integer_key(&value)?;
+                coefficients[i] = representations[i].integer_key(value)?;
             }
             Ok(coefficients)
         });

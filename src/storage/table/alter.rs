@@ -68,14 +68,12 @@ impl PreparedSlots {
                 {
                     return Ok(());
                 }
-                let mut expected = 0;
-                for slot in before.physical_order.slots(before.next_id) {
+                for (expected, slot) in (0_u64..).zip(before.physical_order.slots(before.next_id)) {
                     if expected == *next_id || slot.row_id() != expected {
                         return Err(Error::Internal(
                             "ADD COLUMN physical slot identity changed after preparation".into(),
                         ));
                     }
-                    expected += 1;
                 }
                 Ok(())
             }

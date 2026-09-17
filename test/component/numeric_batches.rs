@@ -318,7 +318,7 @@ fn numeric_comparison_batches_match_both_scalar_type_adapters() -> Result<()> {
                             if a.is_null() || value.is_null() {
                                 Ok(None)
                             } else {
-                                bound.compare(&a, &value, &query).map(Some)
+                                bound.compare(&a, value, &query).map(Some)
                             }
                         })
                         .collect::<Result<Vec<_>>>()?;

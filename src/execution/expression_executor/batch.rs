@@ -416,7 +416,7 @@ fn evaluate_child_with_semantic_provenance<T: ExpressionEvaluator + ?Sized>(
             && !function.effects().external_access
         {
             let value = function.evaluate_with_provenance(
-                std::slice::from_ref(&value),
+                std::slice::from_ref(value),
                 std::slice::from_ref(&provenance),
                 context.query(),
             )?;
