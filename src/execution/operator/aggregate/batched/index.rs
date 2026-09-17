@@ -183,6 +183,30 @@ impl IntegerIndex {
             return Ok(result);
         }
         match columns {
+            [column] if representations[0] == KeyRepresentation::Integer => {
+                if let Some(values) = column.flat_bigints() {
+                    // The flat all-valid BIGINT lane is already a signed
+                    // coefficient sequence; avoid reconstructing Value for
+                    // every row before compact lookup.
+                    self.locate_coefficients(
+                        values
+                            .iter()
+                            .copied()
+                            .map(|value| Ok([Some(i128::from(value))])),
+                        rows,
+                        query,
+                        create,
+                    )
+                } else {
+                    self.locate_values(
+                        column.values().map(|value| [value]),
+                        representations,
+                        rows,
+                        query,
+                        create,
+                    )
+                }
+            }
             [column]
                 if representations[0] == KeyRepresentation::NumericCoefficient
                     && column.data_type().is_unsigned_integer() =>

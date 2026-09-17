@@ -427,20 +427,15 @@ fn try_ordered_candidates(
                         .query
                         .check_rows(groups.len() + 1 + candidate_units)?;
                     let index = groups.len();
-                    groups.push((
-                        columns
-                            .iter()
-                            .enumerate()
-                            .map(|(i, values)| {
-                                if set.contains(i) {
-                                    values.get(row).expect("validated grouping column").clone()
-                                } else {
-                                    Value::Null
-                                }
-                            })
-                            .collect(),
-                        set_index,
-                    ));
+                    let mut values = Vec::with_capacity(aggregation.groups.len() + functions.len());
+                    for (i, column) in columns.iter().enumerate() {
+                        values.push(if set.contains(i) {
+                            column.get(row).expect("validated grouping column")
+                        } else {
+                            Value::Null
+                        });
+                    }
+                    groups.push((values, set_index));
                     Ok(index)
                 },
             )?;
