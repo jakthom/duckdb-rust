@@ -19,7 +19,7 @@ enum OrderedAccumulator {
         strategy: OrderedAggregateStrategy,
         order: Vec<crate::planner::logical::OrderExpr>,
         types: Vec<BoundType>,
-        values: Vec<Option<(Row, Row)>>,
+        values: Vec<Option<(Value, Vec<Value>)>>,
     },
 }
 
@@ -224,7 +224,7 @@ pub(super) fn try_run(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Batched, bounded retention for FIRST/LAST argument ORDER BY. This route is
 /// intentionally narrower than the scalar ordered driver: all expressions
-/// must be pure and total, order keys are single-column, and only integer
+/// must be pure and total, arguments are unary, and only integer
 /// grouping keys accepted by IntegerIndex may enter. Everything observable or
 /// broader returns None before input is consumed and keeps the generic path.
 fn try_ordered_candidates(
@@ -261,7 +261,8 @@ fn try_ordered_candidates(
                 OrderedAggregateStrategy::First | OrderedAggregateStrategy::Last
             ) && !function.distinct
                 && function.filter.is_none()
-                && function.order_by.len() == 1
+                && function.arguments.len() == 1
+                && !function.order_by.is_empty()
                 && function.arguments.iter().all(BoundExpr::is_pure_and_total)
                 && function
                     .order_by
@@ -330,7 +331,8 @@ fn try_ordered_candidates(
             OrderedAggregateStrategy::First | OrderedAggregateStrategy::Last
                 if !function.distinct
                     && function.filter.is_none()
-                    && function.order_by.len() == 1 =>
+                    && function.arguments.len() == 1
+                    && !function.order_by.is_empty() =>
             {
                 accumulators.push(OrderedAccumulator::Candidate {
                     strategy: function.function.ordered_strategy(&arguments),
@@ -370,7 +372,6 @@ fn try_ordered_candidates(
         })
         .collect::<Result<Vec<_>>>()?;
     let mut candidate_units = 0usize;
-    let mut args = Row::new();
     while let Some(batch) = input.next(context.query.batch_size())? {
         let columns = group_expressions
             .iter()
@@ -460,13 +461,15 @@ fn try_ordered_candidates(
                             if row % 1024 == 0 {
                                 context.query.check()?;
                             }
-                            inputs[function_index].read_row(row, &mut args)?;
-                            let mut key = Row::new();
-                            orders[function_index].read_row(row, &mut key)?;
                             let replaces = match &values[group] {
                                 None => true,
-                                Some((_, current)) => match super::grouped::compare_ordered(
-                                    &key, current, order, types, context,
+                                Some((_, current)) => match compare_candidate_order(
+                                    &orders[function_index],
+                                    row,
+                                    current,
+                                    order,
+                                    types,
+                                    context,
                                 )? {
                                     Ordering::Less => *strategy == OrderedAggregateStrategy::First,
                                     Ordering::Greater => {
@@ -485,7 +488,17 @@ fn try_ordered_candidates(
                                     )?;
                                     candidate_units += 1;
                                 }
-                                values[group] = Some((args.clone(), key));
+                                let argument = inputs[function_index].columns()[0]
+                                    .value(row)
+                                    .expect("validated candidate argument");
+                                let key = orders[function_index]
+                                    .columns()
+                                    .iter()
+                                    .map(|column| {
+                                        column.value(row).expect("validated candidate order")
+                                    })
+                                    .collect();
+                                values[group] = Some((argument, key));
                             }
                         }
                     }
@@ -513,8 +526,8 @@ fn try_ordered_candidates(
                         let mut state = function
                             .function
                             .create_state(&argument_types, context.query.types())?;
-                        if let Some((arguments, _)) = candidate {
-                            state.update(&arguments, context.query)?;
+                        if let Some((argument, _)) = candidate {
+                            state.update(&[argument], context.query)?;
                         }
                         state.finish()
                     })
@@ -534,6 +547,54 @@ fn try_ordered_candidates(
         })
         .collect::<Result<Vec<_>>>()
         .map(Some)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Compare one vector row with a retained candidate without constructing a
+/// temporary Row. The vector seam yields owned scalar values for encoded
+/// lanes; candidate allocation occurs only after a strict replacement.
+fn compare_candidate_order(
+    columns: &DataChunk,
+    row: usize,
+    current: &[Value],
+    order: &[crate::planner::logical::OrderExpr],
+    types: &[BoundType],
+    context: &ExecutionContext<'_>,
+) -> Result<Ordering> {
+    for (((column, current), order), data_type) in
+        columns.columns().iter().zip(current).zip(order).zip(types)
+    {
+        let value = column.value(row).expect("validated candidate order");
+        let comparison = match (value.is_null(), current.is_null()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => {
+                if order.nulls_first {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+            (false, true) => {
+                if order.nulls_first {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            (false, false) => {
+                let comparison = data_type.compare(&value, current, context.query)?;
+                if order.descending {
+                    comparison.reverse()
+                } else {
+                    comparison
+                }
+            }
+        };
+        if comparison != Ordering::Equal {
+            return Ok(comparison);
+        }
+    }
+    Ok(Ordering::Equal)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
