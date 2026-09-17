@@ -736,6 +736,15 @@ fn try_ungrouped(
     }) {
         return Ok(None);
     }
+    if let [function] = functions.as_slice()
+        && let [argument] = function.arguments.as_slice()
+        && matches!(argument.kind, ExprKind::Column(_))
+    {
+        // The established single-aggregate route forwards a physical column
+        // directly to `update_column`; rebuilding its prepared-expression and
+        // chunk wrappers here only adds dispatch to the common SUM path.
+        return Ok(None);
+    }
     aggregation.validate_metadata(context.query)?;
     let expressions = functions
         .iter()
