@@ -35,6 +35,16 @@ enum SignedLanes {
     Huge(Arc<Vec<i128>>),
 }
 
+/// A checked scalar view over signed physical storage. This distinguishes a
+/// SQL NULL from a representation that cannot supply an i64 without first
+/// constructing a logical `Value`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SignedI64At {
+    Value(i64),
+    Null,
+    Unsupported,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SignedLanes {
     fn from_values(data_type: &DataType, values: &[Value]) -> Self {
@@ -805,6 +815,40 @@ impl Vector {
             _ => None,
         }
     }
+    /// Read a logical signed coefficient without constructing a `Value`.
+    /// Selection and chunk adapters recurse through their checked logical
+    /// indices; unsupported physical forms stay explicit rather than falling
+    /// through to the owned scalar seam.
+    pub(crate) fn signed_i64_at(&self, index: usize) -> SignedI64At {
+        if index >= self.count {
+            return SignedI64At::Unsupported;
+        }
+        let index = self.offset + index;
+        match &self.encoding {
+            Encoding::FlatSigned(values) => values
+                .i64_value(index)
+                .map(SignedI64At::Value)
+                .unwrap_or(SignedI64At::Unsupported),
+            Encoding::FlatValues(values) => signed_i64_value(values.get(index)),
+            Encoding::Constant(value) => signed_i64_value(Some(value)),
+            Encoding::Dictionary(parent, selection) => selection
+                .get(index)
+                .map_or(SignedI64At::Unsupported, |&selected| {
+                    parent.signed_i64_at(selected)
+                }),
+            Encoding::Chunks(chunks, offsets) => {
+                let segment = offsets
+                    .partition_point(|&end| end <= index)
+                    .saturating_sub(1);
+                chunks
+                    .get(segment)
+                    .map_or(SignedI64At::Unsupported, |chunk| {
+                        chunk.signed_i64_at(index - offsets[segment])
+                    })
+            }
+            Encoding::FlatDouble(_) | Encoding::FlatDecimalI64(_) => SignedI64At::Unsupported,
+        }
+    }
     /// Borrow the compact physical coefficients for a flat DECIMAL(1..=18)
     /// view. Logical values remain authoritative for every fallback and for
     /// encodings whose NULL/selection semantics need resolution.
@@ -833,6 +877,16 @@ impl Vector {
             }
             _ => None,
         }
+    }
+}
+
+fn signed_i64_value(value: Option<&Value>) -> SignedI64At {
+    match value {
+        Some(Value::Null) => SignedI64At::Null,
+        Some(Value::Integer(value)) => i64::try_from(*value)
+            .map(SignedI64At::Value)
+            .unwrap_or(SignedI64At::Unsupported),
+        _ => SignedI64At::Unsupported,
     }
 }
 
@@ -1087,6 +1141,54 @@ mod physical_tests {
         assert!(ordered.numeric_ascending());
         let unordered = Vector::decimal_i64_prevalidated(data_type, vec![999, -250], false);
         assert!(!unordered.numeric_ascending());
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn signed_i64_accessor_resolves_nullable_encoded_and_chunked_views() -> Result<()> {
+        let nullable = Vector::flat(
+            DataType::BigInt,
+            vec![Value::Integer(7), Value::Null, Value::Integer(-3)],
+        )?;
+        assert_eq!(nullable.signed_i64_at(0), SignedI64At::Value(7));
+        assert_eq!(nullable.signed_i64_at(1), SignedI64At::Null);
+        assert_eq!(nullable.signed_i64_at(2), SignedI64At::Value(-3));
+
+        let value = Vector::constant(DataType::BigInt, Value::Integer(9), 3)?;
+        let null = Vector::constant(DataType::BigInt, Value::Null, 3)?;
+        assert_eq!(value.signed_i64_at(2), SignedI64At::Value(9));
+        assert_eq!(null.signed_i64_at(2), SignedI64At::Null);
+
+        let source = Arc::new(Vector::flat(
+            DataType::BigInt,
+            vec![
+                Value::Integer(10),
+                Value::Null,
+                Value::Integer(30),
+                Value::Integer(40),
+            ],
+        )?);
+        let selected = Arc::new(source.select(vec![3, 1, 0, 2])?);
+        let nested = selected.select(vec![2, 0, 1])?.slice(1, 2)?;
+        assert_eq!(nested.signed_i64_at(0), SignedI64At::Value(40));
+        assert_eq!(nested.signed_i64_at(1), SignedI64At::Null);
+
+        let chunks = Vector::chunked(
+            DataType::BigInt,
+            vec![
+                Vector::flat(DataType::BigInt, vec![Value::Null, Value::Integer(1)])?,
+                Vector::flat(DataType::BigInt, vec![Value::Integer(2)])?,
+            ],
+        )?;
+        assert_eq!(chunks.signed_i64_at(0), SignedI64At::Null);
+        assert_eq!(chunks.signed_i64_at(1), SignedI64At::Value(1));
+        assert_eq!(chunks.signed_i64_at(2), SignedI64At::Value(2));
+        assert_eq!(chunks.signed_i64_at(3), SignedI64At::Unsupported);
+        assert_eq!(
+            Vector::flat(DataType::Double, vec![Value::Double(1.0)])?.signed_i64_at(0),
+            SignedI64At::Unsupported
+        );
         Ok(())
     }
 

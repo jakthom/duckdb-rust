@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     DataType, Value,
     common::type_registry::BoundType,
-    common::vector::Vector,
+    common::vector::{SignedI64At, Vector},
     execution::subquery::PreparedExpression,
     function::{
         OrderedAggregateStrategy,
@@ -649,32 +649,13 @@ fn compare_candidate_order(
 }
 
 /// Return a nullable signed coefficient without materializing a `Value`.
-/// All-valid signed lanes and nullable flat BIGINT values are the common scan
-/// representations; encoded vectors deliberately use the generic comparator.
+/// Encoded vectors resolve through the checked coefficient accessor, retaining
+/// their logical NULL and selection semantics without owned scalar values.
 fn signed_integer_order(column: &Vector, row: usize) -> Option<Option<i64>> {
-    if let Some(value) = column.flat_signed_i64_at(row) {
-        return Some(Some(value));
-    }
-    if let Some(value) = column
-        .flat_values()
-        .and_then(|values| values.get(row))
-        .or_else(|| column.constant_value())
-    {
-        return signed_integer_value(value);
-    }
-    // A dictionary or chunk can enter on a later batch even when the first
-    // batch admitted the physical fast path. Decode it through the normal
-    // vector seam rather than abandoning the retained candidate or panicking.
-    column
-        .value(row)
-        .and_then(|value| signed_integer_value(&value))
-}
-
-fn signed_integer_value(value: &Value) -> Option<Option<i64>> {
-    match value {
-        Value::Null => Some(None),
-        Value::Integer(value) => i64::try_from(*value).ok().map(Some),
-        _ => None,
+    match column.signed_i64_at(row) {
+        SignedI64At::Value(value) => Some(Some(value)),
+        SignedI64At::Null => Some(None),
+        SignedI64At::Unsupported => None,
     }
 }
 
