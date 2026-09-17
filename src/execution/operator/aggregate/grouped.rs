@@ -341,7 +341,9 @@ fn candidate_replaces(
             Ok(compare_ordered(order, current, expressions, types, context)? == Ordering::Less)
         }
         OrderedAggregateStrategy::Last => {
-            Ok(compare_ordered(order, current, expressions, types, context)? != Ordering::Greater)
+            // Stable ascending LAST retains the newest row whose key is at
+            // least the current candidate, including an equal-key tie.
+            Ok(compare_ordered(order, current, expressions, types, context)? != Ordering::Less)
         }
     }
 }
