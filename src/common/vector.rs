@@ -12,6 +12,11 @@ enum Encoding {
     /// authoritative generic representation.
     FlatDouble(Arc<Vec<f64>>),
     FlatSigned(SignedLanes),
+    /// Nullable signed values retain their declared physical width. A set
+    /// validity bit identifies a lane with a logical value; NULL lanes contain
+    /// an unspecified zero placeholder and must never be read without first
+    /// consulting the bitmap.
+    FlatNullableSigned(SignedLanes, Arc<Vec<u64>>),
     FlatDecimalI64(Arc<Vec<i64>>),
     Constant(Value),
     Dictionary(Arc<Vector>, Arc<[usize]>),
@@ -43,6 +48,53 @@ pub(crate) enum SignedI64At {
     Value(i64),
     Null,
     Unsupported,
+}
+
+/// A borrowed nullable BIGINT view. The values already describe the vector's
+/// logical range, while `validity_offset` retains the position of that range
+/// in its shared bitmap. Keeping this detail in the view makes sliced access
+/// allocation-free without exposing bitmap arithmetic to consumers.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NullableBigIntView<'a> {
+    values: &'a [i64],
+    validity: &'a [u64],
+    validity_offset: usize,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl NullableBigIntView<'_> {
+    pub(crate) fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub(crate) fn is_valid(&self, index: usize) -> bool {
+        index < self.len() && validity_is_set(self.validity, self.validity_offset + index)
+    }
+
+    /// Outer `None` is out of bounds; inner `None` is SQL NULL.
+    pub(crate) fn value(&self, index: usize) -> Option<Option<i64>> {
+        self.values
+            .get(index)
+            .map(|&value| self.is_valid(index).then_some(value))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline(always)]
+fn validity_is_set(validity: &[u64], index: usize) -> bool {
+    validity
+        .get(index / u64::BITS as usize)
+        .is_some_and(|word| word & (1_u64 << (index % u64::BITS as usize)) != 0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline(always)]
+fn set_validity_bit(validity: &mut Vec<u64>, index: usize) {
+    let word = index / u64::BITS as usize;
+    if word == validity.len() {
+        validity.push(0);
+    }
+    validity[word] |= 1_u64 << (index % u64::BITS as usize);
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -96,6 +148,71 @@ impl SignedLanes {
             )),
             _ => unreachable!("signed lanes require a signed integer type"),
         }
+    }
+
+    fn from_nullable_values(data_type: &DataType, values: &[Value]) -> (Self, Arc<Vec<u64>>) {
+        let mut validity = Vec::with_capacity(values.len().div_ceil(u64::BITS as usize));
+        for (index, value) in values.iter().enumerate() {
+            if !value.is_null() {
+                set_validity_bit(&mut validity, index);
+            } else if index / u64::BITS as usize == validity.len() {
+                validity.push(0);
+            }
+        }
+        let lanes = match data_type {
+            DataType::TinyInt => Self::Tiny(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value as i8,
+                        Value::Null => 0,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            DataType::SmallInt => Self::Small(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value as i16,
+                        Value::Null => 0,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            DataType::Integer => Self::Integer(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value as i32,
+                        Value::Null => 0,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            DataType::BigInt => Self::Big(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value as i64,
+                        Value::Null => 0,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            DataType::HugeInt => Self::Huge(Arc::new(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Integer(value) => *value,
+                        Value::Null => 0,
+                        _ => unreachable!("validated signed column"),
+                    })
+                    .collect(),
+            )),
+            _ => unreachable!("signed lanes require a signed integer type"),
+        };
+        (lanes, Arc::new(validity))
     }
 
     fn value(&self, index: usize) -> Option<i128> {
@@ -194,6 +311,49 @@ impl SignedLanes {
             ),
         }
     }
+
+    fn append_nullable_values(
+        &self,
+        range: std::ops::Range<usize>,
+        validity: &[u64],
+        output: &mut Vec<Value>,
+    ) {
+        output.extend(range.map(|index| {
+            if validity_is_set(validity, index) {
+                Value::Integer(self.value(index).expect("validated signed lane index"))
+            } else {
+                Value::Null
+            }
+        }));
+    }
+
+    fn append_nullable_indices(
+        &self,
+        indices: &[usize],
+        offset: usize,
+        validity: &[u64],
+        output: &mut Vec<Value>,
+    ) {
+        output.extend(indices.iter().map(|&selected| {
+            let index = offset + selected;
+            if validity_is_set(validity, index) {
+                Value::Integer(self.value(index).expect("validated signed lane index"))
+            } else {
+                Value::Null
+            }
+        }));
+    }
+
+    fn same_backing(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Tiny(left), Self::Tiny(right)) => Arc::ptr_eq(left, right),
+            (Self::Small(left), Self::Small(right)) => Arc::ptr_eq(left, right),
+            (Self::Integer(left), Self::Integer(right)) => Arc::ptr_eq(left, right),
+            (Self::Big(left), Self::Big(right)) => Arc::ptr_eq(left, right),
+            (Self::Huge(left), Self::Huge(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -201,26 +361,11 @@ fn same_flat_backing(left: &Encoding, right: &Encoding) -> bool {
     match (left, right) {
         (Encoding::FlatValues(left), Encoding::FlatValues(right)) => Arc::ptr_eq(left, right),
         (Encoding::FlatDouble(left), Encoding::FlatDouble(right)) => Arc::ptr_eq(left, right),
+        (Encoding::FlatSigned(left), Encoding::FlatSigned(right)) => left.same_backing(right),
         (
-            Encoding::FlatSigned(SignedLanes::Tiny(left)),
-            Encoding::FlatSigned(SignedLanes::Tiny(right)),
-        ) => Arc::ptr_eq(left, right),
-        (
-            Encoding::FlatSigned(SignedLanes::Small(left)),
-            Encoding::FlatSigned(SignedLanes::Small(right)),
-        ) => Arc::ptr_eq(left, right),
-        (
-            Encoding::FlatSigned(SignedLanes::Integer(left)),
-            Encoding::FlatSigned(SignedLanes::Integer(right)),
-        ) => Arc::ptr_eq(left, right),
-        (
-            Encoding::FlatSigned(SignedLanes::Big(left)),
-            Encoding::FlatSigned(SignedLanes::Big(right)),
-        ) => Arc::ptr_eq(left, right),
-        (
-            Encoding::FlatSigned(SignedLanes::Huge(left)),
-            Encoding::FlatSigned(SignedLanes::Huge(right)),
-        ) => Arc::ptr_eq(left, right),
+            Encoding::FlatNullableSigned(left_lanes, left_validity),
+            Encoding::FlatNullableSigned(right_lanes, right_validity),
+        ) => left_lanes.same_backing(right_lanes) && Arc::ptr_eq(left_validity, right_validity),
         (Encoding::FlatDecimalI64(left), Encoding::FlatDecimalI64(right)) => {
             Arc::ptr_eq(left, right)
         }
@@ -299,6 +444,7 @@ impl Vector {
                 Encoding::FlatValues(_)
                     | Encoding::FlatDouble(_)
                     | Encoding::FlatSigned(_)
+                    | Encoding::FlatNullableSigned(_, _)
                     | Encoding::FlatDecimalI64(_)
             )
         {
@@ -328,32 +474,42 @@ impl Vector {
     /// An iterator error discards the partial column and stops consumption.
     pub fn try_bigints(values: impl IntoIterator<Item = Result<Option<i64>>>) -> Result<Self> {
         let values = values.into_iter();
-        let mut output = Vec::new();
-        output
+        let mut lanes = Vec::new();
+        lanes
             .try_reserve(values.size_hint().0)
             .map_err(|_| Error::Resource("cannot allocate BIGINT column".into()))?;
+        let mut validity = Vec::new();
+        validity
+            .try_reserve(values.size_hint().0.div_ceil(u64::BITS as usize))
+            .map_err(|_| Error::Resource("cannot allocate BIGINT validity".into()))?;
         let mut all_valid = true;
         let mut numeric_ascending = true;
         let mut previous = None;
         for value in values {
-            output.push(match value? {
+            let index = lanes.len();
+            lanes.push(match value? {
                 Some(value) => {
+                    set_validity_bit(&mut validity, index);
                     numeric_ascending &= previous.is_none_or(|previous| previous <= value);
                     previous = Some(value);
-                    Value::Integer(value as i128)
+                    value
                 }
                 None => {
+                    if index / u64::BITS as usize == validity.len() {
+                        validity.push(0);
+                    }
                     all_valid = false;
                     numeric_ascending = false;
-                    Value::Null
+                    0
                 }
             });
         }
-        let count = output.len();
+        let count = lanes.len();
+        let lanes = SignedLanes::Big(Arc::new(lanes));
         let encoding = if all_valid {
-            Encoding::FlatSigned(SignedLanes::from_values(&DataType::BigInt, &output))
+            Encoding::FlatSigned(lanes)
         } else {
-            Encoding::FlatValues(Arc::new(output))
+            Encoding::FlatNullableSigned(lanes, Arc::new(validity))
         };
         Ok(Self {
             data_type: DataType::BigInt,
@@ -389,25 +545,37 @@ impl Vector {
     /// than rescanning an already statically bounded i128 payload.
     pub fn try_hugeints(values: impl IntoIterator<Item = Result<Option<i128>>>) -> Result<Self> {
         let values = values.into_iter();
-        let mut output = Vec::new();
-        output
+        let mut lanes = Vec::new();
+        lanes
             .try_reserve(values.size_hint().0)
             .map_err(|_| Error::Resource("cannot allocate HUGEINT column".into()))?;
+        let mut validity = Vec::new();
+        validity
+            .try_reserve(values.size_hint().0.div_ceil(u64::BITS as usize))
+            .map_err(|_| Error::Resource("cannot allocate HUGEINT validity".into()))?;
         let mut all_valid = true;
         for value in values {
-            output.push(match value? {
-                Some(value) => Value::Integer(value),
+            let index = lanes.len();
+            lanes.push(match value? {
+                Some(value) => {
+                    set_validity_bit(&mut validity, index);
+                    value
+                }
                 None => {
+                    if index / u64::BITS as usize == validity.len() {
+                        validity.push(0);
+                    }
                     all_valid = false;
-                    Value::Null
+                    0
                 }
             });
         }
-        let count = output.len();
+        let count = lanes.len();
+        let lanes = SignedLanes::Huge(Arc::new(lanes));
         let encoding = if all_valid {
-            Encoding::FlatSigned(SignedLanes::from_values(&DataType::HugeInt, &output))
+            Encoding::FlatSigned(lanes)
         } else {
-            Encoding::FlatValues(Arc::new(output))
+            Encoding::FlatNullableSigned(lanes, Arc::new(validity))
         };
         Ok(Self {
             data_type: DataType::HugeInt,
@@ -548,11 +716,14 @@ impl Vector {
             }
         }
         // Validate the whole logical column before transferring it into the
-        // authoritative physical lane.  A NULL deliberately keeps the exact
-        // generic representation and therefore its original fallback rules.
+        // authoritative physical lane. Nullable signed columns retain their
+        // declared-width lane beside a compact validity bitmap.
         let count = values.len();
         let encoding = if all_valid && data_type.is_signed_integer() {
             Encoding::FlatSigned(SignedLanes::from_values(&data_type, &values))
+        } else if data_type.is_signed_integer() {
+            let (lanes, validity) = SignedLanes::from_nullable_values(&data_type, &values);
+            Encoding::FlatNullableSigned(lanes, validity)
         } else if all_valid && matches!(data_type, DataType::Decimal { width: 1..=18, .. }) {
             let mut coefficients = Vec::new();
             coefficients.try_reserve_exact(values.len()).map_err(|_| {
@@ -722,6 +893,13 @@ impl Vector {
             Encoding::FlatValues(v) => v.get(index).cloned(),
             Encoding::FlatDouble(v) => v.get(index).copied().map(Value::Double),
             Encoding::FlatSigned(v) => v.value(index).map(Value::Integer),
+            Encoding::FlatNullableSigned(values, validity) => {
+                if validity_is_set(validity, index) {
+                    values.value(index).map(Value::Integer)
+                } else {
+                    Some(Value::Null)
+                }
+            }
             Encoding::FlatDecimalI64(v) => {
                 v.get(index).copied().map(|value| match self.data_type {
                     DataType::Decimal { width, scale } => Value::Decimal {
@@ -777,6 +955,11 @@ impl Vector {
                     .copied()
                     .map(Value::Double),
             ),
+            Encoding::FlatNullableSigned(values, validity) => values.append_nullable_values(
+                self.offset..self.offset + self.count,
+                validity,
+                output,
+            ),
             Encoding::Constant(value) => {
                 output.extend(std::iter::repeat_n(value, self.count).cloned())
             }
@@ -786,6 +969,8 @@ impl Vector {
                     && let Encoding::FlatSigned(values) = &parent.encoding
                 {
                     values.append_indices(selection, parent.offset, output);
+                } else if let Encoding::FlatNullableSigned(values, validity) = &parent.encoding {
+                    values.append_nullable_indices(selection, parent.offset, validity, output);
                 } else if let Some(values) = parent.flat_values() {
                     output.extend(selection.iter().map(|&index| values[index].clone()));
                 } else {
@@ -823,11 +1008,35 @@ impl Vector {
             _ => None,
         }
     }
+    /// Borrow a nullable native BIGINT lane and its aligned validity view.
+    /// All-valid BIGINT columns intentionally remain available only through
+    /// `flat_bigints`, preserving that accessor's established contract.
+    pub(crate) fn flat_nullable_bigints(&self) -> Option<NullableBigIntView<'_>> {
+        match &self.encoding {
+            Encoding::FlatNullableSigned(SignedLanes::Big(values), validity) => {
+                Some(NullableBigIntView {
+                    values: &values[self.offset..self.offset + self.count],
+                    validity,
+                    validity_offset: self.offset,
+                })
+            }
+            _ => None,
+        }
+    }
     /// Read one native signed coefficient without widening through `Value`.
     /// Only ordinary flat signed views are eligible.
     pub(crate) fn flat_signed_i64_at(&self, index: usize) -> Option<i64> {
+        if index >= self.count {
+            return None;
+        }
         match &self.encoding {
             Encoding::FlatSigned(values) => values.i64_value(self.offset + index),
+            Encoding::FlatNullableSigned(values, validity) => {
+                let index = self.offset + index;
+                validity_is_set(validity, index)
+                    .then(|| values.i64_value(index))
+                    .flatten()
+            }
             _ => None,
         }
     }
@@ -846,6 +1055,16 @@ impl Vector {
                 .i64_value(index)
                 .map(SignedI64At::Value)
                 .unwrap_or(SignedI64At::Unsupported),
+            Encoding::FlatNullableSigned(values, validity) => {
+                if validity_is_set(validity, index) {
+                    values
+                        .i64_value(index)
+                        .map(SignedI64At::Value)
+                        .unwrap_or(SignedI64At::Unsupported)
+                } else {
+                    SignedI64At::Null
+                }
+            }
             Encoding::FlatValues(values) => signed_i64_value(values.get(index)),
             Encoding::Constant(value) => signed_i64_value(Some(value)),
             Encoding::Dictionary(parent, selection) => selection
@@ -864,6 +1083,31 @@ impl Vector {
                     })
             }
             Encoding::FlatDouble(_) | Encoding::FlatDecimalI64(_) => SignedI64At::Unsupported,
+        }
+    }
+    /// Read one logical BOOLEAN without constructing or cloning a `Value`.
+    /// Outer `None` means unsupported encoding/type or an out-of-bounds row;
+    /// inner `None` is SQL NULL.
+    #[inline(always)]
+    pub(crate) fn boolean_at(&self, index: usize) -> Option<Option<bool>> {
+        if self.data_type != DataType::Boolean || index >= self.count {
+            return None;
+        }
+        let index = self.offset + index;
+        match &self.encoding {
+            Encoding::FlatValues(values) => boolean_value(values.get(index)),
+            Encoding::Constant(value) => boolean_value(Some(value)),
+            Encoding::Dictionary(parent, selection) => parent.boolean_at(*selection.get(index)?),
+            Encoding::Chunks(chunks, offsets) => {
+                let segment = offsets
+                    .partition_point(|&end| end <= index)
+                    .saturating_sub(1);
+                chunks.get(segment)?.boolean_at(index - offsets[segment])
+            }
+            Encoding::FlatDouble(_)
+            | Encoding::FlatSigned(_)
+            | Encoding::FlatNullableSigned(_, _)
+            | Encoding::FlatDecimalI64(_) => None,
         }
     }
     /// Borrow the compact physical coefficients for a flat DECIMAL(1..=18)
@@ -906,6 +1150,16 @@ fn signed_i64_value(value: Option<&Value>) -> SignedI64At {
             .map(SignedI64At::Value)
             .unwrap_or(SignedI64At::Unsupported),
         _ => SignedI64At::Unsupported,
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline(always)]
+fn boolean_value(value: Option<&Value>) -> Option<Option<bool>> {
+    match value? {
+        Value::Null => Some(None),
+        Value::Boolean(value) => Some(Some(*value)),
+        _ => None,
     }
 }
 
@@ -1170,8 +1424,12 @@ mod physical_tests {
         let descending = Vector::try_bigints([Ok(Some(4)), Ok(Some(-2))])?;
         let nullable = Vector::try_bigints([Ok(Some(-2)), Ok(None), Ok(Some(4))])?;
         assert!(ascending.numeric_ascending());
+        assert_eq!(ascending.flat_bigints(), Some(&[-2, -2, 4][..]));
+        assert!(ascending.flat_nullable_bigints().is_none());
         assert!(!descending.numeric_ascending());
         assert!(!nullable.numeric_ascending());
+        assert!(nullable.flat_bigints().is_none());
+        assert!(nullable.flat_nullable_bigints().is_some());
         Ok(())
     }
 
@@ -1225,7 +1483,7 @@ mod physical_tests {
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
-    fn all_valid_signed_lanes_use_declared_widths_and_nullable_values_fallback() -> Result<()> {
+    fn signed_lanes_use_declared_widths_for_valid_and_nullable_values() -> Result<()> {
         let cases = [
             (
                 DataType::TinyInt,
@@ -1307,7 +1565,15 @@ mod physical_tests {
         }
 
         let nullable = Vector::flat(DataType::BigInt, vec![Value::Integer(1), Value::Null])?;
-        assert!(nullable.flat_values().is_some());
+        assert!(nullable.flat_values().is_none());
+        assert!(nullable.flat_bigints().is_none());
+        let nullable_view = nullable
+            .flat_nullable_bigints()
+            .expect("nullable BIGINT lane");
+        assert_eq!(nullable_view.len(), 2);
+        assert_eq!(nullable_view.value(0), Some(Some(1)));
+        assert_eq!(nullable_view.value(1), Some(None));
+        assert_eq!(nullable_view.value(2), None);
         let wide = Vector::flat(
             DataType::Decimal {
                 width: 19,
@@ -1321,6 +1587,254 @@ mod physical_tests {
         )?;
         assert!(wide.flat_decimal_i64().is_none());
         assert!(wide.flat_values().is_some());
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn nullable_signed_lanes_preserve_every_width_and_extrema() -> Result<()> {
+        let cases = [
+            (
+                DataType::TinyInt,
+                i128::from(i8::MIN),
+                i128::from(i8::MAX),
+                1,
+            ),
+            (
+                DataType::SmallInt,
+                i128::from(i16::MIN),
+                i128::from(i16::MAX),
+                2,
+            ),
+            (
+                DataType::Integer,
+                i128::from(i32::MIN),
+                i128::from(i32::MAX),
+                4,
+            ),
+            (
+                DataType::BigInt,
+                i128::from(i64::MIN),
+                i128::from(i64::MAX),
+                8,
+            ),
+            (DataType::HugeInt, i128::MIN, i128::MAX, 16),
+        ];
+        for (data_type, minimum, maximum, width) in cases {
+            let vector = Vector::flat(
+                data_type,
+                vec![
+                    Value::Integer(minimum),
+                    Value::Null,
+                    Value::Integer(maximum),
+                ],
+            )?;
+            assert_eq!(
+                vector.values().collect::<Vec<_>>(),
+                vec![
+                    Value::Integer(minimum),
+                    Value::Null,
+                    Value::Integer(maximum)
+                ]
+            );
+            assert_eq!(vector.signed_i64_at(1), SignedI64At::Null);
+            match &vector.encoding {
+                Encoding::FlatNullableSigned(lanes, validity) => {
+                    let lane_width = match lanes {
+                        SignedLanes::Tiny(values) => {
+                            std::mem::size_of_val(values.as_slice()) / values.len()
+                        }
+                        SignedLanes::Small(values) => {
+                            std::mem::size_of_val(values.as_slice()) / values.len()
+                        }
+                        SignedLanes::Integer(values) => {
+                            std::mem::size_of_val(values.as_slice()) / values.len()
+                        }
+                        SignedLanes::Big(values) => {
+                            std::mem::size_of_val(values.as_slice()) / values.len()
+                        }
+                        SignedLanes::Huge(values) => {
+                            std::mem::size_of_val(values.as_slice()) / values.len()
+                        }
+                    };
+                    assert_eq!(lane_width, width);
+                    assert_eq!(validity.as_slice(), &[0b101]);
+                }
+                _ => panic!("nullable signed column requires compact lanes"),
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn nullable_bigint_bitmap_and_slices_cross_63_64_65_boundaries() -> Result<()> {
+        for count in [63_usize, 64, 65] {
+            let vector = Vector::try_bigints(
+                (0..count).map(|index| Ok((index + 1 != count).then_some(index as i64))),
+            )?;
+            let view = vector
+                .flat_nullable_bigints()
+                .expect("nullable BIGINT lane");
+            assert_eq!(view.len(), count);
+            assert_eq!(view.value(count - 1), Some(None));
+            assert_eq!(view.value(count), None);
+            let Encoding::FlatNullableSigned(_, validity) = &vector.encoding else {
+                panic!("nullable BIGINT encoding");
+            };
+            assert_eq!(validity.len(), count.div_ceil(64));
+        }
+
+        let nulls = [0_usize, 62, 63, 64, 65, 127, 128, 129];
+        let vector = Vector::try_bigints(
+            (0..130).map(|index| Ok((!nulls.contains(&index)).then_some(index as i64))),
+        )?;
+        for index in 0..130 {
+            assert_eq!(
+                vector.signed_i64_at(index),
+                if nulls.contains(&index) {
+                    SignedI64At::Null
+                } else {
+                    SignedI64At::Value(index as i64)
+                }
+            );
+        }
+        let sliced = vector.slice(62, 5)?;
+        let view = sliced
+            .flat_nullable_bigints()
+            .expect("sliced nullable BIGINT lane");
+        assert_eq!(view.len(), 5);
+        assert_eq!(view.value(0), Some(None));
+        assert_eq!(view.value(1), Some(None));
+        assert_eq!(view.value(2), Some(None));
+        assert_eq!(view.value(3), Some(None));
+        assert_eq!(view.value(4), Some(Some(66)));
+        assert!(!view.is_valid(0));
+        assert!(view.is_valid(4));
+        assert_eq!(sliced.flat_signed_i64_at(4), Some(66));
+        assert_eq!(sliced.flat_signed_i64_at(5), None);
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn nullable_signed_views_survive_dictionary_chunks_and_concatenation() -> Result<()> {
+        let source = Arc::new(Vector::try_bigints([
+            Ok(Some(i64::MIN)),
+            Ok(None),
+            Ok(Some(7)),
+            Ok(Some(i64::MAX)),
+        ])?);
+        let contiguous = Vector::concatenate(
+            DataType::BigInt,
+            &[source.slice(0, 2)?, source.slice(2, 2)?],
+        )?;
+        assert!(contiguous.flat_nullable_bigints().is_some());
+        assert_eq!(
+            contiguous.values().collect::<Vec<_>>(),
+            source.values().collect::<Vec<_>>()
+        );
+
+        let dictionary = source.select(vec![3, 1, 0, 2, 1])?;
+        let mut appended = Vec::new();
+        dictionary.append_to(&mut appended);
+        assert_eq!(
+            appended,
+            vec![
+                Value::Integer(i128::from(i64::MAX)),
+                Value::Null,
+                Value::Integer(i128::from(i64::MIN)),
+                Value::Integer(7),
+                Value::Null,
+            ]
+        );
+        assert_eq!(dictionary.signed_i64_at(0), SignedI64At::Value(i64::MAX));
+        assert_eq!(dictionary.signed_i64_at(1), SignedI64At::Null);
+
+        let copied = Vector::concatenate(
+            DataType::BigInt,
+            &[source.slice(3, 1)?, source.slice(1, 2)?],
+        )?;
+        let copied_view = copied
+            .flat_nullable_bigints()
+            .expect("copied nullable BIGINT lane");
+        assert_eq!(copied_view.value(0), Some(Some(i64::MAX)));
+        assert_eq!(copied_view.value(1), Some(None));
+        assert_eq!(copied_view.value(2), Some(Some(7)));
+
+        let chunks = Vector::chunked(
+            DataType::BigInt,
+            vec![source.slice(0, 2)?, source.slice(2, 2)?],
+        )?;
+        assert_eq!(chunks.signed_i64_at(0), SignedI64At::Value(i64::MIN));
+        assert_eq!(chunks.signed_i64_at(1), SignedI64At::Null);
+        assert_eq!(chunks.signed_i64_at(3), SignedI64At::Value(i64::MAX));
+        assert_eq!(
+            chunks.slice(1, 2)?.values().collect::<Vec<_>>(),
+            vec![Value::Null, Value::Integer(7),]
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn nullable_hugeint_constructor_keeps_full_width_lane() -> Result<()> {
+        let vector = Vector::try_hugeints([Ok(Some(i128::MIN)), Ok(None), Ok(Some(i128::MAX))])?;
+        assert_eq!(
+            vector.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(i128::MIN),
+                Value::Null,
+                Value::Integer(i128::MAX)
+            ]
+        );
+        assert!(matches!(
+            vector.encoding,
+            Encoding::FlatNullableSigned(SignedLanes::Huge(_), _)
+        ));
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn boolean_accessor_resolves_flat_constant_dictionary_and_chunks() -> Result<()> {
+        let flat = Arc::new(Vector::flat(
+            DataType::Boolean,
+            vec![Value::Boolean(true), Value::Null, Value::Boolean(false)],
+        )?);
+        assert_eq!(flat.boolean_at(0), Some(Some(true)));
+        assert_eq!(flat.boolean_at(1), Some(None));
+        assert_eq!(flat.boolean_at(2), Some(Some(false)));
+        assert_eq!(flat.boolean_at(3), None);
+        assert_eq!(flat.slice(1, 2)?.boolean_at(0), Some(None));
+        assert_eq!(flat.slice(1, 2)?.boolean_at(1), Some(Some(false)));
+
+        let value = Vector::constant(DataType::Boolean, Value::Boolean(true), 2)?;
+        let null = Vector::constant(DataType::Boolean, Value::Null, 2)?;
+        assert_eq!(value.boolean_at(1), Some(Some(true)));
+        assert_eq!(null.boolean_at(1), Some(None));
+
+        let selected = Arc::new(flat.select(vec![2, 1, 0, 2])?);
+        let nested = selected.select(vec![2, 0, 1])?.slice(1, 2)?;
+        assert_eq!(nested.boolean_at(0), Some(Some(false)));
+        assert_eq!(nested.boolean_at(1), Some(None));
+
+        let chunks = Vector::chunked(
+            DataType::Boolean,
+            vec![flat.slice(0, 2)?, flat.slice(2, 1)?],
+        )?;
+        assert_eq!(chunks.boolean_at(0), Some(Some(true)));
+        assert_eq!(chunks.boolean_at(1), Some(None));
+        assert_eq!(chunks.boolean_at(2), Some(Some(false)));
+        assert_eq!(chunks.boolean_at(3), None);
+        assert_eq!(
+            Vector::flat(DataType::BigInt, vec![Value::Integer(1)])?.boolean_at(0),
+            None
+        );
+        assert_eq!(
+            Vector::constant(DataType::BigInt, Value::Null, 1)?.boolean_at(0),
+            None
+        );
         Ok(())
     }
 
