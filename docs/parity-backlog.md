@@ -877,14 +877,10 @@ residual G04.1 backlog.
 `cargo dev coverage` reports no missing annotations and `cargo dev trace check
 --workspace --all-targets` passes. The final 21-sample no-tracing reports are
 `target/next-batch/performance/g04/g04-1b-integrated-{release,development,fastest}.json`;
-Rust is 0.779314x its release reference and 0.767721x its development reference;
-the two retained Rust runs are 0.779314x and 0.798553x the faster pin. The
-companion resource report is
-`target/next-batch/performance/g04/g04-1b-integrated-resources.json`: wall, CPU,
-system time and block I/O are 0.500000x, 1.000000x, 1.000000x and 1.000000x;
-peak RSS is 0.594237x and throughput is 2.000000x the faster reference.
-Every declared performance dimension passes independently. This completes the
-G04.1b slice, not the remaining G04.1 domain.
+both retained Rust runs pass against the faster pin. The companion resource
+report is `target/next-batch/performance/g04/g04-1b-integrated-resources.json`;
+wall, user/system CPU, peak RSS, block input/output and throughput pass
+independently. This completes the G04.1b slice, not the remaining G04.1 domain.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -1008,14 +1004,11 @@ unimplemented `substring_grapheme`; the NUL file stops at the earlier `chr(0)`
 blocker, leaving its later 22 `instr` records explicitly unreached.
 The final native reports are
 `target/next-batch/performance/g06/final-{release,development,fastest}-21.json`:
-the release/development retained Rust runs are respectively 0.762x/0.767x the
-faster pin for fused `instr`, and 0.440x/0.438x for projected `strpos`. The
-companion process report is
-`target/next-batch/performance/g06/final-process-21.json`: wall is 0.923x, CPU
-0.864x, peak RSS 0.800x, block input/output 1.000x with all values zero, and Rust
-throughput is 1.083x the faster reference. Every declared performance dimension
-passes independently. This completes G06.1c; `substring_grapheme`, `chr`,
-`contains` and regex work remain later G06.1 slices.
+both retained Rust runs pass against the faster pin for fused `instr` and
+projected `strpos`. The companion process report is
+`target/next-batch/performance/g06/final-process-21.json`; wall, CPU, peak RSS,
+block input/output and throughput pass independently. This completes G06.1c;
+`substring_grapheme`, `chr`, `contains` and regex work remain later G06.1 slices.
 
 **G06.1b frozen validation manifest — VARCHAR length and substring.** Owned paths
 are `src/function/scalar{.rs,/text.rs}`, the shared vector/batch/cast seams changed
@@ -1197,14 +1190,11 @@ Development passes 15/15 `test_order_by_aggregate.test` and 9/9
 development instrumentation, and trace compatibility completes with zero
 errors, panics or open spans. The final 3-warmup/21-sample native reports are
 `target/next-batch/performance/g08/final-{release,development,fastest}-21.json`.
-Release/development Rust medians divided by the faster pin are respectively
-0.597437/0.589336 for filtered COUNT/SUM, 0.608546/0.643670 for filtered
-DISTINCT ordered LIST, and 0.471096/0.474965 for grouped filtered FIRST/LAST.
-The process report
-`target/next-batch/performance/g08/final-process-21.json` passes independently:
-wall 0.311379, CPU 0.115607, peak RSS 0.355906, block input/output 1.000000
-(all zero), and throughput is 3.211516 times the faster pin. It validates 1,025
-reference assertions per pin and 385 Rust records. Both exact reference
+Both retained Rust runs pass the faster-pin gate for filtered COUNT/SUM,
+filtered DISTINCT ordered LIST and grouped filtered FIRST/LAST. The process
+report `target/next-batch/performance/g08/final-process-21.json` independently
+passes wall, CPU, peak RSS, block input/output and throughput, while validating
+1,025 reference assertions per pin and 385 Rust records. Both exact reference
 identities, validated results, source/binary hashes and all raw samples are
 retained in those reports. Gate P passes; STRING_AGG, histogram and mode remain
 outside this slice.
