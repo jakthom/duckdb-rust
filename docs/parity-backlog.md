@@ -1130,6 +1130,53 @@ campaigns, the joint faster-reference latency gate and every independent process
 metric pass for all declared workloads. This completes the G06.1b slice, not the
 remaining G06.1 catalog.
 
+**G06.1e/G06.2a frozen validation manifest — byte/grapheme transforms and regex
+predicates.** This batch owns `src/function/scalar/text/{metrics,regex}.rs`, their
+registration seams in `src/function/scalar{text.rs,.rs}`, the existing
+`bit_length` and `octet_length` shared contracts, focused
+`test/component/{text_metrics_reverse,text_regex}.rs`, the G06 SQLLogic and
+performance fixtures/manifests, their explicit Cargo targets, and this backlog
+entry. The functional boundary is `strlen(VARCHAR)`, grapheme-aware
+`reverse(VARCHAR)`, validation of the already implemented `bit_length` VARCHAR/BIT
+and `octet_length` BLOB/BIT overloads, plus `regexp_matches` and
+`regexp_full_match` with two or three arguments and constant options `c`, `i`,
+`l`, `n`, `p` and `s`. Regex replacement/extraction/splitting and operators,
+collations, formatting/padding and the rest of the text catalog remain outside
+this slice.
+
+Fast checks are the two complete new component targets plus the existing
+`text_grapheme`, `text_codepoint`, `text_substring`, `text_search`, `bit` and
+`binary_scalars` shared-consumer targets and focused scalar batch tests. The
+unchanged upstream case set is
+`test/sql/function/string/test_complex_unicode.test`, `test_reverse.test`,
+`test_bit_length.test`, `regex_search.test`, `regexp_unicode_literal.test` and
+`null_byte.test`, selected with exact paths against both pins. Prefix blockers
+from separately unimplemented later functions remain visible and are not
+full-file passes. Negative and boundary coverage includes empty strings,
+embedded U+0000, ASCII and multibyte byte counts, combining marks, emoji
+modifiers, ZWJ sequences and variation selectors; non-byte-aligned BIT padding;
+NULLs; invalid arity and overloads; constant, flat, dictionary, selected,
+chunked and prepared execution; partial versus full regex matching; constant and
+per-row patterns; invalid syntax in either path; Unicode escapes; literal mode;
+newlines; case sensitivity; whitespace in options; rejected `g`/unknown options;
+and NULL or nonconstant option expressions. Shared consumers include filtering,
+ordering, grouping, nesting and aggregate composition over the new results.
+
+Final functional acceptance runs both new component targets, every named shared
+target, the local G06.1e/G06.2a SQLLogic fixture and the exact dual-pin path list.
+Because this slice adds Rust files and interfaces, it also runs
+`cargo dev coverage` and `cargo dev trace check --workspace --all-targets`.
+Gate P declares four independent 50,000-row single-thread release/no-tracing
+native workloads: low-cardinality grapheme-aware reverse consumed by length,
+high-cardinality byte length consumed by sum, constant-pattern regex predicate
+filtering and per-row-pattern regex predicate filtering. Four process fixtures
+repeat the equivalent stored-operand aggregate consumers 128 times, for 6.4
+million row visits apiece and validated one-row results. Three warmups and 21
+serial samples compare both exact pins. Every native wall ratio and process
+wall, throughput, CPU, peak-RSS and block-I/O ratio must independently be no
+worse than the faster reference; samples, reference/source/binary identities and
+failed attempts remain under `target/`.
+
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
   Match character versus byte indexing and invalid-input behavior.
