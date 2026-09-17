@@ -3,7 +3,7 @@
 //! DuckDB's `substring` operates on decoded characters, while the returned
 //! value must retain the source's original UTF-8 bytes (including NULs).
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use super::super::{FunctionRegistry, ScalarFunction};
 use crate::{
@@ -89,6 +89,14 @@ impl ScalarFunction for Substring {
         ) {
             return Ok(None);
         }
+        let columns = arguments.columns();
+        if let (Some(input), Some(starts), length) = (
+            columns[0].flat_values(),
+            columns[1].flat_bigints(),
+            columns.get(2).and_then(Vector::flat_bigints),
+        ) {
+            return batch_flat_substring(input, starts, length, query).map(Some);
+        }
         let mut output = Vec::new();
         output
             .try_reserve_exact(arguments.len())
@@ -109,6 +117,89 @@ impl ScalarFunction for Substring {
         query.check()?;
         substring_value(arguments)
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn batch_flat_substring(
+    input: &[Value],
+    starts: &[i64],
+    lengths: Option<&[i64]>,
+    query: &QueryContext,
+) -> Result<Vector> {
+    if input.len() != starts.len() || lengths.is_some_and(|lengths| lengths.len() != input.len()) {
+        return Err(Error::Internal(
+            "flat substring columns differ in cardinality".into(),
+        ));
+    }
+    if input.is_empty() {
+        return Vector::flat(DataType::Varchar, Vec::new());
+    }
+    // Keep the compact dictionary path only while repeated physical triples
+    // dominate. A high-cardinality batch switches to a plain flat result
+    // before the map can become a second per-row payload store.
+    let maximum_unique = (input.len() / 8).max(1);
+    let mut entries = HashMap::new();
+    entries
+        .try_reserve(maximum_unique.saturating_add(1))
+        .map_err(|_| Error::Resource("cannot allocate substring dictionary".into()))?;
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(maximum_unique.saturating_add(1))
+        .map_err(|_| Error::Resource("cannot allocate substring dictionary values".into()))?;
+    let mut selection = Vec::new();
+    selection
+        .try_reserve_exact(input.len())
+        .map_err(|_| Error::Resource("cannot allocate substring dictionary selection".into()))?;
+    let mut index = 0;
+    while index < input.len() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        let length = lengths.map(|lengths| lengths[index]);
+        let text = match &input[index] {
+            Value::Null => None,
+            Value::Varchar(text) => Some(text.as_str()),
+            _ => {
+                return Err(Error::Internal(
+                    "flat substring input is not VARCHAR".into(),
+                ));
+            }
+        };
+        let key = (text, starts[index], length);
+        let entry = if let Some(&entry) = entries.get(&key) {
+            entry
+        } else {
+            let value = flat_substring_value(&input[index], starts[index], length)?;
+            let entry = values.len();
+            entries.insert(key, entry);
+            values.push(value);
+            entry
+        };
+        selection.push(entry);
+        index += 1;
+        if values.len() > maximum_unique {
+            let mut output = Vec::new();
+            output
+                .try_reserve_exact(input.len())
+                .map_err(|_| Error::Resource("cannot allocate substring result column".into()))?;
+            output.extend(selection.iter().map(|&entry| values[entry].clone()));
+            while index < input.len() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                output.push(flat_substring_value(
+                    &input[index],
+                    starts[index],
+                    lengths.map(|lengths| lengths[index]),
+                )?);
+                index += 1;
+            }
+            query.check()?;
+            return Vector::flat(DataType::Varchar, output);
+        }
+    }
+    query.check()?;
+    Arc::new(Vector::flat(DataType::Varchar, values)?).select(selection)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -136,8 +227,30 @@ fn substring_value(arguments: &[Value]) -> Result<Value> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn flat_substring_value(input: &Value, start: i64, length: Option<i64>) -> Result<Value> {
+    let Value::Varchar(input) = input else {
+        return if input.is_null() {
+            Ok(Value::Null)
+        } else {
+            Err(Error::Internal(
+                "flat substring input is not VARCHAR".into(),
+            ))
+        };
+    };
+    let start = bound_i128(i128::from(start), "offset")?;
+    let length = length
+        .map(|length| bound_i128(i128::from(length), "length"))
+        .transpose()?;
+    Ok(Value::Varchar(slice(input, start, length)))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn bound(value: &Value, name: &str) -> Result<i128> {
-    let value = value.as_i128()?;
+    bound_i128(value.as_i128()?, name)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn bound_i128(value: i128, name: &str) -> Result<i128> {
     if !(MIN_BOUND..=MAX_BOUND).contains(&value) {
         let direction = if value > MAX_BOUND { ">" } else { "<" };
         let boundary = if value > MAX_BOUND {
@@ -274,6 +387,42 @@ mod tests {
                 Value::Varchar("bcdef".into()),
                 Value::Varchar("🦆x".into()),
             ]
+        );
+
+        let repeated = DataChunk::new(
+            vec![
+                Vector::flat(DataType::Varchar, vec![Value::Varchar("abcdef".into()); 16])?,
+                Vector::flat(DataType::BigInt, vec![Value::Integer(2); 16])?,
+                Vector::flat(DataType::BigInt, vec![Value::Integer(3); 16])?,
+            ],
+            16,
+        )?;
+        assert!(
+            function
+                .evaluate_batch(&repeated, &query)?
+                .expect("low-cardinality substring batch callback")
+                .dictionary()
+                .is_some()
+        );
+
+        let distinct = DataChunk::new(
+            vec![
+                Vector::flat(
+                    DataType::Varchar,
+                    (0..16)
+                        .map(|index| Value::Varchar(format!("value-{index}")))
+                        .collect(),
+                )?,
+                Vector::flat(DataType::BigInt, vec![Value::Integer(1); 16])?,
+            ],
+            16,
+        )?;
+        assert!(
+            function
+                .evaluate_batch(&distinct, &query)?
+                .expect("high-cardinality substring batch callback")
+                .dictionary()
+                .is_none()
         );
 
         let error = DataChunk::new(
