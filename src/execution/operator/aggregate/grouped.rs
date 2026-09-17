@@ -276,8 +276,8 @@ pub(super) fn run<I: GroupIndex>(
                         }
                         retain_ordered(
                             &mut group.ordered[i],
-                            args,
-                            order,
+                            &args,
+                            &order,
                             strategy,
                             &aggregate.order_by,
                             &order_types[i],
@@ -349,8 +349,8 @@ fn candidate_replaces(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn retain_ordered(
     rows: &mut Vec<(Row, Row)>,
-    args: Row,
-    order: Row,
+    args: &Row,
+    order: &Row,
     strategy: OrderedAggregateStrategy,
     expressions: &[crate::planner::logical::OrderExpr],
     types: &[crate::common::type_registry::BoundType],
@@ -360,10 +360,10 @@ fn retain_ordered(
         return Ok(());
     }
     match strategy {
-        OrderedAggregateStrategy::Buffered => rows.push((args, order)),
+        OrderedAggregateStrategy::Buffered => rows.push((args.clone(), order.clone())),
         OrderedAggregateStrategy::First | OrderedAggregateStrategy::Last => {
             rows.clear();
-            rows.push((args, order));
+            rows.push((args.clone(), order.clone()));
         }
     }
     Ok(())
