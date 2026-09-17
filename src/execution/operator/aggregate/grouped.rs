@@ -230,6 +230,7 @@ pub(super) fn run<I: GroupIndex>(
                         data_type.append_key(value, &mut key, context.query)?;
                     }
                 }
+                let group_count = states.len();
                 for &index in &matched {
                     context.query.check()?;
                     let group = &mut states[index];
@@ -247,7 +248,7 @@ pub(super) fn run<I: GroupIndex>(
                         })?;
                         context
                             .query
-                            .check_rows(states.len().saturating_add(next.saturating_mul(3)))?;
+                            .check_rows(group_count.saturating_add(next.saturating_mul(3)))?;
                         ordered_rows = next;
                         group.ordered[i].push((args.clone(), order.clone()));
                     }
