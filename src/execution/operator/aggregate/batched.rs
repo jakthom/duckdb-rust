@@ -19,8 +19,13 @@ enum OrderedAccumulator {
         strategy: OrderedAggregateStrategy,
         order: Vec<crate::planner::logical::OrderExpr>,
         types: Vec<BoundType>,
-        values: Vec<Option<(Value, Vec<Value>)>>,
+        values: Vec<Option<(Value, CandidateOrder)>>,
     },
+}
+
+enum CandidateOrder {
+    One(Value),
+    Many(Vec<Value>),
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -491,13 +496,23 @@ fn try_ordered_candidates(
                                 let argument = inputs[function_index].columns()[0]
                                     .value(row)
                                     .expect("validated candidate argument");
-                                let key = orders[function_index]
-                                    .columns()
-                                    .iter()
-                                    .map(|column| {
-                                        column.value(row).expect("validated candidate order")
-                                    })
-                                    .collect();
+                                let columns = orders[function_index].columns();
+                                let key = if let [column] = columns {
+                                    CandidateOrder::One(
+                                        column.value(row).expect("validated candidate order"),
+                                    )
+                                } else {
+                                    CandidateOrder::Many(
+                                        columns
+                                            .iter()
+                                            .map(|column| {
+                                                column
+                                                    .value(row)
+                                                    .expect("validated candidate order")
+                                            })
+                                            .collect(),
+                                    )
+                                };
                                 values[group] = Some((argument, key));
                             }
                         }
@@ -535,12 +550,14 @@ fn try_ordered_candidates(
     groups
         .into_iter()
         .enumerate()
-        .map(|(group, (mut row, _))| {
+        .map(|(group, (row, _))| {
             context.query.check()?;
+            let mut output = Vec::with_capacity(row.len() + functions.len());
+            output.extend(row);
             for function in 0..functions.len() {
-                row.push(values[function][group].clone());
+                output.push(values[function][group].clone());
             }
-            Ok(row)
+            Ok(output)
         })
         .collect::<Result<Vec<_>>>()
         .map(Some)
@@ -553,11 +570,15 @@ fn try_ordered_candidates(
 fn compare_candidate_order(
     columns: &DataChunk,
     row: usize,
-    current: &[Value],
+    current: &CandidateOrder,
     order: &[crate::planner::logical::OrderExpr],
     types: &[BoundType],
     context: &ExecutionContext<'_>,
 ) -> Result<Ordering> {
+    let current: &[Value] = match current {
+        CandidateOrder::One(value) => std::slice::from_ref(value),
+        CandidateOrder::Many(values) => values,
+    };
     for (((column, current), order), data_type) in
         columns.columns().iter().zip(current).zip(order).zip(types)
     {
