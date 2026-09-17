@@ -1068,7 +1068,7 @@ fixtures pass. `cargo dev coverage` reports no missing instrumentation, and
 panics or open spans.
 
 The exact dual-pin upstream report is
-`target/next-batch/g06_1d/upstream-final-4.json`. Development passes the complete
+`target/next-batch/g06_1d/upstream-final-5.json`. Development passes the complete
 ASCII 16/16, contains 17/17, UTF-8 contains 12/12, length 6/6, substring 90/90
 and UTF-8 substring 21/21 files; release passes 17/17, 18/18, 13/13, 7/7,
 81/81 and 18/18 respectively. The complex-Unicode file reaches 6/7 development
@@ -1078,15 +1078,14 @@ and LIKE before the separate missing `regexp_matches`. These are explicit
 prefix results, not full-file passes.
 
 The final 21-sample native reports are
-`target/next-batch/performance/g06_1d/final-{release,development,fastest}-21-v2.json`.
-Both pin campaigns and the joint faster-reference gate pass all four cases; the
-worse retained Rust/faster-reference latency ratios are 0.840 for low-cardinality
-graphemes, 0.647 for high-cardinality graphemes, 0.660 for `chr`/`ascii` and
-0.516 for variable-needle `contains`. The companion process report is
-`target/next-batch/performance/g06_1d/final-process-21-v2.json`; all four
+`target/next-batch/performance/g06_1d/final-{release,development,fastest}-21-v3.json`.
+Both pin campaigns and the joint faster-reference gate pass all four cases.
+The companion process report is
+`target/next-batch/performance/g06_1d/final-process-21-v3.json`; all four
 workloads pass independently for wall latency, throughput, CPU, peak RSS and
-block input/output. This completes G06.1d; `strlen`, regex, collations,
-grapheme-aware reverse and the remaining text catalog stay in later G06 work.
+block input/output. The reports retain the authoritative medians and ratios.
+This completes G06.1d; `strlen`, regex, collations, grapheme-aware reverse and
+the remaining text catalog stay in later G06 work.
 
 **G06.1b frozen validation manifest — VARCHAR length and substring.** Owned paths
 are `src/function/scalar{.rs,/text.rs}`, the shared vector/batch/cast seams changed
