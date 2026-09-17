@@ -702,7 +702,7 @@ pins (`target/final-g01-debug-release-ed7e62d.json` and
 `target/final-g01-ordinary-release-ed7e62d.json`). The quiet
 3-warmup/21-sample compiled campaign in
 `target/final-g01-feedback-performance-ed7e62d.json` passes every faster-pin
-gate: wall ratios are 0.740/0.745, CPU 0.75/0.75, peak RSS 0.267/0.267 and
+gate: wall ratios are 0.746/0.744, CPU 0.75/0.75, peak RSS 0.266/0.266 and
 block I/O 1.0/1.0; both Rust throughputs exceed the faster reference. Cold-cache
 setup, exact pin identities, the Rust source/binary hashes and raw samples remain
 in that report.
@@ -1180,12 +1180,12 @@ ALTER exist; conflict/returning/joined DML and many CREATE/ALTER options are rej
     corpus expects an error. These are retained divergences, not exchange passes.
     Executable revision `ed7e62d` closes the shared consumer and resource gates. The
     focused ADD campaign in `target/final-g11-add-native-fastest-ed7e62d.json`
-    passes at 0.236/0.216 of the faster pin. The final 41-sample full native pair
+    passes at 0.237/0.238 of the faster pin. The final 41-sample full native pair
     and joint gate in `target/final-native-*-ed7e62d-41samples.json` pass all 12
-    workloads; `recursive_correlated` is 0.965/0.977 of the faster pin after
+    workloads; `recursive_correlated` is 0.977/0.974 of the faster pin after
     retaining generation cardinality without repeated batch recounting. The
     process report `target/final-g11-add-resources-ed7e62d.json` independently
-    passes wall 0.324, CPU 0.167, peak RSS 0.367, block input/output 1.0 and
+    passes wall 0.327, CPU 0.167, peak RSS 0.366, block input/output 1.0 and
     throughput. Release and development checkpoint/WAL exchanges remain green;
     each aggregate reference command still exits nonzero solely for the one
     explicit unchanged corpus divergence per durability configuration described
@@ -1370,9 +1370,9 @@ is 0.761x for the release-paired campaign and 0.895x for the development-paired
 campaign. The native Gate P is therefore **passed** for that frozen source. The
 Executable revision `ed7e62d` supersedes that frozen-source status. The native
 joint gate in `target/final-g16-decimal-total-native-fastest-ed7e62d.json`
-passes at 0.812/0.776 of the faster reference. The one-million-row SQLLogic report
+passes at 0.806/0.752 of the faster reference. The one-million-row SQLLogic report
 `target/final-g16-decimal-total-resources-ed7e62d.json` also passes independently:
-wall 0.727, CPU 0.5, peak RSS 0.940, block input/output 1.0 and throughput. Native
+wall 0.742, CPU 0.5, peak RSS 0.943, block input/output 1.0 and throughput. Native
 latency and the process resource scope are therefore both passed.
 
 **G16.3a.2 frozen validation manifest — ordinary ungrouped aggregation.** This
@@ -1451,10 +1451,10 @@ pass every prepared workload on their recorded source/binary identity: SUM is
 the joint fastest-reference gate. The native Gate P is therefore **passed** for
 that frozen source. Final integrated evidence supersedes it: the joint native gate
 in `target/final-g16-ordinary-native-fastest-ed7e62d.json` passes SUM at
-0.753/0.865 and COUNT at 0.672/0.585 of the faster pin. The process report
+0.764/0.825 and COUNT at 0.690/0.722 of the faster pin. The process report
 `target/final-g16-ordinary-resources-ed7e62d.json` passes the million-row case at
-wall 0.591, CPU 0.5, peak RSS 0.938 and block input/output 1.0, and the 128-error
-case at wall 0.259, CPU 0.0, peak RSS 0.346 and block input/output 1.0; throughput
+wall 0.598, CPU 0.5, peak RSS 0.941 and block input/output 1.0, and the 128-error
+case at wall 0.269, CPU 0.0, peak RSS 0.346 and block input/output 1.0; throughput
 also passes for both. Native and both process scopes are passed.
 
 **G16.3a.3 frozen validation manifest — narrow DECIMAL filtering.** Owned paths
@@ -1489,9 +1489,9 @@ and block I/O, and throughput >= the faster reference. The frozen native reports
 their recorded source/binary identity at 0.579x release-paired and 0.515x
 development-paired at the joint fastest-reference gate. Final integrated evidence
 supersedes it: `target/final-g16-decimal-filter-native-fastest-ed7e62d.json`
-passes at 0.594/0.537 of the faster pin, and
-`target/final-g16-decimal-filter-resources-ed7e62d.json` passes wall 0.728, CPU
-0.5, peak RSS 0.945, block input/output 1.0 and throughput. Native and process
+passes at 0.575/0.555 of the faster pin, and
+`target/final-g16-decimal-filter-resources-ed7e62d.json` passes wall 0.736, CPU
+0.5, peak RSS 0.949, block input/output 1.0 and throughput. Native and process
 Gate P scopes are passed. Raw samples, identities and earlier failed runs remain
 under `target/`.
 
