@@ -17,7 +17,7 @@ use crate::{
 };
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -1714,11 +1714,8 @@ fn try_ungrouped(
     while let Some(batch) = input.next(context.query.batch_size())? {
         let mut column_selections: HashMap<usize, Arc<[usize]>> = HashMap::new();
         for column in filter_columns.iter().flatten().copied() {
-            if !column_selections.contains_key(&column) {
-                column_selections.insert(
-                    column,
-                    boolean_column_selection(&batch, column, context.query)?.into(),
-                );
+            if let Entry::Vacant(entry) = column_selections.entry(column) {
+                entry.insert(boolean_column_selection(&batch, column, context.query)?.into());
             }
         }
         let evaluated = expressions
