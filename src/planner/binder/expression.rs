@@ -404,6 +404,11 @@ impl State<'_, '_> {
                     recurse(expr)?,
                 ],
             ),
+            ast::Expr::Position { expr, r#in } => {
+                // DuckDB lowers POSITION(needle IN haystack) to the ordinary
+                // position(haystack, needle) alias before overload binding.
+                self.scalar_call("position", vec![recurse(r#in)?, recurse(expr)?])
+            }
             ast::Expr::Substring {
                 expr,
                 substring_from,
