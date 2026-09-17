@@ -358,7 +358,7 @@ fn retain_ordered(
     types: &[crate::common::type_registry::BoundType],
     context: &ExecutionContext<'_>,
 ) -> Result<()> {
-    if !candidate_replaces(rows, &order, strategy, expressions, types, context)? {
+    if !candidate_replaces(rows, order, strategy, expressions, types, context)? {
         return Ok(());
     }
     match strategy {

@@ -213,6 +213,16 @@ impl PartialEq<RowCollection> for Vec<Row> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl serde::Serialize for RowCollection {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.iter())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -248,14 +258,5 @@ mod tests {
             ]
         );
         Ok(())
-    }
-}
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl serde::Serialize for RowCollection {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.iter())
     }
 }

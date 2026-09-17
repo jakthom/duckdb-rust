@@ -944,9 +944,9 @@ development and 28 on release before the separate missing `instr` family;
 UTF-8 substring reaches 13 and 12 respectively before the separate missing
 `substring_grapheme` family. These are retained prefix results, not full-file
 passes. Final-tree native reports are retained as
-`target/next-batch/performance/g06/final-frozen-{release,development,fastest}-21.json`;
+`target/next-batch/performance/g06/final-verified-{release,development,fastest}-21.json`;
 the comparable CPU, peak-RSS, block-I/O and throughput campaign is
-`target/next-batch/performance/g06/final-frozen-process-21.json`. Both pinned
+`target/next-batch/performance/g06/final-verified-process-21.json`. Both pinned
 campaigns, the joint faster-reference latency gate and every independent process
 metric pass for all declared workloads. This completes the G06.1b slice, not the
 remaining G06.1 catalog.
@@ -1041,9 +1041,9 @@ the full unchanged
 13/14 attempted records on development and 14/15 on release before the unrelated
 LIST/DISTINCT/FILTER parser case; that prefix is not a full-file pass. Final-tree
 native reports are retained as
-`target/next-batch/performance/g08/final-frozen-{release,development,fastest}-21.json`;
+`target/next-batch/performance/g08/final-verified-{release,development,fastest}-21.json`;
 the comparable CPU, peak-RSS, block-I/O and throughput campaign is
-`target/next-batch/performance/g08/final-frozen-process-21.json`. Both pinned
+`target/next-batch/performance/g08/final-verified-process-21.json`. Both pinned
 campaigns, the joint faster-reference latency gate and every independent process
 metric pass for all six native cases and the declared process workload. This
 completes the G08.2a slice while the remaining G08.2 modifiers stay open.
