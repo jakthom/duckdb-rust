@@ -258,6 +258,12 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
             ),
             Err(Error::Bind(message)) if message == "In a DISTINCT aggregate, ORDER BY expressions must appear in the argument list"
         ));
+        assert!(matches!(
+            connection.query(
+                "SELECT sum(v) WITHIN GROUP (ORDER BY abs(v)) FROM ordered",
+            ),
+            Err(Error::Parse(message)) if message == "Unknown ordered aggregate \"sum\""
+        ));
         // Numeric argument-order literals are constants, never SELECT-list
         // ordinals. A stable tie therefore preserves the input order.
         assert_eq!(

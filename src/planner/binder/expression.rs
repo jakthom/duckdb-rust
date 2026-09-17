@@ -696,10 +696,7 @@ impl State<'_, '_> {
                 })
             }
             ast::Expr::Function(function) => {
-                if function.over.is_some()
-                    || !function.within_group.is_empty()
-                    || function.null_treatment.is_some()
-                {
+                if function.over.is_some() || function.null_treatment.is_some() {
                     return Err(Error::Bind(
                         "window or ordered function is not allowed in this clause".into(),
                     ));
@@ -707,9 +704,23 @@ impl State<'_, '_> {
                 let name = function_name(&function.name)?;
                 if name.eq_ignore_ascii_case("grouping") || name.eq_ignore_ascii_case("grouping_id")
                 {
+                    if !function.within_group.is_empty() {
+                        return Err(Error::Bind(
+                            "window or ordered function is not allowed in this clause".into(),
+                        ));
+                    }
                     return self.grouping_function(expr, function, fields, grouping);
                 }
                 if let Some(aggregate) = self.context.functions.aggregate(&name) {
+                    // Pinned DuckDB treats WITHIN GROUP as ordered-set syntax,
+                    // not as an alternate spelling for ordinary aggregate
+                    // argument ordering. Its supported ordered-set families
+                    // (percentiles and mode) are intentionally out of scope.
+                    if !function.within_group.is_empty() {
+                        return Err(Error::Parse(format!(
+                            "Unknown ordered aggregate \"{name}\""
+                        )));
+                    }
                     let grouping = grouping.ok_or_else(|| {
                         Error::Bind(format!("aggregate {name} is not allowed here"))
                     })?;
@@ -789,6 +800,11 @@ impl State<'_, '_> {
                     ));
                     Ok(BoundExpr::column(index, data_type))
                 } else {
+                    if !function.within_group.is_empty() {
+                        return Err(Error::Bind(
+                            "window or ordered function is not allowed in this clause".into(),
+                        ));
+                    }
                     if function.filter.is_some() {
                         return Err(Error::Bind("FILTER requires an aggregate".into()));
                     }
