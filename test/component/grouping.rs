@@ -243,7 +243,7 @@ fn order_insensitive_sum_elides_only_total_keys() -> Result<()> {
     // unsupported outer aggregate, while a key mixed with an inner argument
     // is a valid correlated aggregate.
     let db = Database::memory()?;
-    let connection = db.connect();
+    let mut connection = db.connect();
     assert!(matches!(
         connection.query(
             "SELECT (SELECT sum(1 ORDER BY outer_rows.i) FROM range(1) inner_rows(j)) \
