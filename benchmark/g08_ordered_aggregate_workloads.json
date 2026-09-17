@@ -2,19 +2,31 @@
   "schema_version": 1,
   "rows": 50000,
   "threads": 1,
-  "setup": "CREATE TABLE ordered AS SELECT i, 49999-i AS k FROM range(50000) t(i)",
+  "setup": "CREATE TABLE ordered AS SELECT i, CASE WHEN i%17=0 THEN NULL ELSE i%5 END AS k FROM range(50000) t(i)",
   "workloads": [
     {
-      "name": "ordered_aggregate_ungrouped",
-      "sql": "SELECT sum(i ORDER BY k), first(i ORDER BY k), last(i ORDER BY k) FROM ordered",
+      "name": "ordered_sum_total_key_elision",
+      "sql": "SELECT sum(i ORDER BY k) FROM ordered",
       "rows": 1,
-      "sum": "1250024999"
+      "sum": "1249975000"
     },
     {
-      "name": "ordered_aggregate_grouped",
-      "sql": "SELECT first(i ORDER BY k), last(i ORDER BY k) FROM ordered GROUP BY i%64",
+      "name": "ordered_first_last_ungrouped_ties_nulls",
+      "sql": "SELECT first(i ORDER BY k NULLS FIRST), last(i ORDER BY k NULLS LAST) FROM ordered",
+      "rows": 1,
+      "sum": "49997"
+    },
+    {
+      "name": "ordered_first_last_grouped_high_cardinality",
+      "sql": "SELECT first(i ORDER BY k NULLS FIRST), last(i ORDER BY k NULLS LAST) FROM ordered GROUP BY i%257",
+      "rows": 257,
+      "sum": "12849229"
+    },
+    {
+      "name": "ordered_first_last_grouped_ties_nulls",
+      "sql": "SELECT first(i ORDER BY k NULLS FIRST), last(i ORDER BY k NULLS LAST) FROM ordered GROUP BY i%64",
       "rows": 64,
-      "sum": "3199936"
+      "sum": "3199808"
     }
   ]
 }

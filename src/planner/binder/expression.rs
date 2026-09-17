@@ -759,11 +759,12 @@ impl State<'_, '_> {
                         .map(|order| self.aggregate_order(order, fields))
                         .collect::<Result<Vec<_>>>()?;
                     // Exact SUM's result and checked-overflow behaviour are
-                    // input-order insensitive.  Dropping its argument ORDER
-                    // BY is valid only if every key is unobservable and
-                    // infallible; otherwise retain the ordinary executor
-                    // evaluation order and buffered contract.
-                    if !distinct
+                    // input-order insensitive.  Its argument ORDER BY can be
+                    // elided only when every key is unobservable and
+                    // infallible. Keep the bound keys through scope
+                    // validation below: even an elided key must not turn an
+                    // outer-only aggregate binding into a local aggregate.
+                    let elide_order_by = !distinct
                         && aggregate.order_insensitive(
                             &arguments
                                 .iter()
@@ -772,10 +773,7 @@ impl State<'_, '_> {
                         )
                         && order_by
                             .iter()
-                            .all(|order| order.expression.is_pure_and_total())
-                    {
-                        order_by.clear();
-                    }
+                            .all(|order| order.expression.is_pure_and_total());
                     let data_type = aggregate.return_type(
                         &arguments
                             .iter()
@@ -803,6 +801,9 @@ impl State<'_, '_> {
                     }
                     if outer && !local {
                         return Err(unsupported("aggregate binding to an outer query scope"));
+                    }
+                    if elide_order_by {
+                        order_by.clear();
                     }
                     let index = grouping.groups.len() + grouping.outputs.borrow().len();
                     grouping.outputs.borrow_mut().push((

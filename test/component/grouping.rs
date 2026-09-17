@@ -237,6 +237,33 @@ fn order_insensitive_sum_elides_only_total_keys() -> Result<()> {
         vec![vec![Value::Integer(6)]],
     );
     assert_eq!(calls.load(Ordering::Relaxed), 4);
+
+    // An order key can be elided from execution for exact SUM, but it still
+    // participates in aggregate scope validation. An outer-only key is an
+    // unsupported outer aggregate, while a key mixed with an inner argument
+    // is a valid correlated aggregate.
+    let db = Database::memory()?;
+    let connection = db.connect();
+    assert!(matches!(
+        connection.query(
+            "SELECT (SELECT sum(1 ORDER BY outer_rows.i) FROM range(1) inner_rows(j)) \
+             FROM range(1) outer_rows(i)",
+        ),
+        Err(Error::Unsupported(_))
+    ));
+    assert_eq!(
+        connection
+            .query(
+                "SELECT (SELECT sum(inner_rows.j ORDER BY outer_rows.i) \
+                 FROM range(1) inner_rows(j)) FROM range(3) outer_rows(i) ORDER BY i",
+            )?
+            .rows,
+        vec![
+            vec![Value::Integer(0)],
+            vec![Value::Integer(0)],
+            vec![Value::Integer(0)],
+        ]
+    );
     Ok(())
 }
 

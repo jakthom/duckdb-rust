@@ -1,5 +1,5 @@
 # name: test/performance/g08_ordered_aggregate.test
-# description: Ordered aggregate argument workload with ungrouped and grouped states
+# description: Ordered aggregate argument workloads for SUM elision and FIRST/LAST candidates
 # group: [performance]
 
 query I
@@ -9,12 +9,19 @@ FROM range(1000000) t(i);
 499999500000
 
 query II
+SELECT first(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS FIRST),
+       last(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS LAST)
+FROM range(1000000) t(i);
+----
+0	999991
+
+query III
 SELECT sum(first_i),sum(last_i)
 FROM (
-    SELECT first(i ORDER BY i DESC) AS first_i,
-           last(i ORDER BY i DESC) AS last_i
+    SELECT first(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS FIRST) AS first_i,
+           last(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS LAST) AS last_i
     FROM range(1000000) t(i)
-    GROUP BY i%64
+    GROUP BY i%257
 ) ordered;
 ----
-63997920	2016
+559232	256438455

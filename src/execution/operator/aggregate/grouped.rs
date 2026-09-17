@@ -323,6 +323,7 @@ pub(super) fn run<I: GroupIndex>(
 
 /// Whether this row adds retained storage. Candidate replacement is constant
 /// space; a generic buffered aggregate retains every row.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn candidate_replaces(
     rows: &[(Row, Row)],
     order: &Row,
@@ -345,6 +346,7 @@ fn candidate_replaces(
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn retain_ordered(
     rows: &mut Vec<(Row, Row)>,
     args: Row,
