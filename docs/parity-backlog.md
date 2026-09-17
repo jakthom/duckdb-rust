@@ -805,6 +805,22 @@ row-ordered failure behavior for other aggregates. The temporal component passes
 its assigned cases, and this slice's **at-parity or better performance** gate passes
 (wall 0.762x, CPU 0.500x and RSS 0.591x the faster pin, with equal block I/O).
 
+**G04.1a validation manifest — temporal physical minima audit.** This batch owns
+only this maintained backlog entry: it audits the already implemented minimum
+domain without changing executable code, fixtures, build configuration or a
+workload. The focused Rust check is `cargo test -p duckdb-rust --test temporal
+temporal_minimum`; the cross-pin acceptance command is `python3
+scripts/temporal_minimum_reference.py --report target/next-batch/g04/<revision>.json`.
+The report must retain every exact and outcome-only difference for both pinned
+C++ revisions, including minimum timestamp precision conversion, `date_trunc`,
+missing release `TIMESTAMPTZ_NS`, diagnostic wording and native payload limits;
+a nonzero comparison is evidence of the remaining G04.1 backlog, not a pass.
+Negative/boundary coverage includes all timestamp precisions and timezone forms,
+the full-width minimum, conversion rounding and formatting. Performance is **not
+applicable: documentation-only** for this batch after review of its final diff;
+that is not a measured temporal performance pass and does not close the residual
+engine gaps.
+
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
   payloads and exact cast failures; retain the repaired full-width timestamp minimum.
@@ -885,6 +901,30 @@ function catalog and collation system do not. Its **at-parity or better
 performance** gate passes (wall 0.324x, CPU 0.000x at timer resolution and RSS
 0.468x the faster pin, with equal block I/O).
 
+**G06.1b frozen validation manifest — VARCHAR length and substring.** Owned paths
+are `src/function/scalar{.rs,/text.rs}`, the shared vector/batch/cast seams changed
+by substring composition, `test/component/{text_substring,casts}.rs`, the G06
+SQLLogic fixture, native/process workload manifests and benchmark adapters, and
+this entry. Fast checks are the complete `text_substring` target, the scalar text
+unit module, the focused length/dictionary/selected-lane filters and
+`primitive_integer_overflow_reports_physical_types`. Full functional acceptance
+also includes the complete grouping target because fused `sum(length(substring))`
+is a shared consumer, plus the unchanged upstream files
+`test/sql/function/string/test_length.test`,
+`test/sql/function/string/test_substring.test` and
+`test/sql/function/string/test_substring_utf8.test`, selected exactly against
+both pins. Prefix failures at the separately unimplemented `instr` and
+`substring_grapheme` families remain visible and cannot be claimed as substring
+failures or full-file passes. Boundary coverage includes omitted/negative/zero
+starts, omitted/negative lengths, empty/NUL/Unicode values, INT64 extremes,
+overflow diagnostics, constant/flat/dictionary/selected encodings, prepared
+execution and low/high-cardinality direct VARCHAR output. Gate P uses three
+50,000-row native cases (fused low-cardinality length, direct low-cardinality
+substring and direct high-cardinality substring) and the maintained one-million-row
+SQLLogic process workload. Final release/no-tracing evidence uses three warmups
+and 21 serial samples against both exact pins, with exact checksums and independent
+wall, CPU, peak-RSS, block-I/O and throughput gates against the faster reference.
+
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
   Match character versus byte indexing and invalid-input behavior.
@@ -938,6 +978,27 @@ G08.1a adds unary numeric `product`, including NULL/empty behavior, IEEE DOUBLE
 multiplication and BIGNUM conversion coverage; its source `product` cases pass
 against both pins. Its **at-parity or better performance** gate passes (wall
 0.842x, CPU 1.000x and RSS 0.280x the faster pin, with equal block I/O).
+
+**G08.2a frozen validation manifest — aggregate argument `ORDER BY`.** Owned paths
+are the aggregate binder/logical plan and grouped/batched execution modules,
+`test/component/grouping.rs`, the G08 SQLLogic fixture, native/process workload
+manifests and benchmark adapters, and this entry. The fast behavior check is the
+complete grouping target. It covers order-insensitive SUM elision; FIRST/LAST
+with ASC/DESC, NULL ordering, equal-key source stability, grouped/ungrouped and
+multi-key inputs; filters/DISTINCT; scope and metadata errors; effects/fallible
+expressions; resource/cancellation bounds; mixed ordinary and ordered states;
+and conservative fallback outside the physical candidate capability. Full
+functional acceptance runs the local G08 fixture and the unchanged upstream
+`test/sql/aggregate/aggregates/test_sum.test` and
+`test/sql/aggregate/aggregates/test_order_by_aggregate.test` files against both
+pins. Any later `WITHIN GROUP`, LIST/DISTINCT/FILTER parser or missing aggregate
+family blocker remains explicit rather than turning a reachable prefix into a
+full-file pass. Gate P uses six 50,000-row native cases: total-key SUM, ungrouped
+FIRST/LAST, 8,192- and 64-group FIRST/LAST, mixed SUM plus ordered candidates and
+composite ordering; the process gate uses the maintained one-million-row SQLLogic
+workload. Final release/no-tracing evidence uses three warmups and 21 serial
+samples against both exact pins, validates declared results, and independently
+gates wall, CPU, peak RSS, block I/O and throughput against the faster reference.
 
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
