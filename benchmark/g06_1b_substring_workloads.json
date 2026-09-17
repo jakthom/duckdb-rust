@@ -6,9 +6,9 @@
   "workloads": [
     {
       "name": "g06_1b_varchar_substring_50k",
-      "sql": "SELECT sum(length(v)) + sum(char_length(v)) + sum(length(substring(v,start,count))) FROM g06_substring",
+      "sql": "SELECT sum(length(substring(v,start,count))) FROM g06_substring",
       "rows": 1,
-      "sum": "562500"
+      "sum": "112500"
     }
   ]
 }

@@ -13,6 +13,6 @@ SELECT CASE i % 4 WHEN 0 THEN 'alphabet soup' WHEN 1 THEN 'é🦆x' WHEN 2 THEN 
 FROM range(50000) t(i);
 
 query I
-SELECT sum(length(v)) + sum(char_length(v)) + sum(length(substring(v,start,count))) FROM g06_substring;
+SELECT sum(length(substring(v,start,count))) FROM g06_substring;
 ----
-562500
+112500

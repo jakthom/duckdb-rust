@@ -104,13 +104,11 @@ fn bound(value: &Value, name: &str) -> Result<i128> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn slice(input: &str, start: i128, length: Option<i128>) -> String {
-    // The source operates in character offsets. Keep byte boundaries beside
-    // the decoded character positions so slicing retains arbitrary valid UTF-8
-    // contents verbatim, including embedded NULs.
-    let mut boundaries = Vec::with_capacity(input.chars().count() + 1);
-    boundaries.extend(input.char_indices().map(|(offset, _)| offset));
-    boundaries.push(input.len());
-    let count = (boundaries.len() - 1) as i128;
+    // The source operates in character offsets. Count characters first, then
+    // find the two requested byte offsets without materializing every UTF-8
+    // boundary. This keeps column scans allocation-free until the resulting
+    // VARCHAR itself is copied, while retaining embedded NUL bytes verbatim.
+    let count = input.chars().count() as i128;
 
     // Positive starts are one-based. Zero and negative starts intentionally
     // retain their pre-clamp offset: `substring('abc', 0, 2)` is `a`.
@@ -131,7 +129,18 @@ fn slice(input: &str, start: i128, length: Option<i128>) -> String {
     if begin >= end {
         String::new()
     } else {
-        input[boundaries[begin]..boundaries[end]].to_owned()
+        let mut begin_byte = 0;
+        let mut end_byte = input.len();
+        for (index, (offset, _)) in input.char_indices().enumerate() {
+            if index == begin {
+                begin_byte = offset;
+            }
+            if index == end {
+                end_byte = offset;
+                break;
+            }
+        }
+        input[begin_byte..end_byte].to_owned()
     }
 }
 
@@ -145,5 +154,7 @@ mod tests {
         assert_eq!(slice("a\0é", 2, Some(2)), "\0é");
         assert_eq!(slice("abcdef", 0, Some(3)), "ab");
         assert_eq!(slice("abcdef", 3, Some(-2)), "ab");
+        let long = "é🦆".repeat(50_000);
+        assert_eq!(slice(&long, 99_999, Some(2)), "é🦆");
     }
 }
