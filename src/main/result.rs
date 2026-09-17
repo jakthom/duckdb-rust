@@ -16,6 +16,25 @@ impl QueryResult {
             affected_rows: count,
         }
     }
+
+    /// DuckDB exposes CREATE TABLE as a one-column `Count` result. Plain DDL
+    /// and a skipped `IF NOT EXISTS` keep that schema but produce no rows;
+    /// CTAS produces the inserted count as its single row.
+    pub(super) fn create_table() -> Self {
+        Self {
+            columns: vec![Field::new("Count", DataType::BigInt)],
+            rows: RowCollection::new(1),
+            affected_rows: 0,
+        }
+    }
+
+    pub(super) fn create_table_count(count: usize) -> Result<Self> {
+        Ok(Self {
+            columns: vec![Field::new("Count", DataType::BigInt)],
+            rows: RowCollection::from_rows(1, vec![vec![Value::Integer(count as i128)]])?,
+            affected_rows: count,
+        })
+    }
 }
 
 /// Metadata and completion for a query consumed through the batch API.

@@ -107,6 +107,42 @@ fn distinct_on_preserves_pinned_target_and_order_semantics() -> Result<()> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn create_table_reports_duckdb_count_result_shape() -> Result<()> {
+    let mut connection = DatabaseBuilder::new().build()?.connect();
+
+    let nonempty_ctas =
+        connection.query("CREATE TABLE ctas_nonempty AS SELECT range FROM range(3)")?;
+    assert_eq!(nonempty_ctas.columns.len(), 1);
+    assert_eq!(nonempty_ctas.columns[0].name, "Count");
+    assert_eq!(nonempty_ctas.columns[0].data_type, DataType::BigInt);
+    assert_eq!(nonempty_ctas.rows, vec![ints(&[3])]);
+    assert_eq!(nonempty_ctas.affected_rows, 3);
+
+    let empty_ctas = connection.query("CREATE TABLE ctas_empty AS SELECT range FROM range(0)")?;
+    assert_eq!(empty_ctas.columns.len(), 1);
+    assert_eq!(empty_ctas.columns[0].name, "Count");
+    assert_eq!(empty_ctas.columns[0].data_type, DataType::BigInt);
+    assert_eq!(empty_ctas.rows, vec![ints(&[0])]);
+    assert_eq!(empty_ctas.affected_rows, 0);
+
+    let plain_create = connection.query("CREATE TABLE plain_create(i INTEGER)")?;
+    assert_eq!(plain_create.columns.len(), 1);
+    assert_eq!(plain_create.columns[0].name, "Count");
+    assert_eq!(plain_create.columns[0].data_type, DataType::BigInt);
+    assert!(plain_create.rows.is_empty());
+    assert_eq!(plain_create.affected_rows, 0);
+
+    let skipped = connection.query("CREATE TABLE IF NOT EXISTS plain_create(i INTEGER)")?;
+    assert_eq!(skipped.columns.len(), 1);
+    assert_eq!(skipped.columns[0].name, "Count");
+    assert_eq!(skipped.columns[0].data_type, DataType::BigInt);
+    assert!(skipped.rows.is_empty());
+    assert_eq!(skipped.affected_rows, 0);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn executors() -> Vec<Arc<dyn Executor>> {
     vec![Arc::new(PullExecutor), Arc::new(MaterializingExecutor)]
 }

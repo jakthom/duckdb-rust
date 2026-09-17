@@ -17,10 +17,16 @@
       "sum": "99973"
     },
     {
-      "name": "g06_1d_codepoint_nul_ascii_contains_aggregate_50k",
-      "sql": "SELECT sum(ascii(chr(code))), count(*) FILTER (WHERE contains('p' || chr(code) || chr(0) || 's', chr(code))) FROM g06_text_codepoint",
+      "name": "g06_1d_codepoint_nul_chr_ascii_50k",
+      "sql": "SELECT sum(ascii(chr(code))) FROM g06_text_codepoint",
       "rows": 1,
-      "sum": "1621450000"
+      "sum": "1621400000"
+    },
+    {
+      "name": "g06_1d_codepoint_nul_contains_50k",
+      "sql": "SELECT sum(CASE WHEN contains('p' || chr(code) || chr(0) || 's', chr(code)) THEN 1 ELSE 0 END) FROM g06_text_codepoint",
+      "rows": 1,
+      "sum": "50000"
     }
   ]
 }

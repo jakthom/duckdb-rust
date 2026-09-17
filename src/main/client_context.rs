@@ -328,8 +328,9 @@ impl Services {
                 source,
             } => {
                 if if_not_exists && transaction.catalog().table(&definition.name).is_ok() {
-                    return Ok(QueryResult::command(0));
+                    return Ok(QueryResult::create_table());
                 }
+                let has_source = source.is_some();
                 enum SourceData {
                     Rows(Vec<crate::common::Row>),
                     Chunks(Vec<DataChunk>),
@@ -364,7 +365,11 @@ impl Services {
                         .storage_mut()?
                         .insert_chunks(&name, chunks, query)?,
                 };
-                Ok(QueryResult::command(count))
+                if has_source {
+                    QueryResult::create_table_count(count)
+                } else {
+                    Ok(QueryResult::create_table())
+                }
             }
             BoundStatement::DropTable { tables, if_exists } => {
                 for table in tables {

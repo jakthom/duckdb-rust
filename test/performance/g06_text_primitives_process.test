@@ -1,25 +1,19 @@
-# G06.1d process-level grapheme and NUL-safe text workload. The native
-# workloads measure the low/high-cardinality populations independently; this
-# fixture repeatedly consumes their stored-column equivalents through one-row
-# aggregate consumers for 6.4m row-visits.
+# G06.1d process-level low-cardinality grapheme workload: 128 * 50k = 6.4m
+# stored-column row-visits through the SQLLogic runner.
 statement ok
 CREATE TABLE g06_text_primitives_process AS
 SELECT CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v,
-       i,
-       CASE i % 4 WHEN 0 THEN 0 WHEN 1 THEN 65 WHEN 2 THEN 129414 ELSE 233 END AS code
+       i
 FROM range(50000) t(i);
 
 loop iteration 0 128
 
-query IIII
+query I
 SELECT sum(length_grapheme(substring_grapheme(v,
            CASE i % 4 WHEN 0 THEN 2 WHEN 1 THEN -1 WHEN 2 THEN 1 ELSE 1 END,
-           CASE i % 4 WHEN 0 THEN 1 WHEN 1 THEN 1 WHEN 2 THEN 2 ELSE 1 END))),
-       sum(length_grapheme(substring_grapheme(v || i::VARCHAR,2,2))),
-       sum(ascii(chr(code))),
-       count(*) FILTER (WHERE contains('p' || chr(code) || chr(0) || 's',chr(code)))
+           CASE i % 4 WHEN 0 THEN 1 WHEN 1 THEN 1 WHEN 2 THEN 2 ELSE 1 END)))
 FROM g06_text_primitives_process;
 ----
-50000	99973	1621400000	50000
+50000
 
 endloop

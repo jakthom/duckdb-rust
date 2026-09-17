@@ -1,0 +1,17 @@
+# G06.1d process-level high-cardinality grapheme workload: 128 * 50k = 6.4m
+# stored-column row-visits through the SQLLogic runner.
+statement ok
+CREATE TABLE g06_text_grapheme_high_process AS
+SELECT CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v,
+       i
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query I
+SELECT sum(length_grapheme(substring_grapheme(v || i::VARCHAR, 2, 2)))
+FROM g06_text_grapheme_high_process;
+----
+99973
+
+endloop

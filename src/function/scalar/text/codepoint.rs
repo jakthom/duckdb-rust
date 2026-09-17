@@ -201,7 +201,7 @@ fn varchar_arguments(name: &str, arguments: &[DataType], count: usize) -> Result
             .all(|argument| matches!(argument, DataType::Varchar | DataType::Null))
     {
         return Err(Error::Bind(format!(
-            "{name} requires {count} VARCHAR argument(s)"
+            "No function matches the given name and argument types '{name}({arguments:?})'"
         )));
     }
     Ok(vec![DataType::Varchar; count])
