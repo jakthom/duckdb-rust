@@ -75,12 +75,12 @@ fn every_timestamp_physical_minimum_is_finite_distinct_from_null_and_not_necessa
     assert!(
         TemporalValue::Timestamp(i64::MIN)
             .scale_timestamp(&DataType::TimestampNs)
-            .is_err()
+            .is_err_and(|error| matches!(error, Error::Conversion(ref message) if message == "Could not convert Timestamp to higher precision."))
     );
     assert!(
         TemporalValue::TimestampS(i64::MIN)
             .scale_timestamp(&DataType::Timestamp)
-            .is_err()
+            .is_err_and(|error| matches!(error, Error::Conversion(ref message) if message == "Could not convert Timestamp to higher precision."))
     );
     assert_eq!(
         TemporalValue::TimestampNs(i64::MIN).scale_timestamp(&DataType::Timestamp)?,
@@ -99,6 +99,66 @@ fn every_timestamp_physical_minimum_is_finite_distinct_from_null_and_not_necessa
     ));
     assert_eq!(c.query("SELECT isfinite(t),isinf(t),t<TIMESTAMP '-infinity',t::DATE,t::TIME,epoch_us((t::VARIANT)::TIMESTAMP) FROM (SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806)) t)")?.rows,vec![vec![Value::Boolean(true),Value::Boolean(false),Value::Boolean(true),Value::Date("290309-12-21 (BC)".parse()?),Value::Temporal(TemporalValue::Time(71_945_224_192)),Value::Integer(i128::from(i64::MIN))]]);
     assert!(matches!(c.query("SELECT time_bucket(INTERVAL '4us',make_timestamp(-9223372036854775806))+INTERVAL '1 day'"),Err(Error::Conversion(_))));
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn development_minimum_precision_narrowing_rounds_in_scalar_batched_and_prepared_paths()
+-> Result<()> {
+    // Development's C++ cast uses scale-first division and rounds half ties
+    // away from the epoch. Release truncates the full-width minimum to one
+    // microsecond nearer zero and is intentionally not this slice's oracle.
+    let cases = [
+        (i64::MIN, -9_223_372_036_854_776_i64),
+        (-1_500, -2),
+        (-500, -1),
+        (-499, 0),
+        (499, 0),
+        (500, 1),
+        (1_500, 2),
+    ];
+    for batched in [false, true] {
+        let database = DatabaseBuilder::new()
+            .batch_size(2)
+            .expressions(if batched {
+                Arc::new(BatchedEvaluator)
+            } else {
+                Arc::new(ScalarEvaluator)
+            })
+            .build()?;
+        let mut connection = database.connect();
+        connection.execute("CREATE TABLE narrowing(n BIGINT)")?;
+        let insert = connection.prepare("INSERT INTO narrowing VALUES ($1)")?;
+        for (input, _) in cases {
+            connection.execute_prepared(&insert, &[Value::Integer(i128::from(input))])?;
+        }
+        let expected: Vec<_> = cases
+            .iter()
+            .map(|(_, output)| vec![Value::Integer(i128::from(*output))])
+            .collect();
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT epoch_us(make_timestamp_ns(n)::TIMESTAMP) FROM narrowing ORDER BY n"
+                )?
+                .rows,
+            expected
+        );
+        let prepared = connection.prepare("SELECT epoch_us(make_timestamp_ns($1)::TIMESTAMP)")?;
+        for (input, output) in cases {
+            assert_eq!(
+                connection
+                    .execute_prepared(&prepared, &[Value::Integer(i128::from(input))])?
+                    .rows,
+                vec![vec![Value::Integer(i128::from(output))]]
+            );
+        }
+        assert!(matches!(
+            connection.query("SELECT epoch_ns(make_timestamp(9223372036854775806)::TIMESTAMP_NS)"),
+            Err(Error::Conversion(message)) if message == "Could not convert Timestamp to higher precision."
+        ));
+    }
     Ok(())
 }
 

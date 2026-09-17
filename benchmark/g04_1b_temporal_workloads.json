@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE temporal_precision AS SELECT make_timestamp_ns((i-25000)*1000) ts FROM range(50000) t(i)",
+  "workloads": [
+    {"name":"temporal_minimum_precision_casts","sql":"SELECT epoch_us(ts::TIMESTAMP) FROM temporal_precision","rows":50000,"sum":"-25000"}
+  ]
+}

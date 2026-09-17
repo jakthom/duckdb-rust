@@ -382,9 +382,13 @@ impl TemporalValue {
         } else {
             ticks * i128::from(target_precision) / i128::from(source_precision)
         };
-        let ticks = i64::try_from(ticks).map_err(|_| invalid("timestamp precision overflow"))?;
+        // This is the development cast operator's observable category for an
+        // expansion that cannot fit the destination's physical payload. Keep
+        // it distinct from a calendar/rendering range failure.
+        let ticks = i64::try_from(ticks)
+            .map_err(|_| invalid("Could not convert Timestamp to higher precision."))?;
         if ticks.abs_diff(0) >= i64::MAX as u64 {
-            return Err(invalid("timestamp precision overflow"));
+            return Err(invalid("Could not convert Timestamp to higher precision."));
         }
         Self::from_ticks(target, ticks)
     }
