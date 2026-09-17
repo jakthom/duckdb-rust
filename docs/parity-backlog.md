@@ -859,17 +859,19 @@ pass, performance is open. Release's truncating minimum narrowing, missing
 `TIMESTAMPTZ_NS`, and `date_trunc` difference remain documented divergences, not
 acceptance baselines.
 
-**G04.1b outcome (source `4ebbac2` plus this entry):** `cargo test -p
-duckdb-rust --test temporal temporal_minimum` passed all four selected tests;
-the new one covers scalar/batch/prepared minimum and pre-epoch precision
-narrowing. `cargo dev coverage` reported no missing annotations and `cargo dev
-trace check --workspace --all-targets` passed. The full two-pin reference
-comparison could not start because the required development checkout
-`99063af2bd` is dirty; the release-only campaign is retained at
-`target/next-batch/g04/g04-1b-temporal-release.json` and failed the wall gate
-(Rust 8,677,250 ns / release 1,184,542 ns = 7.325405x). CPU, RSS and I/O are
-unmeasured by the current adapter. Performance status is **fail/open**, so this
-functional slice is ready for further optimization/verification, not complete.
+**G04.1b outcome (final source `63ea4cc`):** `cargo test -p duckdb-rust --test
+temporal temporal_minimum` passed all four selected tests; the new one covers
+scalar/batch/prepared minimum and pre-epoch precision narrowing. `cargo dev
+coverage` reported no missing annotations and `cargo dev trace check --workspace
+--all-targets` passed. Final no-tracing release and clean-development campaigns
+are retained at `target/next-batch/g04/g04-1b-temporal-final-{release,development}.json`;
+the faster-pin gate is `...-final-fastest.json`. The release baseline was
+1,119,917 ns; Rust medians were 8,552,125 ns (release campaign, 7.636392x) and
+8,594,791 ns (development campaign, 7.674489x), so the wall/throughput gate
+failed. CPU, RSS and block I/O remain unmeasured because the maintained native
+adapter has no process-resource reporter. Performance status is **fail/open**,
+so this functional slice is ready for further architectural optimization and
+resource instrumentation, not complete.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
