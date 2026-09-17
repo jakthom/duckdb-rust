@@ -54,7 +54,7 @@ fn substring_and_substr_match_character_indexed_reference_boundaries() -> Result
         let expected = vec![
             vec![
                 Value::Varchar("\0é🦆".into()),
-                Value::Varchar("A\0é🦆".into()),
+                Value::Varchar("\0é🦆".into()),
             ],
             vec![Value::Varchar("".into()), Value::Varchar("abcdef".into())],
             vec![Value::Varchar("a".into()), Value::Varchar("bcdef".into())],
