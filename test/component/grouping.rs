@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use duckdb_rust::{
-    DataType, DatabaseBuilder, Error, Result, Value,
+    DataType, Database, DatabaseBuilder, Error, Result, Value,
     execution::{
         Executor, MaterializingExecutor, PullExecutor,
         expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
