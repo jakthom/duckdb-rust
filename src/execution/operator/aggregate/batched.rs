@@ -24,7 +24,10 @@ pub(super) fn try_run(
     if aggregation.sets.iter().any(|s| s.indices().len() > 2)
         || aggregation.groups.iter().any(|e| !e.is_pure_and_total())
         || aggregation.functions().any(|f| {
-            f.distinct || f.filter.is_some() || f.arguments.iter().any(|e| !e.is_pure_and_total())
+            f.distinct
+                || f.filter.is_some()
+                || !f.order_by.is_empty()
+                || f.arguments.iter().any(|e| !e.is_pure_and_total())
         })
     {
         return Ok(None);
@@ -223,6 +226,7 @@ fn try_ungrouped(
     if functions.iter().any(|function| {
         function.distinct
             || function.filter.is_some()
+            || !function.order_by.is_empty()
             || function
                 .arguments
                 .iter()

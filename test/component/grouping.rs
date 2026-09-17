@@ -149,6 +149,59 @@ fn grouping_evaluates_inputs_once_and_isolates_distinct_and_filter_states() -> R
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<()> {
+    for algorithm in algorithms() {
+        let db = DatabaseBuilder::new()
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(algorithm),
+            ))
+            .batch_size(2)
+            .build()?;
+        let mut connection = db.connect();
+        connection.execute(
+            "CREATE TABLE ordered(g INTEGER, v INTEGER, k INTEGER); \
+             INSERT INTO ordered VALUES (1,10,2),(1,20,1),(1,30,NULL),(2,5,NULL),(2,7,1)",
+        )?;
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT g,first(v ORDER BY k NULLS LAST),last(v ORDER BY k NULLS LAST), \
+                            sum(v ORDER BY k DESC),count(v ORDER BY k) \
+                     FROM ordered GROUP BY g ORDER BY g",
+                )?
+                .rows,
+            vec![
+                vec![
+                    Value::Integer(1),
+                    Value::Integer(20),
+                    Value::Integer(30),
+                    Value::Integer(60),
+                    Value::Integer(3),
+                ],
+                vec![
+                    Value::Integer(2),
+                    Value::Integer(7),
+                    Value::Integer(5),
+                    Value::Integer(12),
+                    Value::Integer(2),
+                ],
+            ]
+        );
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT first(DISTINCT v ORDER BY v DESC), \
+                            first(v ORDER BY k) FILTER (WHERE v <> 10) FROM ordered WHERE g=1",
+                )?
+                .rows,
+            vec![vec![Value::Integer(30), Value::Integer(20)]],
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn grouping_boundaries_reject_invalid_ordinals_masks_expansion_and_resources() -> Result<()> {
     let query = QueryContext::background();
     let snapshot = Snapshot::default();

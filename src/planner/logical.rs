@@ -336,6 +336,9 @@ pub enum SetOperation {
 pub struct AggregateExpr {
     pub function: Arc<dyn AggregateFunction>,
     pub arguments: Vec<BoundExpr>,
+    /// Per-aggregate input ordering.  Unlike the query ORDER BY this is
+    /// applied before the aggregate state consumes its arguments.
+    pub order_by: Vec<OrderExpr>,
     pub distinct: bool,
     pub filter: Option<BoundExpr>,
     pub data_type: DataType,

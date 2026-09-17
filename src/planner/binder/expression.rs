@@ -700,9 +700,14 @@ impl State<'_, '_> {
                             aggregate.data_type().clone(),
                         ));
                     }
-                    let arguments = function_arguments(function)?
+                    let (arguments, order_by) = aggregate_arguments(function)?;
+                    let arguments = arguments
                         .iter()
                         .map(|e| self.expr(e, fields, None))
+                        .collect::<Result<Vec<_>>>()?;
+                    let order_by = order_by
+                        .iter()
+                        .map(|order| self.order(order, fields, None))
                         .collect::<Result<Vec<_>>>()?;
                     let data_type = aggregate.return_type(
                         &arguments
@@ -723,7 +728,11 @@ impl State<'_, '_> {
                         .map(|e| self.expr(e, fields, None).and_then(|e| self.boolean(e)))
                         .transpose()?;
                     let (mut local, mut outer) = (false, false);
-                    for expression in arguments.iter().chain(filter.iter()) {
+                    for expression in arguments
+                        .iter()
+                        .chain(filter.iter())
+                        .chain(order_by.iter().map(|order| &order.expression))
+                    {
                         aggregate_references(expression, &mut local, &mut outer);
                     }
                     if outer && !local {
@@ -735,6 +744,7 @@ impl State<'_, '_> {
                         AggregateOutput::Function(AggregateExpr {
                             function: aggregate,
                             arguments,
+                            order_by,
                             distinct,
                             filter,
                             data_type: data_type.clone(),

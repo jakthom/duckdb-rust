@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashMap, HashSet},
+};
 
 use super::*;
 use crate::{
@@ -35,6 +38,10 @@ struct Group {
     set: usize,
     states: Vec<Box<dyn AggregateState>>,
     distinct: Vec<HashSet<Vec<u8>>>,
+    /// Rows buffered only for aggregate calls with an argument ORDER BY.
+    /// The ordinary aggregate path keeps its streaming state and allocation
+    /// behaviour unchanged.
+    ordered: Vec<Vec<(Row, Row)>>,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Group {
@@ -62,6 +69,7 @@ impl Group {
             set,
             states,
             distinct: vec![HashSet::new(); functions.len()],
+            ordered: vec![Vec::new(); functions.len()],
         })
     }
 }
@@ -80,6 +88,7 @@ pub(super) fn run<I: GroupIndex>(
         && let [AggregateOutput::Function(aggregate)] = aggregation.outputs.as_slice()
         && !aggregate.distinct
         && aggregate.filter.is_none()
+        && aggregate.order_by.is_empty()
         && aggregate.arguments.iter().all(BoundExpr::is_pure_and_total)
     {
         return super::ungrouped(input, aggregate, context);
@@ -115,6 +124,26 @@ pub(super) fn run<I: GroupIndex>(
         .iter()
         .map(|a| a.filter.as_ref().map(PreparedExpression::new))
         .collect::<Vec<_>>();
+    let order_expressions = functions
+        .iter()
+        .map(|aggregate| {
+            aggregate
+                .order_by
+                .iter()
+                .map(|order| PreparedExpression::new(&order.expression))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let order_types = functions
+        .iter()
+        .map(|aggregate| {
+            aggregate
+                .order_by
+                .iter()
+                .map(|order| context.query.types().bind(&order.expression.data_type))
+                .collect::<Result<Vec<_>>>()
+        })
+        .collect::<Result<Vec<_>>>()?;
     let mut indices: Vec<I> = (0..aggregation.sets.len()).map(|_| I::default()).collect();
     let mut states = Vec::new();
     for (set_index, set) in aggregation.sets.iter().enumerate() {
@@ -176,6 +205,10 @@ pub(super) fn run<I: GroupIndex>(
                     .iter()
                     .map(|e| e.evaluate(&row, context))
                     .collect::<Result<Row>>()?;
+                let order = order_expressions[i]
+                    .iter()
+                    .map(|expression| expression.evaluate(&row, context))
+                    .collect::<Result<Row>>()?;
                 let mut key = Vec::new();
                 if aggregate.distinct {
                     for (value, data_type) in args.iter().zip(&argument_types[i]) {
@@ -191,15 +224,29 @@ pub(super) fn run<I: GroupIndex>(
                         }
                         context.query.check_rows(group.distinct[i].len())?;
                     }
-                    group.states[i].update(&args, context.query)?;
+                    if functions[i].order_by.is_empty() {
+                        group.states[i].update(&args, context.query)?;
+                    } else {
+                        context.query.check_rows(group.ordered[i].len() + 1)?;
+                        group.ordered[i].push((args.clone(), order.clone()));
+                    }
                 }
             }
         }
     }
     states
         .into_iter()
-        .map(|group| {
+        .map(|mut group| {
             context.query.check()?;
+            for (index, aggregate) in functions.iter().enumerate() {
+                update_ordered(
+                    group.states[index].as_mut(),
+                    &mut group.ordered[index],
+                    &aggregate.order_by,
+                    &order_types[index],
+                    context,
+                )?;
+            }
             let mut row = group.keys;
             let mut functions = group.states.into_iter();
             for output in &aggregation.outputs {
@@ -218,4 +265,100 @@ pub(super) fn run<I: GroupIndex>(
             Ok(row)
         })
         .collect()
+}
+
+/// Sort buffered aggregate arguments stably, then use the normal aggregate
+/// state. This mirrors DuckDB's sorted-aggregate wrapper while deliberately
+/// keeping the initial implementation local to blocking hash aggregation.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn update_ordered(
+    state: &mut dyn AggregateState,
+    rows: &mut [(Row, Row)],
+    order: &[crate::planner::logical::OrderExpr],
+    types: &[crate::common::type_registry::BoundType],
+    context: &ExecutionContext<'_>,
+) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let mut permutation = (0..rows.len()).collect::<Vec<_>>();
+    let mut scratch = vec![0; rows.len()];
+    let mut width = 1usize;
+    while width < rows.len() {
+        for start in (0..rows.len()).step_by(width.saturating_mul(2)) {
+            context.query.check()?;
+            let middle = start.saturating_add(width).min(rows.len());
+            let end = middle.saturating_add(width).min(rows.len());
+            let (mut left, mut right) = (start, middle);
+            for output in &mut scratch[start..end] {
+                let take_left = left < middle
+                    && (right == end
+                        || compare_ordered(
+                            &rows[permutation[left]].1,
+                            &rows[permutation[right]].1,
+                            order,
+                            types,
+                            context,
+                        )? != Ordering::Greater);
+                let position = if take_left {
+                    let position = left;
+                    left += 1;
+                    position
+                } else {
+                    let position = right;
+                    right += 1;
+                    position
+                };
+                *output = permutation[position];
+            }
+        }
+        std::mem::swap(&mut permutation, &mut scratch);
+        width = width.saturating_mul(2);
+    }
+    for index in permutation {
+        context.query.check()?;
+        state.update(&rows[index].0, context.query)?;
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn compare_ordered(
+    left: &[Value],
+    right: &[Value],
+    order: &[crate::planner::logical::OrderExpr],
+    types: &[crate::common::type_registry::BoundType],
+    context: &ExecutionContext<'_>,
+) -> Result<Ordering> {
+    for (((left, right), order), data_type) in left.iter().zip(right).zip(order).zip(types) {
+        let comparison = match (left.is_null(), right.is_null()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => {
+                if order.nulls_first {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+            (false, true) => {
+                if order.nulls_first {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            (false, false) => {
+                let comparison = data_type.compare(left, right, context.query)?;
+                if order.descending {
+                    comparison.reverse()
+                } else {
+                    comparison
+                }
+            }
+        };
+        if comparison != Ordering::Equal {
+            return Ok(comparison);
+        }
+    }
+    Ok(Ordering::Equal)
 }

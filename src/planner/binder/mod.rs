@@ -751,11 +751,26 @@ fn function_arg(arg: &ast::FunctionArg) -> Result<ast::Expr> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn function_arguments(function: &ast::Function) -> Result<Vec<ast::Expr>> {
+    let (arguments, order) = aggregate_arguments(function)?;
+    if !order.is_empty() {
+        return Err(unsupported("function arguments"));
+    }
+    Ok(arguments)
+}
+
+/// Return ordinary function arguments and the only clause this engine can
+/// currently attach to an aggregate call.  Keeping this parsing separate from
+/// scalar calls prevents an aggregate-only ORDER BY from being accepted by an
+/// unrelated function family.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn aggregate_arguments(
+    function: &ast::Function,
+) -> Result<(Vec<ast::Expr>, Vec<ast::OrderByExpr>)> {
     if !matches!(function.parameters, ast::FunctionArguments::None) {
         return Err(unsupported("parametric function"));
     }
     match &function.args {
-        ast::FunctionArguments::List(list) if list.clauses.is_empty() => {
+        ast::FunctionArguments::List(list) => {
             if list.args.len() == 1
                 && matches!(
                     list.args[0],
@@ -763,11 +778,32 @@ fn function_arguments(function: &ast::Function) -> Result<Vec<ast::Expr>> {
                 )
             {
                 if function_name(&function.name)?.eq_ignore_ascii_case("count") {
-                    return Ok(Vec::new());
+                    if !list.clauses.is_empty() {
+                        return Err(unsupported("function arguments"));
+                    }
+                    return Ok((Vec::new(), Vec::new()));
                 }
                 return Err(Error::Bind("wildcard is only valid in count(*)".into()));
             }
-            list.args.iter().map(function_arg).collect()
+            let mut order = Vec::new();
+            for clause in &list.clauses {
+                match clause {
+                    ast::FunctionArgumentClause::OrderBy(expressions) => {
+                        if expressions
+                            .iter()
+                            .any(|expression| expression.with_fill.is_some())
+                        {
+                            return Err(unsupported("ORDER BY modifiers"));
+                        }
+                        order.extend(expressions.iter().cloned());
+                    }
+                    _ => return Err(unsupported("function arguments")),
+                }
+            }
+            Ok((
+                list.args.iter().map(function_arg).collect::<Result<_>>()?,
+                order,
+            ))
         }
         _ => Err(unsupported("function arguments")),
     }
