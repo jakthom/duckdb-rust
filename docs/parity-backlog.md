@@ -872,8 +872,14 @@ failed. CPU, RSS and block I/O remain unmeasured because the maintained native
 adapter has no process-resource reporter. Performance status is **fail/open**,
 so this functional slice was not complete. A focused trace then identified that
 `epoch_us(TIMESTAMP)` forced row evaluation and bypassed the flat timestamp-cast
-kernel; the subsequent vector kernel is awaiting a fresh two-pin/resource
-campaign before this outcome can be replaced.
+kernel. The subsequent vector kernel's fresh campaigns are retained at
+`target/next-batch/g04/g04-1b-temporal-vector-{release,development,fastest}.json`:
+development passed (1,557,208 / 1,642,125 ns = 0.948288x), but the faster release
+pin failed (1,486,250 / 1,380,083 ns = 1.076928x); the independent retained Rust
+campaign ratio against that faster pin was 1.128344x. The wall/throughput gate
+therefore still fails, and CPU/RSS/block-I/O have not been run after that
+fail-fast latency result. Performance remains **fail/open**; do not call this
+slice complete.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
