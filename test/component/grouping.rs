@@ -160,7 +160,8 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
         let mut connection = db.connect();
         connection.execute(
             "CREATE TABLE ordered(g INTEGER, v INTEGER, k INTEGER); \
-             INSERT INTO ordered VALUES (1,10,2),(1,20,1),(1,30,NULL),(2,5,NULL),(2,7,1)",
+             INSERT INTO ordered VALUES \
+                (1,10,2),(1,20,1),(1,30,NULL),(2,5,NULL),(2,7,1),(3,8,1),(3,9,1)",
         )?;
         assert_eq!(
             connection
@@ -195,6 +196,53 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
                 )?
                 .rows,
             vec![vec![Value::Integer(30), Value::Integer(20)]],
+        );
+        // The blocking sort is stable: equal argument-order keys preserve the
+        // stream order used by FIRST and LAST.
+        assert_eq!(
+            connection
+                .query("SELECT first(v ORDER BY k),last(v ORDER BY k) FROM ordered WHERE g=3")?
+                .rows,
+            vec![vec![Value::Integer(8), Value::Integer(9)]],
+        );
+        // An ungrouped aggregate takes the same buffered path and honours
+        // direction plus explicit NULL placement.
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT first(v ORDER BY k DESC NULLS FIRST),last(v ORDER BY k DESC NULLS FIRST) \
+                     FROM ordered WHERE g=1",
+                )?
+                .rows,
+            vec![vec![Value::Integer(30), Value::Integer(20)]],
+        );
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT first(v ORDER BY k),last(v ORDER BY k),sum(v ORDER BY k),count(v ORDER BY k) \
+                     FROM ordered WHERE false",
+                )?
+                .rows,
+            vec![vec![Value::Null, Value::Null, Value::Null, Value::Integer(0)]],
+        );
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT first(v ORDER BY k),last(v ORDER BY k) \
+                     FROM (VALUES (NULL::INTEGER,1),(NULL::INTEGER,2)) AS nulls(v,k)",
+                )?
+                .rows,
+            vec![vec![Value::Null, Value::Null]],
+        );
+        assert!(
+            connection
+                .query("SELECT sum(v,k ORDER BY k) FROM ordered")
+                .is_err()
+        );
+        assert!(
+            connection
+                .query("SELECT sum(v ORDER BY missing) FROM ordered")
+                .is_err()
         );
     }
     Ok(())
