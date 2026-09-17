@@ -417,6 +417,29 @@ fn map_integer_column(
     query: &QueryContext,
     operation: impl Fn(i64) -> i64,
 ) -> Result<crate::common::vector::Vector> {
+    if data_type == &DataType::BigInt
+        && let Some(values) = column.flat_bigints()
+    {
+        let mut output = Vec::with_capacity(values.len());
+        let mut numeric_ascending = true;
+        let mut previous = None;
+        for (index, &value) in values.iter().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let value = operation(value);
+            numeric_ascending &= previous.is_none_or(|previous| previous <= value);
+            previous = Some(value);
+            output.push(value);
+        }
+        query.check()?;
+        return Ok(
+            crate::common::vector::Vector::bigints_prevalidated_with_order(
+                output,
+                numeric_ascending,
+            ),
+        );
+    }
     let apply = |value: Value| match value {
         Value::Null => None,
         Value::Integer(value) => Some(operation(value as i64)),

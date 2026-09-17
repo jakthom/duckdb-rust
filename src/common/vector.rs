@@ -333,11 +333,18 @@ impl Vector {
             .try_reserve(values.size_hint().0)
             .map_err(|_| Error::Resource("cannot allocate BIGINT column".into()))?;
         let mut all_valid = true;
+        let mut numeric_ascending = true;
+        let mut previous = None;
         for value in values {
             output.push(match value? {
-                Some(value) => Value::Integer(value as i128),
+                Some(value) => {
+                    numeric_ascending &= previous.is_none_or(|previous| previous <= value);
+                    previous = Some(value);
+                    Value::Integer(value as i128)
+                }
                 None => {
                     all_valid = false;
+                    numeric_ascending = false;
                     Value::Null
                 }
             });
@@ -354,12 +361,20 @@ impl Vector {
             count,
             encoding,
             all_valid,
-            numeric_ascending: false,
+            numeric_ascending,
         })
     }
     /// Construct an all-valid BIGINT column whose producer already owns and
     /// validated the native physical lane.
     pub(crate) fn bigints_prevalidated(values: Vec<i64>) -> Self {
+        Self::bigints_prevalidated_with_order(values, false)
+    }
+    /// Preserve a producer's single-pass ascending proof with an all-valid
+    /// native BIGINT lane. The caller must derive the flag from every value.
+    pub(crate) fn bigints_prevalidated_with_order(
+        values: Vec<i64>,
+        numeric_ascending: bool,
+    ) -> Self {
         let count = values.len();
         Self {
             data_type: DataType::BigInt,
@@ -367,7 +382,7 @@ impl Vector {
             count,
             encoding: Encoding::FlatSigned(SignedLanes::Big(Arc::new(values))),
             all_valid: true,
-            numeric_ascending: false,
+            numeric_ascending,
         }
     }
     /// Checked full-width signed output, validating while consuming rather
@@ -1145,6 +1160,18 @@ mod physical_tests {
         assert!(ordered.numeric_ascending());
         let unordered = Vector::decimal_i64_prevalidated(data_type, vec![999, -250], false);
         assert!(!unordered.numeric_ascending());
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn bigint_constructor_records_only_all_valid_ascending_lanes() -> Result<()> {
+        let ascending = Vector::try_bigints([Ok(Some(-2)), Ok(Some(-2)), Ok(Some(4))])?;
+        let descending = Vector::try_bigints([Ok(Some(4)), Ok(Some(-2))])?;
+        let nullable = Vector::try_bigints([Ok(Some(-2)), Ok(None), Ok(Some(4))])?;
+        assert!(ascending.numeric_ascending());
+        assert!(!descending.numeric_ascending());
+        assert!(!nullable.numeric_ascending());
         Ok(())
     }
 

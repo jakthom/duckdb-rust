@@ -287,17 +287,25 @@ impl IntegerIndex {
             // This encoding is all-valid by construction. Scan its borrowed
             // signed lane directly rather than materializing `Value` and
             // rediscovering the already-declared integer representation.
-            let mut batch_min = None;
-            let mut batch_max = None;
-            for (index, &value) in values.iter().enumerate() {
-                if index % 1024 == 0 {
-                    query.check()?;
+            if column.numeric_ascending() {
+                query.check()?;
+                (
+                    values.first().copied().map(i128::from),
+                    values.last().copied().map(i128::from),
+                )
+            } else {
+                let mut batch_min = None;
+                let mut batch_max = None;
+                for (index, &value) in values.iter().enumerate() {
+                    if index % 1024 == 0 {
+                        query.check()?;
+                    }
+                    let value = i128::from(value);
+                    batch_min = Some(batch_min.map_or(value, |current: i128| current.min(value)));
+                    batch_max = Some(batch_max.map_or(value, |current: i128| current.max(value)));
                 }
-                let value = i128::from(value);
-                batch_min = Some(batch_min.map_or(value, |current: i128| current.min(value)));
-                batch_max = Some(batch_max.map_or(value, |current: i128| current.max(value)));
+                (batch_min, batch_max)
             }
-            (batch_min, batch_max)
         } else {
             // Keep every other physical shape on the general representation
             // path: nullable, selected and non-BIGINT vectors retain their
