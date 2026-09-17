@@ -859,7 +859,7 @@ pass, performance is open. Release's truncating minimum narrowing, missing
 `TIMESTAMPTZ_NS`, and `date_trunc` difference remain documented divergences, not
 acceptance baselines.
 
-**G04.1b interim outcome (source `63ea4cc`):** `cargo test -p duckdb-rust --test
+**G04.1b outcome (final source `e9a05df`):** `cargo test -p duckdb-rust --test
 temporal temporal_minimum` passed all four selected tests; the new one covers
 scalar/batch/prepared minimum and pre-epoch precision narrowing. `cargo dev
 coverage` reported no missing annotations and `cargo dev trace check --workspace
@@ -870,16 +870,18 @@ the faster-pin gate is `...-final-fastest.json`. The release baseline was
 8,594,791 ns (development campaign, 7.674489x), so the wall/throughput gate
 failed. CPU, RSS and block I/O remain unmeasured because the maintained native
 adapter has no process-resource reporter. Performance status is **fail/open**,
-so this functional slice was not complete. A focused trace then identified that
-`epoch_us(TIMESTAMP)` forced row evaluation and bypassed the flat timestamp-cast
-kernel. The subsequent vector kernel's fresh campaigns are retained at
-`target/next-batch/g04/g04-1b-temporal-vector-{release,development,fastest}.json`:
-development passed (1,557,208 / 1,642,125 ns = 0.948288x), but the faster release
-pin failed (1,486,250 / 1,380,083 ns = 1.076928x); the independent retained Rust
-campaign ratio against that faster pin was 1.128344x. The wall/throughput gate
-therefore still fails, and CPU/RSS/block-I/O have not been run after that
-fail-fast latency result. Performance remains **fail/open**; do not call this
-slice complete.
+and this slice's functional minimum domain is ready for further verification.
+The final no-tracing native reports are
+`target/next-batch/g04/g04-1b-temporal-lanes-{release,development,fastest}.json`:
+the faster development pin median is 1,200,000 ns; retained Rust medians are
+913,666 ns (0.761388x) and 891,542 ns (0.742952x) against it, so wall and
+throughput pass. Fresh-process CPU/RSS/block-I/O samples, raw `/usr/bin/time -l`
+output, result checks and medians are at
+`target/next-batch/g04/g04-1b-temporal-lanes-resources.json`; wall 0.500x, CPU
+1.000x, RSS 0.603891x and zero block-input/output ratios pass independently,
+with throughput 2.000x the faster reference. This is a scoped temporal
+performance pass, not a claim that all G04 behavior is complete; the retained
+release precision/date_trunc/TIMESTAMPTZ_NS divergences still apply.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
