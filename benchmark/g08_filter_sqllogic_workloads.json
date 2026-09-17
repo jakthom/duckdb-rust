@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g08_2b_filter_distinct_order_19_2m_row_visits",
+      "path": "test/performance/g08_filter_process.test"
+    }
+  ]
+}

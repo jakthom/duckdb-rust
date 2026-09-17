@@ -415,6 +415,19 @@ pub enum OrderedAggregateStrategy {
     Last,
 }
 
+/// Explicit opt-in for the narrow physical DISTINCT modifier adapter. The
+/// adapter accepts only one signed-integer argument and keeps the ordinary
+/// aggregate state as the result/callback authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AggregateModifierStrategy {
+    Generic,
+    FilteredSum,
+    DistinctCount,
+    DistinctList,
+    DistinctFirst,
+    DistinctLast,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn update_aggregate_rows<S: AggregateState + ?Sized>(
     state: &mut S,
@@ -462,6 +475,11 @@ pub trait AggregateFunction: Debug + Send + Sync {
     /// aggregates retain all rows and use the generic sorted update path.
     fn ordered_strategy(&self, _arguments: &[DataType]) -> OrderedAggregateStrategy {
         OrderedAggregateStrategy::Buffered
+    }
+    /// Opt in to the signed-integer DISTINCT adapter. Generic is deliberately
+    /// the default so registered aggregates retain their normal callbacks.
+    fn modifier_strategy(&self, _arguments: &[DataType]) -> AggregateModifierStrategy {
+        AggregateModifierStrategy::Generic
     }
     /// Optional partition evaluation through the same window contract. None
     /// requests the generic frame evaluator; callers never inspect function names.

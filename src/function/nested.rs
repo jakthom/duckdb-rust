@@ -413,6 +413,18 @@ impl AggregateFunction for CollectList {
             values: Vec::new(),
         }))
     }
+    fn modifier_strategy(&self, arguments: &[DataType]) -> super::AggregateModifierStrategy {
+        if arguments.len() == 1
+            && matches!(
+                arguments[0],
+                DataType::TinyInt | DataType::SmallInt | DataType::Integer | DataType::BigInt
+            )
+        {
+            super::AggregateModifierStrategy::DistinctList
+        } else {
+            super::AggregateModifierStrategy::Generic
+        }
+    }
 }
 
 struct CollectedList {

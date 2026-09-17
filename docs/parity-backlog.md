@@ -1148,6 +1148,38 @@ campaigns, the joint faster-reference latency gate and every independent process
 metric pass for all six native cases and the declared process workload. This
 completes the G08.2a slice while the remaining G08.2 modifiers stay open.
 
+**G08.2b frozen validation manifest — aggregate `FILTER`/`DISTINCT`
+composition.** Owned paths are the aggregate-call parser and binder, aggregate
+grouped/batched execution only where composition requires it,
+`src/common/vector.rs` and its in-file physical-vector tests,
+`src/execution/operator/aggregate/batched/index.rs` and its in-file tests,
+`test/component/grouping.rs`, the focused G08 SQLLogic and performance fixtures,
+their native/process workload manifests, and this entry. Fast checks are
+`cargo test -p duckdb-rust --test grouping` and
+`cargo run --offline --bin sqllogictest -- test/sql/g08_filter.test`.
+The exact unchanged upstream IDs for both the release and development pins are
+`test/sql/aggregate/aggregates/test_order_by_aggregate.test` and
+`test/sql/aggregate/aggregates/test_simple_filter.test`, selected separately with
+`python3 scripts/run_upstream.py --target <release|development> --path-list ...`.
+Coverage includes grouped and ungrouped shorthand `FILTER(expr)` plus standard
+`FILTER(WHERE expr)`; false, NULL and all-filtered predicates; duplicate and NULL
+arguments; `DISTINCT` with stable argument ordering for LIST/FIRST/LAST and
+ordinary COUNT/SUM; the DISTINCT-ORDER-BY argument-list diagnostic before filter
+binding; invalid/non-Boolean/out-of-scope predicates; prepared and batched use;
+mixed aggregate consumers; and cancellation/resource limits. Missing aggregate
+families such as STRING_AGG, histogram and mode stay explicit blockers rather
+than broadening this slice. Full functional acceptance runs the complete
+component grouping target, the local G08 SQLLogic fixture, and both unchanged
+files against each exact pin. Gate P declares 50,000-row, single-thread,
+release/no-tracing native workloads for filtered COUNT/SUM, filtered DISTINCT
+LIST with argument ORDER BY, and grouped filtered FIRST/LAST with duplicate and
+NULL inputs; the process workload repeats their stored-column equivalents with
+one-row checks. Three warmups and 21 serial samples must validate results against
+both pinned C++ references. Every native wall-time ratio and process wall,
+throughput, CPU, peak-RSS and block-I/O ratio must be no worse than the faster
+pin independently; raw samples, identities and failed runs remain under
+`target/g08-2b/`.
+
 The integrated completion sweep also owns the lock-lifecycle repair in
 `dev/src/artifacts.rs`. Its fast checks are the Unix retained-descriptor unit
 test and the complete `duckdb-dev` artifact integration target. Boundary

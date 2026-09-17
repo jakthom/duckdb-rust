@@ -501,6 +501,7 @@ mod tests {
     use super::*;
     use crate::{common::DataType, parallel::InterruptHandle};
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn generic_destinations(values: &[i64]) -> Vec<usize> {
         let mut groups = HashMap::new();
         values
@@ -512,6 +513,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn flat_bigints(values: &[i64]) -> Result<Vector> {
         Vector::flat(
             DataType::BigInt,

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use super::{AggregateFunction, AggregateState, FunctionRegistry, OrderedAggregateStrategy};
+use super::{
+    AggregateFunction, AggregateModifierStrategy, AggregateState, FunctionRegistry,
+    OrderedAggregateStrategy,
+};
 use crate::common::{DataType, Error, Result, Value};
 
 mod exact;
@@ -99,6 +102,27 @@ impl AggregateFunction for Builtin {
             "first" => OrderedAggregateStrategy::First,
             "last" => OrderedAggregateStrategy::Last,
             _ => OrderedAggregateStrategy::Buffered,
+        }
+    }
+    fn modifier_strategy(&self, args: &[DataType]) -> AggregateModifierStrategy {
+        if self.0 == "count" && args.is_empty() {
+            return AggregateModifierStrategy::DistinctCount;
+        }
+        let [argument] = args else {
+            return AggregateModifierStrategy::Generic;
+        };
+        if !matches!(
+            argument,
+            DataType::TinyInt | DataType::SmallInt | DataType::Integer | DataType::BigInt
+        ) {
+            return AggregateModifierStrategy::Generic;
+        }
+        match self.0 {
+            "count" => AggregateModifierStrategy::DistinctCount,
+            "sum" => AggregateModifierStrategy::FilteredSum,
+            "first" => AggregateModifierStrategy::DistinctFirst,
+            "last" => AggregateModifierStrategy::DistinctLast,
+            _ => AggregateModifierStrategy::Generic,
         }
     }
     fn evaluate_window(

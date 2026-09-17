@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -101,6 +101,48 @@ impl ScalarFunction for Observe {
         query.check()?;
         self.0.fetch_add(1, Ordering::Relaxed);
         Ok(args[0].clone())
+    }
+}
+
+struct InterruptFilter(Arc<Mutex<Option<InterruptHandle>>>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl std::fmt::Debug for InterruptFilter {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("InterruptFilter")
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for InterruptFilter {
+    fn name(&self) -> &str {
+        "interrupt_filter"
+    }
+    fn effects(&self) -> FunctionEffects {
+        FunctionEffects {
+            volatile: true,
+            external_access: false,
+        }
+    }
+    fn return_type(
+        &self,
+        args: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        if args.len() == 1 {
+            Ok(DataType::Boolean)
+        } else {
+            Err(Error::Bind("interrupt_filter requires one input".into()))
+        }
+    }
+    fn evaluate(&self, _: &[Value], _: &QueryContext) -> Result<Value> {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .expect("installed interrupt handle")
+            .interrupt();
+        Ok(Value::Boolean(true))
     }
 }
 
@@ -306,7 +348,230 @@ fn grouping_evaluates_inputs_once_and_isolates_distinct_and_filter_states() -> R
             ]
         );
         assert_eq!(calls.load(Ordering::Relaxed), 4);
+        calls.store(0, Ordering::Relaxed);
+        assert_eq!(
+            c.query(
+                "SELECT list_extract(list(DISTINCT v ORDER BY v) \
+                    FILTER(observe(a < 2)),1) FROM t",
+            )?
+            .rows,
+            vec![vec![Value::Integer(1)]],
+        );
+        // A volatile FILTER is evaluated once for every source row and keeps
+        // the registered LIST state on the generic modifier driver.
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
     }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn aggregate_filter_shorthand_composes_with_distinct_and_argument_ordering() -> Result<()> {
+    for algorithm in algorithms() {
+        for batch_size in [1, 2, 2048] {
+            let db = DatabaseBuilder::new()
+                .physical_planner(Arc::new(
+                    NativePhysicalPlanner::default().with_aggregation(algorithm.clone()),
+                ))
+                .batch_size(batch_size)
+                .build()?;
+            let mut c = db.connect();
+            c.execute(
+                "CREATE TABLE filtered(g INTEGER,v INTEGER,k INTEGER,keep BOOLEAN); \
+                 INSERT INTO filtered VALUES \
+                 (1,1,3,true),(1,1,2,true),(1,2,1,true),(1,NULL,0,true), \
+                 (1,3,4,false),(2,4,2,false),(2,4,1,NULL),(2,5,0,true)",
+            )?;
+            assert_eq!(
+                c.query(
+                    "SELECT g, \
+                            count(*) FILTER(keep), \
+                            count(DISTINCT v) FILTER (WHERE keep), \
+                            sum(DISTINCT v) FILTER(keep), \
+                            list_extract(list(DISTINCT v ORDER BY v DESC) \
+                                FILTER(keep AND v IS NOT NULL),1), \
+                            list_extract(list(DISTINCT v ORDER BY v DESC) \
+                                FILTER (WHERE keep AND v IS NOT NULL),2), \
+                            first(v ORDER BY k) FILTER(keep), \
+                            last(v ORDER BY k) FILTER (WHERE keep) \
+                     FROM filtered GROUP BY g ORDER BY g",
+                )?
+                .rows,
+                vec![
+                    vec![
+                        Value::Integer(1),
+                        Value::Integer(4),
+                        Value::Integer(2),
+                        Value::Integer(3),
+                        Value::Integer(2),
+                        Value::Integer(1),
+                        Value::Null,
+                        Value::Integer(1),
+                    ],
+                    vec![
+                        Value::Integer(2),
+                        Value::Integer(1),
+                        Value::Integer(1),
+                        Value::Integer(5),
+                        Value::Integer(5),
+                        Value::Null,
+                        Value::Integer(5),
+                        Value::Integer(5),
+                    ],
+                ],
+            );
+            assert_eq!(
+                c.query(
+                    "SELECT count(*) FILTER(false),sum(v) FILTER(NULL), \
+                            list(v ORDER BY k) FILTER(false), \
+                            first(v ORDER BY k) FILTER(NULL),last(v ORDER BY k) FILTER(false) \
+                     FROM filtered",
+                )?
+                .rows,
+                vec![vec![
+                    Value::Integer(0),
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                ]],
+            );
+            assert_eq!(
+                c.query(
+                    "SELECT list_extract(array_agg(DISTINCT v ORDER BY v DESC) \
+                         FILTER(keep AND v IS NOT NULL),1) FROM filtered",
+                )?
+                .rows,
+                vec![vec![Value::Integer(5)]],
+            );
+            assert_eq!(
+                c.query("SELECT sum(v % (v-v)) FILTER(false) FROM filtered")?
+                    .rows,
+                vec![vec![Value::Null]],
+            );
+            assert_eq!(
+                c.query(
+                    "SELECT g, \
+                            first(DISTINCT v ORDER BY v) \
+                                FILTER(keep AND v IS NOT NULL), \
+                            last(DISTINCT v ORDER BY v) \
+                                FILTER (WHERE keep AND v IS NOT NULL) \
+                     FROM filtered GROUP BY g ORDER BY g",
+                )?
+                .rows,
+                vec![
+                    vec![Value::Integer(1), Value::Integer(1), Value::Integer(2)],
+                    vec![Value::Integer(2), Value::Integer(5), Value::Integer(5)],
+                ],
+            );
+            c.execute(
+                "CREATE TABLE signed_boundary(v BIGINT,keep BOOLEAN); \
+                 INSERT INTO signed_boundary VALUES \
+                 (-9223372036854775808,true),(9223372036854775807,true), \
+                 (-9223372036854775808,true)",
+            )?;
+            assert_eq!(
+                c.query(
+                    "SELECT first(DISTINCT v ORDER BY v) FILTER(keep), \
+                            last(DISTINCT v ORDER BY v) FILTER(WHERE keep), \
+                            count(DISTINCT v) FILTER(keep) FROM signed_boundary",
+                )?
+                .rows,
+                vec![vec![
+                    Value::Integer(i128::from(i64::MIN)),
+                    Value::Integer(i128::from(i64::MAX)),
+                    Value::Integer(2),
+                ]],
+            );
+            let prepared = c.prepare(
+                "SELECT count(DISTINCT v) FILTER(v > $1), \
+                        sum(v) FILTER (WHERE v > $1) FROM filtered",
+            )?;
+            assert_eq!(
+                c.execute_prepared(&prepared, &[Value::Integer(1)])?.rows,
+                vec![vec![Value::Integer(4), Value::Integer(18)]],
+            );
+            assert!(matches!(
+                c.query("SELECT sum(v) FILTER(v) FROM filtered"),
+                Err(Error::Bind(message)) if message == "predicate must be BOOLEAN"
+            ));
+            assert!(matches!(
+                c.query(
+                    "SELECT first(DISTINCT v ORDER BY k) FILTER(missing) FROM filtered"
+                ),
+                Err(Error::Bind(message)) if message == "In a DISTINCT aggregate, ORDER BY expressions must appear in the argument list"
+            ));
+            assert!(matches!(
+                c.query("SELECT count(*) FILTER(missing) FROM filtered"),
+                Err(Error::Bind(message)) if message == "column missing not found"
+            ));
+            assert!(matches!(
+                c.query("SELECT abs(v) FILTER(v > 0) FROM filtered"),
+                Err(Error::Bind(message)) if message == "FILTER requires an aggregate"
+            ));
+            assert!(matches!(
+                c.query(
+                    "SELECT (SELECT sum(1) FILTER(i > 0) FROM range(1) inner_rows(j)) \
+                     FROM range(1) outer_rows(i)"
+                ),
+                Err(Error::Unsupported(_))
+            ));
+        }
+    }
+
+    let mut encoded = DatabaseBuilder::new().batch_size(7).build()?.connect();
+    encoded.execute(
+        "CREATE TABLE encoded_filter AS SELECT i, \
+             CASE WHEN i%5=0 THEN NULL ELSE i%10 END AS v, i%3=0 AS keep \
+         FROM range(100) t(i)",
+    )?;
+    assert_eq!(
+        encoded
+            .query(
+                "SELECT count(*) FILTER(keep),sum(v) FILTER(keep), \
+                        count(DISTINCT v) FILTER(keep), \
+                        list_extract(list(DISTINCT v ORDER BY v DESC) \
+                            FILTER(keep AND v IS NOT NULL),1) FROM encoded_filter",
+            )?
+            .rows,
+        vec![vec![
+            Value::Integer(34),
+            Value::Integer(138),
+            Value::Integer(8),
+            Value::Integer(9),
+        ]],
+    );
+
+    let mut limited = DatabaseBuilder::new()
+        .max_intermediate_rows(2)
+        .batch_size(1)
+        .build()?
+        .connect();
+    assert!(matches!(
+        limited.query("SELECT list(DISTINCT i ORDER BY i) FILTER(i >= 0) FROM range(4) t(i)"),
+        Err(Error::Resource(_))
+    ));
+
+    let slot = Arc::new(Mutex::new(None));
+    let mut functions = FunctionRegistry::builtins();
+    functions.register_scalar(Arc::new(InterruptFilter(slot.clone())))?;
+    let mut interrupted = DatabaseBuilder::new()
+        .functions(functions)
+        .batch_size(1)
+        .build()?
+        .connect();
+    *slot.lock().unwrap() = Some(interrupted.interrupt_handle());
+    assert!(matches!(
+        interrupted.query(
+            "SELECT list(DISTINCT i ORDER BY i) FILTER(interrupt_filter(i)) \
+             FROM range(4) t(i)"
+        ),
+        Err(Error::Interrupted)
+    ));
+    assert_eq!(
+        interrupted.query("SELECT 7")?.rows,
+        vec![vec![Value::Integer(7)]]
+    );
     Ok(())
 }
 
