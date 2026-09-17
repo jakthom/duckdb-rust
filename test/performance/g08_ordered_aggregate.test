@@ -15,7 +15,7 @@ FROM range(1000000) t(i);
 ----
 16	16
 
-query III
+query II
 SELECT sum(first_i),sum(last_i)
 FROM (
     SELECT first(i ORDER BY CASE WHEN i%17=16 THEN NULL ELSE i%5 END NULLS FIRST) AS first_i,
@@ -26,7 +26,7 @@ FROM (
 ----
 570486784	570486784
 
-query IIII
+query III
 SELECT sum(sum_i),sum(first_i),sum(last_i)
 FROM (
     SELECT sum(i) AS sum_i,
