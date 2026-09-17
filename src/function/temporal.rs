@@ -445,10 +445,12 @@ impl ScalarFunction for TemporalFunction {
                         "validated TIMESTAMP column contains a non-timestamp value".into(),
                     ));
                 };
-                output.push(Value::Integer(i128::from(*ticks)));
+                output.push(*ticks);
             }
             query.check()?;
-            return Vector::flat(DataType::BigInt, output).map(Some);
+            // BIGINT's all-valid physical lane avoids allocating a HUGEINT
+            // Value per row merely to materialize epoch microseconds.
+            return Ok(Some(Vector::bigints_prevalidated(output)));
         }
         if self.name != "make_date"
             || arguments.columns().len() != 1
