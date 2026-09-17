@@ -1188,7 +1188,7 @@ throughput, CPU, peak-RSS and block-I/O ratio must be no worse than the faster
 pin independently; raw samples, identities and failed runs remain under
 `target/next-batch/performance/g08/`.
 
-**G08.2b final status (2026-09-17).** Integrated executable revision `247079f`
+**G08.2b final status (2026-09-17).** Integrated executable revision `185092b`
 passes the 68-test grouping target and all 5 focused local SQLLogic records.
 Development passes 15/15 `test_order_by_aggregate.test` and 9/9
 `test_simple_filter.test` records; release passes 16/16 and 10/10. The final report is
