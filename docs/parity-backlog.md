@@ -820,6 +820,13 @@ the full-width minimum, conversion rounding and formatting. Performance is **not
 applicable: documentation-only** for this batch after review of its final diff;
 that is not a measured temporal performance pass and does not close the residual
 engine gaps.
+The final audit report is
+`target/next-batch/g04/temporal-minimum-c958074.json`: all three focused Rust
+tests, both 30-value C++ API fixtures and all eight native round trips pass.
+Release matches 20/32 SQL results exactly and 29/32 by outcome; development
+matches 23/32 exactly and 32/32 by outcome. The retained differences are the
+declared precision-rounding, release `date_trunc`/`TIMESTAMPTZ_NS`, and diagnostic
+text gaps, so G04.1 remains open rather than being relabeled complete.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -924,6 +931,15 @@ substring and direct high-cardinality substring) and the maintained one-million-
 SQLLogic process workload. Final release/no-tracing evidence uses three warmups
 and 21 serial samples against both exact pins, with exact checksums and independent
 wall, CPU, peak-RSS, block-I/O and throughput gates against the faster reference.
+The implementation now evaluates `length` and character-indexed `substring`/
+`substr` through flat, constant, dictionary and selected physical batches,
+including fused aggregate consumers, without changing scalar error order. On
+revision `aa89bbc`, the local G06 fixture passes 5/5. The exact upstream length
+files pass 6/6 development and 7/7 release. Substring reaches 27 records on
+development and 28 on release before the separate missing `instr` family;
+UTF-8 substring reaches 13 and 12 respectively before the separate missing
+`substring_grapheme` family. These are retained prefix results, not full-file
+passes.
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
@@ -999,6 +1015,14 @@ composite ordering; the process gate uses the maintained one-million-row SQLLogi
 workload. Final release/no-tracing evidence uses three warmups and 21 serial
 samples against both exact pins, validates declared results, and independently
 gates wall, CPU, peak RSS, block I/O and throughput against the faster reference.
+The implementation binds aggregate argument ordering with scope validation,
+elides only pure total keys for order-insensitive functions, preserves pinned
+FIRST/LAST tie behavior, and uses bounded batched candidates for eligible integer
+grouping while retaining the generic ordered driver as fallback. On revision
+`aa89bbc`, the local workload passes 4/4 and the full unchanged
+`test_sum.test` passes 19/19 on both pins. `test_order_by_aggregate.test` reaches
+13/14 attempted records on development and 14/15 on release before the unrelated
+LIST/DISTINCT/FILTER parser case; that prefix is not a full-file pass.
 
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
