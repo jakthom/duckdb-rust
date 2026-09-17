@@ -407,6 +407,14 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
                 .rows,
             vec![vec![Value::Null, Value::Null, Value::Null, Value::Integer(0)]],
         );
+        // Candidate accumulators have no input rows to retain, but their
+        // result still has the one ungrouped aggregate row.
+        assert_eq!(
+            connection
+                .query("SELECT first(v ORDER BY k),last(v ORDER BY k) FROM ordered WHERE false")?
+                .rows,
+            vec![vec![Value::Null, Value::Null]],
+        );
         assert_eq!(
             connection
                 .query(

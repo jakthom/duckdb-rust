@@ -533,15 +533,24 @@ fn try_ordered_candidates(
             }
         }
     }
-    let values = accumulators
-        .into_iter()
-        .map(|accumulator| match accumulator {
+    for accumulator in accumulators {
+        match accumulator {
             OrderedAccumulator::State(mut state) => {
                 state.resize(groups.len(), context.query)?;
-                state.finish(context.query)
+                let values = state.finish(context.query)?;
+                if values.len() != groups.len() {
+                    return Err(Error::Internal(
+                        "ordered aggregate result has wrong group count".into(),
+                    ));
+                }
+                for ((row, _), value) in groups.iter_mut().zip(values) {
+                    row.push(value);
+                }
             }
             OrderedAccumulator::Candidate {
-                strategy, values, ..
+                strategy,
+                mut values,
+                ..
             } => {
                 // The candidate capability is admitted only for built-in
                 // FIRST/LAST with one already bound argument. Their state is
@@ -552,25 +561,27 @@ fn try_ordered_candidates(
                     strategy,
                     OrderedAggregateStrategy::First | OrderedAggregateStrategy::Last
                 ));
-                Ok(values
-                    .into_iter()
-                    .map(|candidate| candidate.map_or(Value::Null, |(argument, _)| argument))
-                    .collect())
+                values.resize_with(groups.len(), || None);
+                if values.len() != groups.len() {
+                    return Err(Error::Internal(
+                        "ordered candidate result has wrong group count".into(),
+                    ));
+                }
+                for ((row, _), candidate) in groups.iter_mut().zip(values) {
+                    row.push(candidate.map_or(Value::Null, |(argument, _)| argument));
+                }
             }
-        })
-        .collect::<Result<Vec<_>>>()?;
-    groups
-        .into_iter()
-        .enumerate()
-        .map(|(group, (mut row, _))| {
+        }
+    }
+    let mut rows = Vec::with_capacity(groups.len());
+    for (group, (row, _)) in groups.into_iter().enumerate() {
+        if group % 1024 == 0 {
             context.query.check()?;
-            for function in 0..functions.len() {
-                row.push(values[function][group].clone());
-            }
-            Ok(row)
-        })
-        .collect::<Result<Vec<_>>>()
-        .map(Some)
+        }
+        rows.push(row);
+    }
+    context.query.check()?;
+    Ok(Some(rows))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
