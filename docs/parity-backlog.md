@@ -877,11 +877,12 @@ residual G04.1 backlog.
 `cargo dev coverage` reports no missing annotations and `cargo dev trace check
 --workspace --all-targets` passes. The final 21-sample no-tracing reports are
 `target/next-batch/performance/g04/g04-1b-integrated-{release,development,fastest}.json`;
-Rust is 0.772340x its release reference and 0.749213x its development reference,
-and both retained Rust runs are no slower than the faster pin. The companion
-resource report is
+Rust is 0.779314x its release reference and 0.767721x its development reference;
+the two retained Rust runs are 0.779314x and 0.798553x the faster pin. The
+companion resource report is
 `target/next-batch/performance/g04/g04-1b-integrated-resources.json`: wall, CPU,
-system time, block I/O and throughput are 1.000000x and peak RSS is 0.613054x.
+system time and block I/O are 0.500000x, 1.000000x, 1.000000x and 1.000000x;
+peak RSS is 0.594237x and throughput is 2.000000x the faster reference.
 Every declared performance dimension passes independently. This completes the
 G04.1b slice, not the remaining G04.1 domain.
 
@@ -1007,12 +1008,12 @@ unimplemented `substring_grapheme`; the NUL file stops at the earlier `chr(0)`
 blocker, leaving its later 22 `instr` records explicitly unreached.
 The final native reports are
 `target/next-batch/performance/g06/final-{release,development,fastest}-21.json`:
-the release/development retained Rust runs are respectively 0.781x/0.809x the
-faster pin for fused `instr`, and 0.449x/0.442x for projected `strpos`. The
+the release/development retained Rust runs are respectively 0.762x/0.767x the
+faster pin for fused `instr`, and 0.440x/0.438x for projected `strpos`. The
 companion process report is
-`target/next-batch/performance/g06/final-process-21.json`: wall is 0.929x, CPU
-0.857x, peak RSS 0.793x, block input/output 1.000x with all values zero, and Rust
-throughput exceeds the faster reference. Every declared performance dimension
+`target/next-batch/performance/g06/final-process-21.json`: wall is 0.923x, CPU
+0.864x, peak RSS 0.800x, block input/output 1.000x with all values zero, and Rust
+throughput is 1.083x the faster reference. Every declared performance dimension
 passes independently. This completes G06.1c; `substring_grapheme`, `chr`,
 `contains` and regex work remain later G06.1 slices.
 
@@ -1197,12 +1198,12 @@ development instrumentation, and trace compatibility completes with zero
 errors, panics or open spans. The final 3-warmup/21-sample native reports are
 `target/next-batch/performance/g08/final-{release,development,fastest}-21.json`.
 Release/development Rust medians divided by the faster pin are respectively
-0.622908/0.778980 for filtered COUNT/SUM, 0.653604/0.876455 for filtered
-DISTINCT ordered LIST, and 0.512998/0.610691 for grouped filtered FIRST/LAST.
+0.597437/0.589336 for filtered COUNT/SUM, 0.608546/0.643670 for filtered
+DISTINCT ordered LIST, and 0.471096/0.474965 for grouped filtered FIRST/LAST.
 The process report
 `target/next-batch/performance/g08/final-process-21.json` passes independently:
-wall 0.328587, CPU 0.112994, peak RSS 0.357666, block input/output 1.000000
-(all zero), and throughput is 3.043334 times the faster pin. It validates 1,025
+wall 0.311379, CPU 0.115607, peak RSS 0.355906, block input/output 1.000000
+(all zero), and throughput is 3.211516 times the faster pin. It validates 1,025
 reference assertions per pin and 385 Rust records. Both exact reference
 identities, validated results, source/binary hashes and all raw samples are
 retained in those reports. Gate P passes; STRING_AGG, histogram and mode remain
