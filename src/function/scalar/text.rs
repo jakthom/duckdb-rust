@@ -7,7 +7,11 @@ use std::sync::Arc;
 
 use super::super::{FunctionRegistry, ScalarFunction};
 use crate::{
-    common::{DataType, Error, Result, Value, type_registry::TypeRegistry},
+    common::{
+        DataType, Error, Result, Value,
+        type_registry::TypeRegistry,
+        vector::{DataChunk, Vector},
+    },
     parallel::QueryContext,
 };
 
@@ -63,26 +67,72 @@ impl ScalarFunction for Substring {
         }
     }
 
+    fn supports_batch_evaluation(&self, arguments: &[DataType]) -> bool {
+        matches!(
+            arguments,
+            [DataType::Varchar, DataType::BigInt]
+                | [DataType::Varchar, DataType::BigInt, DataType::BigInt]
+        )
+    }
+
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        if !self.supports_batch_evaluation(
+            &arguments
+                .columns()
+                .iter()
+                .map(|column| column.data_type().clone())
+                .collect::<Vec<_>>(),
+        ) {
+            return Ok(None);
+        }
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(arguments.len())
+            .map_err(|_| Error::Resource("cannot allocate substring result column".into()))?;
+        let mut row = Vec::with_capacity(arguments.columns().len());
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            arguments.read_row(index, &mut row)?;
+            output.push(substring_value(&row)?);
+        }
+        query.check()?;
+        Vector::flat(DataType::Varchar, output).map(Some)
+    }
+
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
-        if !matches!(arguments.len(), 2 | 3) {
-            return Err(Error::Internal(
-                "substring argument count changed after binding".into(),
-            ));
-        }
-        if arguments.iter().any(Value::is_null) {
-            return Ok(Value::Null);
-        }
-        let Value::Varchar(input) = &arguments[0] else {
-            return Err(Error::Internal("substring input is not VARCHAR".into()));
-        };
-        let start = bound(&arguments[1], "offset")?;
-        let length = arguments
-            .get(2)
-            .map(|value| bound(value, "length"))
-            .transpose()?;
-        Ok(Value::Varchar(slice(input, start, length)))
+        substring_value(arguments)
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn substring_value(arguments: &[Value]) -> Result<Value> {
+    if !matches!(arguments.len(), 2 | 3) {
+        return Err(Error::Internal(
+            "substring argument count changed after binding".into(),
+        ));
+    }
+    // SQL NULL propagation precedes range validation. This preserves the
+    // scalar result and avoids reporting an irrelevant bound error in a NULL
+    // row while physical batches are evaluated speculatively.
+    if arguments.iter().any(Value::is_null) {
+        return Ok(Value::Null);
+    }
+    let Value::Varchar(input) = &arguments[0] else {
+        return Err(Error::Internal("substring input is not VARCHAR".into()));
+    };
+    let start = bound(&arguments[1], "offset")?;
+    let length = arguments
+        .get(2)
+        .map(|value| bound(value, "length"))
+        .transpose()?;
+    Ok(Value::Varchar(slice(input, start, length)))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -146,7 +196,8 @@ fn slice(input: &str, start: i128, length: Option<i128>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::slice;
+    use super::*;
+    use crate::common::vector::{DataChunk, Vector};
 
     #[test]
     fn character_offsets_retain_utf8_and_nuls() {
@@ -156,5 +207,92 @@ mod tests {
         assert_eq!(slice("abcdef", 3, Some(-2)), "ab");
         let long = "é🦆".repeat(50_000);
         assert_eq!(slice(&long, 99_999, Some(2)), "é🦆");
+    }
+
+    #[test]
+    fn substring_batch_handles_flat_constant_dictionary_and_first_range_error() -> Result<()> {
+        let query = QueryContext::background();
+        let function = Substring("substring");
+        let flat = DataChunk::new(
+            vec![
+                Vector::flat(
+                    DataType::Varchar,
+                    vec![Value::Varchar("é🦆x".into()), Value::Null],
+                )?,
+                Vector::flat(DataType::BigInt, vec![Value::Integer(2), Value::Integer(1)])?,
+            ],
+            2,
+        )?;
+        let output = function
+            .evaluate_batch(&flat, &query)?
+            .expect("substring batch callback");
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![Value::Varchar("🦆x".into()), Value::Null]
+        );
+
+        let constants = DataChunk::new(
+            vec![
+                Vector::constant(DataType::Varchar, Value::Varchar("abcdef".into()), 2)?,
+                Vector::constant(DataType::BigInt, Value::Integer(2), 2)?,
+                Vector::constant(DataType::BigInt, Value::Integer(3), 2)?,
+            ],
+            2,
+        )?;
+        assert_eq!(
+            function
+                .evaluate_batch(&constants, &query)?
+                .expect("constant substring batch callback")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![Value::Varchar("bcd".into()); 2]
+        );
+
+        let input = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("abcdef".into()),
+                Value::Varchar("é🦆x".into()),
+            ],
+        )?);
+        let starts = Arc::new(Vector::flat(
+            DataType::BigInt,
+            vec![Value::Integer(2), Value::Integer(-2)],
+        )?);
+        let dictionary = DataChunk::new(
+            vec![input.select(vec![1, 0, 1])?, starts.select(vec![1, 0, 1])?],
+            3,
+        )?;
+        assert_eq!(
+            function
+                .evaluate_batch(&dictionary, &query)?
+                .expect("dictionary substring batch callback")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![
+                Value::Varchar("🦆x".into()),
+                Value::Varchar("bcdef".into()),
+                Value::Varchar("🦆x".into()),
+            ]
+        );
+
+        let error = DataChunk::new(
+            vec![
+                Vector::flat(
+                    DataType::Varchar,
+                    vec![Value::Varchar("abc".into()), Value::Varchar("abc".into())],
+                )?,
+                Vector::flat(
+                    DataType::BigInt,
+                    vec![Value::Integer(2), Value::Integer(4_294_967_296)],
+                )?,
+            ],
+            2,
+        )?;
+        assert!(matches!(
+            function.evaluate_batch(&error, &query),
+            Err(Error::OutOfRange(message)) if message == "Substring offset outside of supported range (> 4294967295)"
+        ));
+        Ok(())
     }
 }

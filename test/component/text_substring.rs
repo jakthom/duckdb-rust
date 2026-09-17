@@ -84,6 +84,11 @@ fn substring_and_substr_match_character_indexed_reference_boundaries() -> Result
             connection.query("SELECT substring('abc',4294967296,1)"),
             Err(Error::OutOfRange(message)) if message == "Substring offset outside of supported range (> 4294967295)"
         ));
+        connection.execute("CREATE TABLE text_slice_error(v VARCHAR, start BIGINT); INSERT INTO text_slice_error VALUES ('abc',2),('abc',4294967296)")?;
+        assert!(matches!(
+            connection.query("SELECT substring(v,start) FROM text_slice_error"),
+            Err(Error::OutOfRange(message)) if message == "Substring offset outside of supported range (> 4294967295)"
+        ));
     }
     Ok(())
 }
