@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::{AggregateFunction, AggregateState, FunctionRegistry};
+use super::{AggregateFunction, AggregateState, FunctionRegistry, OrderedAggregateStrategy};
 use crate::common::{DataType, Error, Result, Value};
 
 mod exact;
@@ -83,6 +83,23 @@ impl AggregateFunction for Builtin {
                     .first()
                     .and_then(SumKernel::bind)
                     .is_some_and(|kernel| kernel.supports_count(usize::MAX)))
+    }
+    fn order_insensitive(&self, args: &[DataType]) -> bool {
+        // Floating SUM is observably order-dependent. Exact kernels have a
+        // checked accumulator whose domain admits every process-sized input,
+        // so changing row order cannot change either its value or overflow.
+        self.0 == "sum"
+            && args
+                .first()
+                .and_then(SumKernel::bind)
+                .is_some_and(|kernel| kernel.supports_count(usize::MAX))
+    }
+    fn ordered_strategy(&self, _args: &[DataType]) -> OrderedAggregateStrategy {
+        match self.0 {
+            "first" => OrderedAggregateStrategy::First,
+            "last" => OrderedAggregateStrategy::Last,
+            _ => OrderedAggregateStrategy::Buffered,
+        }
     }
     fn evaluate_window(
         &self,

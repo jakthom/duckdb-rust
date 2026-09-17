@@ -754,10 +754,28 @@ impl State<'_, '_> {
                         .iter()
                         .map(|e| self.expr(e, fields, None))
                         .collect::<Result<Vec<_>>>()?;
-                    let order_by = order_syntax
+                    let mut order_by = order_syntax
                         .iter()
                         .map(|order| self.aggregate_order(order, fields))
                         .collect::<Result<Vec<_>>>()?;
+                    // Exact SUM's result and checked-overflow behaviour are
+                    // input-order insensitive.  Dropping its argument ORDER
+                    // BY is valid only if every key is unobservable and
+                    // infallible; otherwise retain the ordinary executor
+                    // evaluation order and buffered contract.
+                    if !distinct
+                        && aggregate.order_insensitive(
+                            &arguments
+                                .iter()
+                                .map(|e| e.data_type.clone())
+                                .collect::<Vec<_>>(),
+                        )
+                        && order_by
+                            .iter()
+                            .all(|order| order.expression.is_pure_and_total())
+                    {
+                        order_by.clear();
+                    }
                     let data_type = aggregate.return_type(
                         &arguments
                             .iter()

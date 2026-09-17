@@ -405,6 +405,16 @@ pub trait AggregateState: Send {
     fn finish(self: Box<Self>) -> Result<Value>;
 }
 
+/// How an aggregate consumes an argument ORDER BY clause.  The generic
+/// buffered path is deliberately the default: an implementation must opt in
+/// only when its tie and NULL behaviour is identical to a stable sort.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OrderedAggregateStrategy {
+    Buffered,
+    First,
+    Last,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn update_aggregate_rows<S: AggregateState + ?Sized>(
     state: &mut S,
@@ -440,6 +450,18 @@ pub trait AggregateFunction: Debug + Send + Sync {
     /// such as cancellation remain possible.
     fn batch_update_is_total(&self, _arguments: &[DataType]) -> bool {
         false
+    }
+    /// Whether a bound aggregate is insensitive to its input order.  This is
+    /// intentionally stronger than associativity: callers may remove an
+    /// argument ORDER BY only after proving every key expression pure and
+    /// total, so its evaluation cannot be observed or fail.
+    fn order_insensitive(&self, _arguments: &[DataType]) -> bool {
+        false
+    }
+    /// A bounded candidate implementation for stable FIRST/LAST.  Other
+    /// aggregates retain all rows and use the generic sorted update path.
+    fn ordered_strategy(&self, _arguments: &[DataType]) -> OrderedAggregateStrategy {
+        OrderedAggregateStrategy::Buffered
     }
     /// Optional partition evaluation through the same window contract. None
     /// requests the generic frame evaluator; callers never inspect function names.

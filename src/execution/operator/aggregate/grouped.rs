@@ -5,7 +5,9 @@ use std::{
 
 use super::*;
 use crate::{
-    Value, execution::subquery::PreparedExpression, function::AggregateState,
+    Value,
+    execution::subquery::PreparedExpression,
+    function::{AggregateState, OrderedAggregateStrategy},
     planner::aggregation::AggregateOutput,
 };
 
@@ -144,21 +146,29 @@ pub(super) fn run<I: GroupIndex>(
                 .collect::<Result<Vec<_>>>()
         })
         .collect::<Result<Vec<_>>>()?;
+    let ordered_strategies = functions
+        .iter()
+        .map(|aggregate| {
+            aggregate.function.ordered_strategy(
+                &aggregate
+                    .arguments
+                    .iter()
+                    .map(|argument| argument.data_type.clone())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
     let mut indices: Vec<I> = (0..aggregation.sets.len()).map(|_| I::default()).collect();
     let mut states = Vec::new();
-    // Ordered aggregates retain argument rows as well as sort permutations.
-    // Reserve three row units per retained input conservatively: one buffered
-    // row and the two index vectors used by the stable merge sort. This is a
-    // shared total across every group and aggregate, not a per-buffer limit.
-    let mut ordered_rows = 0usize;
+    // Buffered aggregates retain one row plus two stable-sort index vectors.
+    // FIRST/LAST retain a single candidate row instead. This is a shared
+    // total across every group and aggregate, not a per-buffer limit.
+    let mut ordered_units = 0usize;
     for (set_index, set) in aggregation.sets.iter().enumerate() {
         if set.is_empty() {
-            context.query.check_rows(
-                states
-                    .len()
-                    .saturating_add(1)
-                    .saturating_add(ordered_rows.saturating_mul(3)),
-            )?;
+            context
+                .query
+                .check_rows(states.len().saturating_add(1).saturating_add(ordered_units))?;
             indices[set_index].add(Vec::new(), states.len());
             states.push(Group::new(
                 vec![Value::Null; groups.len()],
@@ -186,12 +196,9 @@ pub(super) fn run<I: GroupIndex>(
                 let index = if let Some(index) = indices[set_index].find(&key) {
                     index
                 } else {
-                    context.query.check_rows(
-                        states
-                            .len()
-                            .saturating_add(1)
-                            .saturating_add(ordered_rows.saturating_mul(3)),
-                    )?;
+                    context
+                        .query
+                        .check_rows(states.len().saturating_add(1).saturating_add(ordered_units))?;
                     let index = states.len();
                     let keys = values
                         .iter()
@@ -243,14 +250,39 @@ pub(super) fn run<I: GroupIndex>(
                     if functions[i].order_by.is_empty() {
                         group.states[i].update(&args, context.query)?;
                     } else {
-                        let next = ordered_rows.checked_add(1).ok_or_else(|| {
-                            Error::Resource("ordered aggregate row count overflow".into())
-                        })?;
-                        context
-                            .query
-                            .check_rows(group_count.saturating_add(next.saturating_mul(3)))?;
-                        ordered_rows = next;
-                        group.ordered[i].push((args.clone(), order.clone()));
+                        let strategy = ordered_strategies[i];
+                        let replaces = candidate_replaces(
+                            &group.ordered[i],
+                            &order,
+                            strategy,
+                            &aggregate.order_by,
+                            &order_types[i],
+                            context,
+                        )?;
+                        let grows = replaces
+                            && (strategy == OrderedAggregateStrategy::Buffered
+                                || group.ordered[i].is_empty());
+                        if grows {
+                            let units = match strategy {
+                                OrderedAggregateStrategy::Buffered => 3,
+                                OrderedAggregateStrategy::First
+                                | OrderedAggregateStrategy::Last => 1,
+                            };
+                            let next = ordered_units.checked_add(units).ok_or_else(|| {
+                                Error::Resource("ordered aggregate row count overflow".into())
+                            })?;
+                            context.query.check_rows(group_count.saturating_add(next))?;
+                            ordered_units = next;
+                        }
+                        retain_ordered(
+                            &mut group.ordered[i],
+                            args,
+                            order,
+                            strategy,
+                            &aggregate.order_by,
+                            &order_types[i],
+                            context,
+                        )?;
                     }
                 }
             }
@@ -287,6 +319,52 @@ pub(super) fn run<I: GroupIndex>(
             Ok(row)
         })
         .collect()
+}
+
+/// Whether this row adds retained storage. Candidate replacement is constant
+/// space; a generic buffered aggregate retains every row.
+fn candidate_replaces(
+    rows: &[(Row, Row)],
+    order: &Row,
+    strategy: OrderedAggregateStrategy,
+    expressions: &[crate::planner::logical::OrderExpr],
+    types: &[crate::common::type_registry::BoundType],
+    context: &ExecutionContext<'_>,
+) -> Result<bool> {
+    let Some((_, current)) = rows.first() else {
+        return Ok(true);
+    };
+    match strategy {
+        OrderedAggregateStrategy::Buffered => Ok(true),
+        OrderedAggregateStrategy::First => {
+            Ok(compare_ordered(order, current, expressions, types, context)? == Ordering::Less)
+        }
+        OrderedAggregateStrategy::Last => {
+            Ok(compare_ordered(order, current, expressions, types, context)? != Ordering::Greater)
+        }
+    }
+}
+
+fn retain_ordered(
+    rows: &mut Vec<(Row, Row)>,
+    args: Row,
+    order: Row,
+    strategy: OrderedAggregateStrategy,
+    expressions: &[crate::planner::logical::OrderExpr],
+    types: &[crate::common::type_registry::BoundType],
+    context: &ExecutionContext<'_>,
+) -> Result<()> {
+    if !candidate_replaces(rows, &order, strategy, expressions, types, context)? {
+        return Ok(());
+    }
+    match strategy {
+        OrderedAggregateStrategy::Buffered => rows.push((args, order)),
+        OrderedAggregateStrategy::First | OrderedAggregateStrategy::Last => {
+            rows.clear();
+            rows.push((args, order));
+        }
+    }
+    Ok(())
 }
 
 /// Sort buffered aggregate arguments stably, then use the normal aggregate

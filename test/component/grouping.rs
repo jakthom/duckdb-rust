@@ -188,6 +188,60 @@ fn single_ungrouped_aggregate_keeps_batch_results_errors_and_evaluation_counts()
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn order_insensitive_sum_elides_only_total_keys() -> Result<()> {
+    // A column key is pure and total, so exact SUM may stream it without
+    // retaining ordered rows. A registered probe is pure but not proven total:
+    // it must still execute in source order and expose its first failure.
+    for fail in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut functions = FunctionRegistry::builtins();
+        functions.register_scalar(Arc::new(PureProbe {
+            calls: calls.clone(),
+            fail,
+        }))?;
+        let db = DatabaseBuilder::new()
+            .functions(functions)
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(Arc::new(HashAggregation)),
+            ))
+            .batch_size(4)
+            .build()?;
+        let result = db
+            .connect()
+            .query("SELECT sum(i ORDER BY pure_probe(i)) FROM range(4) t(i)");
+        if fail {
+            assert!(matches!(
+                result,
+                Err(Error::Conversion(message)) if message == "first pure probe failure"
+            ));
+            assert_eq!(calls.load(Ordering::Relaxed), 3);
+        } else {
+            assert_eq!(result?.rows, vec![vec![Value::Integer(6)]]);
+            assert_eq!(calls.load(Ordering::Relaxed), 4);
+        }
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut functions = FunctionRegistry::builtins();
+    functions.register_scalar(Arc::new(Observe(calls.clone())))?;
+    let db = DatabaseBuilder::new()
+        .functions(functions)
+        .physical_planner(Arc::new(
+            NativePhysicalPlanner::default().with_aggregation(Arc::new(HashAggregation)),
+        ))
+        .batch_size(4)
+        .build()?;
+    assert_eq!(
+        db.connect()
+            .query("SELECT sum(i ORDER BY observe(i)) FROM range(4) t(i)")?
+            .rows,
+        vec![vec![Value::Integer(6)]],
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 4);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn grouping_evaluates_inputs_once_and_isolates_distinct_and_filter_states() -> Result<()> {
     for algorithm in algorithms() {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -294,6 +348,18 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
                 .rows,
             vec![vec![Value::Integer(8), Value::Integer(9)]],
         );
+        // FIRST/LAST keep one stable candidate: multi-key comparisons, NULL
+        // arguments, and ties retain exactly the sorted-wrapper result.
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT first(v ORDER BY k,j),last(v ORDER BY k,j) \
+                     FROM (VALUES (10,1,1),(20,1,2),(30,1,2), \
+                                  (NULL::INTEGER,1,0),(40,NULL,0)) t(v,k,j)",
+                )?
+                .rows,
+            vec![vec![Value::Null, Value::Integer(40)]],
+        );
         // An ungrouped aggregate takes the same buffered path and honours
         // direction plus explicit NULL placement.
         assert_eq!(
@@ -364,9 +430,24 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
                 NativePhysicalPlanner::default().with_aggregation(algorithm),
             ))
             .build()?;
+        // Candidate aggregates no longer reserve stable-sort permutations for
+        // every input row, while an order-sensitive buffered aggregate still
+        // receives the original resource accounting.
+        assert_eq!(
+            db.connect()
+                .query(
+                    "SELECT first(v ORDER BY k),last(v ORDER BY k) \
+                     FROM (VALUES (1,10,1),(2,20,1)) AS limited(g,v,k) GROUP BY g",
+                )?
+                .rows,
+            vec![
+                vec![Value::Integer(10), Value::Integer(10)],
+                vec![Value::Integer(20), Value::Integer(20)]
+            ],
+        );
         assert!(matches!(
             db.connect().query(
-                "SELECT first(v ORDER BY k),last(v ORDER BY k) \
+                "SELECT avg(v::DOUBLE ORDER BY k) \
                  FROM (VALUES (1,10,1),(2,20,1)) AS limited(g,v,k) GROUP BY g",
             ),
             Err(Error::Resource(_))
