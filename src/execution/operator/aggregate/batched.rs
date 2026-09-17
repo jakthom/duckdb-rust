@@ -508,8 +508,7 @@ fn try_ordered_candidates(
     }
     let values = accumulators
         .into_iter()
-        .zip(&functions)
-        .map(|(accumulator, function)| match accumulator {
+        .map(|accumulator| match accumulator {
             OrderedAccumulator::State(mut state) => {
                 state.resize(groups.len(), context.query)?;
                 state.finish(context.query)
