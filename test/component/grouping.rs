@@ -104,6 +104,88 @@ impl ScalarFunction for Observe {
     }
 }
 
+#[derive(Debug)]
+struct PureProbe {
+    calls: Arc<AtomicUsize>,
+    fail: bool,
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for PureProbe {
+    fn name(&self) -> &str {
+        "pure_probe"
+    }
+    fn return_type(
+        &self,
+        args: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        if args == [DataType::BigInt] {
+            Ok(DataType::BigInt)
+        } else {
+            Err(Error::Bind("pure_probe requires BIGINT".into()))
+        }
+    }
+    fn evaluate(&self, args: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        let value = args[0].as_i128()?;
+        if self.fail && value == 2 {
+            return Err(Error::Conversion("first pure probe failure".into()));
+        }
+        if self.fail && value == 3 {
+            return Err(Error::Conversion("second pure probe failure".into()));
+        }
+        Ok(Value::Integer(value))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn single_ungrouped_aggregate_keeps_batch_results_errors_and_evaluation_counts() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut functions = FunctionRegistry::builtins();
+        functions.register_scalar(Arc::new(PureProbe {
+            calls: calls.clone(),
+            fail: false,
+        }))?;
+        let db = DatabaseBuilder::new()
+            .functions(functions)
+            .expressions(expressions.clone())
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(Arc::new(HashAggregation)),
+            ))
+            .batch_size(4)
+            .build()?;
+        assert_eq!(
+            db.connect()
+                .query("SELECT sum(pure_probe(i)) FROM range(4) t(i)")?
+                .rows,
+            vec![vec![Value::Integer(6)]],
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), 4);
+
+        let mut functions = FunctionRegistry::builtins();
+        functions.register_scalar(Arc::new(PureProbe { calls, fail: true }))?;
+        let db = DatabaseBuilder::new()
+            .functions(functions)
+            .expressions(expressions)
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(Arc::new(HashAggregation)),
+            ))
+            .batch_size(4)
+            .build()?;
+        assert!(matches!(
+            db.connect().query("SELECT sum(pure_probe(i)) FROM range(4) t(i)"),
+            Err(Error::Conversion(message)) if message == "first pure probe failure"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grouping_evaluates_inputs_once_and_isolates_distinct_and_filter_states() -> Result<()> {

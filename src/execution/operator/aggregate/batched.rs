@@ -214,7 +214,6 @@ fn try_ungrouped(
     if !aggregation.groups.is_empty()
         || aggregation.sets.len() != 1
         || !aggregation.sets[0].is_empty()
-        || aggregation.outputs.len() < 2
         || aggregation
             .outputs
             .iter()
