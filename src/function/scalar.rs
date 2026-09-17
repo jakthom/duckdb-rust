@@ -148,7 +148,7 @@ impl ScalarFunction for Builtin {
         if let Some(value) = column.constant_value() {
             return Vector::constant(
                 DataType::BigInt,
-                length_value(value)?.map_or(Value::Null, Value::Integer),
+                length_value(value)?.map_or(Value::Null, |value| Value::Integer(i128::from(value))),
                 column.len(),
             )
             .map(Some);
@@ -204,9 +204,8 @@ impl ScalarFunction for Builtin {
                 Value::Varchar(value) => Value::Varchar(case_convert(value, true)),
                 _ => return Err(Error::Internal("case argument is not VARCHAR".into())),
             },
-            "length" | "char_length" | "character_length" | "len" => {
-                length_value(&args[0])?.map_or(Value::Null, Value::Integer)
-            }
+            "length" | "char_length" | "character_length" | "len" => length_value(&args[0])?
+                .map_or(Value::Null, |value| Value::Integer(i128::from(value))),
             _ => return Err(Error::Internal("unregistered builtin".into())),
         })
     }
