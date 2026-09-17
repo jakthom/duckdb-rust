@@ -289,17 +289,40 @@ impl IntegerIndex {
             // All-NULL first batches have no stable numeric origin.
             return Ok(());
         };
-        let mut batch_min = None;
-        let mut batch_max = None;
-        for (index, value) in column.values().enumerate() {
-            if index % 1024 == 0 {
-                query.check()?;
-            }
-            if let Some(value) = representation.integer_key(&value)? {
+        let (batch_min, batch_max) = if representation == KeyRepresentation::Integer
+            && let Some(values) = column.flat_bigints()
+        {
+            // This encoding is all-valid by construction. Scan its borrowed
+            // signed lane directly rather than materializing `Value` and
+            // rediscovering the already-declared integer representation.
+            let mut batch_min = None;
+            let mut batch_max = None;
+            for (index, &value) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                let value = i128::from(value);
                 batch_min = Some(batch_min.map_or(value, |current: i128| current.min(value)));
                 batch_max = Some(batch_max.map_or(value, |current: i128| current.max(value)));
             }
-        }
+            (batch_min, batch_max)
+        } else {
+            // Keep every other physical shape on the general representation
+            // path: nullable, selected and non-BIGINT vectors retain their
+            // existing conversion and NULL behavior.
+            let mut batch_min = None;
+            let mut batch_max = None;
+            for (index, value) in column.values().enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                if let Some(value) = representation.integer_key(&value)? {
+                    batch_min = Some(batch_min.map_or(value, |current: i128| current.min(value)));
+                    batch_max = Some(batch_max.map_or(value, |current: i128| current.max(value)));
+                }
+            }
+            (batch_min, batch_max)
+        };
         let Some(batch_min) = batch_min else {
             return Ok(());
         };
@@ -409,6 +432,78 @@ impl IntegerIndex {
             std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
             std::collections::hash_map::Entry::Vacant(entry) => *entry.insert(create(row)?),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::DataType;
+
+    fn locate_one_column(
+        index: &mut IntegerIndex,
+        column: &Vector,
+        next_group: &mut usize,
+        query: &QueryContext,
+    ) -> Result<Vec<usize>> {
+        index.locate(
+            &[column],
+            &[KeyRepresentation::Integer],
+            column.len(),
+            query,
+            |_| {
+                let group = *next_group;
+                *next_group += 1;
+                Ok(group)
+            },
+        )
+    }
+
+    #[test]
+    fn dense_growth_keeps_null_slot_across_flat_bigint_batches() -> Result<()> {
+        let query = QueryContext::background();
+        let first = Vector::flat(
+            DataType::BigInt,
+            vec![Value::Integer(0), Value::Integer(1), Value::Null],
+        )?;
+        let second = Vector::flat(DataType::BigInt, vec![Value::Integer(2), Value::Integer(3)])?;
+        let third = Vector::flat(DataType::BigInt, vec![Value::Null])?;
+        assert!(first.flat_bigints().is_none());
+        assert!(second.flat_bigints().is_some());
+        let mut index = IntegerIndex::default();
+        let mut next_group = 0;
+        assert_eq!(
+            locate_one_column(&mut index, &first, &mut next_group, &query)?,
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            locate_one_column(&mut index, &second, &mut next_group, &query)?,
+            vec![3, 4]
+        );
+        assert_eq!(
+            locate_one_column(&mut index, &third, &mut next_group, &query)?,
+            vec![2]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dense_growth_keeps_nullable_bigint_on_generic_path() -> Result<()> {
+        let query = QueryContext::background();
+        let first = Vector::flat(DataType::BigInt, vec![Value::Integer(0), Value::Null])?;
+        let second = Vector::flat(DataType::BigInt, vec![Value::Integer(1), Value::Null])?;
+        assert!(first.flat_bigints().is_none());
+        let mut index = IntegerIndex::default();
+        let mut next_group = 0;
+        assert_eq!(
+            locate_one_column(&mut index, &first, &mut next_group, &query)?,
+            vec![0, 1]
+        );
+        assert_eq!(
+            locate_one_column(&mut index, &second, &mut next_group, &query)?,
+            vec![2, 1]
+        );
+        Ok(())
     }
 }
 
