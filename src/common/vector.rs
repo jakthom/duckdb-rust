@@ -108,6 +108,7 @@ impl SignedLanes {
         }
     }
 
+    #[inline(always)]
     fn i64_value(&self, index: usize) -> Option<i64> {
         match self {
             Self::Tiny(values) => values.get(index).copied().map(i64::from),
@@ -819,6 +820,7 @@ impl Vector {
     /// Selection and chunk adapters recurse through their checked logical
     /// indices; unsupported physical forms stay explicit rather than falling
     /// through to the owned scalar seam.
+    #[inline(always)]
     pub(crate) fn signed_i64_at(&self, index: usize) -> SignedI64At {
         if index >= self.count {
             return SignedI64At::Unsupported;
@@ -880,6 +882,7 @@ impl Vector {
     }
 }
 
+#[inline(always)]
 fn signed_i64_value(value: Option<&Value>) -> SignedI64At {
     match value {
         Some(Value::Null) => SignedI64At::Null,

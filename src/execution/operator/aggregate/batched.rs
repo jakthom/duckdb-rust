@@ -588,6 +588,7 @@ fn try_ordered_candidates(
 /// Compare one vector row with a retained candidate without constructing a
 /// temporary Row. The vector seam yields owned scalar values for encoded
 /// lanes; candidate allocation occurs only after a strict replacement.
+#[inline(always)]
 fn compare_candidate_order(
     columns: &DataChunk,
     row: usize,
@@ -651,6 +652,7 @@ fn compare_candidate_order(
 /// Return a nullable signed coefficient without materializing a `Value`.
 /// Encoded vectors resolve through the checked coefficient accessor, retaining
 /// their logical NULL and selection semantics without owned scalar values.
+#[inline(always)]
 fn signed_integer_order(column: &Vector, row: usize) -> Option<Option<i64>> {
     match column.signed_i64_at(row) {
         SignedI64At::Value(value) => Some(Some(value)),
@@ -666,6 +668,7 @@ fn signed_i64_type(data_type: &DataType) -> bool {
     )
 }
 
+#[inline(always)]
 fn compare_signed_integer_order(
     value: Option<i64>,
     current: Option<i64>,
