@@ -841,8 +841,8 @@ are the six `MINIMUM` construction cases and 26 derived expressions in
 `scripts/temporal_minimum_reference.py` (`SQL`, both pins), especially
 `epoch_us(t::TIMESTAMP)`, `t::TIME`, and precision casts of
 `make_timestamp_ns(-9223372036854775808)`. Unchanged cross-pin/native IDs are
-the release/development C++ API fixture's 30 values and eight
-checkpoint/WAL round trips. Negative/boundary/shared-consumer coverage includes
+the release C++ API fixture's 30 values, the development fixture's 36 values and
+eight checkpoint/WAL round trips. Negative/boundary/shared-consumer coverage includes
 non-renderability, infinities, `i64::MIN`, `-i64::MAX`, pre-epoch half ties,
 overflowing precision expansion, scalar/batched evaluators, prepared parameters,
 direct all-valid flat `TIMESTAMP_S/MS/NS/TZ/TZ_NS` batch casts, NULL, selected
@@ -864,30 +864,26 @@ pass, performance is open. Release's truncating minimum narrowing, missing
 `TIMESTAMPTZ_NS`, and `date_trunc` difference remain documented divergences, not
 acceptance baselines.
 
-**G04.1b outcome (final source `e9a05df`):** `cargo test -p duckdb-rust --test
-temporal temporal_minimum` passed all five selected tests; the new direct-vector
-test covers timestamp cast batch encodings and the earlier one covers
-scalar/batch/prepared minimum and pre-epoch precision narrowing. `cargo dev
-coverage` reported no missing annotations and `cargo dev trace check --workspace
---all-targets` passed. Final no-tracing release and clean-development campaigns
-are retained at `target/next-batch/g04/g04-1b-temporal-final-{release,development}.json`;
-the faster-pin gate is `...-final-fastest.json`. The release baseline was
-1,119,917 ns; Rust medians were 8,552,125 ns (release campaign, 7.636392x) and
-8,594,791 ns (development campaign, 7.674489x), so the wall/throughput gate
-failed. CPU, RSS and block I/O remain unmeasured because the maintained native
-adapter has no process-resource reporter. Performance status is **fail/open**,
-and this slice's functional minimum domain is ready for further verification.
-The final no-tracing native reports are
-`target/next-batch/g04/g04-1b-temporal-lanes-{release,development,fastest}.json`:
-the faster development pin median is 1,200,000 ns; retained Rust medians are
-913,666 ns (0.761388x) and 891,542 ns (0.742952x) against it, so wall and
-throughput pass. Fresh-process CPU/RSS/block-I/O samples, raw `/usr/bin/time -l`
-output, result checks and medians are at
-`target/next-batch/g04/g04-1b-temporal-lanes-resources.json`; wall 0.500x, CPU
-1.000x, RSS 0.603891x and zero block-input/output ratios pass independently,
-with throughput 2.000x the faster reference. This is a scoped temporal
-performance pass, not a claim that all G04 behavior is complete; the retained
-release precision/date_trunc/TIMESTAMPTZ_NS divergences still apply.
+**G04.1b outcome (integrated executable revision `247079f`):** `cargo test -p
+duckdb-rust --test temporal temporal_minimum` passes all five selected tests,
+including scalar, batch, prepared, direct-vector and encoded-vector coverage.
+The final cross-pin report is
+`target/next-batch/g04/temporal-minimum-final-integrated.json`: development
+matches 23/32 SQL results exactly and all 32 by outcome, release matches 20/32
+exactly and 29/32 by outcome, and the release 30-value and development 36-value
+C++ API fixtures and all four round trips per pin pass. The remaining release
+precision, `date_trunc` and `TIMESTAMPTZ_NS` differences are the declared
+residual G04.1 backlog.
+`cargo dev coverage` reports no missing annotations and `cargo dev trace check
+--workspace --all-targets` passes. The final 21-sample no-tracing reports are
+`target/next-batch/performance/g04/g04-1b-integrated-{release,development,fastest}.json`;
+Rust is 0.772340x its release reference and 0.749213x its development reference,
+and both retained Rust runs are no slower than the faster pin. The companion
+resource report is
+`target/next-batch/performance/g04/g04-1b-integrated-resources.json`: wall, CPU,
+system time, block I/O and throughput are 1.000000x and peak RSS is 0.613054x.
+Every declared performance dimension passes independently. This completes the
+G04.1b slice, not the remaining G04.1 domain.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
@@ -997,16 +993,28 @@ measurements require three warmups and 21 serial samples against both exact pinn
 C++ identities; wall latency/throughput, CPU, peak RSS and block I/O each gate
 independently against the faster pin, with raw identities, hashes and samples under
 `target/`.
-The implementation registers callable `instr`, `strpos`, and `position` with
+**G06.1c final status (integrated executable revision `247079f`).** The
+implementation registers callable `instr`, `strpos`, and `position` with
 byte-preserving search and one-based Unicode character positions across scalar and
 physical batch encodings. The binder lowers SQL's reserved
 `POSITION(needle IN haystack)` AST to the same haystack/needle call contract;
-scalar, batched, prepared, invalid-type and mixed-keyword-case component coverage
-passes. The earlier callable-only upstream and Gate P reports predate that binder
-change and are superseded. Exact dual-pin paths and all native/process performance
-metrics must be refreshed on the final integrated source before this slice is
-complete; `substring_grapheme` and `chr` remain the expected later blockers in
-the selected substring/NUL files.
+the complete component target and focused scalar batch test pass. The exact
+dual-pin report is `target/next-batch/g06/upstream-final-integrated.json`.
+Development passes the complete `instr` 15/15 and `instr_utf8` 13/13 files;
+release passes them 16/16 and 14/14. The selected substring files reach 44 and
+13 records on development, and 42 and 12 on release, before the separately
+unimplemented `substring_grapheme`; the NUL file stops at the earlier `chr(0)`
+blocker, leaving its later 22 `instr` records explicitly unreached.
+The final native reports are
+`target/next-batch/performance/g06/final-{release,development,fastest}-21.json`:
+the release/development retained Rust runs are respectively 0.781x/0.809x the
+faster pin for fused `instr`, and 0.449x/0.442x for projected `strpos`. The
+companion process report is
+`target/next-batch/performance/g06/final-process-21.json`: wall is 0.929x, CPU
+0.857x, peak RSS 0.793x, block input/output 1.000x with all values zero, and Rust
+throughput exceeds the faster reference. Every declared performance dimension
+passes independently. This completes G06.1c; `substring_grapheme`, `chr`,
+`contains` and regex work remain later G06.1 slices.
 
 **G06.1b frozen validation manifest — VARCHAR length and substring.** Owned paths
 are `src/function/scalar{.rs,/text.rs}`, the shared vector/batch/cast seams changed
@@ -1178,25 +1186,27 @@ one-row checks. Three warmups and 21 serial samples must validate results agains
 both pinned C++ references. Every native wall-time ratio and process wall,
 throughput, CPU, peak-RSS and block-I/O ratio must be no worse than the faster
 pin independently; raw samples, identities and failed runs remain under
-`target/g08-2b/`.
+`target/next-batch/performance/g08/`.
 
-**G08.2b final status (2026-09-17).** Executable revision `7af79a4` passes the
-68-test grouping target and 390/390 focused local SQLLogic records. On each
-unchanged pin, `test_order_by_aggregate.test` passes 15/15 and
-`test_simple_filter.test` passes 9/9; the final report is
-`target/g08-2b/upstream-final-functional-2.json`. Coverage reports no missing
+**G08.2b final status (2026-09-17).** Integrated executable revision `247079f`
+passes the 68-test grouping target and all 5 focused local SQLLogic records.
+Development passes 15/15 `test_order_by_aggregate.test` and 9/9
+`test_simple_filter.test` records; release passes 16/16 and 10/10. The final report is
+`target/next-batch/g08/upstream-final-integrated.json`. Coverage reports no missing
 development instrumentation, and trace compatibility completes with zero
 errors, panics or open spans. The final 3-warmup/21-sample native reports are
-`target/g08-2b/performance/final-{release,development,fastest}-21.json`.
+`target/next-batch/performance/g08/final-{release,development,fastest}-21.json`.
 Release/development Rust medians divided by the faster pin are respectively
-0.6181/0.5563 for filtered COUNT/SUM, 0.6546/0.7970 for filtered DISTINCT
-ordered LIST, and 0.5041/0.5439 for grouped filtered FIRST/LAST. The process
-report `target/g08-2b/performance/final-process-21.json` passes independently:
-wall 0.3294, CPU 0.1214, peak RSS 0.3583, block input/output 1.0000 (all zero),
-and throughput is 3.0361 times the faster pin. Both exact reference identities,
-validated results, source/binary hashes and all raw samples are retained in
-those reports. Gate P passes; STRING_AGG, histogram and mode remain outside
-this slice.
+0.622908/0.778980 for filtered COUNT/SUM, 0.653604/0.876455 for filtered
+DISTINCT ordered LIST, and 0.512998/0.610691 for grouped filtered FIRST/LAST.
+The process report
+`target/next-batch/performance/g08/final-process-21.json` passes independently:
+wall 0.328587, CPU 0.112994, peak RSS 0.357666, block input/output 1.000000
+(all zero), and throughput is 3.043334 times the faster pin. It validates 1,025
+reference assertions per pin and 385 Rust records. Both exact reference
+identities, validated results, source/binary hashes and all raw samples are
+retained in those reports. Gate P passes; STRING_AGG, histogram and mode remain
+outside this slice.
 
 The integrated completion sweep also owns the lock-lifecycle repair in
 `dev/src/artifacts.rs`. Its fast checks are the Unix retained-descriptor unit
