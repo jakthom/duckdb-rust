@@ -1,0 +1,41 @@
+# G08.2a process-level resource workload. The native gate covers each prepared
+# operation separately; this fixture repeats stored-column consumers for 19.2m
+# row-visits while retaining one-row results and comparable runner memory.
+statement ok
+CREATE TABLE g08_ordered_process AS
+SELECT i, CASE WHEN i%17=16 THEN NULL ELSE i%5 END AS k
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query II
+SELECT first(i ORDER BY k NULLS FIRST), last(i ORDER BY k NULLS LAST)
+FROM g08_ordered_process;
+----
+16	16
+
+query III
+SELECT sum(sum_i),sum(first_i),sum(last_i)
+FROM (
+    SELECT sum(i) AS sum_i,
+           first(i ORDER BY k NULLS FIRST) AS first_i,
+           last(i ORDER BY k NULLS LAST) AS last_i
+    FROM g08_ordered_process
+    GROUP BY i%8192
+) ordered;
+----
+1249975000	181252096	181268480
+
+query III
+SELECT sum(sum_i),sum(first_i),sum(last_i)
+FROM (
+    SELECT sum(i) AS sum_i,
+           first(i ORDER BY k NULLS FIRST) AS first_i,
+           last(i ORDER BY k NULLS LAST) AS last_i
+    FROM g08_ordered_process
+    GROUP BY i%64
+) ordered;
+----
+1249975000	35296	35296
+
+endloop

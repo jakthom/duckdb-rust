@@ -1,0 +1,21 @@
+# G06.1b process-level resource workload. Direct VARCHAR result transport is
+# measured by the native workloads; this fixture repeats comparable aggregate
+# consumers over the same stored 50k-row configuration for 6.4m row-visits.
+statement ok
+CREATE TABLE g06_substring_process AS
+SELECT CASE i % 4 WHEN 0 THEN 'alphabet soup' WHEN 1 THEN 'é🦆x' WHEN 2 THEN 'aé' ELSE '' END AS v,
+       CASE i % 4 WHEN 0 THEN 2 WHEN 1 THEN -2 WHEN 2 THEN 0 ELSE 1 END AS start,
+       CASE i % 4 WHEN 0 THEN 6 WHEN 1 THEN 1 WHEN 2 THEN 3 ELSE 0 END AS count,
+       i % 100 AS unique_start
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query II
+SELECT sum(length(substring(v,start,count))),
+       sum(length(substring(v,unique_start,1)))
+FROM g06_substring_process;
+----
+112500	2500
+
+endloop

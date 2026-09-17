@@ -927,10 +927,14 @@ starts, omitted/negative lengths, empty/NUL/Unicode values, INT64 extremes,
 overflow diagnostics, constant/flat/dictionary/selected encodings, prepared
 execution and low/high-cardinality direct VARCHAR output. Gate P uses three
 50,000-row native cases (fused low-cardinality length, direct low-cardinality
-substring and direct high-cardinality substring) and the maintained one-million-row
-SQLLogic process workload. Final release/no-tracing evidence uses three warmups
-and 21 serial samples against both exact pins, with exact checksums and independent
-wall, CPU, peak-RSS, block-I/O and throughput gates against the faster reference.
+substring and direct high-cardinality substring) and the maintained SQLLogic
+process workload. The comparable process fixture uses the same stored
+50,000-row configuration and repeats two one-row aggregate consumers 128 times,
+for 6.4 million relevant row-visits; direct VARCHAR transport remains in the
+native gate so peak memory does not compare Rust row objects with C++ vectors.
+Final release/no-tracing evidence uses three warmups and 21 serial samples against
+both exact pins, with exact checksums and independent wall, CPU, peak-RSS,
+block-I/O and throughput gates against the faster reference.
 The implementation now evaluates `length` and character-indexed `substring`/
 `substr` through flat, constant, dictionary and selected physical batches,
 including fused aggregate consumers, without changing scalar error order. On
@@ -1011,10 +1015,14 @@ pins. Any later `WITHIN GROUP`, LIST/DISTINCT/FILTER parser or missing aggregate
 family blocker remains explicit rather than turning a reachable prefix into a
 full-file pass. Gate P uses six 50,000-row native cases: total-key SUM, ungrouped
 FIRST/LAST, 8,192- and 64-group FIRST/LAST, mixed SUM plus ordered candidates and
-composite ordering; the process gate uses the maintained one-million-row SQLLogic
-workload. Final release/no-tracing evidence uses three warmups and 21 serial
-samples against both exact pins, validates declared results, and independently
-gates wall, CPU, peak RSS, block I/O and throughput against the faster reference.
+composite ordering; the process gate uses the maintained SQLLogic workload. The
+comparable process fixture repeats ungrouped, 8,192-group and mixed
+ordered consumers over the same stored 50,000 rows 128 times, for 19.2 million
+relevant row-visits and one-row results; the separate one-million-row fixture
+remains functional acceptance for generated-expression integration. Final
+release/no-tracing evidence uses three warmups and 21 serial samples against both
+exact pins, validates declared results, and independently gates wall, CPU, peak
+RSS, block I/O and throughput against the faster reference.
 The implementation binds aggregate argument ordering with scope validation,
 elides only pure total keys for order-insensitive functions, preserves pinned
 FIRST/LAST tie behavior, and uses bounded batched candidates for eligible integer

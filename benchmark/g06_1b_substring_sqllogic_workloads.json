@@ -1,8 +1,8 @@
 {
   "workloads": [
     {
-      "id": "g06_1b_substring_fused_materialized_and_high_cardinality_50k",
-      "path": "test/performance/g06_substring.test"
+      "id": "g06_1b_substring_aggregate_consumers_6_4m_row_visits",
+      "path": "test/performance/g06_substring_process.test"
     }
   ]
 }
