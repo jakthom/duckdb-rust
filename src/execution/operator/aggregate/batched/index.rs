@@ -473,6 +473,7 @@ mod tests {
     use super::*;
     use crate::common::DataType;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn locate_one_column(
         index: &mut IntegerIndex,
         column: &Vector,
@@ -492,6 +493,7 @@ mod tests {
         )
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn dense_growth_keeps_null_slot_across_flat_bigint_batches() -> Result<()> {
         let query = QueryContext::background();
@@ -520,6 +522,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn dense_growth_keeps_nullable_bigint_on_generic_path() -> Result<()> {
         let query = QueryContext::background();
@@ -539,6 +542,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn flat_bigint_locator_preserves_dense_and_sparse_group_ordinals() -> Result<()> {
         let query = QueryContext::background();

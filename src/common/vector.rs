@@ -882,6 +882,7 @@ impl Vector {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline(always)]
 fn signed_i64_value(value: Option<&Value>) -> SignedI64At {
     match value {

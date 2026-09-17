@@ -649,6 +649,7 @@ fn compare_candidate_order(
     Ok(Ordering::Equal)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Return a nullable signed coefficient without materializing a `Value`.
 /// Encoded vectors resolve through the checked coefficient accessor, retaining
 /// their logical NULL and selection semantics without owned scalar values.
@@ -661,6 +662,7 @@ fn signed_integer_order(column: &Vector, row: usize) -> Option<Option<i64>> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn signed_i64_type(data_type: &DataType) -> bool {
     matches!(
         data_type,
@@ -668,6 +670,7 @@ fn signed_i64_type(data_type: &DataType) -> bool {
     )
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline(always)]
 fn compare_signed_integer_order(
     value: Option<i64>,
