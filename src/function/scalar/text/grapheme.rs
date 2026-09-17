@@ -163,6 +163,7 @@ impl crate::function::ScalarFunction for GraphemeFunction {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GraphemeFunction {
     fn result_type(&self) -> DataType {
         match self.0 {
@@ -198,6 +199,7 @@ impl GraphemeFunction {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn batch_length(input: VarcharBatch<'_>, count: usize, query: &QueryContext) -> Result<Vector> {
     match input {
         VarcharBatch::Constant(value) => {
@@ -242,6 +244,7 @@ fn batch_length(input: VarcharBatch<'_>, count: usize, query: &QueryContext) -> 
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn batch_transform(
     input: VarcharBatch<'_>,
     starts: BigintBatch<'_>,
@@ -330,6 +333,7 @@ fn batch_transform(
     Arc::new(Vector::flat(output_type, values)?).select(selection)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn substring_lengths_batch(
     arguments: &DataChunk,
     query: &QueryContext,
@@ -374,6 +378,7 @@ pub(crate) fn substring_lengths_batch(
     Vector::flat(DataType::BigInt, output)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn grapheme_substring_length_value(arguments: &[Value]) -> Result<Value> {
     if !matches!(arguments.len(), 2 | 3) {
         return Err(Error::Internal(
@@ -396,6 +401,7 @@ fn grapheme_substring_length_value(arguments: &[Value]) -> Result<Value> {
     Ok(Value::Integer(slice_length(input, start, length)))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn grapheme_length_value(value: &Value) -> Result<Value> {
     match value {
         Value::Null => Ok(Value::Null),
@@ -406,6 +412,7 @@ fn grapheme_length_value(value: &Value) -> Result<Value> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn flat_grapheme_substring_value(input: &Value, start: i64, length: Option<i64>) -> Result<Value> {
     let Value::Varchar(input) = input else {
         return if input.is_null() {
@@ -423,6 +430,7 @@ fn flat_grapheme_substring_value(input: &Value, start: i64, length: Option<i64>)
     slice(input, start, length).map(Value::Varchar)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn flat_grapheme_substring_length_value(
     input: &Value,
     start: i64,
@@ -444,10 +452,12 @@ fn flat_grapheme_substring_length_value(
     Ok(Value::Integer(slice_length(input, start, length)))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn bound(value: &Value, name: &str) -> Result<i128> {
     bound_i128(value.as_i128()?, name)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn bound_i128(value: i128, name: &str) -> Result<i128> {
     if !(MIN_BOUND..=MAX_BOUND).contains(&value) {
         let direction = if value > MAX_BOUND { ">" } else { "<" };
@@ -463,6 +473,7 @@ fn bound_i128(value: i128, name: &str) -> Result<i128> {
     Ok(value)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn grapheme_count(input: &str) -> i128 {
     if input.is_empty() {
         0
@@ -471,6 +482,7 @@ fn grapheme_count(input: &str) -> i128 {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn slice_length(input: &str, start: i128, length: Option<i128>) -> i128 {
     if start >= 0 {
         let raw_start = if start > 0 { start - 1 } else { -1 };
@@ -505,6 +517,7 @@ fn slice_length(input: &str, start: i128, length: Option<i128>) -> i128 {
     (end - begin).max(0)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn slice(input: &str, start: i128, length: Option<i128>) -> Result<String> {
     let suffix_count = (start < 0).then(|| grapheme_count(input));
     let raw_start = if start > 0 {
@@ -561,6 +574,7 @@ mod tests {
     use super::*;
     use crate::function::ScalarFunction;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn stateful_utf8proc_boundaries_cover_emoji_and_combining_marks() {
         let input = "e\u{301}👍🏽\u{200d}❤️\u{fe0f}x\0";
@@ -575,6 +589,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn fused_substring_lengths_match_materialized_grapheme_slices_at_boundaries() {
         let inputs = ["", "\0", "abc", "e\u{301}x\0", "👍🏽\u{200d}❤️\u{fe0f}x"];
@@ -605,6 +620,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn batch_evaluation_handles_flat_constant_dictionary_and_selected_inputs() -> Result<()> {
         let query = QueryContext::background();

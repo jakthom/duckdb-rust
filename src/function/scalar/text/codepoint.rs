@@ -188,6 +188,7 @@ fn contains_values(haystack: &Value, needle: &Value) -> Result<Value> {
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn contains_match(haystack: &Value, needle: &Value) -> Result<Option<bool>> {
     match (haystack, needle) {
         (Value::Null, _) | (_, Value::Null) => Ok(None),
@@ -200,6 +201,7 @@ fn contains_match(haystack: &Value, needle: &Value) -> Result<Option<bool>> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline(always)]
 fn contains_text(haystack: &str, needle: &str) -> bool {
     let haystack = haystack.as_bytes();
@@ -223,6 +225,7 @@ fn contains_text(haystack: &str, needle: &str) -> bool {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn batch_contains_matches(
     count: usize,
     query: &QueryContext,
@@ -400,6 +403,7 @@ fn batch_contains(arguments: &DataChunk, query: &QueryContext) -> Result<Option<
     Vector::flat(DataType::Boolean, output).map(Some)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn select_contains(arguments: &DataChunk, query: &QueryContext) -> Result<Vec<usize>> {
     let [left, right] = arguments.columns() else {
         return Err(Error::Internal(
@@ -610,6 +614,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn varchar(values: &[Option<&str>]) -> Result<Vector> {
         Vector::flat(
             DataType::Varchar,
@@ -623,6 +628,7 @@ mod tests {
         )
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn contains_selection_preserves_offsets_across_supported_and_fallback_encodings() -> Result<()>
     {
@@ -687,6 +693,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn codepoint_batches_cover_flat_constant_dictionary_selected_and_chunked_vectors() -> Result<()>
     {

@@ -15,6 +15,7 @@ use duckdb_rust::{
 #[derive(Debug)]
 struct UnrelatedContains;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for UnrelatedContains {
     fn name(&self) -> &str {
         "contains"
@@ -38,6 +39,7 @@ impl ScalarFunction for UnrelatedContains {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn batched_contains_selection_uses_builtin_identity_and_exact_offsets() -> Result<()> {
     let query = QueryContext::background();
@@ -95,6 +97,7 @@ fn batched_contains_selection_uses_builtin_identity_and_exact_offsets() -> Resul
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn codepoint_varchar_functions_are_nul_safe_and_prepared() -> Result<()> {
     for evaluator in [

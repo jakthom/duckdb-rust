@@ -67,6 +67,7 @@ pub(crate) enum ScalarBatchIdentity {
     VarcharContains,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarBatchKind {
     pub(crate) const fn builtin(identity: ScalarBatchIdentity) -> Self {
         Self(identity)

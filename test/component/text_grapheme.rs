@@ -5,6 +5,7 @@ use duckdb_rust::{
     execution::expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn grapheme_text_functions_preserve_clusters_bounds_nuls_and_nulls() -> Result<()> {
     for expressions in [
