@@ -164,6 +164,130 @@ fn development_minimum_precision_narrowing_rounds_in_scalar_batched_and_prepared
 
 #[test]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn direct_timestamp_cast_batch_preserves_precision_boundaries_and_vector_encodings() -> Result<()> {
+    let query = QueryContext::background();
+    let registry = CastRegistry::builtins();
+    for (source, target, ticks) in [
+        (DataType::TimestampS, DataType::Timestamp, vec![-2, 0, 3]),
+        (
+            DataType::TimestampMs,
+            DataType::TimestampS,
+            vec![-1_500, -500, 500],
+        ),
+        (
+            DataType::TimestampNs,
+            DataType::Timestamp,
+            vec![i64::MIN, -500, 500],
+        ),
+        (
+            DataType::TimestampTz,
+            DataType::Timestamp,
+            vec![i64::MIN, 0, 3],
+        ),
+        (
+            DataType::TimestampTzNs,
+            DataType::TimestampNs,
+            vec![i64::MIN, 0, 3],
+        ),
+        (
+            DataType::Timestamp,
+            DataType::TimestampTz,
+            vec![i64::MIN, 0, 3],
+        ),
+    ] {
+        let input = duckdb_rust::common::vector::Vector::flat(
+            source.clone(),
+            ticks
+                .iter()
+                .map(|ticks| TemporalValue::from_ticks(&source, *ticks).map(Value::Temporal))
+                .collect::<Result<Vec<_>>>()?,
+        )?;
+        let cast = registry.bind(&source, &target, CastMode::Explicit, query.types())?;
+        let expected: Vec<_> = input
+            .values()
+            .map(|value| {
+                value
+                    .as_temporal()?
+                    .scale_timestamp(&target)
+                    .map(Value::Temporal)
+            })
+            .collect::<Result<_>>()?;
+        assert_eq!(
+            cast.apply_batch(&input, &query)?
+                .values()
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    let source = DataType::TimestampNs;
+    let target = DataType::Timestamp;
+    let cast = registry.bind(&source, &target, CastMode::Explicit, query.types())?;
+    let nulls = duckdb_rust::common::vector::Vector::flat(
+        source.clone(),
+        vec![
+            Value::Null,
+            Value::Temporal(TemporalValue::TimestampNs(-500)),
+        ],
+    )?;
+    assert_eq!(
+        cast.apply_batch(&nulls, &query)?
+            .values()
+            .collect::<Vec<_>>(),
+        vec![Value::Null, Value::Temporal(TemporalValue::Timestamp(-1))]
+    );
+    let parent = duckdb_rust::common::vector::Vector::flat(
+        source.clone(),
+        vec![
+            Value::Temporal(TemporalValue::TimestampNs(-500)),
+            Value::Temporal(TemporalValue::TimestampNs(500)),
+        ],
+    )?;
+    let selected = Arc::new(parent).select(vec![1, 0, 1, 0, 1, 0, 1, 0])?;
+    let selected_output = cast.apply_batch(&selected, &query)?;
+    assert!(selected_output.dictionary().is_some());
+    assert_eq!(
+        selected_output.values().collect::<Vec<_>>(),
+        vec![
+            Value::Temporal(TemporalValue::Timestamp(1)),
+            Value::Temporal(TemporalValue::Timestamp(-1)),
+            Value::Temporal(TemporalValue::Timestamp(1)),
+            Value::Temporal(TemporalValue::Timestamp(-1)),
+            Value::Temporal(TemporalValue::Timestamp(1)),
+            Value::Temporal(TemporalValue::Timestamp(-1)),
+            Value::Temporal(TemporalValue::Timestamp(1)),
+            Value::Temporal(TemporalValue::Timestamp(-1)),
+        ]
+    );
+    let constant = duckdb_rust::common::vector::Vector::constant(
+        source.clone(),
+        Value::Temporal(TemporalValue::TimestampNs(-500)),
+        3,
+    )?;
+    assert!(
+        cast.apply_batch(&constant, &query)?
+            .constant_value()
+            .is_some()
+    );
+    let overflow = duckdb_rust::common::vector::Vector::flat(
+        DataType::Timestamp,
+        vec![Value::Temporal(TemporalValue::Timestamp(i64::MIN))],
+    )?;
+    let overflow_cast = registry.bind(
+        &DataType::Timestamp,
+        &DataType::TimestampNs,
+        CastMode::Explicit,
+        query.types(),
+    )?;
+    assert!(matches!(
+        overflow_cast.apply_batch(&overflow, &query),
+        Err(Error::Conversion(message)) if message == "Could not convert Timestamp to higher precision."
+    ));
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn timestamp_minima_cross_parameters_nested_variants_indexes_and_native_wal_validity() -> Result<()>
 {
     let directory = tempfile::tempdir()?;

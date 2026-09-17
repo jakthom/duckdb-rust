@@ -829,7 +829,8 @@ declared precision-rounding, release `date_trunc`/`TIMESTAMPTZ_NS`, and diagnost
 text gaps, so G04.1 remains open rather than being relabeled complete.
 
 **G04.1b validation manifest — development timestamp minimum precision
-conversion.** This executable slice owns `src/common/temporal.rs`,
+conversion.** This executable slice owns `src/common/cast/temporal.rs`,
+`src/common/temporal.rs`, `src/function/temporal.rs`,
 `test/component/temporal_minimum.rs`, `benchmark/g04_1b_temporal_workloads.json`, and this
 entry. It freezes development's scale-first/ties-away-from-the-epoch conversion
 for finite `TIMESTAMP_NS`, `TIMESTAMPTZ_NS`, `TIMESTAMP`, `TIMESTAMPTZ`,
@@ -844,12 +845,16 @@ the release/development C++ API fixture's 30 values and eight
 checkpoint/WAL round trips. Negative/boundary/shared-consumer coverage includes
 non-renderability, infinities, `i64::MIN`, `-i64::MAX`, pre-epoch half ties,
 overflowing precision expansion, scalar/batched evaluators, prepared parameters,
-VARIANT/STRUCT/LIST consumers, unique indexes and checkpoint/WAL reopen. Final
+direct all-valid flat `TIMESTAMP_S/MS/NS/TZ/TZ_NS` batch casts, NULL, selected
+dictionary and constant vectors, VARIANT/STRUCT/LIST consumers, unique indexes
+and checkpoint/WAL reopen. Final
 functional commands are `cargo test -p duckdb-rust --test temporal temporal_minimum`,
 `python3 scripts/temporal_minimum_reference.py --report
 target/next-batch/g04/g04-1b-temporal-minimum.json`, `cargo dev coverage`, and
 `cargo dev trace check --workspace --all-targets`. The declared process workload
-is `temporal_minimum_precision_casts` in `benchmark/g04_1b_temporal_workloads.json`, run
+is `temporal_minimum_precision_casts` in `benchmark/g04_1b_temporal_workloads.json`: a
+50,000-row exact-divisibility representative vector conversion scan, not a
+rounding-boundary oracle (those semantics live in the focused functional tests). It is run
 release/no-tracing with `scripts/compare_native.py` for both exact pins and
 `scripts/fastest_reference.py`; wall median must be <= faster pin, throughput >=
 faster pin, and independent CPU, peak RSS and read/write-I/O ratios must each be
@@ -860,7 +865,8 @@ pass, performance is open. Release's truncating minimum narrowing, missing
 acceptance baselines.
 
 **G04.1b outcome (final source `e9a05df`):** `cargo test -p duckdb-rust --test
-temporal temporal_minimum` passed all four selected tests; the new one covers
+temporal temporal_minimum` passed all five selected tests; the new direct-vector
+test covers timestamp cast batch encodings and the earlier one covers
 scalar/batch/prepared minimum and pre-epoch precision narrowing. `cargo dev
 coverage` reported no missing annotations and `cargo dev trace check --workspace
 --all-targets` passed. Final no-tracing release and clean-development campaigns
