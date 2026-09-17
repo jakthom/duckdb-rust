@@ -35,6 +35,7 @@ enum SignedLanes {
     Huge(Arc<Vec<i128>>),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SignedLanes {
     fn from_values(data_type: &DataType, values: &[Value]) -> Self {
         match data_type {
@@ -94,6 +95,19 @@ impl SignedLanes {
             Self::Integer(values) => values.get(index).copied().map(i128::from),
             Self::Big(values) => values.get(index).copied().map(i128::from),
             Self::Huge(values) => values.get(index).copied(),
+        }
+    }
+
+    fn i64_value(&self, index: usize) -> Option<i64> {
+        match self {
+            Self::Tiny(values) => values.get(index).copied().map(i64::from),
+            Self::Small(values) => values.get(index).copied().map(i64::from),
+            Self::Integer(values) => values.get(index).copied().map(i64::from),
+            Self::Big(values) => values.get(index).copied(),
+            Self::Huge(values) => values
+                .get(index)
+                .copied()
+                .and_then(|value| value.try_into().ok()),
         }
     }
 
@@ -171,6 +185,7 @@ impl SignedLanes {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn same_flat_backing(left: &Encoding, right: &Encoding) -> bool {
     match (left, right) {
         (Encoding::FlatValues(left), Encoding::FlatValues(right)) => Arc::ptr_eq(left, right),
@@ -330,6 +345,19 @@ impl Vector {
             all_valid,
             numeric_ascending: false,
         })
+    }
+    /// Construct an all-valid BIGINT column whose producer already owns and
+    /// validated the native physical lane.
+    pub(crate) fn bigints_prevalidated(values: Vec<i64>) -> Self {
+        let count = values.len();
+        Self {
+            data_type: DataType::BigInt,
+            offset: 0,
+            count,
+            encoding: Encoding::FlatSigned(SignedLanes::Big(Arc::new(values))),
+            all_valid: true,
+            numeric_ascending: false,
+        }
     }
     /// Checked full-width signed output, validating while consuming rather
     /// than rescanning an already statically bounded i128 payload.
@@ -769,6 +797,14 @@ impl Vector {
             _ => None,
         }
     }
+    /// Read one native signed coefficient without widening through `Value`.
+    /// Only ordinary flat signed views are eligible.
+    pub(crate) fn flat_signed_i64_at(&self, index: usize) -> Option<i64> {
+        match &self.encoding {
+            Encoding::FlatSigned(values) => values.i64_value(self.offset + index),
+            _ => None,
+        }
+    }
     /// Borrow the compact physical coefficients for a flat DECIMAL(1..=18)
     /// view. Logical values remain authoritative for every fallback and for
     /// encodings whose NULL/selection semantics need resolution.
@@ -813,6 +849,7 @@ fn numeric_le(left: &Value, right: &Value) -> bool {
 mod physical_tests {
     use super::*;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn decimal(value: i128, width: u8) -> Value {
         Value::Decimal {
             value,
@@ -821,6 +858,7 @@ mod physical_tests {
         }
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn dictionary_append_borrows_every_signed_lane_through_parent_slices() -> Result<()> {
         for data_type in [
@@ -858,6 +896,7 @@ mod physical_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn dictionary_parent_mapping_retains_nested_sliced_selection_and_rejects_shape_changes()
     -> Result<()> {
@@ -910,6 +949,7 @@ mod physical_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn narrow_decimal_lanes_follow_flat_slices_and_decline_other_encodings() -> Result<()> {
         let data_type = DataType::Decimal {
@@ -1008,6 +1048,7 @@ mod physical_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn direct_narrow_decimal_coefficients_preserve_metadata_and_lanes() -> Result<()> {
         let data_type = DataType::Decimal {
@@ -1049,6 +1090,7 @@ mod physical_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn all_valid_signed_lanes_use_declared_widths_and_nullable_values_fallback() -> Result<()> {
         let cases = [
@@ -1149,6 +1191,7 @@ mod physical_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn narrow_signed_lanes_preserve_slices_dictionaries_and_concatenation() -> Result<()> {
         let source = Arc::new(Vector::flat(
@@ -1193,6 +1236,7 @@ mod physical_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn chunked_storage_retains_segments_and_recovers_flat_scan_slices() -> Result<()> {
         let first = Vector::try_bigints([Ok(Some(10)), Ok(Some(11))])?;

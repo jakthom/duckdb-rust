@@ -218,6 +218,7 @@ fn open<'a>(plan: RecursivePlan<'a>, context: &'a ExecutionContext<'a>) -> Resul
     }))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn append_chunk(
     data: &mut DataSet,
     chunk: crate::common::vector::DataChunk,
@@ -233,6 +234,7 @@ fn append_chunk(
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Keep each UNION ALL step in its produced vector batches. This is the same
 /// raw-generation limit that `stream::collect` enforces before rows are
 /// materialized, without the row-to-vector round trip at every iteration.

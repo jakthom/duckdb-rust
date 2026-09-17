@@ -2,6 +2,7 @@ use std::sync::Arc;
 mod conditional;
 mod numeric;
 mod text;
+pub(crate) use text::substring_lengths_batch;
 
 use super::{ArgumentEvaluation, FunctionRegistry, ScalarFunction};
 use crate::{
@@ -44,6 +45,13 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
 impl ScalarFunction for Builtin {
     fn name(&self) -> &str {
         self.0
+    }
+    fn batch_kind(&self) -> Option<super::ScalarBatchKind> {
+        matches!(
+            self.0,
+            "length" | "char_length" | "character_length" | "len"
+        )
+        .then_some(super::ScalarBatchKind::CharacterLength)
     }
     fn bind(
         &self,
@@ -316,6 +324,7 @@ mod tests {
     use super::*;
     use crate::common::{BitString, vector::DataChunk};
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn length_batch_preserves_constant_dictionary_slice_and_bit_contracts() -> Result<()> {
         let query = QueryContext::background();

@@ -29,6 +29,7 @@ struct FeedbackToken {
     timeout_ms: u64,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sha256(path: &std::path::Path) -> Result<String, String> {
     let mut file =
         std::fs::File::open(path).map_err(|error| format!("read {}: {error}", path.display()))?;
@@ -46,6 +47,7 @@ fn sha256(path: &std::path::Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn regular(path: &std::path::Path, label: &str) -> Result<(), String> {
     let metadata = std::fs::symlink_metadata(path).map_err(|error| format!("{label}: {error}"))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
@@ -54,10 +56,12 @@ fn regular(path: &std::path::Path, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn hex_hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Execute exactly one cache-attested upstream SQLLogic file in this process.
 /// This is intentionally separate from the ordinary CLI so its small JSON
 /// report cannot be mistaken for a suite-campaign report.

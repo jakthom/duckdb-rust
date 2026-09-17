@@ -109,7 +109,6 @@ enum SerializedPhysicalSlot {
 const DELETED_SLOT_BIT: RowId = RowId::MAX ^ (RowId::MAX >> 1);
 const PHYSICAL_ROW_ID_MAX: RowId = DELETED_SLOT_BIT - 1;
 
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[derive(Clone, Debug, Default)]
 enum PhysicalOrder {
     #[default]
@@ -123,6 +122,7 @@ enum PhysicalOrderWire {
     Explicit(Vec<PhysicalSlot>),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Serialize for PhysicalOrder {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -137,6 +137,7 @@ impl Serialize for PhysicalOrder {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'de> Deserialize<'de> for PhysicalOrder {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -181,6 +182,7 @@ impl PhysicalSlot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Serialize for PhysicalSlot {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -195,6 +197,7 @@ impl Serialize for PhysicalSlot {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'de> Deserialize<'de> for PhysicalSlot {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -211,6 +214,7 @@ impl<'de> Deserialize<'de> for PhysicalSlot {
 mod physical_slot_tests {
     use super::*;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn compact_physical_slots_retain_visibility_identity_and_json_contract() -> Result<()> {
         assert_eq!(
@@ -233,6 +237,7 @@ mod physical_slot_tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn implicit_append_stream_is_range_backed_and_materializes_only_for_holes() -> Result<()> {
         let mut order = PhysicalOrder::ImplicitAppend;

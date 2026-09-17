@@ -232,6 +232,32 @@ pub struct BoundCast {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundCast {
+    /// Validate and retain the source physical lane for a selected, total,
+    /// value-preserving signed widening into BIGINT. Consumers still perform
+    /// their own bounded cancellation while reading the retained rows.
+    pub(crate) fn can_borrow_signed_bigint(
+        &self,
+        input: &super::vector::Vector,
+        context: &QueryContext,
+    ) -> Result<bool> {
+        let eligible = self.function.preserves_integer_value(&self.spec)
+            && self.is_total()
+            && !self.may_return_null
+            && self.null_handling == CastNullHandling::Propagate
+            && self
+                .spec
+                .source
+                .integer_bits()
+                .is_some_and(|bits| bits <= 64)
+            && self.spec.target == DataType::BigInt;
+        if !eligible {
+            return Ok(false);
+        }
+        self.source.validate_vector(input, context)?;
+        context.check()?;
+        Ok(true)
+    }
+
     /// Optional checked fusion for unsigned widening into a selected native
     /// signed comparison. Logical target validators and custom ordering always
     /// retain the full conversion/comparison path.
@@ -767,6 +793,16 @@ impl CastFunction for PrimitiveCast {
                 || (spec.source.is_integer() && spec.target.is_floating())
                 || (spec.source == DataType::Float && spec.target == DataType::Double))
     }
+    fn is_total(&self, spec: &CastSpec) -> bool {
+        spec.source.integer_bits().is_some_and(|source| {
+            spec.target
+                .integer_bits()
+                .is_some_and(|target| target >= source)
+        })
+    }
+    fn preserves_integer_value(&self, spec: &CastSpec) -> bool {
+        self.is_total(spec)
+    }
     fn cast_batch(
         &self,
         input: &super::vector::Vector,
@@ -861,6 +897,7 @@ impl CastFunction for PrimitiveCast {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// DuckDB's primitive cast diagnostics name the physical C++ source and target
 /// types rather than their SQL aliases (for example, INT128 instead of
 /// HUGEINT). PrimitiveCast only calls this for numeric types it owns.

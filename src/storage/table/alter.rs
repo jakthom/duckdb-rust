@@ -34,6 +34,7 @@ enum PreparedSlots {
     Explicit(Arc<[PhysicalSlot]>),
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl PreparedSlots {
     fn from_table(table: &TableData) -> Self {
         match &table.physical_order {
@@ -103,6 +104,7 @@ impl PreparedTableAlteration {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn validate_slot_prefix(
     before: impl Iterator<Item = PhysicalSlot>,
     mut source: impl Iterator<Item = PhysicalSlot>,

@@ -23,6 +23,7 @@ pub struct DataSet {
     /// deliberately exclusive rather than a second copy of the same values.
     pub chunks: Option<Vec<DataChunk>>,
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DataSet {
     pub fn len(&self) -> usize {
         self.chunks

@@ -218,6 +218,7 @@ impl TypeAdapter for ExactNumericTypes {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn decimal_i64(value: &Value) -> Option<i64> {
     match value {
         Value::Decimal { value, .. } => i64::try_from(*value).ok(),
@@ -225,6 +226,7 @@ fn decimal_i64(value: &Value) -> Option<i64> {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn select_sorted_decimal_i64(
     values: &[i64],
     value: i64,

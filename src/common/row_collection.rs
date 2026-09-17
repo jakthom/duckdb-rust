@@ -220,6 +220,7 @@ mod tests {
     use super::*;
     use crate::common::{DataType, vector::Vector};
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn append_preserves_dictionary_selected_bigint_parent_slice() -> Result<()> {
         let parent = Arc::new(

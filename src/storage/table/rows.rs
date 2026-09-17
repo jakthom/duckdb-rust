@@ -381,6 +381,7 @@ impl Rows {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Stop probing as soon as the small physical dictionary is known not to fit.
 /// This mirrors `compact_vectors`' 256-entry limit without materializing a
 /// full column merely to discover an ordinary high-cardinality CTAS input.

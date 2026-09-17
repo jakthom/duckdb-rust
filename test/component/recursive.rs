@@ -108,6 +108,7 @@ fn recursive_limit_cancellation_and_owned_results() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn correlated_union_all_recursion_reuses_each_outer_scope() -> Result<()> {
     for batch_size in [1, 3, 2048] {

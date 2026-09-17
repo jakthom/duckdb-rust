@@ -41,6 +41,7 @@ fn spec(target: DataType, mode: CastMode) -> CastSpec {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn primitive_integer_overflow_reports_physical_types() -> Result<()> {
     let query = QueryContext::background();

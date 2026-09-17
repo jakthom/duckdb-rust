@@ -175,9 +175,9 @@ impl SumKernel {
     /// Reduce a selection over an immediate all-valid flat BIGINT parent
     /// without reconstructing owned Values. The selection indexes the parent's
     /// logical view, so a sliced parent is already represented by `values`.
-    /// Four i64 lanes are used only after a magnitude proof establishes that
-    /// every lane prefix is safe; signed MIN deliberately declines to the
-    /// scalar path because it has no positive i64 magnitude.
+    /// A compact parent is reduced by counting its selected entries once;
+    /// larger parents retain one exact wide addition per selected row. The
+    /// caller's state bound proves every SQL prefix fits the accumulator.
     pub(super) fn selected_bigint_sum(
         self,
         values: &[i64],
@@ -187,36 +187,43 @@ impl SumKernel {
         if !matches!(self, Self::Signed(64)) || selection.is_empty() {
             return Ok(None);
         }
-        let mut maximum = 0_u64;
-        for (offset, &index) in selection.iter().enumerate() {
-            if offset % 1024 == 0 {
-                query.check()?;
+        let contribution = if values.len() <= 256 {
+            let mut counts = vec![0_usize; values.len()];
+            for (offset, &index) in selection.iter().enumerate() {
+                if offset % 1024 == 0 {
+                    query.check()?;
+                }
+                let count = counts.get_mut(index).ok_or_else(|| {
+                    Error::Internal("dictionary selection outside BIGINT parent".into())
+                })?;
+                *count += 1;
             }
-            let value = *values.get(index).ok_or_else(|| {
-                Error::Internal("dictionary selection outside BIGINT parent".into())
-            })?;
-            if value == i64::MIN {
-                return Ok(None);
+            values
+                .iter()
+                .zip(counts)
+                .try_fold(0_i128, |sum, (&value, count)| {
+                    i128::try_from(count)
+                        .ok()
+                        .and_then(|count| i128::from(value).checked_mul(count))
+                        .and_then(|value| sum.checked_add(value))
+                        .ok_or_else(|| Error::Execution("sum overflow".into()))
+                })?
+        } else {
+            let mut sum = 0_i128;
+            for (offset, &index) in selection.iter().enumerate() {
+                if offset % 1024 == 0 {
+                    query.check()?;
+                }
+                sum = sum
+                    .checked_add(i128::from(*values.get(index).ok_or_else(|| {
+                        Error::Internal("dictionary selection outside BIGINT parent".into())
+                    })?))
+                    .ok_or_else(|| Error::Execution("sum overflow".into()))?;
             }
-            maximum = maximum.max(value.unsigned_abs());
-        }
-        let lanes = selection.len().div_ceil(4);
-        let Some(bound) = u128::from(maximum).checked_mul(lanes as u128) else {
-            return Ok(None);
+            sum
         };
-        if bound > i64::MAX as u128 {
-            return Ok(None);
-        }
-        let mut sums = [0_i64; 4];
-        for (offset, &index) in selection.iter().enumerate() {
-            if offset % 1024 == 0 {
-                query.check()?;
-            }
-            // The proof above bounds the absolute prefix of every lane.
-            sums[offset % 4] += values[index];
-        }
         query.check()?;
-        Ok(Some(sums.into_iter().map(i128::from).sum()))
+        Ok(Some(contribution))
     }
     /// Caller proves every prefix fits the result domain. Decode the physical
     /// kind once per block, retaining checked machine-width partial sums.
@@ -282,6 +289,7 @@ fn proven_column(
     Ok(sum)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
 fn sum_proven_i64(values: &[i64]) -> i128 {
     let mut lanes = [0_i64; 4];
@@ -296,6 +304,7 @@ fn sum_proven_i64(values: &[i64]) -> i128 {
     i128::from(sum)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
 fn sum_i64_wide(values: &[i64]) -> i128 {
     let mut lanes = [0_i128; 4];
@@ -324,6 +333,7 @@ mod tests {
 
     use super::SumKernel;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn selected_bigint_lane_keeps_repeated_nonmonotonic_and_sliced_parent_indices()
     -> crate::Result<()> {
@@ -354,12 +364,14 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
-    fn selected_bigint_lane_declines_signed_min_nested_and_nullable_shapes() -> crate::Result<()> {
+    fn selected_bigint_lane_keeps_signed_min_and_declines_nested_nullable_shapes()
+    -> crate::Result<()> {
         let query = QueryContext::background();
         assert_eq!(
             SumKernel::Signed(64).selected_bigint_sum(&[i64::MIN], &[0], &query)?,
-            None
+            Some(i128::from(i64::MIN))
         );
         let nullable = Vector::flat(DataType::BigInt, vec![Value::Integer(1), Value::Null])?;
         assert!(!nullable.all_valid());
@@ -371,6 +383,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn selected_bigint_lane_checks_cancellation_before_physical_reduction() {
         let interrupt = InterruptHandle::default();

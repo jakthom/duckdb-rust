@@ -648,6 +648,10 @@ impl ExpressionEvaluator for BatchedEvaluator {
         context: &dyn EvaluationContext,
     ) -> Result<Vector> {
         if input.len() > 1
+            && let Some(output) = evaluate_scalar_composition(self, expression, input, context)?
+        {
+            Ok(output)
+        } else if input.len() > 1
             && !expression.uses_physical_batch()
             && let Some(output) = dictionary_expression(expression, input, context)?
         {
@@ -724,6 +728,58 @@ impl ExpressionEvaluator for BatchedEvaluator {
             input.len(),
             context.query(),
         )
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn evaluate_scalar_composition<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Option<Vector>> {
+    use crate::function::ScalarBatchKind;
+
+    let ExprKind::Scalar(outer, outer_arguments) = &expression.kind else {
+        return Ok(None);
+    };
+    if outer.batch_kind() != Some(ScalarBatchKind::CharacterLength) || outer_arguments.len() != 1 {
+        return Ok(None);
+    }
+    let ExprKind::Scalar(inner, inner_arguments) = &outer_arguments[0].kind else {
+        return Ok(None);
+    };
+    if inner.batch_kind() != Some(ScalarBatchKind::Substring)
+        || inner_arguments
+            .iter()
+            .any(|argument| !argument.is_effect_free())
+    {
+        return Ok(None);
+    }
+    let mut columns = Vec::with_capacity(inner_arguments.len());
+    for argument in inner_arguments {
+        if let ExprKind::Cast(source, cast, false) = &argument.kind {
+            match evaluator.evaluate_batch(source, input, context) {
+                Ok(column) if cast.can_borrow_signed_bigint(&column, context.query())? => {
+                    columns.push(column);
+                    continue;
+                }
+                Ok(_) => {}
+                Err(error) if speculative_data_error(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            }
+        }
+        match evaluator.evaluate_batch(argument, input, context) {
+            Ok(column) => columns.push(column),
+            Err(error) if speculative_data_error(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        }
+    }
+    let arguments = DataChunk::new(columns, input.len())?;
+    match crate::function::substring_lengths_batch(&arguments, context.query()) {
+        Ok(output) => Ok(Some(output)),
+        Err(error) if speculative_data_error(&error) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 

@@ -9,6 +9,7 @@ pub mod grouped;
 pub(crate) mod nested;
 pub mod operator;
 mod scalar;
+pub(crate) use scalar::substring_lengths_batch;
 mod settings;
 mod signature;
 pub use signature::ScalarSignature;
@@ -43,6 +44,12 @@ pub enum ArgumentEvaluation {
     /// Binding consumes only declared argument types. No argument expression
     /// is evaluated at execution; the bound function receives an empty slice.
     TypeOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScalarBatchKind {
+    CharacterLength,
+    Substring,
 }
 
 /// Execution-owned encoding information for an already evaluated argument.
@@ -245,6 +252,12 @@ pub trait ScalarBindArguments {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait ScalarFunction: Debug + Send + Sync {
     fn name(&self) -> &str;
+    /// Stable built-in identity for narrowly source-compatible physical
+    /// compositions. Names are insufficient because external registries may
+    /// supply unrelated adapters with the same SQL spelling.
+    fn batch_kind(&self) -> Option<ScalarBatchKind> {
+        None
+    }
     /// Explicit opt-in to named argument metadata, checked by the frontend
     /// before expansion or specialization. Existing adapters remain positional.
     /// This grants no reordering or conversion privileges.
