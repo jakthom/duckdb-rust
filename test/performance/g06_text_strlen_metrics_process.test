@@ -1,0 +1,16 @@
+# G06.1e process-level high-cardinality byte strlen workload: 128 * 50k =
+# 6.4m stored-column row-visits through the SQLLogic runner.
+statement ok
+CREATE TABLE g06_text_strlen_metrics_process AS
+SELECT i::VARCHAR || CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query I
+SELECT sum(strlen(v))
+FROM g06_text_strlen_metrics_process;
+----
+701390
+
+endloop

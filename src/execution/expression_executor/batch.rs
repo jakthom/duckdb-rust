@@ -698,6 +698,31 @@ impl ExpressionEvaluator for BatchedEvaluator {
             );
         }
         if input.len() > 1
+            && expression.is_effect_free()
+            && let ExprKind::Scalar(function, arguments) = &expression.kind
+            && function
+                .batch_kind(crate::function::ScalarBatchAccess)
+                .is_some_and(|kind| kind.is(crate::function::ScalarBatchIdentity::RegexPredicate))
+        {
+            let columns = arguments
+                .iter()
+                .map(|argument| evaluate_columns(argument, input, context))
+                .collect::<Result<Vec<_>>>();
+            match columns {
+                Ok(columns) => {
+                    if let Some(selected) = function.select_batch(
+                        crate::function::ScalarBatchAccess,
+                        &DataChunk::new(columns, input.len())?,
+                        context.query(),
+                    )? {
+                        return Ok(selected);
+                    }
+                }
+                Err(error) if speculative_data_error(&error) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        if input.len() > 1
             && expression.is_pure_and_total()
             && let ExprKind::Binary(op, left, right, data_type) = &expression.kind
         {

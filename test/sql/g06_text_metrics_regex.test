@@ -1,0 +1,30 @@
+# G06.1e/G06.2a public composition smoke coverage. Focused component targets
+# own invalid-pattern/options, vector encoding, and cancellation coverage.
+query TIII
+SELECT reverse('á👩🏽‍💻Z'), strlen('á👩🏽‍💻Z'),
+       bit_length('á👩🏽‍💻Z'), octet_length(encode('á👩🏽‍💻Z'));
+----
+Z👩🏽‍💻á	19	152	19
+
+query II
+SELECT bit_length('abc'), octet_length('abc'::BLOB);
+----
+24	3
+
+query II
+SELECT regexp_matches('prefix-123-suffix', '[0-9]+'),
+       regexp_full_match('prefix-123-suffix', '[a-z]+-[0-9]+-[a-z]+');
+----
+1	1
+
+query II
+SELECT CASE WHEN regexp_matches('abc', '^[0-9]+$') THEN 1 ELSE 0 END,
+       CASE WHEN regexp_full_match('abc', '^[0-9]+$') THEN 1 ELSE 0 END;
+----
+0	0
+
+query II
+SELECT CASE WHEN regexp_matches(NULL, 'a') IS NULL THEN 1 ELSE 0 END,
+       CASE WHEN regexp_full_match('a', NULL) IS NULL THEN 1 ELSE 0 END;
+----
+1	1

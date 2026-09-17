@@ -108,6 +108,14 @@ name = "text_codepoint"
 path = "test/component/text_codepoint.rs"
 
 [[test]]
+name = "text_metrics_reverse"
+path = "test/component/text_metrics_reverse.rs"
+
+[[test]]
+name = "text_regex"
+path = "test/component/text_regex.rs"
+
+[[test]]
 name = "casts"
 path = "test/component/casts.rs"
 

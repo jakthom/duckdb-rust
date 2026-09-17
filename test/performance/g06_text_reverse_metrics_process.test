@@ -1,0 +1,16 @@
+# G06.1e process-level low-cardinality grapheme-aware reverse workload:
+# 128 * 50k = 6.4m stored-column row-visits through the SQLLogic runner.
+statement ok
+CREATE TABLE g06_text_reverse_metrics_process AS
+SELECT CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query I
+SELECT sum(length_grapheme(reverse(v)))
+FROM g06_text_reverse_metrics_process;
+----
+87500
+
+endloop

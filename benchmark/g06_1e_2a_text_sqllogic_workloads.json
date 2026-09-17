@@ -1,0 +1,20 @@
+{
+  "workloads": [
+    {
+      "id": "g06_1e_reverse_grapheme_length_low_cardinality_6_4m_row_visits",
+      "path": "test/performance/g06_text_reverse_metrics_process.test"
+    },
+    {
+      "id": "g06_1e_strlen_high_cardinality_6_4m_row_visits",
+      "path": "test/performance/g06_text_strlen_metrics_process.test"
+    },
+    {
+      "id": "g06_2a_regexp_matches_constant_case_insensitive_filter_6_4m_row_visits",
+      "path": "test/performance/g06_regex_constant_process.test"
+    },
+    {
+      "id": "g06_2a_regexp_matches_dynamic_pattern_filter_6_4m_row_visits",
+      "path": "test/performance/g06_regex_dynamic_process.test"
+    }
+  ]
+}

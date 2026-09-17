@@ -63,6 +63,7 @@ pub(crate) enum ScalarBatchIdentity {
     CharacterLength,
     GraphemeLength,
     GraphemeSubstring,
+    RegexPredicate,
     Substring,
     VarcharContains,
 }
@@ -285,6 +286,18 @@ pub trait ScalarFunction: Debug + Send + Sync {
     #[allow(private_interfaces)]
     fn batch_kind(&self, _access: ScalarBatchAccess) -> Option<ScalarBatchKind> {
         None
+    }
+    /// Optional direct selection for crate-owned physical predicates. The
+    /// capability prevents external adapters from claiming this executor path.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn select_batch(
+        &self,
+        _access: ScalarBatchAccess,
+        _arguments: &DataChunk,
+        _context: &QueryContext,
+    ) -> Result<Option<Vec<usize>>> {
+        Ok(None)
     }
     /// Explicit opt-in to named argument metadata, checked by the frontend
     /// before expansion or specialization. Existing adapters remain positional.

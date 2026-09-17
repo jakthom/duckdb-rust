@@ -5,6 +5,8 @@
 
 mod codepoint;
 mod grapheme;
+mod metrics;
+mod regex;
 
 pub(crate) use codepoint::select_contains as select_varchar_contains;
 pub(crate) use grapheme::substring_lengths_batch as grapheme_substring_lengths_batch;
@@ -251,6 +253,8 @@ impl<'a> BigintBatch<'a> {
 pub(super) fn register(registry: &mut FunctionRegistry) {
     codepoint::register(registry);
     grapheme::register(registry);
+    metrics::register(registry);
+    regex::register(registry);
     for name in ["substring", "substr"] {
         registry
             .register_scalar(Arc::new(Substring(name)))
