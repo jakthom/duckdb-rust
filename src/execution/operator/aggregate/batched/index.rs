@@ -38,13 +38,30 @@ impl Dense {
             dimensions.iter_mut().zip(columns).zip(representations)
         {
             let (mut minimum, mut maximum) = (None::<i128>, None::<i128>);
-            for (i, value) in column.values().enumerate() {
-                if i % 1024 == 0 {
-                    query.check()?;
-                }
-                if let Some(value) = representation.integer_key(&value)? {
+            if columns.len() == 1
+                && *representation == KeyRepresentation::Integer
+                && let Some(values) = column.flat_bigints()
+            {
+                // An all-valid BIGINT lane is already the exact signed key
+                // representation. Keep construction on the borrowed lane so
+                // the first batch does not rebuild Values just to find bounds.
+                for (i, &value) in values.iter().enumerate() {
+                    if i % 1024 == 0 {
+                        query.check()?;
+                    }
+                    let value = i128::from(value);
                     minimum = Some(minimum.map_or(value, |v| v.min(value)));
                     maximum = Some(maximum.map_or(value, |v| v.max(value)));
+                }
+            } else {
+                for (i, value) in column.values().enumerate() {
+                    if i % 1024 == 0 {
+                        query.check()?;
+                    }
+                    if let Some(value) = representation.integer_key(&value)? {
+                        minimum = Some(minimum.map_or(value, |v| v.min(value)));
+                        maximum = Some(maximum.map_or(value, |v| v.max(value)));
+                    }
                 }
             }
             let values = match minimum.zip(maximum) {
@@ -132,11 +149,14 @@ impl IntegerIndex {
         if let Some(empty) = self.empty {
             return Ok(vec![empty; rows]);
         }
-        if !self.initialized {
+        let initialized_now = if !self.initialized {
             self.dense = Dense::new(columns, representations, rows, query)?;
             self.initialized = true;
-        }
-        if let [column] = columns {
+            true
+        } else {
+            false
+        };
+        if !initialized_now && let [column] = columns {
             self.grow_monotonic_dense(column, representations[0], query)?;
         }
         if let [column] = columns
@@ -479,7 +499,29 @@ impl IntegerIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::DataType;
+    use crate::{common::DataType, parallel::InterruptHandle};
+
+    fn generic_destinations(values: &[i64]) -> Vec<usize> {
+        let mut groups = HashMap::new();
+        values
+            .iter()
+            .map(|&value| {
+                let next = groups.len();
+                *groups.entry(value).or_insert(next)
+            })
+            .collect()
+    }
+
+    fn flat_bigints(values: &[i64]) -> Result<Vector> {
+        Vector::flat(
+            DataType::BigInt,
+            values
+                .iter()
+                .copied()
+                .map(|value| Value::Integer(i128::from(value)))
+                .collect(),
+        )
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn locate_one_column(
@@ -573,6 +615,81 @@ mod tests {
             locate_one_column(&mut index, &sparse, &mut next_group, &query)?,
             vec![2, 2]
         );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn flat_bigint_first_batch_matches_generic_destinations_at_empty_and_signed_bounds()
+    -> Result<()> {
+        let query = QueryContext::background();
+        let mut index = IntegerIndex::default();
+        let mut next_group = 0;
+        let empty = flat_bigints(&[])?;
+        assert!(empty.flat_bigints().is_some());
+        assert_eq!(
+            locate_one_column(&mut index, &empty, &mut next_group, &query)?,
+            generic_destinations(&[])
+        );
+
+        let values = [i64::MIN, i64::MIN, 0, i64::MAX, 0, i64::MAX];
+        let column = flat_bigints(&values)?;
+        assert!(column.flat_bigints().is_some());
+        assert_eq!(
+            locate_one_column(&mut index, &column, &mut next_group, &query)?,
+            generic_destinations(&values)
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn flat_bigint_first_batch_handles_minimum_adjacent_dense_range() -> Result<()> {
+        let query = QueryContext::background();
+        let values = [i64::MIN, i64::MIN + 1, i64::MIN + 3, i64::MIN + 1];
+        let column = flat_bigints(&values)?;
+        let mut index = IntegerIndex::default();
+        let mut next_group = 0;
+        assert_eq!(
+            locate_one_column(&mut index, &column, &mut next_group, &query)?,
+            generic_destinations(&values)
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn flat_bigint_first_batch_then_monotonic_growth_matches_generic_destinations() -> Result<()> {
+        let query = QueryContext::background();
+        let first_values = [10, 11, 10];
+        let second_values = [12, 13, 12, 10];
+        let first = flat_bigints(&first_values)?;
+        let second = flat_bigints(&second_values)?;
+        let mut index = IntegerIndex::default();
+        let mut next_group = 0;
+        assert_eq!(
+            locate_one_column(&mut index, &first, &mut next_group, &query)?,
+            generic_destinations(&first_values)
+        );
+        let all_values = [10, 11, 10, 12, 13, 12, 10];
+        let expected = generic_destinations(&all_values);
+        assert_eq!(
+            locate_one_column(&mut index, &second, &mut next_group, &query)?,
+            expected[first_values.len()..]
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn flat_bigint_dense_initialization_checks_cancellation() -> Result<()> {
+        let interrupt = InterruptHandle::default();
+        interrupt.interrupt();
+        let query = QueryContext::new(interrupt, None, 1, usize::MAX)?;
+        let column = flat_bigints(&[1])?;
+        let mut index = IntegerIndex::default();
+        let mut next_group = 0;
+        assert!(locate_one_column(&mut index, &column, &mut next_group, &query).is_err());
         Ok(())
     }
 }
