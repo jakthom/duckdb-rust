@@ -186,6 +186,13 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
                     Value::Integer(12),
                     Value::Integer(2),
                 ],
+                vec![
+                    Value::Integer(3),
+                    Value::Integer(8),
+                    Value::Integer(9),
+                    Value::Integer(17),
+                    Value::Integer(2),
+                ],
             ]
         );
         assert_eq!(
