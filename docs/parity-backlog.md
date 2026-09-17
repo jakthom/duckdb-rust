@@ -1048,6 +1048,17 @@ campaigns, the joint faster-reference latency gate and every independent process
 metric pass for all six native cases and the declared process workload. This
 completes the G08.2a slice while the remaining G08.2 modifiers stay open.
 
+The integrated completion sweep also owns the lock-lifecycle repair in
+`dev/src/artifacts.rs`. Its fast checks are the Unix retained-descriptor unit
+test and the complete `duckdb-dev` artifact integration target. Boundary
+coverage includes kept and discarded sessions, early-drop cleanup, oversized
+retention, active readers, write-budget failure and descriptors inherited
+across `fork`. The unchanged upstream case IDs and G06/G08 acceptance commands
+above remain the functional and performance gates: this development-only crate
+is absent from the release/no-tracing engine and SQLLogic binaries, so their
+recorded source and binary identities are unchanged. The complete final-tree
+acceptance command remains `python3 scripts/verify_chunk.py`.
+
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
   functions, arg-min/max and other source-registered families with exact return types.

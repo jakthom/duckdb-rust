@@ -57,7 +57,9 @@ pub fn clean(root: &Path) -> io::Result<()> {
     }
     let lease = open_lease(&lease_path(root))?;
     lease.try_lock().map_err(busy)?;
-    remove(&path)
+    let removal = remove(&path);
+    let unlock = lease.unlock();
+    removal.and(unlock)
 }
 
 /// Readers and recording processes hold shared leases until their files close.
@@ -80,7 +82,7 @@ pub struct Session {
     directory: PathBuf,
     lease: File,
     remove_on_drop: bool,
-    _writer: File,
+    writer: File,
 }
 
 impl Session {
@@ -99,7 +101,7 @@ impl Session {
             directory,
             lease,
             remove_on_drop: true,
-            _writer: writer,
+            writer,
         })
     }
 
@@ -107,6 +109,12 @@ impl Session {
         self.lease.unlock()?;
         self.lease.try_lock().map_err(busy)?;
         remove(&self.directory)
+    }
+
+    fn release(&self) -> io::Result<()> {
+        let lease = self.lease.unlock();
+        let writer = self.writer.unlock();
+        lease.and(writer)
     }
 
     pub fn finish(mut self, keep: bool) -> io::Result<()> {
@@ -117,6 +125,7 @@ impl Session {
         } else {
             eprintln!("dev: retained one trace run; remove after inspection with cargo dev clean");
         }
+        self.release()?;
         self.remove_on_drop = false;
         if oversized {
             return Err(io::Error::other(
@@ -129,10 +138,33 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        if self.remove_on_drop
-            && let Err(error) = self.remove()
-        {
-            eprintln!("dev: temporary trace cleanup failed: {error}");
+        if self.remove_on_drop {
+            if let Err(error) = self.remove() {
+                eprintln!("dev: temporary trace cleanup failed: {error}");
+            }
+            if let Err(error) = self.release() {
+                eprintln!("dev: trace session unlock failed: {error}");
+            }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::Session;
+
+    #[test]
+    fn finish_unlocks_handles_inherited_by_a_fork_before_returning() {
+        let root = tempfile::tempdir().unwrap();
+        let session = Session::begin(root.path()).unwrap();
+        // `try_clone` keeps the same open file descriptions alive, matching the
+        // lock lifetime of descriptors inherited by a child between fork and exec.
+        let _inherited_lease = session.lease.try_clone().unwrap();
+        let _inherited_writer = session.writer.try_clone().unwrap();
+
+        session.finish(true).unwrap();
+
+        let replacement = Session::begin(root.path()).unwrap();
+        replacement.finish(false).unwrap();
     }
 }
