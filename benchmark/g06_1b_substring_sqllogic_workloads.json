@@ -1,7 +1,7 @@
 {
   "workloads": [
     {
-      "id": "g06_1b_varchar_substring_50k",
+      "id": "g06_1b_substring_fused_materialized_and_high_cardinality_50k",
       "path": "test/performance/g06_substring.test"
     }
   ]

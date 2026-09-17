@@ -2,13 +2,25 @@
   "schema_version": 1,
   "rows": 50000,
   "threads": 1,
-  "setup": "CREATE TABLE g06_substring AS SELECT CASE i % 4 WHEN 0 THEN 'alphabet soup' WHEN 1 THEN 'é🦆x' WHEN 2 THEN 'aé' ELSE '' END AS v, CASE i % 4 WHEN 0 THEN 2 WHEN 1 THEN -2 WHEN 2 THEN 0 ELSE 1 END AS start, CASE i % 4 WHEN 0 THEN 6 WHEN 1 THEN 1 WHEN 2 THEN 3 ELSE 0 END AS count FROM range(50000) t(i)",
+  "setup": "CREATE TABLE g06_substring AS SELECT CASE i % 4 WHEN 0 THEN 'alphabet soup' WHEN 1 THEN 'é🦆x' WHEN 2 THEN 'aé' ELSE '' END AS v, CASE i % 4 WHEN 0 THEN 2 WHEN 1 THEN -2 WHEN 2 THEN 0 ELSE 1 END AS start, CASE i % 4 WHEN 0 THEN 6 WHEN 1 THEN 1 WHEN 2 THEN 3 ELSE 0 END AS count, i % 100 AS unique_start FROM range(50000) t(i)",
   "workloads": [
     {
-      "name": "g06_1b_varchar_substring_50k",
+      "name": "g06_1b_substring_length_fused_low_cardinality_50k",
       "sql": "SELECT sum(length(substring(v,start,count))) FROM g06_substring",
       "rows": 1,
       "sum": "112500"
+    },
+    {
+      "name": "g06_1b_substring_materialized_varchar_50k",
+      "sql": "SELECT sum(length(lower(substring(v,start,count)))) FROM g06_substring",
+      "rows": 1,
+      "sum": "112500"
+    },
+    {
+      "name": "g06_1b_substring_high_cardinality_cache_cap_50k",
+      "sql": "SELECT sum(length(lower(substring(v,unique_start,1)))) FROM g06_substring",
+      "rows": 1,
+      "sum": "2500"
     }
   ]
 }

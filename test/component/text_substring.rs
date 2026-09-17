@@ -18,14 +18,15 @@ fn substring_and_substr_match_character_indexed_reference_boundaries() -> Result
             .build()?
             .connect();
         assert_eq!(
-            connection.query("SELECT length('é🦆x'),char_length('é🦆x'),character_length('é🦆x'),len('é🦆x'),substring('abcdef',2,3),substr('abcdef',2,3),substring('abcdef' FROM 2 FOR 3),substring('abcdef' FOR 2),substring('abcdef',2),substring('abcdef',-2),substring('abcdef',0,3),substring('abcdef',3,-2),substring('é🦆x',2,1),substring('',1,1),substring(NULL,2,3)")?.rows,
+            connection.query("SELECT length('é🦆x'),char_length('é🦆x'),character_length('é🦆x'),len('é🦆x'),substring('abcdef',2,3),substr('abcdef',2,3),substring('abcdef' FROM 2 FOR 3),substring('abcdef' FROM 2),substring('abcdef' FOR 2),substring('abcdef',2),substring('abcdef',-2),substring('abcdef',0,3),substring('abcdef',3,-2),substring('é🦆x',2,1),substring('',1,1),substring(NULL,2,3),substring(NULL,4294967296,1)")?.rows,
             vec![vec![
                 Value::Integer(3), Value::Integer(3), Value::Integer(3), Value::Integer(3),
                 Value::Varchar("bcd".into()), Value::Varchar("bcd".into()),
-                Value::Varchar("bcd".into()), Value::Varchar("ab".into()),
-                Value::Varchar("bcdef".into()), Value::Varchar("ef".into()),
-                Value::Varchar("ab".into()), Value::Varchar("ab".into()),
-                Value::Varchar("🦆".into()), Value::Varchar("".into()), Value::Null,
+                Value::Varchar("bcd".into()), Value::Varchar("bcdef".into()),
+                Value::Varchar("ab".into()), Value::Varchar("bcdef".into()),
+                Value::Varchar("ef".into()), Value::Varchar("ab".into()),
+                Value::Varchar("ab".into()), Value::Varchar("🦆".into()),
+                Value::Varchar("".into()), Value::Null, Value::Null,
             ]]
         );
 
@@ -66,6 +67,24 @@ fn substring_and_substr_match_character_indexed_reference_boundaries() -> Result
                 .rows,
             expected
         );
+        assert_eq!(
+            connection.query("SELECT length(substring(v,start,count)),char_length(substr(v,start,count)),character_length(substring(v FROM start FOR count)),len(substr(v,start,count)) FROM text_slice")?.rows,
+            vec![
+                vec![Value::Integer(3), Value::Integer(3), Value::Integer(3), Value::Integer(3)],
+                vec![Value::Integer(0), Value::Integer(0), Value::Integer(0), Value::Integer(0)],
+                vec![Value::Integer(1), Value::Integer(1), Value::Integer(1), Value::Integer(1)],
+                vec![Value::Null, Value::Null, Value::Null, Value::Null],
+            ]
+        );
+        assert_eq!(
+            connection.query("SELECT s,length(s) FROM (SELECT substring(v,start,count) AS s FROM text_slice) slices")?.rows,
+            vec![
+                vec![Value::Varchar("\0é🦆".into()), Value::Integer(3)],
+                vec![Value::Varchar("".into()), Value::Integer(0)],
+                vec![Value::Varchar("a".into()), Value::Integer(1)],
+                vec![Value::Null, Value::Null],
+            ]
+        );
         let prepared = connection.prepare("SELECT substr($1,$2,$3)")?;
         assert_eq!(
             connection
@@ -83,6 +102,18 @@ fn substring_and_substr_match_character_indexed_reference_boundaries() -> Result
         assert!(matches!(
             connection.query("SELECT substring('abc',4294967296,1)"),
             Err(Error::OutOfRange(message)) if message == "Substring offset outside of supported range (> 4294967295)"
+        ));
+        assert!(matches!(
+            connection.query("SELECT substring('abc',-4294967297,1)"),
+            Err(Error::OutOfRange(message)) if message == "Substring offset outside of supported range (< -4294967296)"
+        ));
+        assert!(matches!(
+            connection.query("SELECT substring('abc',1,4294967296)"),
+            Err(Error::OutOfRange(message)) if message == "Substring length outside of supported range (> 4294967295)"
+        ));
+        assert!(matches!(
+            connection.query("SELECT substring('abc',1,-4294967297)"),
+            Err(Error::OutOfRange(message)) if message == "Substring length outside of supported range (< -4294967296)"
         ));
         connection.execute("CREATE TABLE text_slice_error(v VARCHAR, start BIGINT); INSERT INTO text_slice_error VALUES ('abc',2),('abc',4294967296)")?;
         assert!(matches!(
