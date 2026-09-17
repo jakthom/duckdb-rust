@@ -1180,6 +1180,24 @@ throughput, CPU, peak-RSS and block-I/O ratio must be no worse than the faster
 pin independently; raw samples, identities and failed runs remain under
 `target/g08-2b/`.
 
+**G08.2b final status (2026-09-17).** Executable revision `7af79a4` passes the
+68-test grouping target and 390/390 focused local SQLLogic records. On each
+unchanged pin, `test_order_by_aggregate.test` passes 15/15 and
+`test_simple_filter.test` passes 9/9; the final report is
+`target/g08-2b/upstream-final-functional-2.json`. Coverage reports no missing
+development instrumentation, and trace compatibility completes with zero
+errors, panics or open spans. The final 3-warmup/21-sample native reports are
+`target/g08-2b/performance/final-{release,development,fastest}-21.json`.
+Release/development Rust medians divided by the faster pin are respectively
+0.6181/0.5563 for filtered COUNT/SUM, 0.6546/0.7970 for filtered DISTINCT
+ordered LIST, and 0.5041/0.5439 for grouped filtered FIRST/LAST. The process
+report `target/g08-2b/performance/final-process-21.json` passes independently:
+wall 0.3294, CPU 0.1214, peak RSS 0.3583, block input/output 1.0000 (all zero),
+and throughput is 3.0361 times the faster pin. Both exact reference identities,
+validated results, source/binary hashes and all raw samples are retained in
+those reports. Gate P passes; STRING_AGG, histogram and mode remain outside
+this slice.
+
 The integrated completion sweep also owns the lock-lifecycle repair in
 `dev/src/artifacts.rs`. Its fast checks are the Unix retained-descriptor unit
 test and the complete `duckdb-dev` artifact integration target. Boundary
