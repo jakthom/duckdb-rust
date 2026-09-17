@@ -756,6 +756,11 @@ fn try_ungrouped(
                 .collect::<Vec<_>>(),
         )
     });
+    if !batch_updates_are_total {
+        // The generic single-aggregate route retains registered column/batch
+        // callbacks. Broader non-total shapes keep row/function error order.
+        return Ok(None);
+    }
     let mut states = functions
         .iter()
         .map(|function| {
@@ -800,24 +805,8 @@ fn try_ungrouped(
             }
             Err(error) => return Err(error),
         };
-        if batch_updates_are_total {
-            for (arguments, state) in evaluated.iter().zip(states.iter_mut()) {
-                state.update_batch(arguments, context.query)?;
-            }
-        } else {
-            for row in 0..batch.len() {
-                if row % 1024 == 0 {
-                    context.query.check()?;
-                }
-                for ((arguments, state), values) in evaluated
-                    .iter()
-                    .zip(states.iter_mut())
-                    .zip(argument_rows.iter_mut())
-                {
-                    arguments.read_row(row, values)?;
-                    state.update(values, context.query)?;
-                }
-            }
+        for (arguments, state) in evaluated.iter().zip(states.iter_mut()) {
+            state.update_batch(arguments, context.query)?;
         }
     }
     states
