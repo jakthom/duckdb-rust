@@ -172,6 +172,52 @@ impl SumKernel {
         query.check()?;
         Ok(sum)
     }
+    /// Reduce a selection over an immediate all-valid flat BIGINT parent
+    /// without reconstructing owned Values. The selection indexes the parent's
+    /// logical view, so a sliced parent is already represented by `values`.
+    /// Four i64 lanes are used only after a magnitude proof establishes that
+    /// every lane prefix is safe; signed MIN deliberately declines to the
+    /// scalar path because it has no positive i64 magnitude.
+    pub(super) fn selected_bigint_sum(
+        self,
+        values: &[i64],
+        selection: &[usize],
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Option<i128>> {
+        if !matches!(self, Self::Signed(64)) || selection.is_empty() {
+            return Ok(None);
+        }
+        let mut maximum = 0_u64;
+        for (offset, &index) in selection.iter().enumerate() {
+            if offset % 1024 == 0 {
+                query.check()?;
+            }
+            let value = *values.get(index).ok_or_else(|| {
+                Error::Internal("dictionary selection outside BIGINT parent".into())
+            })?;
+            if value == i64::MIN {
+                return Ok(None);
+            }
+            maximum = maximum.max(value.unsigned_abs());
+        }
+        let lanes = selection.len().div_ceil(4);
+        let Some(bound) = u128::from(maximum).checked_mul(lanes as u128) else {
+            return Ok(None);
+        };
+        if bound > i64::MAX as u128 {
+            return Ok(None);
+        }
+        let mut sums = [0_i64; 4];
+        for (offset, &index) in selection.iter().enumerate() {
+            if offset % 1024 == 0 {
+                query.check()?;
+            }
+            // The proof above bounds the absolute prefix of every lane.
+            sums[offset % 4] += values[index];
+        }
+        query.check()?;
+        Ok(Some(sums.into_iter().map(i128::from).sum()))
+    }
     /// Caller proves every prefix fits the result domain. Decode the physical
     /// kind once per block, retaining checked machine-width partial sums.
     pub(super) fn block_sum(self, values: &[Value]) -> i128 {
@@ -265,4 +311,75 @@ fn sum_i64_wide(values: &[i64]) -> i128 {
             .iter()
             .map(|value| i128::from(*value))
             .sum::<i128>()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::{
+        common::{DataType, Value, vector::Vector},
+        parallel::{InterruptHandle, QueryContext},
+    };
+
+    use super::SumKernel;
+
+    #[test]
+    fn selected_bigint_lane_keeps_repeated_nonmonotonic_and_sliced_parent_indices()
+    -> crate::Result<()> {
+        let query = QueryContext::background();
+        let parent = Arc::new(Vector::flat(
+            DataType::BigInt,
+            vec![
+                Value::Integer(100),
+                Value::Integer(3),
+                Value::Integer(7),
+                Value::Integer(-2),
+                Value::Integer(9),
+                Value::Integer(100),
+            ],
+        )?);
+        let sliced = Arc::new(parent.slice(1, 4)?);
+        let selected = sliced.select(vec![2, 0, 2, 1])?;
+        let (selected_parent, indices) = selected.dictionary().expect("selection encoding");
+        assert_eq!(selected_parent.flat_bigints(), Some(&[3, 7, -2, 9][..]));
+        assert_eq!(
+            SumKernel::Signed(64).selected_bigint_sum(
+                selected_parent.flat_bigints().expect("BIGINT lane"),
+                indices,
+                &query,
+            )?,
+            Some(6),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn selected_bigint_lane_declines_signed_min_nested_and_nullable_shapes() -> crate::Result<()> {
+        let query = QueryContext::background();
+        assert_eq!(
+            SumKernel::Signed(64).selected_bigint_sum(&[i64::MIN], &[0], &query)?,
+            None
+        );
+        let nullable = Vector::flat(DataType::BigInt, vec![Value::Integer(1), Value::Null])?;
+        assert!(!nullable.all_valid());
+        assert!(nullable.flat_bigints().is_none());
+        let parent = Arc::new(Vector::flat(DataType::BigInt, vec![Value::Integer(1)])?);
+        let nested = Arc::new(parent.select(vec![0])?).select(vec![0])?;
+        let (nested_parent, _) = nested.dictionary().expect("nested selection");
+        assert!(nested_parent.flat_bigints().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn selected_bigint_lane_checks_cancellation_before_physical_reduction() {
+        let interrupt = InterruptHandle::default();
+        interrupt.interrupt();
+        let query = QueryContext::new(interrupt, None, 1, 16).expect("query context");
+        assert!(
+            SumKernel::Signed(64)
+                .selected_bigint_sum(&[1], &[0], &query)
+                .is_err()
+        );
+    }
 }

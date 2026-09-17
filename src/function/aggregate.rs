@@ -156,6 +156,9 @@ impl AggregateState for State {
         if self.name == "sum" && self.sum_repeated(column, context)? {
             return Ok(());
         }
+        if self.name == "sum" && self.sum_selected_bigints(column, context)? {
+            return Ok(());
+        }
         if self.name == "sum" && self.sum_dense(column, context)? {
             return Ok(());
         }
@@ -305,6 +308,52 @@ impl AggregateState for State {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State {
+    /// Dictionary BIGINT selections can retain their parent physical lane.
+    /// Declining any unproved shape preserves the scalar update/error order.
+    fn sum_selected_bigints(
+        &mut self,
+        column: &crate::common::vector::Vector,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<bool> {
+        let Some(kernel @ SumKernel::Signed(64)) = SumKernel::bind(column.data_type()) else {
+            return Ok(false);
+        };
+        if kernel.result_type() != self.data_type || !column.all_valid() {
+            return Ok(false);
+        }
+        let Some((parent, selection)) = column.dictionary() else {
+            return Ok(false);
+        };
+        if !parent.all_valid() {
+            return Ok(false);
+        }
+        let Some(values) = parent.flat_bigints() else {
+            return Ok(false);
+        };
+        let sum = match self.value {
+            Value::Null => 0,
+            Value::Integer(value) => value,
+            _ => return Ok(false),
+        };
+        let Some(bound) = kernel
+            .maximum_magnitude()
+            .checked_mul(selection.len() as i128)
+        else {
+            return Ok(false);
+        };
+        if sum.checked_add(bound).is_none() || sum.checked_sub(bound).is_none() {
+            return Ok(false);
+        }
+        let Some(contribution) = kernel.selected_bigint_sum(values, selection, context)? else {
+            return Ok(false);
+        };
+        self.value = Value::Integer(
+            sum.checked_add(contribution)
+                .ok_or_else(|| Error::Execution("sum overflow".into()))?,
+        );
+        Ok(true)
+    }
+
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     /// A constant column, or a dictionary whose physical entries all carry
     /// one coefficient, has a closed-form exact SUM. Restrict this to domains
