@@ -943,7 +943,13 @@ files pass 6/6 development and 7/7 release. Substring reaches 27 records on
 development and 28 on release before the separate missing `instr` family;
 UTF-8 substring reaches 13 and 12 respectively before the separate missing
 `substring_grapheme` family. These are retained prefix results, not full-file
-passes.
+passes. Final-tree native reports are retained as
+`target/next-batch/performance/g06/final-frozen-{release,development,fastest}-21.json`;
+the comparable CPU, peak-RSS, block-I/O and throughput campaign is
+`target/next-batch/performance/g06/final-frozen-process-21.json`. Both pinned
+campaigns, the joint faster-reference latency gate and every independent process
+metric pass for all declared workloads. This completes the G06.1b slice, not the
+remaining G06.1 catalog.
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
@@ -1026,11 +1032,21 @@ RSS, block I/O and throughput against the faster reference.
 The implementation binds aggregate argument ordering with scope validation,
 elides only pure total keys for order-insensitive functions, preserves pinned
 FIRST/LAST tie behavior, and uses bounded batched candidates for eligible integer
-grouping while retaining the generic ordered driver as fallback. On revision
-`aa89bbc`, the local workload passes 4/4 and the full unchanged
+grouping while retaining the generic ordered driver as fallback. Revision
+`881c4b2` additionally keeps all-valid BIGINT arithmetic in native lanes and
+propagates a single-pass ascending proof so monotonic dense grouping avoids a
+redundant range scan. On revision `aa89bbc`, the local workload passes 4/4 and
+the full unchanged
 `test_sum.test` passes 19/19 on both pins. `test_order_by_aggregate.test` reaches
 13/14 attempted records on development and 14/15 on release before the unrelated
-LIST/DISTINCT/FILTER parser case; that prefix is not a full-file pass.
+LIST/DISTINCT/FILTER parser case; that prefix is not a full-file pass. Final-tree
+native reports are retained as
+`target/next-batch/performance/g08/final-frozen-{release,development,fastest}-21.json`;
+the comparable CPU, peak-RSS, block-I/O and throughput campaign is
+`target/next-batch/performance/g08/final-frozen-process-21.json`. Both pinned
+campaigns, the joint faster-reference latency gate and every independent process
+metric pass for all six native cases and the declared process workload. This
+completes the G08.2a slice while the remaining G08.2 modifiers stay open.
 
 - **G08.1 Complete aggregate families.** Add ordered/list/string aggregates,
   statistical/regression/distribution functions, quantiles, approximate/sketch
