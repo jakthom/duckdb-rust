@@ -9,19 +9,31 @@ FROM range(1000000) t(i);
 499999500000
 
 query II
-SELECT first(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS FIRST),
-       last(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS LAST)
+SELECT first(i ORDER BY CASE WHEN i%17=16 THEN NULL ELSE i%5 END NULLS FIRST),
+       last(i ORDER BY CASE WHEN i%17=16 THEN NULL ELSE i%5 END NULLS LAST)
 FROM range(1000000) t(i);
 ----
-0	0
+16	16
 
 query III
 SELECT sum(first_i),sum(last_i)
 FROM (
-    SELECT first(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS FIRST) AS first_i,
-           last(i ORDER BY CASE WHEN i%17=0 THEN NULL ELSE i%5 END NULLS LAST) AS last_i
+    SELECT first(i ORDER BY CASE WHEN i%17=16 THEN NULL ELSE i%5 END NULLS FIRST) AS first_i,
+           last(i ORDER BY CASE WHEN i%17=16 THEN NULL ELSE i%5 END NULLS LAST) AS last_i
     FROM range(1000000) t(i)
-    GROUP BY i%257
+    GROUP BY i%8192
 ) ordered;
 ----
-559232	559232
+570486784	570486784
+
+query IIII
+SELECT sum(sum_i),sum(first_i),sum(last_i)
+FROM (
+    SELECT sum(i) AS sum_i,
+           first(i ORDER BY CASE WHEN i%17=16 THEN NULL ELSE i%5 END NULLS FIRST) AS first_i,
+           last(i ORDER BY CASE WHEN i%17=16 THEN NULL ELSE i%5 END NULLS LAST) AS last_i
+    FROM range(1000000) t(i)
+    GROUP BY i%64
+) ordered;
+----
+499999500000	35296	35296

@@ -2,9 +2,26 @@
 mod index;
 use super::*;
 use crate::{
-    Value, execution::subquery::PreparedExpression, function::grouped::GroupSelection,
+    Value,
+    common::type_registry::BoundType,
+    execution::subquery::PreparedExpression,
+    function::{
+        OrderedAggregateStrategy,
+        grouped::{GroupSelection, GroupedAggregateState},
+    },
     planner::aggregation::AggregateOutput,
 };
+use std::cmp::Ordering;
+
+enum OrderedAccumulator {
+    State(Box<dyn GroupedAggregateState>),
+    Candidate {
+        strategy: OrderedAggregateStrategy,
+        order: Vec<crate::planner::logical::OrderExpr>,
+        types: Vec<BoundType>,
+        values: Vec<Option<(Row, Row)>>,
+    },
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// None is returned only before consuming input. Unknown expression effects,
@@ -14,6 +31,9 @@ pub(super) fn try_run(
     aggregation: &Aggregation,
     context: &ExecutionContext<'_>,
 ) -> Result<Option<Vec<Row>>> {
+    if let Some(rows) = try_ordered_candidates(input, aggregation, context)? {
+        return Ok(Some(rows));
+    }
     if let Some(rows) = try_ungrouped(input, aggregation, context)? {
         return Ok(Some(rows));
     }
@@ -199,6 +219,321 @@ pub(super) fn try_run(
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(Some(rows))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Batched, bounded retention for FIRST/LAST argument ORDER BY. This route is
+/// intentionally narrower than the scalar ordered driver: all expressions
+/// must be pure and total, order keys are single-column, and only integer
+/// grouping keys accepted by IntegerIndex may enter. Everything observable or
+/// broader returns None before input is consumed and keeps the generic path.
+fn try_ordered_candidates(
+    input: &mut dyn BatchStream,
+    aggregation: &Aggregation,
+    context: &ExecutionContext<'_>,
+) -> Result<Option<Vec<Row>>> {
+    if aggregation.sets.iter().any(|set| set.indices().len() > 2)
+        || aggregation
+            .groups
+            .iter()
+            .any(|group| !group.is_pure_and_total())
+        || aggregation
+            .outputs
+            .iter()
+            .any(|output| !matches!(output, AggregateOutput::Function(_)))
+    {
+        return Ok(None);
+    }
+    let functions = aggregation.functions().collect::<Vec<_>>();
+    if !functions
+        .iter()
+        .any(|function| !function.order_by.is_empty())
+        || functions.iter().any(|function| {
+            let strategy = function.function.ordered_strategy(
+                &function
+                    .arguments
+                    .iter()
+                    .map(|arg| arg.data_type.clone())
+                    .collect::<Vec<_>>(),
+            );
+            let candidate = matches!(
+                strategy,
+                OrderedAggregateStrategy::First | OrderedAggregateStrategy::Last
+            ) && !function.distinct
+                && function.filter.is_none()
+                && function.order_by.len() == 1
+                && function.arguments.iter().all(BoundExpr::is_pure_and_total)
+                && function
+                    .order_by
+                    .iter()
+                    .all(|order| order.expression.is_pure_and_total());
+            !candidate
+                && (function.distinct
+                    || function.filter.is_some()
+                    || !function.order_by.is_empty()
+                    || function
+                        .arguments
+                        .iter()
+                        .any(|arg| !arg.is_pure_and_total()))
+        })
+    {
+        return Ok(None);
+    }
+    let representations = aggregation
+        .groups
+        .iter()
+        .map(|group| {
+            context
+                .query
+                .types()
+                .bind(&group.data_type)
+                .map(|ty| ty.key_representation())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if representations.iter().any(|key| !key.has_integer_keys()) {
+        return Ok(None);
+    }
+    aggregation.validate_metadata(context.query)?;
+    let group_expressions = aggregation
+        .groups
+        .iter()
+        .map(PreparedExpression::new)
+        .collect::<Vec<_>>();
+    let argument_expressions = functions
+        .iter()
+        .map(|function| {
+            function
+                .arguments
+                .iter()
+                .map(PreparedExpression::new)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let order_expressions = functions
+        .iter()
+        .map(|function| {
+            function
+                .order_by
+                .iter()
+                .map(|order| PreparedExpression::new(&order.expression))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let mut accumulators = Vec::with_capacity(functions.len());
+    for function in &functions {
+        let arguments = function
+            .arguments
+            .iter()
+            .map(|arg| arg.data_type.clone())
+            .collect::<Vec<_>>();
+        match function.function.ordered_strategy(&arguments) {
+            OrderedAggregateStrategy::First | OrderedAggregateStrategy::Last
+                if !function.distinct
+                    && function.filter.is_none()
+                    && function.order_by.len() == 1 =>
+            {
+                accumulators.push(OrderedAccumulator::Candidate {
+                    strategy: function.function.ordered_strategy(&arguments),
+                    order: function.order_by.clone(),
+                    types: function
+                        .order_by
+                        .iter()
+                        .map(|order| context.query.types().bind(&order.expression.data_type))
+                        .collect::<Result<Vec<_>>>()?,
+                    values: Vec::new(),
+                });
+            }
+            _ => {
+                let Some(state) = function
+                    .function
+                    .create_grouped_state(&arguments, context.query.types())?
+                else {
+                    return Ok(None);
+                };
+                accumulators.push(OrderedAccumulator::State(state));
+            }
+        }
+    }
+    let mut groups: Vec<(Row, usize)> = Vec::new();
+    let mut indices = aggregation
+        .sets
+        .iter()
+        .enumerate()
+        .map(|(set_index, set)| {
+            let mut index = index::IntegerIndex::default();
+            if set.is_empty() {
+                context.query.check_rows(groups.len() + 1)?;
+                index.set_empty(groups.len());
+                groups.push((vec![Value::Null; aggregation.groups.len()], set_index));
+            }
+            Ok(index)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut candidate_units = 0usize;
+    let mut args = Row::new();
+    while let Some(batch) = input.next(context.query.batch_size())? {
+        let columns = group_expressions
+            .iter()
+            .map(|expr| expr.evaluate_batch(&batch, context))
+            .collect::<Result<Vec<_>>>()?;
+        let inputs = argument_expressions
+            .iter()
+            .map(|expressions| {
+                DataChunk::new(
+                    expressions
+                        .iter()
+                        .map(|expr| expr.evaluate_batch(&batch, context))
+                        .collect::<Result<_>>()?,
+                    batch.len(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let orders = order_expressions
+            .iter()
+            .map(|expressions| {
+                DataChunk::new(
+                    expressions
+                        .iter()
+                        .map(|expr| expr.evaluate_batch(&batch, context))
+                        .collect::<Result<_>>()?,
+                    batch.len(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        for (set_index, set) in aggregation.sets.iter().enumerate() {
+            let keys = set
+                .indices()
+                .iter()
+                .map(|&index| &columns[index])
+                .collect::<Vec<_>>();
+            let key_representations = set
+                .indices()
+                .iter()
+                .map(|&index| representations[index])
+                .collect::<Vec<_>>();
+            let destinations = indices[set_index].locate(
+                &keys,
+                &key_representations,
+                batch.len(),
+                context.query,
+                |row| {
+                    context
+                        .query
+                        .check_rows(groups.len() + 1 + candidate_units)?;
+                    let index = groups.len();
+                    groups.push((
+                        columns
+                            .iter()
+                            .enumerate()
+                            .map(|(i, values)| {
+                                if set.contains(i) {
+                                    values.get(row).expect("validated grouping column").clone()
+                                } else {
+                                    Value::Null
+                                }
+                            })
+                            .collect(),
+                        set_index,
+                    ));
+                    Ok(index)
+                },
+            )?;
+            let destinations = GroupSelection::new(&destinations, groups.len(), context.query)?;
+            for (function_index, accumulator) in accumulators.iter_mut().enumerate() {
+                match accumulator {
+                    OrderedAccumulator::State(state) => {
+                        state.resize(groups.len(), context.query)?;
+                        state.update_batch(
+                            &destinations,
+                            &inputs[function_index],
+                            context.query,
+                        )?;
+                    }
+                    OrderedAccumulator::Candidate {
+                        strategy,
+                        order,
+                        types,
+                        values,
+                    } => {
+                        values.resize_with(groups.len(), || None);
+                        for (row, &group) in destinations.indices().iter().enumerate() {
+                            if row % 1024 == 0 {
+                                context.query.check()?;
+                            }
+                            inputs[function_index].read_row(row, &mut args)?;
+                            let mut key = Row::new();
+                            orders[function_index].read_row(row, &mut key)?;
+                            let replaces = match &values[group] {
+                                None => true,
+                                Some((_, current)) => match super::grouped::compare_ordered(
+                                    &key, current, order, types, context,
+                                )? {
+                                    Ordering::Less => *strategy == OrderedAggregateStrategy::First,
+                                    Ordering::Greater => {
+                                        *strategy == OrderedAggregateStrategy::Last
+                                    }
+                                    Ordering::Equal => false,
+                                },
+                            };
+                            if replaces {
+                                if values[group].is_none() {
+                                    context.query.check_rows(
+                                        groups
+                                            .len()
+                                            .saturating_add(candidate_units)
+                                            .saturating_add(1),
+                                    )?;
+                                    candidate_units += 1;
+                                }
+                                values[group] = Some((args.clone(), key));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let values = accumulators
+        .into_iter()
+        .zip(&functions)
+        .map(|(accumulator, function)| match accumulator {
+            OrderedAccumulator::State(mut state) => {
+                state.resize(groups.len(), context.query)?;
+                state.finish(context.query)
+            }
+            OrderedAccumulator::Candidate { values, .. } => {
+                let argument_types = function
+                    .arguments
+                    .iter()
+                    .map(|arg| arg.data_type.clone())
+                    .collect::<Vec<_>>();
+                values
+                    .into_iter()
+                    .map(|candidate| {
+                        let mut state = function
+                            .function
+                            .create_state(&argument_types, context.query.types())?;
+                        if let Some((arguments, _)) = candidate {
+                            state.update(&arguments, context.query)?;
+                        }
+                        state.finish()
+                    })
+                    .collect::<Result<Vec<_>>>()
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(group, (mut row, _))| {
+            context.query.check()?;
+            for function in 0..functions.len() {
+                row.push(values[function][group].clone());
+            }
+            Ok(row)
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(Some)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

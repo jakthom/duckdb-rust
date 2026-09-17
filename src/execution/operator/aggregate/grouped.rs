@@ -427,7 +427,7 @@ fn update_ordered(
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn compare_ordered(
+pub(super) fn compare_ordered(
     left: &[Value],
     right: &[Value],
     order: &[crate::planner::logical::OrderExpr],
