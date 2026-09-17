@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE ordered AS SELECT i, 49999-i AS k FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "ordered_aggregate_ungrouped",
+      "sql": "SELECT sum(i ORDER BY k), first(i ORDER BY k), last(i ORDER BY k) FROM ordered",
+      "rows": 1,
+      "sum": "1250024999"
+    },
+    {
+      "name": "ordered_aggregate_grouped",
+      "sql": "SELECT first(i ORDER BY k), last(i ORDER BY k) FROM ordered GROUP BY i%64",
+      "rows": 64,
+      "sum": "3199936"
+    }
+  ]
+}
