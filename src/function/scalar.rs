@@ -5,7 +5,10 @@ mod text;
 
 use super::{ArgumentEvaluation, FunctionRegistry, ScalarFunction};
 use crate::{
-    common::{DataType, Error, Result, Value},
+    common::{
+        DataType, Error, Result, Value,
+        vector::{DataChunk, Vector},
+    },
     parallel::QueryContext,
 };
 
@@ -116,6 +119,61 @@ impl ScalarFunction for Builtin {
             ))),
         }
     }
+    fn is_total(&self, _arguments: &[Option<&Value>]) -> bool {
+        matches!(
+            self.0,
+            "length" | "char_length" | "character_length" | "len"
+        )
+    }
+    fn supports_batch_evaluation(&self, arguments: &[DataType]) -> bool {
+        matches!(
+            self.0,
+            "length" | "char_length" | "character_length" | "len"
+        ) && matches!(arguments, [DataType::Varchar] | [DataType::Bit])
+    }
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        query.check()?;
+        let Some(column) = arguments.columns().first() else {
+            return Ok(None);
+        };
+        if arguments.columns().len() != 1
+            || !self.supports_batch_evaluation(std::slice::from_ref(column.data_type()))
+        {
+            return Ok(None);
+        }
+        if let Some(value) = column.constant_value() {
+            return Vector::constant(
+                DataType::BigInt,
+                length_value(value)?.map_or(Value::Null, Value::Integer),
+                column.len(),
+            )
+            .map(Some);
+        }
+        if let Some((parent, selection)) = column.dictionary() {
+            let values = parent.values().enumerate().map(|(index, value)| {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                length_value(&value)
+            });
+            let parent = Arc::new(Vector::try_bigints(values)?);
+            query.check()?;
+            return parent.select(selection.to_vec()).map(Some);
+        }
+        let values = column.values().enumerate().map(|(index, value)| {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            length_value(&value)
+        });
+        let output = Vector::try_bigints(values)?;
+        query.check()?;
+        Ok(Some(output))
+    }
     fn evaluate(&self, args: &[Value], context: &QueryContext) -> Result<Value> {
         context.check()?;
         if self.0 == "concat" {
@@ -147,15 +205,24 @@ impl ScalarFunction for Builtin {
                 _ => return Err(Error::Internal("case argument is not VARCHAR".into())),
             },
             "length" | "char_length" | "character_length" | "len" => {
-                Value::Integer(match &args[0] {
-                    Value::Bit(value) => value.length() as i128,
-                    Value::Varchar(value) => value.chars().count() as i128,
-                    _ => return Err(Error::Internal("length argument has wrong type".into())),
-                })
+                length_value(&args[0])?.map_or(Value::Null, Value::Integer)
             }
             _ => return Err(Error::Internal("unregistered builtin".into())),
         })
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn length_value(value: &Value) -> Result<Option<i64>> {
+    let length = match value {
+        Value::Null => return Ok(None),
+        Value::Bit(value) => value.length(),
+        Value::Varchar(value) => value.chars().count(),
+        _ => return Err(Error::Internal("length argument has wrong type".into())),
+    };
+    i64::try_from(length)
+        .map(Some)
+        .map_err(|_| Error::Resource("VARCHAR length exceeds BIGINT".into()))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -227,5 +294,56 @@ impl ScalarFunction for TypeOf {
                 .ok_or_else(|| Error::Internal("unbound typeof".into()))?
                 .to_string(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::common::{BitString, vector::DataChunk};
+
+    #[test]
+    fn length_batch_preserves_constant_dictionary_slice_and_bit_contracts() -> Result<()> {
+        let query = QueryContext::background();
+        let length = Builtin("length");
+        let parent = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("é".into()),
+                Value::Null,
+                Value::Varchar("a\0🦆".into()),
+            ],
+        )?);
+        let dictionary = parent.select(vec![2, 0, 1, 2])?.slice(1, 3)?;
+        let output = length
+            .evaluate_batch(&DataChunk::new(vec![dictionary], 3)?, &query)?
+            .expect("length batch callback");
+        assert!(output.dictionary().is_some());
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![Value::Integer(1), Value::Null, Value::Integer(3)]
+        );
+
+        let constant = Vector::constant(DataType::Varchar, Value::Varchar("é🦆".into()), 3)?;
+        let output = length
+            .evaluate_batch(&DataChunk::new(vec![constant], 3)?, &query)?
+            .expect("constant length batch callback");
+        assert_eq!(output.constant_value(), Some(&Value::Integer(2)));
+
+        let bit = Vector::constant(
+            DataType::Bit,
+            Value::Bit(Arc::new(BitString::from_parts(vec![0b1010_0000], 3)?)),
+            2,
+        )?;
+        let output = length
+            .evaluate_batch(&DataChunk::new(vec![bit], 2)?, &query)?
+            .expect("BIT length batch callback");
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![Value::Integer(3); 2]
+        );
+        Ok(())
     }
 }
