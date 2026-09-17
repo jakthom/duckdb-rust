@@ -452,7 +452,7 @@ fn aggregate_argument_ordering_is_stable_grouped_and_modifier_aware() -> Result<
     }
     for algorithm in algorithms() {
         let db = DatabaseBuilder::new()
-            .max_intermediate_rows(8)
+            .max_intermediate_rows(7)
             .physical_planner(Arc::new(
                 NativePhysicalPlanner::default().with_aggregation(algorithm),
             ))
