@@ -164,16 +164,18 @@ impl ScalarFunction for Builtin {
             query.check()?;
             return Ok(Some(output));
         }
-        if let Some((parent, selection)) = column.dictionary() {
-            let values = parent.values().enumerate().map(|(index, value)| {
-                if index % 1024 == 0 {
-                    query.check()?;
-                }
-                length_value(&value)
-            });
-            let parent = Arc::new(Vector::try_bigints(values)?);
+        if column.dictionary().is_some() {
+            let output = column.map_dictionary_parent(DataType::BigInt, |parent| {
+                let values = parent.values().enumerate().map(|(index, value)| {
+                    if index % 1024 == 0 {
+                        query.check()?;
+                    }
+                    length_value(&value)
+                });
+                Vector::try_bigints(values)
+            })?;
             query.check()?;
-            return parent.select(selection.to_vec()).map(Some);
+            return Ok(Some(output));
         }
         let values = column.values().enumerate().map(|(index, value)| {
             if index % 1024 == 0 {
@@ -326,7 +328,8 @@ mod tests {
                 Value::Varchar("a\0🦆".into()),
             ],
         )?);
-        let dictionary = parent.select(vec![2, 0, 1, 2])?.slice(1, 3)?;
+        let immediate = Arc::new(parent.select(vec![2, 0, 1, 2])?);
+        let dictionary = immediate.select(vec![3, 1, 2, 0])?.slice(1, 3)?;
         let output = length
             .evaluate_batch(&DataChunk::new(vec![dictionary], 3)?, &query)?
             .expect("length batch callback");

@@ -558,6 +558,37 @@ impl Vector {
         let ordered = selection.windows(2).all(|pair| pair[0] <= pair[1]);
         Ok(self.selected(selection.into(), ordered))
     }
+    /// Transform the immediate parent of a dictionary while retaining this
+    /// vector's checked selection and view. The mapper owns only the parent;
+    /// it cannot replace, reorder or revalidate the existing selection.
+    pub fn map_dictionary_parent(
+        &self,
+        data_type: DataType,
+        mapper: impl FnOnce(&Self) -> Result<Self>,
+    ) -> Result<Self> {
+        let Encoding::Dictionary(parent, selection) = &self.encoding else {
+            return Err(Error::Internal(
+                "dictionary parent mapping requires dictionary encoding".into(),
+            ));
+        };
+        let mapped = mapper(parent)?;
+        if mapped.data_type != data_type || mapped.len() != parent.len() {
+            return Err(Error::Internal(
+                "mapped dictionary parent differs in type or cardinality".into(),
+            ));
+        }
+        let mapped = Arc::new(mapped);
+        Ok(Self {
+            data_type,
+            encoding: Encoding::Dictionary(mapped.clone(), selection.clone()),
+            offset: self.offset,
+            count: self.count,
+            all_valid: self.all_valid && mapped.all_valid,
+            // `self` establishes that this unchanged selection is ordered;
+            // the mapped parent supplies the independent physical order proof.
+            numeric_ascending: self.numeric_ascending && mapped.numeric_ascending,
+        })
+    }
     // Only checked Vector/DataChunk selection constructors call this helper.
     // Chunk cardinality establishes the same bounds for every column.
     fn selected(self: &Arc<Self>, selection: Arc<[usize]>, ordered: bool) -> Self {
@@ -824,6 +855,58 @@ mod physical_tests {
                 ]
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn dictionary_parent_mapping_retains_nested_sliced_selection_and_rejects_shape_changes()
+    -> Result<()> {
+        let source = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("a".into()),
+                Value::Null,
+                Value::Varchar("é🦆".into()),
+                Value::Varchar("duck".into()),
+            ],
+        )?);
+        let immediate = Arc::new(source.select(vec![2, 0, 1, 3])?);
+        let nested = immediate.select(vec![3, 0, 2])?.slice(1, 2)?;
+        let mapped = nested.map_dictionary_parent(DataType::BigInt, |parent| {
+            Vector::flat(
+                DataType::BigInt,
+                parent
+                    .values()
+                    .map(|value| match value {
+                        Value::Null => Value::Null,
+                        Value::Varchar(value) => Value::Integer(value.chars().count() as i128),
+                        _ => unreachable!("VARCHAR dictionary parent"),
+                    })
+                    .collect(),
+            )
+        })?;
+        assert!(mapped.dictionary().is_some());
+        assert_eq!(
+            mapped.values().collect::<Vec<_>>(),
+            vec![Value::Integer(2), Value::Null]
+        );
+        assert!(
+            nested
+                .map_dictionary_parent(DataType::BigInt, |_| {
+                    Vector::flat(DataType::BigInt, vec![Value::Integer(1)])
+                })
+                .is_err()
+        );
+        assert!(
+            nested
+                .map_dictionary_parent(DataType::BigInt, |parent| {
+                    Vector::flat(
+                        DataType::Varchar,
+                        vec![Value::Varchar("wrong".into()); parent.len()],
+                    )
+                })
+                .is_err()
+        );
         Ok(())
     }
 
