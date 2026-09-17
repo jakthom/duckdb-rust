@@ -18,7 +18,7 @@ fn varchar_search_aliases_unicode_nuls_nulls_and_prepared_execution() -> Result<
             .build()?
             .connect();
         assert_eq!(
-            connection.query("SELECT instr('two ñ three ₡ four 🦆 end','ñ'),strpos('two ñ three ₡ four 🦆 end','₡ four 🦆 e'),position('two ñ three ₡ four 🦆 end','🦆 end'),POSITION('🦆 end' IN 'two ñ three ₡ four 🦆 end'),instr('abc',''),instr('',''),instr('','x'),instr('abc','z'),instr('a\\0é🦆','\\0'),instr(NULL,'x'),instr('x',NULL)")?.rows,
+            connection.query("SELECT instr('two ñ three ₡ four 🦆 end','ñ'),strpos('two ñ three ₡ four 🦆 end','₡ four 🦆 e'),position('two ñ three ₡ four 🦆 end','🦆 end'),PoSiTiOn('🦆 end' In 'two ñ three ₡ four 🦆 end'),instr('abc',''),instr('',''),instr('','x'),instr('abc','z'),instr('a\\0é🦆','\\0'),instr(NULL,'x'),instr('x',NULL)")?.rows,
             vec![vec![
                 Value::Integer(5), Value::Integer(13), Value::Integer(20), Value::Integer(20),
                 Value::Integer(1), Value::Integer(1), Value::Integer(0),
