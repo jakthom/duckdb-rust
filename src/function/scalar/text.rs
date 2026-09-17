@@ -90,11 +90,14 @@ impl ScalarFunction for Substring {
             return Ok(None);
         }
         let columns = arguments.columns();
-        if let (Some(input), Some(starts), length) = (
-            columns[0].flat_values(),
-            columns[1].flat_bigints(),
-            columns.get(2).and_then(Vector::flat_bigints),
-        ) {
+        let length = match columns.len() {
+            2 => Some(None),
+            3 => columns[2].flat_bigints().map(Some),
+            _ => None,
+        };
+        if let (Some(input), Some(starts), Some(length)) =
+            (columns[0].flat_values(), columns[1].flat_bigints(), length)
+        {
             return batch_flat_substring(input, starts, length, query).map(Some);
         }
         let mut output = Vec::new();
@@ -424,6 +427,42 @@ mod tests {
                 .dictionary()
                 .is_none()
         );
+
+        let flat_source = Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("abcdef".into()),
+                Value::Varchar("é🦆x".into()),
+            ],
+        )?;
+        let flat_start =
+            Vector::flat(DataType::BigInt, vec![Value::Integer(2), Value::Integer(2)])?;
+        for (length, expected) in [
+            (
+                Vector::constant(DataType::BigInt, Value::Integer(1), 2)?,
+                vec![Value::Varchar("b".into()), Value::Varchar("🦆".into())],
+            ),
+            (
+                Vector::flat(DataType::BigInt, vec![Value::Integer(1), Value::Null])?,
+                vec![Value::Varchar("b".into()), Value::Null],
+            ),
+            (
+                Arc::new(Vector::flat(
+                    DataType::BigInt,
+                    vec![Value::Integer(1), Value::Integer(2)],
+                )?)
+                .select(vec![1, 0])?,
+                vec![Value::Varchar("bc".into()), Value::Varchar("🦆".into())],
+            ),
+        ] {
+            let output = function
+                .evaluate_batch(
+                    &DataChunk::new(vec![flat_source.clone(), flat_start.clone(), length], 2)?,
+                    &query,
+                )?
+                .expect("non-flat length fallback");
+            assert_eq!(output.values().collect::<Vec<_>>(), expected);
+        }
 
         let error = DataChunk::new(
             vec![
