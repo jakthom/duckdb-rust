@@ -514,24 +514,22 @@ fn try_ordered_candidates(
                 state.resize(groups.len(), context.query)?;
                 state.finish(context.query)
             }
-            OrderedAccumulator::Candidate { values, .. } => {
-                let argument_types = function
-                    .arguments
-                    .iter()
-                    .map(|arg| arg.data_type.clone())
-                    .collect::<Vec<_>>();
-                values
+            OrderedAccumulator::Candidate {
+                strategy, values, ..
+            } => {
+                // The candidate capability is admitted only for built-in
+                // FIRST/LAST with one already bound argument. Their state is
+                // precisely the retained argument, or NULL for an empty
+                // group; constructing thousands of one-row states here would
+                // add no semantics and dominates high-cardinality groups.
+                debug_assert!(matches!(
+                    strategy,
+                    OrderedAggregateStrategy::First | OrderedAggregateStrategy::Last
+                ));
+                Ok(values
                     .into_iter()
-                    .map(|candidate| {
-                        let mut state = function
-                            .function
-                            .create_state(&argument_types, context.query.types())?;
-                        if let Some((argument, _)) = candidate {
-                            state.update(&[argument], context.query)?;
-                        }
-                        state.finish()
-                    })
-                    .collect::<Result<Vec<_>>>()
+                    .map(|candidate| candidate.map_or(Value::Null, |(argument, _)| argument))
+                    .collect())
             }
         })
         .collect::<Result<Vec<_>>>()?;
