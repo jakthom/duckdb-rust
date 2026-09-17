@@ -414,13 +414,42 @@ impl ScalarFunction for TemporalFunction {
         Ok(result)
     }
     fn supports_batch_evaluation(&self, arguments: &[DataType]) -> bool {
-        self.name == "make_date" && matches!(arguments, [DataType::Nested(_)])
+        (self.name == "make_date" && matches!(arguments, [DataType::Nested(_)]))
+            // The selected precision cast feeds this exact physical column in
+            // the minimum conversion workload. Keeping epoch_us vector-native
+            // lets the child cast retain its validated flat-vector path rather
+            // than forcing both expressions through row evaluation.
+            || (self.name == "epoch_us" && matches!(arguments, [DataType::Timestamp]))
     }
     fn evaluate_batch(
         &self,
         arguments: &DataChunk,
         query: &QueryContext,
     ) -> Result<Option<Vector>> {
+        if self.name == "epoch_us"
+            && arguments.columns().len() == 1
+            && arguments.columns()[0].data_type() == &DataType::Timestamp
+            && arguments.columns()[0].all_valid()
+            && let Some(values) = arguments.columns()[0].flat_values()
+        {
+            let mut output = Vec::new();
+            output
+                .try_reserve_exact(values.len())
+                .map_err(|_| Error::Resource("cannot allocate epoch_us output column".into()))?;
+            for (index, value) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                let Value::Temporal(TemporalValue::Timestamp(ticks)) = value else {
+                    return Err(Error::Internal(
+                        "validated TIMESTAMP column contains a non-timestamp value".into(),
+                    ));
+                };
+                output.push(Value::Integer(i128::from(*ticks)));
+            }
+            query.check()?;
+            return Vector::flat(DataType::BigInt, output).map(Some);
+        }
         if self.name != "make_date"
             || arguments.columns().len() != 1
             || !matches!(arguments.columns()[0].data_type(), DataType::Nested(_))

@@ -859,7 +859,7 @@ pass, performance is open. Release's truncating minimum narrowing, missing
 `TIMESTAMPTZ_NS`, and `date_trunc` difference remain documented divergences, not
 acceptance baselines.
 
-**G04.1b outcome (final source `63ea4cc`):** `cargo test -p duckdb-rust --test
+**G04.1b interim outcome (source `63ea4cc`):** `cargo test -p duckdb-rust --test
 temporal temporal_minimum` passed all four selected tests; the new one covers
 scalar/batch/prepared minimum and pre-epoch precision narrowing. `cargo dev
 coverage` reported no missing annotations and `cargo dev trace check --workspace
@@ -870,8 +870,10 @@ the faster-pin gate is `...-final-fastest.json`. The release baseline was
 8,594,791 ns (development campaign, 7.674489x), so the wall/throughput gate
 failed. CPU, RSS and block I/O remain unmeasured because the maintained native
 adapter has no process-resource reporter. Performance status is **fail/open**,
-so this functional slice is ready for further architectural optimization and
-resource instrumentation, not complete.
+so this functional slice was not complete. A focused trace then identified that
+`epoch_us(TIMESTAMP)` forced row evaluation and bypassed the flat timestamp-cast
+kernel; the subsequent vector kernel is awaiting a fresh two-pin/resource
+campaign before this outcome can be replaced.
 
 - **G04.1 Finish physical and textual domains.** Cover minima/maxima, infinities,
   fractional rounding, offset limits, precision loss, interval forms, native/API
