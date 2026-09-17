@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE g06_text_grapheme AS SELECT CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v, i FROM range(50000) t(i); CREATE TABLE g06_text_codepoint AS SELECT CASE i % 4 WHEN 0 THEN 0 WHEN 1 THEN 65 WHEN 2 THEN 129414 ELSE 233 END AS code FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "g06_1d_grapheme_substring_length_low_cardinality_50k",
+      "sql": "SELECT sum(length_grapheme(substring_grapheme(v, CASE i % 4 WHEN 0 THEN 2 WHEN 1 THEN -1 WHEN 2 THEN 1 ELSE 1 END, CASE i % 4 WHEN 0 THEN 1 WHEN 1 THEN 1 WHEN 2 THEN 2 ELSE 1 END))) FROM g06_text_grapheme",
+      "rows": 1,
+      "sum": "50000"
+    },
+    {
+      "name": "g06_1d_grapheme_substring_length_high_cardinality_50k",
+      "sql": "SELECT sum(length_grapheme(substring_grapheme(v || i::VARCHAR, 2, 2))) FROM g06_text_grapheme",
+      "rows": 1,
+      "sum": "99973"
+    },
+    {
+      "name": "g06_1d_codepoint_nul_ascii_contains_aggregate_50k",
+      "sql": "SELECT sum(ascii(chr(code))), count(*) FILTER (WHERE contains('p' || chr(code) || chr(0) || 's', chr(code))) FROM g06_text_codepoint",
+      "rows": 1,
+      "sum": "1621450000"
+    }
+  ]
+}

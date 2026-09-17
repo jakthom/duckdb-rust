@@ -1,0 +1,18 @@
+# G06.1d public composition smoke coverage. Detailed error, vector-encoding,
+# and cancellation cases belong in the focused component targets.
+query TI
+SELECT substring_grapheme('á👩🏽‍💻Z',2,1), length_grapheme('á👩🏽‍💻Z');
+----
+👩🏽‍💻	3
+
+query TI
+SELECT substring_grapheme('á👩🏽‍💻Z',-1,1), length_grapheme('');
+----
+Z	0
+
+query IIII
+SELECT ascii(chr(0)), ascii(chr(129414)),
+       sum(CASE WHEN contains('a' || chr(0) || 'b',chr(0)) THEN 1 ELSE 0 END),
+       sum(CASE WHEN contains('abc','') THEN 1 ELSE 0 END);
+----
+0	129414	1	1

@@ -39,7 +39,12 @@ impl crate::function::ScalarFunction for GraphemeFunction {
 
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
         match self.0 {
-            "length_grapheme" if arguments.len() == 1 => Ok(vec![DataType::Varchar]),
+            "length_grapheme"
+                if arguments.len() == 1
+                    && matches!(arguments[0], DataType::Varchar | DataType::Null) =>
+            {
+                Ok(vec![DataType::Varchar])
+            }
             "substring_grapheme" if matches!(arguments.len(), 2 | 3) => {
                 if !matches!(arguments[0], DataType::Varchar | DataType::Null) {
                     return Err(Error::Bind("substring_grapheme requires a VARCHAR".into()));
