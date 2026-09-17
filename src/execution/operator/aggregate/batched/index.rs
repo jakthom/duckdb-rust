@@ -136,6 +136,9 @@ impl IntegerIndex {
             self.dense = Dense::new(columns, representations, rows, query)?;
             self.initialized = true;
         }
+        if let [column] = columns {
+            self.grow_monotonic_dense(column, representations[0], query)?;
+        }
         if let [column] = columns
             && let Some((dictionary, selected)) = column.dictionary()
             && dictionary.len() <= rows / 4
@@ -241,6 +244,65 @@ impl IntegerIndex {
                 "integer grouping index requires one or two columns".into(),
             )),
         }
+    }
+    /// Extend a one-dimensional dense range only when existing positions stay
+    /// unchanged. Later high keys otherwise fall into the sparse map after a
+    /// small first batch, which is needlessly expensive for monotonic scans.
+    fn grow_monotonic_dense(
+        &mut self,
+        column: &Vector,
+        representation: KeyRepresentation,
+        query: &QueryContext,
+    ) -> Result<()> {
+        if !self.sparse.is_empty() {
+            return Ok(());
+        }
+        let Some(dense) = self.dense.as_mut() else {
+            return Ok(());
+        };
+        let dimension = dense.dimensions[0];
+        let Some(minimum) = dimension.minimum else {
+            // All-NULL first batches have no stable numeric origin.
+            return Ok(());
+        };
+        let mut batch_min = None;
+        let mut batch_max = None;
+        for (index, value) in column.values().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            if let Some(value) = representation.integer_key(&value)? {
+                batch_min = Some(batch_min.map_or(value, |current: i128| current.min(value)));
+                batch_max = Some(batch_max.map_or(value, |current: i128| current.max(value)));
+            }
+        }
+        let Some(batch_min) = batch_min else {
+            return Ok(());
+        };
+        let Some(batch_max) = batch_max else {
+            return Ok(());
+        };
+        if batch_min < minimum {
+            return Ok(());
+        }
+        let Some(width) = batch_max
+            .checked_sub(minimum)
+            .and_then(|width| usize::try_from(width).ok())
+            .and_then(|width| width.checked_add(1))
+        else {
+            return Ok(());
+        };
+        if width <= dimension.values || width.saturating_add(1) > MAX_DENSE_SLOTS {
+            return Ok(());
+        }
+        // The old NULL slot follows the numeric range. Move it to the new
+        // tail before the former slot becomes a valid numeric position.
+        let null = dense.slots[dimension.values];
+        dense.slots.resize(width + 1, EMPTY);
+        dense.slots[dimension.values] = EMPTY;
+        dense.slots[width] = null;
+        dense.dimensions[0].values = width;
+        query.check()
     }
     #[inline]
     fn locate_values<const N: usize>(
