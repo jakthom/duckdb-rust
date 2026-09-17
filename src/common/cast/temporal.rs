@@ -96,6 +96,94 @@ impl CastFunction for TemporalCast {
                 )
         )
     }
+    fn cast_batch(
+        &self,
+        input: &crate::common::vector::Vector,
+        spec: &CastSpec,
+        context: &QueryContext,
+    ) -> Result<crate::common::vector::Vector> {
+        // The common batch path dispatches every temporal cell back through
+        // this adapter, including redundant source/target kind checks. A flat
+        // valid timestamp column has already passed source validation in
+        // BoundCast::apply_batch, so retain scalar error order while converting
+        // its physical payloads directly. NULL and dictionary inputs use the
+        // ordinary path: their propagation/deduplication contracts matter
+        // more than this scan's hot loop.
+        if input.all_valid()
+            && spec.source.timestamp_precision().is_some()
+            && spec.target.timestamp_precision().is_some()
+            && let Some(values) = input.flat_values()
+        {
+            let mut output = Vec::new();
+            output.try_reserve_exact(values.len()).map_err(|_| {
+                Error::Resource("cannot allocate temporal cast output column".into())
+            })?;
+            for (index, value) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                let Value::Temporal(value) = value else {
+                    return Err(Error::Internal(
+                        "validated timestamp column contains a non-temporal value".into(),
+                    ));
+                };
+                output.push(Value::Temporal(value.scale_timestamp(&spec.target)?));
+            }
+            context.check()?;
+            return crate::common::vector::Vector::flat(spec.target.clone(), output);
+        }
+        let cast = |value: &Value| {
+            if value.is_null() {
+                Ok(Value::Null)
+            } else {
+                self.cast(value, spec, context)
+            }
+        };
+        if let Some(value) = input.constant_value() {
+            return crate::common::vector::Vector::constant(
+                spec.target.clone(),
+                cast(value)?,
+                input.len(),
+            );
+        }
+        if let Some((parent, selection)) = input.dictionary()
+            && parent.len() <= input.len() / 4
+        {
+            let mut entries = vec![usize::MAX; parent.len()];
+            let mut values = Vec::with_capacity(parent.len());
+            let mut mapped = Vec::with_capacity(selection.len());
+            for (offset, &source) in selection.iter().enumerate() {
+                if offset % 1024 == 0 {
+                    context.check()?;
+                }
+                if entries[source] == usize::MAX {
+                    entries[source] = values.len();
+                    values.push(cast(
+                        &parent.get(source).expect("validated dictionary index"),
+                    )?);
+                }
+                mapped.push(entries[source]);
+            }
+            context.check()?;
+            return Arc::new(crate::common::vector::Vector::flat(
+                spec.target.clone(),
+                values,
+            )?)
+            .select(mapped);
+        }
+        let values = input
+            .values()
+            .enumerate()
+            .map(|(index, value)| {
+                if index % 1024 == 0 {
+                    context.check()?;
+                }
+                cast(&value)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        context.check()?;
+        crate::common::vector::Vector::flat(spec.target.clone(), values)
+    }
     fn cast_attempt(
         &self,
         value: &Value,
