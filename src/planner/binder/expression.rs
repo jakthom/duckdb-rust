@@ -789,7 +789,7 @@ impl State<'_, '_> {
                         };
                         if !arguments.get(index).is_some_and(super::constant_expression) {
                             return Err(Error::Bind(format!(
-                                "{} argument {} must be a constant expression",
+                                "{} requires a constant expression for argument {}",
                                 aggregate.name(),
                                 index + 1
                             )));

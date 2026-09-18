@@ -957,7 +957,7 @@ fn string_agg_binds_constant_separators_and_composes_with_grouping_modifiers() -
         );
         assert!(matches!(
             connection.query("SELECT string_agg(x, CAST(g AS VARCHAR)) FROM strings"),
-            Err(Error::Bind(message)) if message == "string_agg argument 2 must be a constant expression"
+            Err(Error::Bind(message)) if message == "string_agg requires a constant expression for argument 2"
         ));
         assert!(matches!(
             connection.query("SELECT string_agg(1, ',')"),

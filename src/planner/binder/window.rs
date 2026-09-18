@@ -277,7 +277,7 @@ impl State<'_, '_> {
             };
             if !super::constant_expression(argument) {
                 return Err(Error::Bind(format!(
-                    "{} argument {} must be a constant expression",
+                    "{} requires a constant expression for argument {}",
                     implementation.name(),
                     index + 1
                 )));
