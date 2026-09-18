@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 8 is integrated through `3b2f6a1`, grouping resource fixture at `db71451`; focused checks pass and fresh quiet diagnostics are next. Last measured candidate 7 passes all grouping/G08 native/resource gates, but three C2 native cases and C2 process wall/CPU still fail. Final acceptance remains open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 8 is integrated through `3b2f6a1`, grouping resource fixture at `db71451`. Focused checks pass; quiet diagnostics pass all four process families and grouping/G08 native families. Two C2 native cases still fail: many groups 1.084–1.096x and mixed 1.002–1.025x. Next: profile those remaining costs, then bounded corrections; final acceptance remains open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -872,7 +872,15 @@ Batch 1 evidence/restart details:
   tests and was explicitly not green. Another initial SQL test used floating
   division where integer grouping was intended; corrected fixture/results are
   preserved separately. Fresh release build and unchanged untimed fixtures
-  precede the next quiet diagnostics; final performance and verifier remain open.
+  passed. Candidate 8 quiet diagnostics pass ungrouped 0.652–0.662x, few groups
+  0.946–0.982x and ordered DISTINCT 0.672–0.683x. Many groups still fail
+  1.084–1.096x and mixed 1.002–1.025x. All grouping, G08 filter and G08 ordered
+  native cases pass; all four process families now pass their independent
+  wall/CPU/RSS/I/O gates. Reports are worker `target/c2-1/*candidate8*.json`.
+  These nine-sample diagnostics are not final acceptance. Next: fresh focused
+  profiles of the two remaining native failures; preserve failed runs and do
+  not retry to green. Final integrated 21-sample performance and scoped verifier
+  remain open.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
