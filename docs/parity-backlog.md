@@ -843,6 +843,11 @@ Batch 1 evidence/restart details:
   not the executor broadened. C6 profiles justify the changes; no new unsafe
   vector construction or function-name routing. Worker manifests are
   `target/c2-1/{owned-finish-contract-manifest,candidate7-owned-list-finish-manifest,candidate7-grouped-string-delivery-manifest}.md`.
+  Candidate 7 worker `0284439` is integrated as `e25c889`. Focused checks pass:
+  modifier 1/1, owned completion contracts 2/2, LIST leaf 3/3, STRING_AGG leaf
+  7/7 and grouping 77/77, with formatting/diff checks clean. Fresh release
+  build/unchanged untimed fixtures and quiet diagnostics are next; performance
+  is still open, not inferred from passing functional tests.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
