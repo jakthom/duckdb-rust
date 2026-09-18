@@ -862,7 +862,7 @@ Batch 1 evidence/restart details:
   lookup; S `batch1_f1_performance` adopts checked power-of-two grouped string
   capacity, matching the pinned C++ growth policy while leaving scalar and
   inline storage unchanged. Both latency and RSS gates stay independent.
-  No retained-input/two-pass aggregation or new columnar interface is approved.
+  No retained-input/two-pass aggregation was approved for candidate 8.
   Candidate 8 worker `2a9c04a` plus `db6ee1c` is integrated as `299d710` /
   `3b2f6a1`. Focused VARCHAR/vector/nested checks pass 1/1 each, LIST leaf 3/3,
   STRING_AGG leaf 7/7, modifier 1/1 and grouping 77/77. Review added a direct
@@ -881,6 +881,18 @@ Batch 1 evidence/restart details:
   profiles of the two remaining native failures; preserve failed runs and do
   not retry to green. Final integrated 21-sample performance and scoped verifier
   remain open.
+  Candidate 9 is now being validated in the same C2 worktree: profile evidence
+  supports a bounded additive `AggregateResult` column transport (root owns
+  trait/publication; S lead owns general grouped storage; T owns custom adapter
+  tests) and exact LIST(VARCHAR) payload validation loop (second S worker).
+  Column-major group storage removes one row allocation per group; existing
+  specialized paths still return rows, and the default method preserves legacy
+  selected algorithms. LIST validation still checks every child, metadata,
+  depth and visit budget; no cached trust or unchecked constructors. Direct
+  tests cover schema/shape, zero-width/empty output, demand, ownership,
+  cancellation/limits, grouping masks and custom callback identity. Manifests
+  are worker `target/c2-1/candidate9-{aggregate-columns,columnar-grouped,list-varchar-validation}-manifest.md`.
+  All four existing native/process workload families remain acceptance gates.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
