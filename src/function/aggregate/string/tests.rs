@@ -255,6 +255,56 @@ fn grouped_inline_storage_preserves_boundaries_promotion_and_capacity_policy() -
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn grouped_heap_append_preserves_separator_content_capacity_and_errors() -> Result<()> {
+    for (separator, input, expected) in [
+        ("", "", "prefix"),
+        ("|", "中\0", "prefix|中\0"),
+        ("\0", "é", "prefix\0é"),
+        ("é", "", "prefixé"),
+        ("界|", "tail", "prefix界|tail"),
+    ] {
+        let mut value = String::new();
+        value
+            .try_reserve_exact(128)
+            .map_err(|_| Error::Resource("test string allocation failed".into()))?;
+        value.push_str("prefix");
+        let capacity = value.capacity();
+        let mut buffer = GroupedStringBuffer::Heap(value);
+        buffer.append(&Value::Varchar(input.into()), separator)?;
+        let GroupedStringBuffer::Heap(value) = buffer else {
+            unreachable!("heap buffer remains promoted");
+        };
+        assert_eq!(value, expected);
+        assert_eq!(value.capacity(), capacity);
+    }
+
+    let mut value = "g".repeat(64);
+    value.shrink_to_fit();
+    let capacity = value.capacity();
+    let input = "x".repeat(capacity.saturating_add(1));
+    let expected = format!("{}|{input}", "g".repeat(64));
+    let mut growing = GroupedStringBuffer::Heap(value);
+    growing.append(&Value::Varchar(input), "|")?;
+    let GroupedStringBuffer::Heap(growing) = growing else {
+        unreachable!("heap buffer remains promoted");
+    };
+    assert_eq!(growing, expected);
+    assert!(growing.capacity() >= growing.len());
+    assert!(growing.capacity() > capacity);
+
+    let mut unchanged = GroupedStringBuffer::Heap("kept".into());
+    unchanged.append(&Value::Null, "|")?;
+    assert!(matches!(&unchanged, GroupedStringBuffer::Heap(value) if value == "kept"));
+    assert!(matches!(
+        unchanged.append(&Value::Integer(1), "|"),
+        Err(Error::Internal(_))
+    ));
+    assert!(matches!(&unchanged, GroupedStringBuffer::Heap(value) if value == "kept"));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn grouped_inline_storage_scales_from_empty_to_many_groups() -> Result<()> {
     let query = QueryContext::background();
     let mut grouped = StringAggGroups {

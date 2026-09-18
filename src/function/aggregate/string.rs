@@ -247,7 +247,10 @@ impl GroupedStringBuffer {
                         .try_reserve_exact(target - value.len())
                         .map_err(|_| Error::Resource("string_agg allocation failed".into()))?;
                 }
-                value.push_str(separator);
+                match separator.as_bytes() {
+                    [byte] if byte.is_ascii() => value.push(char::from(*byte)),
+                    _ => value.push_str(separator),
+                }
                 value.push_str(input);
             }
         }
