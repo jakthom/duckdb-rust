@@ -30,6 +30,7 @@ use std::{cmp::Ordering, collections::HashSet, sync::Arc};
 const SMALL_VARCHAR_DISTINCT_KEYS: usize = 64;
 const MAX_SMALL_VARCHAR_SLOTS: usize = SMALL_VARCHAR_DISTINCT_KEYS * 2;
 const MAX_SIGNED_ORDER_BUCKETS: usize = 65_536;
+const MAX_PHYSICAL_DISTINCT_MEMO: usize = 65_536;
 // Short prefixes use their length in the high byte (0..=7), while long
 // prefixes use 0xff. This tag can therefore never describe a key.
 const EMPTY_SMALL_VARCHAR_PREFIX: u64 = 0x80 << 56;
@@ -338,6 +339,11 @@ enum BorrowedVarcharValues<'a> {
     Fallback(&'a Vector),
 }
 
+struct PhysicalDistinctMemo {
+    parent_values: usize,
+    seen: Vec<u8>,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'a> BorrowedVarcharValues<'a> {
     #[inline]
@@ -405,6 +411,107 @@ impl<'a> BorrowedVarcharValues<'a> {
             }
             Self::Fallback(column) => with_value(column, row, callback),
         }
+    }
+
+    fn physical_domain(&self) -> Option<usize> {
+        match self {
+            Self::Constant { .. } | Self::DictionaryConstant { .. } => Some(1),
+            Self::DictionaryFlat { values, .. } => Some(values.len()),
+            Self::Flat(_) | Self::Fallback(_) => None,
+        }
+    }
+
+    fn physical_index(&self, row: usize) -> Result<Option<usize>> {
+        match self {
+            Self::Constant { rows, .. } => {
+                if row >= *rows {
+                    return Err(Error::Internal("aggregate vector row outside input".into()));
+                }
+                Ok(Some(0))
+            }
+            Self::DictionaryFlat { values, selection } => {
+                let selected = *selection
+                    .get(row)
+                    .ok_or_else(|| Error::Internal("aggregate vector row outside input".into()))?;
+                if selected >= values.len() {
+                    return Err(Error::Internal(
+                        "aggregate dictionary row outside parent".into(),
+                    ));
+                }
+                Ok(Some(selected))
+            }
+            Self::DictionaryConstant {
+                parent_rows,
+                selection,
+                ..
+            } => {
+                let selected = *selection
+                    .get(row)
+                    .ok_or_else(|| Error::Internal("aggregate vector row outside input".into()))?;
+                if selected >= *parent_rows {
+                    return Err(Error::Internal(
+                        "aggregate dictionary row outside parent".into(),
+                    ));
+                }
+                Ok(Some(0))
+            }
+            Self::Flat(_) | Self::Fallback(_) => Ok(None),
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl PhysicalDistinctMemo {
+    fn new(
+        values: &BorrowedVarcharValues<'_>,
+        groups: usize,
+        rows: usize,
+        query: &QueryContext,
+    ) -> Result<Option<Self>> {
+        let Some(parent_values) = values.physical_domain() else {
+            return Ok(None);
+        };
+        let Some(entries) = groups.checked_mul(parent_values) else {
+            return Ok(None);
+        };
+        let row_bound = rows.checked_mul(4).unwrap_or(usize::MAX);
+        if entries > MAX_PHYSICAL_DISTINCT_MEMO || entries > row_bound {
+            return Ok(None);
+        }
+        match query.check_rows(entries) {
+            Ok(()) => {}
+            Err(Error::Resource(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        }
+        let mut seen = Vec::new();
+        seen.try_reserve_exact(entries).map_err(|_| {
+            Error::Resource("buffered DISTINCT physical memo allocation failed".into())
+        })?;
+        seen.resize(entries, 0);
+        Ok(Some(Self {
+            parent_values,
+            seen,
+        }))
+    }
+
+    fn insert(&mut self, group: usize, parent: usize) -> Result<bool> {
+        if parent >= self.parent_values {
+            return Err(Error::Internal(
+                "buffered DISTINCT physical row outside parent".into(),
+            ));
+        }
+        let index = group
+            .checked_mul(self.parent_values)
+            .and_then(|offset| offset.checked_add(parent))
+            .ok_or_else(|| Error::Internal("buffered DISTINCT physical memo overflow".into()))?;
+        let seen = self.seen.get_mut(index).ok_or_else(|| {
+            Error::Internal("buffered DISTINCT group outside physical memo".into())
+        })?;
+        if *seen != 0 {
+            return Ok(false);
+        }
+        *seen = 1;
+        Ok(true)
     }
 }
 
@@ -654,6 +761,18 @@ pub(super) fn try_run(
                     }
                     let borrowed_varchar_values = borrowed_varchar_key
                         .then(|| BorrowedVarcharValues::new(&input.columns()[0]));
+                    let mut physical_distinct_memo = borrowed_varchar_values
+                        .as_ref()
+                        .map(|values| {
+                            PhysicalDistinctMemo::new(
+                                values,
+                                groups.len(),
+                                destinations.len(),
+                                context.query,
+                            )
+                        })
+                        .transpose()?
+                        .flatten();
                     for (row, &group) in destinations.iter().enumerate() {
                         if row % 1024 == 0 {
                             context.query.check()?;
@@ -662,17 +781,23 @@ pub(super) fn try_run(
                         if buffered.distinct {
                             if borrowed_varchar_key {
                                 let representation = buffered.argument_keys[0].key_representation();
-                                let inserted = borrowed_varchar_values
+                                let values = borrowed_varchar_values
                                     .as_ref()
-                                    .expect("borrowed VARCHAR view was selected")
-                                    .with_value(row, |value| {
-                                        insert_borrowed_varchar(
-                                            retained,
-                                            representation,
-                                            value,
-                                            context.query,
-                                        )
-                                    })?;
+                                    .expect("borrowed VARCHAR view was selected");
+                                if let Some(memo) = &mut physical_distinct_memo
+                                    && let Some(parent) = values.physical_index(row)?
+                                    && !memo.insert(group, parent)?
+                                {
+                                    continue;
+                                }
+                                let inserted = values.with_value(row, |value| {
+                                    insert_borrowed_varchar(
+                                        retained,
+                                        representation,
+                                        value,
+                                        context.query,
+                                    )
+                                })?;
                                 if !inserted {
                                     continue;
                                 }
@@ -1100,4 +1225,20 @@ fn with_value<T>(
         .get(row)
         .ok_or_else(|| Error::Internal("aggregate vector row outside input".into()))?;
     callback(&value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parallel::InterruptHandle;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn physical_distinct_memo_declines_optional_resource_pressure() -> Result<()> {
+        let column = Vector::constant(DataType::Varchar, Value::Varchar("same".into()), 2)?;
+        let values = BorrowedVarcharValues::new(&column);
+        let limited = QueryContext::new(InterruptHandle::default(), None, 2, 2)?;
+        assert!(PhysicalDistinctMemo::new(&values, 3, 2, &limited)?.is_none());
+        Ok(())
+    }
 }

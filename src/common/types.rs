@@ -380,6 +380,7 @@ impl Value {
                     && value.fits_type()
                     && value.data_type == *data_type
             }
+            Self::Varchar(_) => matches!(data_type, DataType::Varchar),
             _ => self.data_type() == *data_type,
         }
     }
@@ -641,6 +642,29 @@ mod float32_bits {
 mod tests {
     use super::*;
     use crate::common::NestedType;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn varchar_fits_only_exact_physical_varchar() {
+        for text in ["", "text", "é界", "nul\0tail"] {
+            let value = Value::Varchar(text.into());
+            assert!(value.fits_type(&DataType::Varchar));
+            for target in [
+                DataType::Null,
+                DataType::Blob,
+                DataType::Integer,
+                DataType::Boolean,
+                DataType::extension("test.varchar_wrapper", vec![]),
+                NestedType::List(DataType::Varchar).data_type(),
+            ] {
+                assert!(!value.fits_type(&target));
+                assert_eq!(value.fits_type(&target), value.data_type() == target);
+            }
+        }
+        assert!(Value::Null.fits_type(&DataType::Varchar));
+        assert!(!Value::Blob(vec![]).fits_type(&DataType::Varchar));
+        assert!(!Value::Integer(1).fits_type(&DataType::Varchar));
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]

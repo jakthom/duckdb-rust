@@ -1414,6 +1414,26 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
             .rows,
         vec![vec![Value::Varchar("a|b".into())]],
     );
+    connection.execute(
+        "CREATE TABLE physical_memo AS \
+         SELECT i % 40 AS g, \
+                CASE WHEN ((i - i % 40) / 40) % 3 = 0 THEN NULL \
+                     WHEN ((i - i % 40) / 40) % 3 = 1 THEN 'a' ELSE 'b' END AS x \
+         FROM range(1200) t(i)",
+    )?;
+    let memo_groups = connection.query(
+        "SELECT buffered_probe(DISTINCT x ORDER BY x NULLS FIRST) \
+         FROM physical_memo GROUP BY g",
+    )?;
+    assert_eq!(memo_groups.rows.len(), 40);
+    assert!(
+        memo_groups
+            .rows
+            .iter()
+            .all(|row| row == &[Value::Varchar("NULL|a|b".into())]),
+        "unexpected physical memo groups: {:?}",
+        memo_groups.rows
+    );
     assert_eq!(
         connection
             .query(

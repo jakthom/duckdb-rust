@@ -209,7 +209,7 @@ impl GroupedStringBuffer {
                 };
             }
             Self::Unseen => {
-                let mut value = grouped_string(grouped_promotion_capacity(input.len(), false))?;
+                let mut value = grouped_string(grouped_heap_capacity(input.len()))?;
                 value.push_str(input);
                 *self = Self::Heap(value);
             }
@@ -228,7 +228,7 @@ impl GroupedStringBuffer {
                     let inline = std::str::from_utf8(&bytes[..current]).map_err(|_| {
                         Error::Internal("string_agg inline UTF-8 is invalid".into())
                     })?;
-                    let mut value = grouped_string(grouped_promotion_capacity(required, true))?;
+                    let mut value = grouped_string(grouped_heap_capacity(required))?;
                     value.push_str(inline);
                     value.push_str(separator);
                     value.push_str(input);
@@ -241,7 +241,7 @@ impl GroupedStringBuffer {
                     .len()
                     .checked_add(additional)
                     .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
-                let target = grouped_heap_capacity(required, value.capacity());
+                let target = grouped_growth_capacity(required, value.capacity());
                 if target > value.capacity() {
                     value
                         .try_reserve_exact(target - value.len())
@@ -279,19 +279,16 @@ fn grouped_string(capacity: usize) -> Result<String> {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn grouped_promotion_capacity(required: usize, reused: bool) -> usize {
-    if !reused {
-        return required;
-    }
-    required.checked_mul(2).unwrap_or(required)
+fn grouped_heap_capacity(required: usize) -> usize {
+    required.checked_next_power_of_two().unwrap_or(required)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn grouped_heap_capacity(required: usize, capacity: usize) -> usize {
+fn grouped_growth_capacity(required: usize, capacity: usize) -> usize {
     if required <= capacity {
         return capacity;
     }
-    required.max(capacity.checked_mul(2).unwrap_or(required))
+    grouped_heap_capacity(required).max(required).max(capacity)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

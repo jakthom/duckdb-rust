@@ -223,21 +223,31 @@ fn grouped_inline_storage_preserves_boundaries_promotion_and_capacity_policy() -
     assert_eq!(reused.capacity(), capacity);
     assert!(reused.ends_with("|z"));
 
-    assert_eq!(grouped_promotion_capacity(96, false), 96);
-    assert_eq!(grouped_promotion_capacity(34, true), 68);
-    assert_eq!(grouped_promotion_capacity(usize::MAX, true), usize::MAX);
+    assert_eq!(grouped_heap_capacity(0), 1);
+    assert_eq!(grouped_heap_capacity(1), 1);
+    assert_eq!(grouped_heap_capacity(32), 32);
+    assert_eq!(grouped_heap_capacity(33), 64);
+    assert_eq!(grouped_heap_capacity(63), 64);
+    assert_eq!(grouped_heap_capacity(64), 64);
+    assert_eq!(grouped_heap_capacity(65), 128);
+    assert_eq!(grouped_heap_capacity(96), 128);
+    assert_eq!(grouped_heap_capacity(110), 128);
+    assert_eq!(grouped_heap_capacity(129), 256);
     assert_eq!(
-        grouped_promotion_capacity(usize::MAX / 2 + 1, true),
+        grouped_heap_capacity(usize::MAX / 2 + 1),
         usize::MAX / 2 + 1
     );
-    assert_eq!(grouped_heap_capacity(8, 16), 16);
-    assert_eq!(grouped_heap_capacity(17, 16), 32);
+    assert_eq!(grouped_heap_capacity(usize::MAX), usize::MAX);
+    assert_eq!(grouped_growth_capacity(8, 16), 16);
+    assert_eq!(grouped_growth_capacity(100, 127), 127);
+    assert_eq!(grouped_growth_capacity(129, 192), 192);
+    assert_eq!(grouped_growth_capacity(193, 192), 256);
     assert_eq!(
-        grouped_heap_capacity(usize::MAX - 1, usize::MAX / 2 + 1),
+        grouped_growth_capacity(usize::MAX - 1, usize::MAX / 2 + 1),
         usize::MAX - 1
     );
     assert_eq!(
-        grouped_heap_capacity(usize::MAX, usize::MAX - 1),
+        grouped_growth_capacity(usize::MAX, usize::MAX - 1),
         usize::MAX
     );
     Ok(())
