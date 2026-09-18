@@ -1132,7 +1132,7 @@ remaining G06.1 catalog.
 
 **G06.1e/G06.2a frozen validation manifest — byte/grapheme transforms and regex
 predicates.** This batch owns `src/function/scalar/text/{metrics,regex}.rs`, their
-registration seams in `src/function/scalar{text.rs,.rs}`, the existing
+registration seams in `src/function/{scalar.rs,scalar/text.rs}`, the existing
 `bit_length` and `octet_length` shared contracts, focused
 `test/component/{text_metrics_reverse,text_regex}.rs`, the G06 SQLLogic and
 performance fixtures/manifests, their explicit Cargo targets, and this backlog
@@ -1176,6 +1176,43 @@ serial samples compare both exact pins. Every native wall ratio and process
 wall, throughput, CPU, peak-RSS and block-I/O ratio must independently be no
 worse than the faster reference; samples, reference/source/binary identities and
 failed attempts remain under `target/`.
+
+**G06.1e/G06.2a final status (executable revision `0cf752d`).** The implementation
+now provides byte-counting `strlen`, utf8proc grapheme-aware `reverse`, and
+NUL-safe partial/full regex predicates with constant options and constant-pattern
+compilation. Packed BIGINT byte lengths, compact string-vector paths, bounded
+dynamic-pattern caching, literal/prefix/suffix plans and a built-in-only direct
+filter selection capability keep the new operations on the batch path without
+letting external adapters claim their identity. Successfully compiled constant
+patterns are total; dynamic patterns remain fallible and preserve first-error
+order. The focused and named shared component targets pass, as do the local
+five-record composition fixture and all four 128-loop process fixtures (521
+records, zero skips). `cargo dev coverage` reports zero missing instrumentation
+points, and `cargo dev trace check --workspace --all-targets` completes with no
+errors, panics or open spans.
+
+The exact dual-pin upstream report is
+`target/next-batch/g06_1e_2a/upstream-final-v2.json`. Development passes complete
+complex-Unicode 18/18, reverse 9/9 and bit-length 8/8 files; release passes
+19/19, 10/10 and 9/9 respectively. `regex_search.test` stops before predicate
+assertions at the separately unsupported `FROM VALUES` table-function syntax
+(0/1 development, 1/2 release), while `regexp_unicode_literal.test` stops at
+the separately unsupported `FROM table` shorthand (2/3, 3/4). The NUL corpus
+passes both regex predicates and reaches the separate missing `printf` function
+(16/17, 17/18). These are retained prefix blockers, not full-file passes; the
+unchanged blocked regex assertions are covered directly by the focused component
+and local fixtures.
+
+Final 21-sample native reports are
+`target/next-batch/performance/g06_1e_2a/final-native-{release,development,fastest}-21-v2.json`.
+Both pin campaigns and the joint faster-reference gate pass all four workloads;
+the maximum Rust/faster-pin ratios are 0.051 reverse, 0.928 `strlen`, 0.392
+constant case-insensitive regex and 0.065 dynamic regex. The companion report
+`target/next-batch/performance/g06_1e_2a/final-process-21-v2.json` passes every
+workload independently for wall latency, throughput, CPU, peak RSS and block
+I/O; its worst ratios are 0.638 wall, 0.500 CPU, 0.723 RSS and 1.000 block I/O.
+The source tree is frozen for the delegated `python3 scripts/verify_chunk.py`
+sweep; a passing sweep on this tree completes this slice.
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
