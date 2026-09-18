@@ -784,7 +784,18 @@ Batch 1 evidence/restart details:
   owned publication to schemas containing physical VARCHAR. The latter can
   remove publication-only impact on numeric/F1 consumers after reviewed input
   comparison; it does not remove the affected grouping workload obligations.
-  One validator (`batch1_f1`) coalesces focused tests, then freezes before quiet
+  Candidate 5 is worker `c66ecf6`, integrated as `ea430e2`: index 11/11,
+  publication routing 1/1, owned-row/deferred controls 1/1 each, modifier 1/1
+  and grouping 75/75 pass. Two test-only compilation mistakes were corrected
+  before these passing runs; no failed/zero-test invocation counts as evidence.
+  Release build and fresh quiet diagnostics are next. The narrowed publication
+  route restores the original deferred path for numeric schemas; ungrouped F1
+  SUM/range implementation inputs remain unchanged, so its accepted evidence
+  is reusable. Grouped SUM and all three grouping workloads remain affected.
+  Missing grouped process-resource coverage is being added with the same
+  50,000-row setup and grouped/ROLLUP/CUBE shapes, 128 iterations and forced
+  SUM/COUNT/GROUPING checksums; both-pin oracle validation precedes timing.
+  One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
   C2.1 remains incomplete pending measured batch/group/modifier
