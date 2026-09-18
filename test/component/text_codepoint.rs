@@ -148,3 +148,75 @@ fn codepoint_varchar_functions_are_nul_safe_and_prepared() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn unicode_normalization_functions_cover_scalar_null_prepared_and_batched_rows() -> Result<()> {
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut connection = DatabaseBuilder::new()
+            .expressions(evaluator)
+            .batch_size(2)
+            .build()?
+            .connect();
+        assert_eq!(
+            connection.query("SELECT strip_accents('hello'), strip_accents('hännës mühlëïsën'), strip_accents('ôâêóáëòõç'), strip_accents('øßŁ'), strip_accents('a\0é'), strip_accents(''), strip_accents(NULL)")?.rows,
+            vec![vec![
+                Value::Varchar("hello".into()),
+                Value::Varchar("hannes muhleisen".into()),
+                Value::Varchar("oaeoaeooc".into()),
+                Value::Varchar("øßŁ".into()),
+                Value::Varchar("a\0e".into()),
+                Value::Varchar("".into()),
+                Value::Null,
+            ]]
+        );
+        assert_eq!(
+            connection.query("SELECT nfc_normalize('é'), nfc_normalize('A\0̊'), nfc_normalize('ascii'), nfc_normalize(NULL)")?.rows,
+            vec![vec![
+                Value::Varchar("é".into()),
+                Value::Varchar("A\0̊".into()),
+                Value::Varchar("ascii".into()),
+                Value::Null,
+            ]]
+        );
+        assert!(matches!(
+            connection.query("SELECT strip_accents(42)"),
+            Err(Error::Bind(message)) if message.contains("No function matches")
+        ));
+        assert!(matches!(
+            connection.query("SELECT nfc_normalize()"),
+            Err(Error::Bind(message)) if message.contains("No function matches")
+        ));
+        let prepared = connection.prepare("SELECT strip_accents($1), nfc_normalize($2)")?;
+        assert_eq!(
+            connection
+                .execute_prepared(
+                    &prepared,
+                    &[
+                        Value::Varchar("Crème brûlée".into()),
+                        Value::Varchar("ô".into())
+                    ],
+                )?
+                .rows,
+            vec![vec![
+                Value::Varchar("Creme brulee".into()),
+                Value::Varchar("ô".into())
+            ]]
+        );
+        connection.execute("CREATE TABLE normalized_values(value VARCHAR)")?;
+        connection.execute("INSERT INTO normalized_values VALUES ('é'), ('é'), ('\0ö'), (NULL)")?;
+        assert_eq!(
+            connection.query("SELECT strip_accents(value), nfc_normalize(value) FROM normalized_values ORDER BY value NULLS LAST")?.rows,
+            vec![
+                vec![Value::Varchar("\0o".into()), Value::Varchar("\0ö".into())],
+                vec![Value::Varchar("e".into()), Value::Varchar("é".into())],
+                vec![Value::Varchar("e".into()), Value::Varchar("é".into())],
+                vec![Value::Null, Value::Null],
+            ]
+        );
+    }
+    Ok(())
+}

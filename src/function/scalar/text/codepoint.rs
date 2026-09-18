@@ -21,6 +21,10 @@ struct Chr;
 struct Ascii;
 #[derive(Debug)]
 struct Contains;
+#[derive(Debug)]
+struct StripAccents;
+#[derive(Debug)]
+struct NfcNormalize;
 
 /// Borrow the common VARCHAR physical encodings so string kernels do not need
 /// to clone their inputs through `Vector::value`. A nested dictionary or a
@@ -78,6 +82,12 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
     registry
         .register_scalar(Arc::new(Contains))
         .expect("unique varchar contains scalar function");
+    registry
+        .register_scalar(Arc::new(StripAccents))
+        .expect("unique strip_accents scalar function");
+    registry
+        .register_scalar(Arc::new(NfcNormalize))
+        .expect("unique nfc_normalize scalar function");
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -170,6 +180,61 @@ fn ascii_value(value: &Value) -> Result<Value> {
         ))),
         _ => Err(Error::Internal("ascii argument is not VARCHAR".into())),
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn is_ascii(value: &str) -> bool {
+    value.is_ascii()
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn strip_accents_value(value: &Value) -> Result<Value> {
+    let Value::Varchar(value) = value else {
+        return if value.is_null() {
+            Ok(Value::Null)
+        } else {
+            Err(Error::Internal(
+                "strip_accents argument is not VARCHAR".into(),
+            ))
+        };
+    };
+    if is_ascii(value) {
+        return Ok(Value::Varchar(value.clone()));
+    }
+    let decomposed =
+        utf8proc::transform::normalize(value, utf8proc::transform::UnicodeNormalizationForm::NFD)
+            .map_err(|error| Error::Resource(format!("utf8proc normalization failed: {error}")))?;
+    Ok(Value::Varchar(
+        decomposed
+            .chars()
+            .filter(|character| {
+                utf8proc::properties::CharProperties::for_char(*character).major_category()
+                    != utf8proc::properties::MajorCategory::Mark
+            })
+            .collect(),
+    ))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn nfc_normalize_value(value: &Value) -> Result<Value> {
+    let Value::Varchar(value) = value else {
+        return if value.is_null() {
+            Ok(Value::Null)
+        } else {
+            Err(Error::Internal(
+                "nfc_normalize argument is not VARCHAR".into(),
+            ))
+        };
+    };
+    if is_ascii(value) {
+        return Ok(Value::Varchar(value.clone()));
+    }
+    let mut options = utf8proc::transform::TransformOptions::default();
+    options.composition = Some(utf8proc::transform::CompositionOptions::compose());
+    options.stable = true;
+    utf8proc::transform::map(value.as_str(), &options)
+        .map(Value::Varchar)
+        .map_err(|error| Error::Resource(format!("utf8proc normalization failed: {error}")))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -527,6 +592,74 @@ impl ScalarFunction for Contains {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for StripAccents {
+    fn name(&self) -> &str {
+        "strip_accents"
+    }
+    fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
+        varchar_arguments("strip_accents", arguments, 1)
+    }
+    fn return_type(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        varchar_arguments("strip_accents", arguments, 1)?;
+        Ok(DataType::Varchar)
+    }
+    fn is_total(&self, _: &[Option<&Value>]) -> bool {
+        true
+    }
+    fn supports_batch_evaluation(&self, arguments: &[DataType]) -> bool {
+        arguments == [DataType::Varchar]
+    }
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        unary_varchar_batch(arguments, DataType::Varchar, query, strip_accents_value)
+    }
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        let [value] = arguments else {
+            return Err(Error::Internal("strip_accents argument count".into()));
+        };
+        strip_accents_value(value)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for NfcNormalize {
+    fn name(&self) -> &str {
+        "nfc_normalize"
+    }
+    fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
+        varchar_arguments("nfc_normalize", arguments, 1)
+    }
+    fn return_type(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        varchar_arguments("nfc_normalize", arguments, 1)?;
+        Ok(DataType::Varchar)
+    }
+    fn is_total(&self, _: &[Option<&Value>]) -> bool {
+        true
+    }
+    fn supports_batch_evaluation(&self, arguments: &[DataType]) -> bool {
+        arguments == [DataType::Varchar]
+    }
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        unary_varchar_batch(arguments, DataType::Varchar, query, nfc_normalize_value)
+    }
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        let [value] = arguments else {
+            return Err(Error::Internal("nfc_normalize argument count".into()));
+        };
+        nfc_normalize_value(value)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for Chr {
     fn name(&self) -> &str {
         "chr"
@@ -857,6 +990,82 @@ mod tests {
                 Value::Null,
                 Value::Boolean(true),
                 Value::Boolean(true),
+            ]
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn unicode_normalization_batches_preserve_varchar_encodings_and_nuls() -> Result<()> {
+        let query = QueryContext::background();
+        let values = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("a\0é".into()),
+                Value::Varchar("é".into()),
+                Value::Null,
+            ],
+        )?);
+        let strip = StripAccents;
+        let nfc = NfcNormalize;
+        let flat = DataChunk::new(vec![values.as_ref().clone()], 3)?;
+        assert_eq!(
+            strip
+                .evaluate_batch(&flat, &query)?
+                .expect("strip flat batch")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![
+                Value::Varchar("a\0e".into()),
+                Value::Varchar("e".into()),
+                Value::Null,
+            ]
+        );
+        let constant = DataChunk::new(
+            vec![Vector::constant(
+                DataType::Varchar,
+                Value::Varchar("é".into()),
+                3,
+            )?],
+            3,
+        )?;
+        let result = nfc
+            .evaluate_batch(&constant, &query)?
+            .expect("nfc constant batch");
+        assert!(result.constant_value().is_some());
+        assert_eq!(
+            result.values().collect::<Vec<_>>(),
+            vec![Value::Varchar("é".into()); 3]
+        );
+        let dictionary = DataChunk::new(vec![values.select(vec![1, 0, 2, 1])?], 4)?;
+        let result = nfc
+            .evaluate_batch(&dictionary, &query)?
+            .expect("nfc dictionary batch");
+        assert!(result.dictionary().is_some());
+        assert_eq!(
+            result.values().collect::<Vec<_>>(),
+            vec![
+                Value::Varchar("é".into()),
+                Value::Varchar("a\0é".into()),
+                Value::Null,
+                Value::Varchar("é".into()),
+            ]
+        );
+        let chunked = Vector::chunked(
+            DataType::Varchar,
+            vec![values.slice(0, 2)?, values.slice(2, 1)?],
+        )?;
+        assert_eq!(
+            strip
+                .evaluate_batch(&DataChunk::new(vec![chunked], 3)?, &query)?
+                .expect("strip chunked batch")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![
+                Value::Varchar("a\0e".into()),
+                Value::Varchar("e".into()),
+                Value::Null,
             ]
         );
         Ok(())
