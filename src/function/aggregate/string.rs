@@ -4,9 +4,9 @@ use crate::{
     parallel::QueryContext,
 };
 
-/// STRING_AGG binds its separator as a constant but keeps it in the argument
-/// row. This preserves the generic ORDER BY/DISTINCT/FILTER and window paths
-/// without a function-specific executor wrapper.
+/// STRING_AGG captures its constant separator in a bound adapter and retains
+/// only the input row. This preserves generic ORDER BY/DISTINCT/FILTER and
+/// window paths without a function-specific executor wrapper.
 #[derive(Debug)]
 pub(super) struct StringAgg(pub(super) &'static str, pub(super) Option<Option<String>>);
 
