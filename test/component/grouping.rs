@@ -39,6 +39,8 @@ mod owned;
 mod product;
 #[path = "../runner/mod.rs"]
 mod runner;
+#[path = "grouping/transport.rs"]
+mod transport;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn algorithms() -> Vec<Arc<dyn AggregationAlgorithm>> {

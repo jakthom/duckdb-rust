@@ -49,21 +49,21 @@ pub(super) fn try_run(
     input: &mut dyn BatchStream,
     aggregation: &Aggregation,
     context: &ExecutionContext<'_>,
-) -> Result<Option<Vec<Row>>> {
+) -> Result<Option<AggregateResult>> {
     if let Some(rows) = try_filtered_signed_ungrouped(input, aggregation, context)? {
-        return Ok(Some(rows));
+        return Ok(Some(AggregateResult::Rows(rows)));
     }
     if let Some(rows) = try_distinct_modifiers(input, aggregation, context)? {
-        return Ok(Some(rows));
+        return Ok(Some(AggregateResult::Rows(rows)));
     }
     if let Some(rows) = try_ordered_candidates(input, aggregation, context)? {
-        return Ok(Some(rows));
+        return Ok(Some(AggregateResult::Rows(rows)));
     }
     if let Some(rows) = modifiers::try_run(input, aggregation, context)? {
-        return Ok(Some(rows));
+        return Ok(Some(AggregateResult::Rows(rows)));
     }
     if let Some(rows) = try_ungrouped(input, aggregation, context)? {
-        return Ok(Some(rows));
+        return Ok(Some(AggregateResult::Rows(rows)));
     }
     // Keep the existing ungrouped column kernel, including its overflow proof.
     if aggregation.groups.is_empty() && aggregation.sets.len() == 1 {
@@ -95,11 +95,6 @@ pub(super) fn try_run(
         return Ok(None);
     }
     aggregation.validate_metadata(context.query)?;
-    let row_width = aggregation
-        .groups
-        .len()
-        .checked_add(aggregation.outputs.len())
-        .ok_or_else(|| Error::Resource("aggregate result width exceeds usize".into()))?;
     let functions = aggregation.functions().collect::<Vec<_>>();
     let mut accumulators = Vec::with_capacity(functions.len());
     for function in &functions {
@@ -133,7 +128,7 @@ pub(super) fn try_run(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let mut groups: Vec<(Row, usize)> = Vec::new();
+    let mut groups = ColumnarGroups::new(aggregation.groups.len())?;
     let mut indices = aggregation
         .sets
         .iter()
@@ -142,13 +137,9 @@ pub(super) fn try_run(
             let mut index = index::IntegerIndex::default();
             if set.is_empty() {
                 context.query.check_rows(groups.len() + 1)?;
+                context.query.check()?;
                 index.set_empty(groups.len());
-                let mut values = Vec::new();
-                values
-                    .try_reserve_exact(row_width)
-                    .map_err(|_| Error::Resource("aggregate row allocation failed".into()))?;
-                values.resize(aggregation.groups.len(), Value::Null);
-                groups.push((values, set_index));
+                groups.push_empty(set_index)?;
             }
             Ok(index)
         })
@@ -187,19 +178,11 @@ pub(super) fn try_run(
                 context.query,
                 |row| {
                     context.query.check_rows(groups.len() + 1)?;
-                    let index = groups.len();
-                    let mut values = Vec::new();
-                    values
-                        .try_reserve_exact(row_width)
-                        .map_err(|_| Error::Resource("aggregate row allocation failed".into()))?;
-                    for (i, column) in columns.iter().enumerate() {
-                        values.push(if set.contains(i) {
-                            column.get(row).expect("validated grouping column")
-                        } else {
-                            Value::Null
-                        });
+                    if groups.len() % 1024 == 0 {
+                        context.query.check()?;
                     }
-                    groups.push((values, set_index));
+                    let index = groups.len();
+                    groups.push(&columns, set, set_index, row)?;
                     Ok(index)
                 },
             )?;
@@ -215,7 +198,7 @@ pub(super) fn try_run(
             }
         }
     }
-    let mut values = accumulators
+    let values = accumulators
         .into_iter()
         .map(|mut state| {
             state.resize(groups.len(), context.query)?;
@@ -233,29 +216,138 @@ pub(super) fn try_run(
             Ok(values)
         })
         .collect::<Result<Vec<_>>>()?;
-    let mut rows = Vec::new();
-    rows.try_reserve_exact(groups.len())
-        .map_err(|_| Error::Resource("aggregate result allocation failed".into()))?;
-    for (group_index, (mut row, set_index)) in groups.into_iter().enumerate() {
+    let count = groups.len();
+    let (group_values, set_indices) = groups.into_parts();
+    let width = aggregation
+        .groups
+        .len()
+        .checked_add(aggregation.outputs.len())
+        .ok_or_else(|| Error::Resource("aggregate result width exceeds usize".into()))?;
+    let mut columns = Vec::new();
+    columns
+        .try_reserve_exact(width)
+        .map_err(|_| Error::Resource("aggregate result column allocation failed".into()))?;
+    for (expression, values) in aggregation.groups.iter().zip(group_values) {
         context.query.check()?;
-        let mut function = 0;
-        for output in &aggregation.outputs {
-            row.push(match output {
-                AggregateOutput::Function(_) => {
-                    let value = std::mem::replace(&mut values[function][group_index], Value::Null);
-                    function += 1;
-                    value
+        columns.push(Vector::flat(expression.data_type.clone(), values)?);
+    }
+    let mut values = values.into_iter();
+    for output in &aggregation.outputs {
+        match output {
+            AggregateOutput::Function(function) => {
+                let values = values.next().ok_or_else(|| {
+                    Error::Internal("aggregate result column count differs".into())
+                })?;
+                context.query.check()?;
+                columns.push(Vector::flat(function.data_type.clone(), values)?);
+            }
+            AggregateOutput::Grouping(indices) => {
+                let mut masks = Vec::new();
+                masks.try_reserve_exact(count).map_err(|_| {
+                    Error::Resource("GROUPING result column allocation failed".into())
+                })?;
+                for (group, &set_index) in set_indices.iter().enumerate() {
+                    if group % 1024 == 0 {
+                        context.query.check()?;
+                    }
+                    let set = aggregation.sets.get(set_index).ok_or_else(|| {
+                        Error::Internal("aggregate group has invalid grouping set".into())
+                    })?;
+                    masks.push(Value::Integer(indices.iter().fold(0, |mask, &index| {
+                        (mask << 1) | i128::from(!set.contains(index))
+                    })));
                 }
-                AggregateOutput::Grouping(indices) => {
-                    Value::Integer(indices.iter().fold(0, |mask, &index| {
-                        (mask << 1) | i128::from(!aggregation.sets[set_index].contains(index))
-                    }))
-                }
+                columns.push(Vector::flat(DataType::BigInt, masks)?);
+            }
+        }
+    }
+    if values.next().is_some() {
+        return Err(Error::Internal(
+            "aggregate result column count differs".into(),
+        ));
+    }
+    context.query.check()?;
+    Ok(Some(AggregateResult::Columns(DataChunk::new(
+        columns, count,
+    )?)))
+}
+
+/// Group identity is row-oriented only while locating a new key. Retaining the
+/// discovered values by output column avoids one allocation per group and a
+/// second row-to-column transpose at publication.
+struct ColumnarGroups {
+    values: Vec<Vec<Value>>,
+    set_indices: Vec<usize>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ColumnarGroups {
+    fn new(width: usize) -> Result<Self> {
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(width)
+            .map_err(|_| Error::Resource("aggregate group column allocation failed".into()))?;
+        values.resize_with(width, Vec::new);
+        Ok(Self {
+            values,
+            set_indices: Vec::new(),
+        })
+    }
+
+    fn len(&self) -> usize {
+        self.set_indices.len()
+    }
+
+    fn reserve_one(&mut self) -> Result<()> {
+        self.set_indices
+            .try_reserve(1)
+            .map_err(|_| Error::Resource("aggregate group allocation failed".into()))?;
+        for values in &mut self.values {
+            values
+                .try_reserve(1)
+                .map_err(|_| Error::Resource("aggregate group allocation failed".into()))?;
+        }
+        Ok(())
+    }
+
+    fn push_empty(&mut self, set_index: usize) -> Result<()> {
+        self.reserve_one()?;
+        for values in &mut self.values {
+            values.push(Value::Null);
+        }
+        self.set_indices.push(set_index);
+        Ok(())
+    }
+
+    fn push(
+        &mut self,
+        columns: &[Vector],
+        set: &crate::planner::aggregation::GroupingSet,
+        set_index: usize,
+        row: usize,
+    ) -> Result<()> {
+        if columns.len() != self.values.len() {
+            return Err(Error::Internal(
+                "aggregate group column count differs".into(),
+            ));
+        }
+        self.reserve_one()?;
+        for (ordinal, (values, column)) in self.values.iter_mut().zip(columns).enumerate() {
+            values.push(if set.contains(ordinal) {
+                column
+                    .get(row)
+                    .ok_or_else(|| Error::Internal("aggregate group row outside input".into()))?
+            } else {
+                Value::Null
             });
         }
-        rows.push(row);
+        self.set_indices.push(set_index);
+        Ok(())
     }
-    Ok(Some(rows))
+
+    fn into_parts(self) -> (Vec<Vec<Value>>, Vec<usize>) {
+        (self.values, self.set_indices)
+    }
 }
 
 enum FilteredSignedState {

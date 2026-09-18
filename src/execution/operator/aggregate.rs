@@ -13,6 +13,14 @@ use std::{
 mod batched;
 mod grouped;
 
+/// Owned blocking output. Column transport avoids rebuilding rows for engines
+/// that already finish grouped states as columns; legacy adapters keep rows.
+#[derive(Debug)]
+pub enum AggregateResult {
+    Rows(Vec<Row>),
+    Columns(DataChunk),
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Consumes a validated input stream once and owns all group, aggregate and
 /// DISTINCT state until completion. Each set has independent state; group
@@ -22,6 +30,15 @@ mod grouped;
 /// publishes no partial result; retained groups obey the query row budget.
 pub trait AggregationAlgorithm: Debug + Send + Sync {
     fn name(&self) -> &'static str;
+    fn aggregate_result(
+        &self,
+        input: &mut dyn BatchStream,
+        aggregation: &Aggregation,
+        context: &ExecutionContext<'_>,
+    ) -> Result<AggregateResult> {
+        self.aggregate(input, aggregation, context)
+            .map(AggregateResult::Rows)
+    }
     fn aggregate(
         &self,
         input: &mut dyn BatchStream,
@@ -43,10 +60,22 @@ impl AggregationAlgorithm for HashAggregation {
         aggregation: &Aggregation,
         context: &ExecutionContext<'_>,
     ) -> Result<Vec<Row>> {
-        if let Some(rows) = batched::try_run(input, aggregation, context)? {
-            return Ok(rows);
+        match self.aggregate_result(input, aggregation, context)? {
+            AggregateResult::Rows(rows) => Ok(rows),
+            AggregateResult::Columns(columns) => Ok(columns.rows().collect()),
+        }
+    }
+    fn aggregate_result(
+        &self,
+        input: &mut dyn BatchStream,
+        aggregation: &Aggregation,
+        context: &ExecutionContext<'_>,
+    ) -> Result<AggregateResult> {
+        if let Some(result) = batched::try_run(input, aggregation, context)? {
+            return Ok(result);
         }
         grouped::run::<HashMap<Vec<u8>, usize>>(input, aggregation, context)
+            .map(AggregateResult::Rows)
     }
 }
 

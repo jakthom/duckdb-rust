@@ -12,6 +12,86 @@ use duckdb_rust::{
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn columnar_grouped_results_preserve_sets_masks_nulls_and_empty_input() -> Result<()> {
+    let expected = vec![
+        vec![
+            Value::Integer(1),
+            Value::Integer(10),
+            Value::Integer(12),
+            Value::Integer(0),
+            Value::Integer(2),
+        ],
+        vec![
+            Value::Integer(1),
+            Value::Null,
+            Value::Integer(3),
+            Value::Integer(0),
+            Value::Integer(1),
+        ],
+        vec![
+            Value::Null,
+            Value::Integer(10),
+            Value::Integer(11),
+            Value::Integer(0),
+            Value::Integer(1),
+        ],
+        vec![
+            Value::Integer(1),
+            Value::Null,
+            Value::Integer(15),
+            Value::Integer(1),
+            Value::Integer(3),
+        ],
+        vec![
+            Value::Null,
+            Value::Null,
+            Value::Integer(11),
+            Value::Integer(1),
+            Value::Integer(1),
+        ],
+        vec![
+            Value::Null,
+            Value::Null,
+            Value::Integer(26),
+            Value::Integer(3),
+            Value::Integer(4),
+        ],
+    ];
+    for batch_size in [1, 3, 2048] {
+        let db = DatabaseBuilder::new()
+            .batch_size(batch_size)
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(Arc::new(HashAggregation)),
+            ))
+            .build()?;
+        let mut connection = db.connect();
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT a,b,sum(v),grouping(a,b),count(*) \
+                     FROM (VALUES (1,10,5),(1,10,7),(1,NULL,3),(NULL,10,11)) t(a,b,v) \
+                     GROUP BY GROUPING SETS ((a,b),(a),()) \
+                     ORDER BY grouping(a,b),a IS NULL,a,b IS NULL,b",
+                )?
+                .rows,
+            expected,
+        );
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT sum(v),grouping(a) \
+                     FROM (VALUES (1,2)) t(a,v) WHERE false \
+                     GROUP BY GROUPING SETS ((a),())",
+                )?
+                .rows,
+            vec![vec![Value::Null, Value::Integer(1)]],
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn grouped_integer_states_match_scalar_states_for_encodings_widths_and_empty_groups() -> Result<()>
 {
     let query = QueryContext::background();

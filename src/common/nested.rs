@@ -163,6 +163,22 @@ impl NestedValue {
         let DataType::Nested(metadata) = &self.data_type else {
             return false;
         };
+        if let (NestedType::List(DataType::Varchar), NestedPayload::Sequence(values)) =
+            (metadata.as_ref(), &self.payload)
+        {
+            if values.len() > *remaining {
+                *remaining = 0;
+                return false;
+            }
+            if !values
+                .iter()
+                .all(|value| matches!(value, Value::Null | Value::Varchar(_)))
+            {
+                return false;
+            }
+            *remaining -= values.len();
+            return true;
+        }
         let mut fits = |value: &Value, target: &DataType| match value {
             Value::Nested(value) => {
                 value.fits_at_depth(depth + 1, remaining) && value.data_type == *target
@@ -385,6 +401,80 @@ fn display_quoted(f: &mut fmt::Formatter<'_>, value: &str, key: bool) -> fmt::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn list_varchar_validation_preserves_shape_and_visit_budget() -> Result<()> {
+        let list_type = NestedType::List(DataType::Varchar).data_type();
+        let value = NestedValue {
+            data_type: list_type.clone(),
+            payload: NestedPayload::Sequence(vec![
+                Value::Null,
+                Value::Varchar(String::new()),
+                Value::Varchar("nul\0é界".into()),
+            ]),
+        };
+        let mut exact = 4;
+        assert!(value.fits_at_depth(0, &mut exact));
+        assert_eq!(exact, 0);
+        let mut short = 3;
+        assert!(!value.fits_at_depth(0, &mut short));
+        assert_eq!(short, 0);
+
+        let empty = NestedValue {
+            data_type: list_type.clone(),
+            payload: NestedPayload::Sequence(Vec::new()),
+        };
+        let mut empty_budget = 1;
+        assert!(empty.fits_at_depth(0, &mut empty_budget));
+        assert_eq!(empty_budget, 0);
+
+        let nested_child = NestedValue::value(
+            list_type.clone(),
+            NestedPayload::Sequence(vec![Value::Varchar("child".into())]),
+        )?;
+        for invalid in [Value::Integer(1), Value::Blob(Vec::new()), nested_child] {
+            let invalid = NestedValue {
+                data_type: list_type.clone(),
+                payload: NestedPayload::Sequence(vec![invalid]),
+            };
+            assert!(!invalid.fits_type());
+        }
+        assert!(
+            !NestedValue {
+                data_type: list_type,
+                payload: NestedPayload::Struct(vec![Value::Varchar("wrong shape".into())]),
+            }
+            .fits_type()
+        );
+
+        let invalid_metadata = NestedValue {
+            data_type: NestedType::List(DataType::extension("Invalid.Name", vec![])).data_type(),
+            payload: NestedPayload::Sequence(vec![Value::Null]),
+        };
+        assert!(!invalid_metadata.fits_type());
+
+        let array_type = NestedType::Array {
+            element: DataType::Varchar,
+            length: 2,
+        }
+        .data_type();
+        assert!(
+            NestedValue {
+                data_type: array_type.clone(),
+                payload: NestedPayload::Sequence(vec![Value::Varchar("a".into()), Value::Null]),
+            }
+            .fits_type()
+        );
+        assert!(
+            !NestedValue {
+                data_type: array_type,
+                payload: NestedPayload::Sequence(vec![Value::Varchar("a".into())]),
+            }
+            .fits_type()
+        );
+        Ok(())
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]

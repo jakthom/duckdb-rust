@@ -730,13 +730,14 @@ impl PhysicalOperator for Operator {
             } => {
                 let load = move || {
                     let mut input = stream::open(input.as_ref(), context)?;
-                    algorithm.aggregate(input.as_mut(), aggregation, context)
+                    algorithm.aggregate_result(input.as_mut(), aggregation, context)
                 };
-                if aggregate_uses_owned_publication(schema) {
-                    stream::deferred_owned(schema, context, load)
-                } else {
-                    stream::deferred(schema, context, load)
-                }
+                stream::deferred_aggregate(
+                    schema,
+                    context,
+                    aggregate_uses_owned_publication(schema),
+                    load,
+                )
             }
             Node::Window {
                 input,
