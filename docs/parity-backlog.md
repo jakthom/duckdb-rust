@@ -863,6 +863,16 @@ Batch 1 evidence/restart details:
   capacity, matching the pinned C++ growth policy while leaving scalar and
   inline storage unchanged. Both latency and RSS gates stay independent.
   No retained-input/two-pass aggregation or new columnar interface is approved.
+  Candidate 8 worker `2a9c04a` plus `db6ee1c` is integrated as `299d710` /
+  `3b2f6a1`. Focused VARCHAR/vector/nested checks pass 1/1 each, LIST leaf 3/3,
+  STRING_AGG leaf 7/7, modifier 1/1 and grouping 77/77. Review added a direct
+  memo test proving an optional 40-entry cache declines under a 20-row limit
+  while two groups and 20 input rows fit, and interruption still propagates.
+  Its exact test passes 1/1; an earlier short filter with `--exact` selected zero
+  tests and was explicitly not green. Another initial SQL test used floating
+  division where integer grouping was intended; corrected fixture/results are
+  preserved separately. Fresh release build and unchanged untimed fixtures
+  precede the next quiet diagnostics; final performance and verifier remain open.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
