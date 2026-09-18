@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with performance at `90d63ab`. C2.1 candidate9 is integrated at `8e27760` (worker `94dc0f2`), dense correction `b72ea46`, lint/format follow-ups through `cee3281`. Focused checks/grouping81/index14 pass; independent partial verification is running against implementation `cee3281`. Dense-offset Kani passes at unchanged proof inputs `b72ea46`. Candidate9 final performance is unmeasured; last measured candidate8 still fails two C2 native cases. Next: finish partial verifier, then six-family final21 campaign on integrated root. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`, with performance at `90d63ab`. C2.1 implementation and independent partial verification are green through `5c10878`; the affected dense-offset proof passed at unchanged inputs `b72ea46`. The final six-family, 21-sample performance campaign is running on integrated root. Performance acceptance remains open; do not start Batch 2 yet. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -646,304 +646,81 @@ Batch 1 evidence/restart details:
   **F1's declared lifecycle/integer-range slice is accepted.** Reuse unaffected
   scoped correctness and upstream evidence; temporal/correlated sources and
   whole-engine parity remain open. Do not remove/redefine failing workloads.
-- C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
-  it must preserve a bound constant separator through grouped and window paths.
-  Mutable per-row separators must not silently replace the pinned bind contract.
-  The functional commit chain through worker `1413b21` is integrated as
-  `6258294`, not accepted as complete. Focused grouping/window tests passed; the development window
-  source file passes 4/4 records. Original aggregate/distinct files remain
-  blocked by external/parallel verification configurations; do not remove those
-  directives or relabel entire files as passing. Release window diagnostics
-  now include the capitalized `Separator` required by its unchanged regex.
-  The unchanged original window selection passes at integrated `e94a022`:
-  development 4/4 and release 5/5, one file per pin, no unreached records and a
-  freshly built release worker. Evidence is root
-  `target/batch1/c2-window-upstream/{original-window.json,validation-manifest.md}`;
-  subsequent grouped/key/publication edits leave these inputs unchanged.
-  Additional selected-
-  adapter/invalid-bind contract tests, unchanged upstream feedback, valid native
-  checksum workloads, final lint/trace/scoped verification and performance were
-  the remaining integration obligations. All five native workload queries produce the exact expected numeric
-  checksums on Rust and both pins; reference outputs are worker
-  `target/c2-1/native-{release,development}.json`. Process-fixture correctness is
-  complete: 257 records/assertions pass on Rust and each pinned native runner,
-  with logs and binary identities under worker `target/c2-1/process-*`.
-  Subsequent review found those process queries observed only outer row counts,
-  permitting reference projection pruning of the intended aggregate work. The
-  257 passes validate the old count fixture, not STRING_AGG contents or resource
-  parity. Its outer counts were replaced with the validated native aggregate
-  checksums without changing workload size/repetition; all three engines passed
-  the corrected fixture untimed. Preserve earlier
-  observations as invalid-coverage diagnostics, never acceptance evidence.
-  Binder contract review is escalated to S after repeated correction cycles;
-  this does not authorize unrelated engine changes or a full-engine sweep.
-  Exact per-pin record extraction now lives in worker
-  `target/c2-1/source-case-map.json` (35/10/5 release records and 34/9/4
-  development records for aggregate/distinct/window files). Separately replayed
-  default-configuration SQL/assertions cannot close the original forced-external
-  or parallel configurations; those remain E3/E5 obligations. A discovered
-  default-mode negative case (distinct/grouped source record line 54 development,
-  57 release) expected `ORDER BY non-integer literal has no effect`, but reached
-  the later DISTINCT diagnostic instead. The bounded shared aggregate-order
-  validation was corrected, retaining that case and SUM/LIST consumers in acceptance.
-  The positive opt-in setting remains a separate B4 configuration obligation.
-  Parent review also caught and corrected accidental rejection of nonliteral
-  unary ORDER expressions. Both-pin controls retain column negation, computed
-  unary plus, parentheses and negative numerics. For `-(1.5)` specifically,
-  development accepts while release rejects; the implementation follows the
-  development pin rather than claiming identical reference behavior.
-  First native 9-sample diagnostic validates results but fails all five latency
-  cases: ungrouped 2.18–2.20x, few groups 14.26–14.55x, many groups 13.42–13.75x,
-  ordered DISTINCT 18.37–18.49x and mixed SUM/LIST/STRING_AGG 7.97–7.99x against
-  the faster reference. Evidence: worker
-  `target/c2-1/native-{release,development,fastest}-diagnostic-20260918.json`.
-  The corrected process fixture now validates its aggregate checksums on all
-  three engines (257 records/assertions each); its first diagnostic fails wall
-  8.16x and CPU 7.38x, while RSS passes at 0.667x and block I/O is zero for all
-  engines. Evidence: worker `target/c2-1/process-diagnostic-20260918.json`.
-  That process diagnostic also used unmatched thread settings and is historical,
-  not comparable acceptance evidence. Tooling correction `0e82fbf` now requires
-  `--single-threaded` for both pinned C++ runners, records Rust's inline scheduler
-  and rejects missing/mismatched configuration when replaying reports. Its focused
-  Independent tooling review found replay accepted extra unsupported flags;
-  `1d07c45` fixes exact raw-command validation. The corrected independent partial
-  verification passes diff checks and 16 Python tests; evidence is root
-  `target/batch1/process-config-verifier/verification-1d07c45.json`. Generated
-  commands did not change for that fix; valid raw reports can be rechecked
-  without new timing.
-  Native campaigns already used one thread and are unaffected. New process
-  reports must use the corrected adapter; never rewrite old reports as matched.
-  Performance ownership is split in the C2 worktree: S agent
-  `batch1_f1_performance` now owns the root's borrowed STRING_AGG column/grouped
-  kernels in `src/function/aggregate/string.rs` and leaf tests; S agent
-  `batch1_f1` owns generic modifier/ordered batching, explicit `BufferedTotal`
-  no-effect capability, LIST opt-in and affected component tests. S is the sole
-  validation-process owner there; coalesce logical edits before checks. Root's
-  leaf manifest is `target/c2-1/string-kernel-manifest.md`. Preserve selected
-  adapters/types, generic fallback, stable ties, cancellation and resource limits;
-  no function-name routing or query-specific shortcuts. The first optimized
-  candidate is worker `4f7b51a`, integrated as `3cb6e3e`, and freshly release-built:
-  leaf tests 4/4, grouping 74/74,
-  selected window contracts 1/1 each and corrected Rust process fixture 257/257.
-  The generic modifier path buffers owned columns, preserves selected typed
-  DISTINCT/order semantics and retains the existing signed LIST fast path;
-  FILTER falls back before consuming input. Its native 9-sample diagnostic
-  passes ungrouped at 0.644–0.654x but fails few groups at 1.205–1.256x, many
-  groups at 1.942–1.990x, ordered DISTINCT at 3.991–4.036x and mixed consumers
-  at 3.566x. Matched serial process diagnostic fails wall/CPU at 2.987x/3.037x;
-  RSS passes at 0.636x and block I/O is zero for all engines. Reports are worker
-  `target/c2-1/native-*-buffered-diagnostic-20260918.json` and
-  `process-serial-buffered-diagnostic-20260918.json`. These are diagnostic,
-  not final acceptance. Measured candidate 2 is preserved as worker `c9a12a3`:
-  dictionary delivery/selected signed comparisons improve mixed consumers to
-  1.911–1.929x and matched process wall/CPU to 1.759x/1.763x (still failing).
-  Its two-pass grouped reservation hypothesis regresses few/many groups to
-  1.531–1.627x/2.352–2.428x and is being removed; keep the measured commit and
-  reports, not the slower code. Ordered DISTINCT remains failing/variable at
-  3.945–7.339x. All three affected G08 native consumers pass their 9-sample
-  diagnostic; final native/process consumer acceptance remains required.
-  Reports are worker `target/c2-1/*candidate2*.json` (exact paths/hashes in
-  the worker manifest). Current correction ownership: root adds explicit
-  selected `VarcharBytes` key capability/type-boundary tests; S `batch1_f1`
-  consumes borrowed keys only for admitted single-argument DISTINCT and retains
-  custom canonical-key fallback; S `batch1_f1_performance` removes duplicate
-  aggregate-result copies using owned row-to-column construction and an opt-in
-  aggregation-only deferred stream, leaving other stream consumers unchanged.
-  Candidate 3 is worker `2e46214`, integrated as `6f16ce5`; its focused type-key
-  tests pass 2/2, STRING_AGG leaf 4/4, two owned-publication unit filters 1/1
-  each, grouping 74/74 and untimed process fixture 257/257. Candidate 3's native
-  9-sample diagnostic passes ungrouped at 0.660–0.662x but still fails few groups
-  at 1.277–1.279x, many at 1.752–1.785x, ordered DISTINCT at 1.921–1.937x and
-  mixed consumers at 1.795–1.869x. Matched process wall/CPU still fail at
-  1.679x/1.691x; RSS passes at 0.626x, block I/O zero. Existing G08 native
-  consumers all pass diagnostic gates. Preserve worker `*candidate3*.json` and
-  their source/binary identities. Short sampled CPU profiles of the unchanged
-  failing workloads identified repeated key scans, DISTINCT hashing and short
-  grouped-string allocations; raw profiles are worker
-  `target/c2-1/profile-candidate3-q{2,3,4,5}.txt`. No final performance claim.
-  Manifest additions are worker `target/c2-1/borrowed-key-manifest.md` and
-  `publication-correction-manifest.md`. The latter uses
-  `src/execution/physical_plan.rs` to opt only Aggregate nodes into owned
-  publication. This later change affects F1 aggregate consumers, so C2's final
-  integrated performance selection includes F1 native/process workloads again;
-  it does not invalidate F1's earlier accepted revision or require a whole F1
-  functional sweep. Candidate 4 is worker `703e0ed`, integrated as `70ee5ff`:
-  on-demand bounded dense growth, inline short grouped strings, small DISTINCT
-  sets and bounded stable integer counting-order. Focused index 9/9, string 6/6,
-  modifier 1/1, grouping 74/74 and process 257/257 pass. Native diagnostics pass
-  ungrouped 0.646–0.671x; few groups fail 1.310–1.352x, many 1.308–1.326x,
-  ordered DISTINCT regresses to 2.737–2.792x, mixed improves but fails
-  1.549–1.554x. Process wall/CPU fail 1.433x/1.438x; RSS passes 0.630x,
-  block I/O zero. G08 native consumers pass. Shared indexing also affects the
-  existing grouping workloads: grouped SUM 1.644–1.740x, ROLLUP 1.062–1.114x,
-  CUBE 1.950–2.742x all fail and remain obligations, not waived baseline gaps.
-  Preserve `target/c2-1/*candidate4*.json` and exact identities in the manifest.
-  Candidate 5 ownership: S `batch1_f1` repairs small DISTINCT lookup with
-  collision-safe integer prefixes; root adds direct two-flat-BIGINT tuple
-  indexing; S `batch1_f1_performance` borrows grouped SUM lanes and narrows
-  owned publication to schemas containing physical VARCHAR. The latter can
-  remove publication-only impact on numeric/F1 consumers after reviewed input
-  comparison; it does not remove the affected grouping workload obligations.
-  Candidate 5 is worker `c66ecf6`, integrated as `ea430e2`: index 11/11,
-  publication routing 1/1, owned-row/deferred controls 1/1 each, modifier 1/1
-  and grouping 75/75 pass. Two test-only compilation mistakes were corrected
-  before these passing runs; no failed/zero-test invocation counts as evidence.
-  Fresh release process fixtures pass C2 257/257 and grouping 385/385.
-  The narrowed publication
-  route restores the original deferred path for numeric schemas; ungrouped F1
-  SUM/range implementation inputs remain unchanged, so its accepted evidence
-  is reusable. Grouped SUM and all three grouping workloads remain affected.
-  Grouped process-resource coverage was added at root `db71451` with the same
-  50,000-row setup and grouped/ROLLUP/CUBE shapes, 128 iterations and forced
-  SUM/COUNT/GROUPING checksums; both-pin oracle validation passed before timing.
-  Evidence is root `target/batch1/grouping-resource-cli-validation.md`; an
-  initial development shared-checkout citation was corrected by actual CLI
-  source ID `99063af2bd`, supported reference validation and matching private
-  pinned checkout, without rerunning the unchanged fixture or rewriting history.
-  Candidate 5 quiet 9-sample diagnostics: ungrouped 0.658–0.668x passes;
-  few groups 1.316–1.331x, many 1.379–1.420x, ordered DISTINCT 1.378–1.402x,
-  mixed 1.464–1.493x fail. C2 process wall/CPU fail 1.405x/1.413x;
-  RSS passes 0.638x, I/O zero. G08 native all pass. Existing grouping latency:
-  grouped SUM fails 1.258–1.279x, ROLLUP passes 0.815–0.865x, CUBE fails
-  1.381–1.413x. Grouping process wall/CPU fail 1.010x/1.024x, RSS passes
-  0.245x, I/O zero. Preserve worker `target/c2-1/*candidate5*.json`, including
-  all failures. Fresh sampled profiles of these unchanged workloads precede
-  further correction; a grouped-only checked 2x string growth hypothesis is
-  assigned to S `batch1_f1_performance` after the profiling freeze is released.
-  Fresh candidate 5 profiles confirmed dictionary logical-value prescans and
-  pair reconstruction in grouped SUM/CUBE (the earlier two-flat-BIGINT tuple
-  path does not admit modulo's dictionary outputs). They also identified
-  per-group result-row reallocations. Candidate 6 worker `1c83a67`, integrated
-  as `164eee2`, removes eligible dictionary prescans, memoizes bounded physical
-  dictionary pairs without speculative groups, uses bounded open-addressed
-  small DISTINCT lookup, doubles reused grouped-string capacity with checked
-  overflow, and preallocates result-row/output capacity. No query-name routing
-  or new adapter API. Index 13/13, string leaf 6/6, modifier 1/1 and grouping
-  75/75 pass; the post-row-assembly edit reran grouping only, reusing unchanged
-  leaf/index checks. Fresh release binaries/untimed fixtures precede the next
-  quiet diagnostic campaign. Candidate 6 untimed fixtures pass C2 257/257 and
-  grouping 385/385. Quiet 9-sample diagnostics now pass ungrouped C2
-  0.657–0.666x and few groups 0.980–0.995x; many groups 1.217–1.218x,
-  ordered DISTINCT 1.191–1.223x and mixed 1.433–1.443x still fail. C2 process
-  wall/CPU fail 1.303x/1.312x; RSS passes 0.618x, I/O zero. All G08 native
-  cases pass. All grouping native cases now pass: grouped 0.831–0.838x,
-  ROLLUP 0.547–0.570x, CUBE 0.769–0.776x. Grouping process also passes all
-  resource gates (wall 0.609x, CPU 0.595x, RSS 0.243x, I/O 1.0x).
-  Reports are worker `target/c2-1/*candidate6*.json`, with failed runs retained.
-  Fresh profiles of the remaining three C2 cases precede candidate 7. These
-  diagnostics are not final 21-sample performance acceptance or verifier passes.
-  Candidate 7 ownership: root adds explicit `BufferedOwnedTotal` /
-  `AggregateFunction::finish_owned` contract, signed-DISTINCT admission and
-  custom/default/faulty-adapter tests; S `batch1_f1` owns selected modifier
-  dispatch and bounded direct-prefix/borrowed-dictionary lookup; S
-  `batch1_f1_performance` owns move-only LIST completion and grouped-string
-  destination/value zipping. Generic/default callbacks and OrderedAggregation's
-  row/state fallback remain unchanged. An initial test incorrectly expected
-  OrderedAggregation to use the optional owned path; that assertion was fixed,
-  not the executor broadened. C6 profiles justify the changes; no new unsafe
-  vector construction or function-name routing. Worker manifests are
-  `target/c2-1/{owned-finish-contract-manifest,candidate7-owned-list-finish-manifest,candidate7-grouped-string-delivery-manifest}.md`.
-  Candidate 7 worker `0284439` is integrated as `e25c889`. Focused checks pass:
-  modifier 1/1, owned completion contracts 2/2, LIST leaf 3/3, STRING_AGG leaf
-  7/7 and grouping 77/77, with formatting/diff checks clean. Fresh release
-  build and unchanged fixtures passed. Quiet native diagnostics pass C2
-  ungrouped 0.641–0.646x and few groups 0.926–0.957x; many groups fail
-  1.190–1.202x, ordered DISTINCT 1.004–1.056x, mixed 1.163–1.177x.
-  C2 process still fails wall/CPU 1.083x/1.088x; RSS passes 0.619x, I/O ties.
-  Grouping and G08 filter native/resource diagnostics pass. Scope audit added
-  the existing six-case `g08_ordered_aggregate_workloads.json` and its process
-  manifest: grouped FIRST/LAST and mixed SUM use the changed index/state; the
-  three ungrouped native cases remain controls. All six native cases pass;
-  process passes wall/CPU/RSS at 0.954x/0.951x/0.523x. Preserve worker
-  `target/c2-1/*candidate7*.json`; these are not final acceptance.
-  Candidate 8 follows fresh profiles: root specializes only the equivalent
-  physical VARCHAR discriminator (no metadata/coercion change); S `batch1_f1`
-  memoizes bounded per-batch dictionary identities before VARCHAR DISTINCT
-  lookup; S `batch1_f1_performance` adopts checked power-of-two grouped string
-  capacity, matching the pinned C++ growth policy while leaving scalar and
-  inline storage unchanged. Both latency and RSS gates stay independent.
-  No retained-input/two-pass aggregation was approved for candidate 8.
-  Candidate 8 worker `2a9c04a` plus `db6ee1c` is integrated as `299d710` /
-  `3b2f6a1`. Focused VARCHAR/vector/nested checks pass 1/1 each, LIST leaf 3/3,
-  STRING_AGG leaf 7/7, modifier 1/1 and grouping 77/77. Review added a direct
-  memo test proving an optional 40-entry cache declines under a 20-row limit
-  while two groups and 20 input rows fit, and interruption still propagates.
-  Its exact test passes 1/1; an earlier short filter with `--exact` selected zero
-  tests and was explicitly not green. Another initial SQL test used floating
-  division where integer grouping was intended; corrected fixture/results are
-  preserved separately. Fresh release build and unchanged untimed fixtures
-  passed. Candidate 8 quiet diagnostics pass ungrouped 0.652–0.662x, few groups
-  0.946–0.982x and ordered DISTINCT 0.672–0.683x. Many groups still fail
-  1.084–1.096x and mixed 1.002–1.025x. All grouping, G08 filter and G08 ordered
-  native cases pass; all four process families now pass their independent
-  wall/CPU/RSS/I/O gates. Reports are worker `target/c2-1/*candidate8*.json`.
-  These nine-sample diagnostics are not final acceptance. Next: fresh focused
-  profiles of the two remaining native failures; preserve failed runs and do
-  not retry to green. Final integrated 21-sample performance and scoped verifier
-  remain open.
-  Candidate 9 is now being validated in the same C2 worktree: profile evidence
-  supports a bounded additive `AggregateResult` column transport (root owns
-  trait/publication; S lead owns general grouped storage; T owns custom adapter
-  tests) and exact LIST(VARCHAR) payload validation loop (second S worker).
-  Column-major group storage removes one row allocation per group; existing
-  specialized paths still return rows, and the default method preserves legacy
-  selected algorithms. LIST validation still checks every child, metadata,
-  depth and visit budget; no cached trust or unchecked constructors. Direct
-  tests cover schema/shape, zero-width/empty output, demand, ownership,
-  cancellation/limits, grouping masks and custom callback identity. Manifests
-  are worker `target/c2-1/candidate9-{aggregate-columns,columnar-grouped,list-varchar-validation}-manifest.md`.
-  All four existing native/process workload families remain acceptance gates.
-  The additive NodeAggregate dispatch also touches F1's ungrouped publication:
-  final integrated-root acceptance must refresh the F1 range native/process
-  manifests as a fifth family. The C2 worker has the older range implementation,
-  so F1 timing belongs only on root with `324878c`, not that worker. Earlier F1
-  acceptance remains recorded; this refresh is for an actually changed consumer.
-  Candidate 9 worker `94dc0f2` is integrated as `8e27760`; grouping81 and focused
-  transport3, columnar1, publication1, LIST validation1, recursive-budget1 and
-  old owned-stream1 checks pass. Initial format-only mismatch, zero-test short
-  `--exact` filter and an invalid GROUPING-only-empty-set fixture were retained
-  as non-green evidence; corrected declared-group fixture passes.
-  Consumer audit adds only the two existing constant/dynamic regex-extract-all
-  native cases and their one process fixture from `g06_1g_1h_2c` (sixth family),
-  since they construct LIST(VARCHAR). Subset JSON under root
-  `target/batch1/c2-final/regex-{native,process}-workloads.json` is structurally
-  identical to those maintained source entries/configuration; unrelated text
-  cases are excluded. Final manifest is
-  `target/batch1/c2-final/scoped-verification.md` (configured partial verifier
-  dispatched; current implementation freeze `cee3281`).
-  Boundary review reproduced geometric dense growth beyond i128::MAX with
-  HUGEINT dictionaries, violating the maintained nonwrapping interval invariant.
-  Narrow correction uses the required observed width when spare geometric
-  capacity would overflow; the regression first failed before the fix. This
-  makes the one maintained dense-offset Kani harness applicable, not full Kani
-  or recovery. Root `target/batch1/c2-final/dense-bound-*` retains evidence.
-  Correction `b72ea46` passes all 14 index tests. The configured verifier's first
-  pass stopped at a Clippy arithmetic-style violation; `7cb998a` uses equivalent
-  saturating arithmetic. Two test-only lint suggestions were fixed at `d4e17fa`
-  and formatted at `cee3281`. A failed direct-rustfmt invocation omitted the
-  project edition and is retained as an invocation error, not an engine failure;
-  all resumed sweeps use the original exact Cargo formatting command. Logs stay
-  under `target/batch1/c2-final/verifier*`; unexecuted stages are not green.
-  The single dense-offset proof passed with pinned Kani0.67.0 at `b72ea46`
-  (232 properties, zero failures, two unreachable); unsupported-construct
-  warnings remain in the log. This proves the selected offset contract under
-  its stated interval assumption, not the entire grouping implementation.
-  Later unrelated style/test/doc edits reuse that proof. Final ordinary checks
-  and performance remain open. Exact six-family timing commands are in
-  `target/batch1/c2-final/performance-manifest.md`.
-  One validator (`batch1_f1`) coalesces checks, then freezes before quiet
-  diagnostics. Final measurements follow only after corrections pass;
-  do not start batch 2 yet.
-  C2.1 remains incomplete pending measured batch/group/modifier
-  performance corrections, final affected verification and final performance
-  gates. Do not drop workloads or weaken their oracles to close this chunk.
-  Exact manifest: worker `target/c2-1/validation-manifest.md`.
-- C2.1 final implementation/acceptance remains **open**;
-  A1's frozen evaluation and F1's declared slice are accepted as recorded above.
-  Resume by reading the worker manifests/reports and branch diffs, not by
-  restarting completed checks or dispatching a full sweep. Do not start batch 2
-  while these acceptance obligations remain open.
+- C2.1 implementation and functional verification are complete through root
+  `5c10878`; **performance acceptance remains open**. Functional chain:
+  worker `1413b21` → root `6258294`; candidate9 worker `94dc0f2` → root
+  `8e27760`; dense-index boundary correction `b72ea46`; lint/format/tracing
+  attribution corrections through `5c10878`. Worker branch/worktree remains
+  `codex/batch1-c2-1` / `../duckdb-rust-batch1-c2-1`; use integrated root for
+  final measurements because the worker retains the older F1 range implementation.
 
+  Scope: STRING_AGG/group_concat/listagg with bound constant separators,
+  grouped/ungrouped and window consumers, ORDER/DISTINCT/FILTER and retained
+  selected adapters. NULL separators preserve the pinned no-input-evaluation
+  behavior; mutable separators are rejected. Development is authoritative for
+  the documented unary ORDER-expression pin disagreement. Optimizations include
+  capability-selected VARCHAR DISTINCT/owned LIST completion, bounded integer
+  group lookup, validated LIST(VARCHAR) payloads and additive aggregate column
+  transport preserving legacy row callbacks. No unchecked constructors or
+  function-name routing. Foreign compatibility stays deferred.
+
+  Original unchanged `test/sql/window/test_window_string_agg.test` passed
+  development 4/release 5 at `e94a022`, with no unreached records; unchanged
+  binder/window/scalar inputs reuse
+  `target/batch1/c2-window-upstream/{original-window.json,validation-manifest.md}`.
+  Default aggregate/window source replays are covered by the grouping target.
+  Do not claim original aggregate/distinct files pass: forced external/parallel
+  configurations, positive settings and correlation/list-position prerequisites
+  remain E3/E5/B4/C6 obligations. Exact pin-specific IDs/oracles and blockers
+  remain worker `target/c2-1/source-case-map.json` and `validation-manifest.md`.
+
+  Independent partial verification is green: grouping 81, window consumers 10,
+  index 14, STRING_AGG leaf 7, owned LIST 3, typed key 7, custom transport 3 (inside
+  grouping), and the exact single-case publication/vector/nested/regex filters
+  listed in `target/batch1/c2-final/scoped-verification.md`. Scoped Clippy,
+  formatting, coverage (`missing: []`) and trace compatibility passed.
+  Cumulative evidence combines unchanged ordinary inputs at `cee3281` with
+  the test-only tracing annotation at `5c10878`; logs/identities/timings are
+  `target/batch1/c2-final/verifier*`. Initial lint, formatting, zero-test and
+  fixture failures remain recorded, not counted as passes. No full-engine or
+  recovery sweep ran.
+
+  Boundary review reproduced HUGEINT dictionary growth whose spare geometric
+  capacity overflowed the dense interval. Correction `b72ea46` preserves
+  `minimum + width - 1` within i128; all 14 index tests pass. The one affected
+  dense-offset Kani harness passed at that revision with pinned 0.67.0:
+  232 properties, zero failures, two unreachable. Unsupported-construct warnings
+  remain recorded. This proves the selected offset contract under its stated
+  interval assumption, not all grouping or construction behavior. Later
+  unrelated changes reuse the proof; unrelated harnesses are not applicable.
+
+  Final quiet-host performance campaign is running on integrated root: six
+  affected native/process families—C2 STRING_AGG, grouping SUM/ROLLUP/CUBE,
+  G08 filter, G08 ordered aggregate, F1 range publication, and regex extract-all
+  LIST(VARCHAR). Regex selects exactly the two maintained constant/dynamic native
+  cases and one process entry from `g06_1g_1h_2c`; structurally checked subset
+  JSON is `target/batch1/c2-final/regex-{native,process}-workloads.json`.
+  Untimed expected record counts are C2 257, grouping/G08 filter/G08 ordered 385
+  each, F1 64+128, regex 129. Preserve all SQL/checksums/settings and input hashes.
+  Exact build, both-pin 21-sample native/joint and matched-serial process commands
+  are `target/batch1/c2-final/performance-manifest.md`; reports stay beside it.
+  All latency/throughput and CPU/RSS/I/O gates must pass independently.
+
+  Historical candidates/profiles/failures remain in worker
+  `target/c2-1/*candidate*.json`, `profile-candidate*.txt`, manifests and Git
+  history. Candidate8 last measured two native C2 failures (many groups
+  1.084–1.096x; mixed 1.002–1.025x); its passing diagnostics are not final
+  acceptance. Unmatched-thread process timings are invalid comparisons and
+  remain historical only. Exact-command matched-serial tooling at `1d07c45`
+  was independently verified with 16 Python tests; no engine sweep applied.
+
+- Batch 1 remains open solely on the declared C2/final affected performance
+  obligations. A1 evaluation and F1's earlier slice are accepted as recorded;
+  changed F1 publication is included in this final refresh. Next: collect all
+  final reports, preserve any failures and correct their affected inputs; only
+  after every gate passes checkpoint Batch 1 complete and dispatch Batch 2.
+  Never shrink workloads, retry unchanged failures to green, or restart
+  completed checks merely for documentation/new commit hashes.
 The first round starts from the latest accepted integrated revision, after the
 lead freezes the F1 and C2.1 scope/consumer manifests. Planned modules/targets below are
 deliverables, not claims that those files or commands already exist.
