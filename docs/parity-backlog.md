@@ -9,8 +9,9 @@ fresh measurement of HEAD. Source and tests take precedence over prose.
 
 The Rust engine has substantial SQL, typed/batched execution and selected native
 persistence. Full DuckDB replacement remains open across all 24 goal groups.
-There is no supported overall completion percentage: the last full SQL census
-is from September 15, before subsequent runner and engine improvements.
+There is no supported overall completion percentage. The September 18 A1 census
+at pre-batch revision `44538fb` refreshes the SQL file population, not the full
+native/configuration/platform population or acceptance of subsequent changes.
 
 | Scope | Current disposition | Evidence and remaining boundary |
 | --- | --- | --- |
@@ -19,8 +20,8 @@ is from September 15, before subsequent runner and engine improvements.
 | Earlier core SQL/type/function slices | Implemented; scoped evidence at revisions in their entries | Core joins/windows/nested values, retained defaults, named ENUM, temporal/math, text, FROM-first and aggregate modifiers exist. Remaining contracts are assigned below; do not port these foundations again. |
 | G01.4a fast upstream feedback | Implemented; functional and performance acceptance recorded at `ed7e62d` | Debug worker, selected cache, provenance and watcher are available. Fixture-dependent files need the ordinary runner. No new implementation assignment for an already delivered fast path. |
 | G11.3a / G16.3a cost repairs | Functional and native/resource gates passed at `ed7e62d` | ADD COLUMN, ordinary SUM/COUNT, decimal SUM/filter, and the 12-case native manifest were repaired. These are revision-scoped results, not fresh HEAD benchmarks. |
-| Full SQL population | Refresh due: A1 | Historical 221/4,834 release and 528/5,637 development whole-file passes. Do not use them as today's feature percentage or add scoped passes to them. |
-| Full performance population | Open: A1/A5 | Historical 9/34 baseline was partially superseded by the cost repairs above. Remaining workload/configuration coverage needs a fresh accounted campaign. |
+| Full SQL population | A1 refresh complete at `44538fb`, before batch 1 implementation | Release 553/4,834 and development 587/5,637 whole-file passes after exact timeout retries. Seven old-pass pin/file losses remain explicitly recorded. This is not a feature percentage; do not add later scoped passes to it. |
+| Original performance population | A1 refresh complete at `44538fb`: 25/34 pass, 9 fail | Both pins, 21 samples, faster-reference gate. Broader configurations and resource coverage remain open; see active batch checkpoint. This is not acceptance of new F1/C2.1 code. |
 | External formats, resource/parallel engine, ABI and ecosystem | Major capability gaps | Tracks D–H implement these incrementally; passing local tests does not close them. |
 
 **Delivery priority (2026-09-18): engine first; foreign compatibility last.**
@@ -527,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active at baseline `44538fb`: workers `batch1_a1`, `batch1_f1`, `batch1_c2_1` own sibling worktrees `../duckdb-rust-batch1-{a1,f1,c2-1}` on matching `codex/batch1-*` branches. Both census first passes finished, exact timeout retries active; F1 implementation/tests active; C2.1 draft committed with acceptance still open. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb` (reported failures remain engine gaps); F1 integrated as `449d92c`, scoped verifier active; C2.1 worker corrections/acceptance still open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -551,8 +552,8 @@ Batch 1 evidence/restart details:
   `run_upstream.py --timeout 10 --jobs 4`, exact timeout retries at 60 seconds,
   then accounted summaries. Original 34 workloads are the existing native (12),
   numeric (8), relational (10), grouping (3) and ordering (1) manifests; paired
-  21-sample measurements are held until a quiet-host grant. Evaluation failures
-  remain visible, not a claim of engine acceptance.
+  21-sample paired measurements completed serially in a coordinated quiet-host
+  window. Evaluation failures remain visible, not a claim of engine acceptance.
   Exact commands/restart details: worker `target/a1-20260918/manifest.md`.
   Functional evaluation is complete at `44538fb`: after exact retries of 13
   timeout IDs per pin, development passes 587/5,637 executable files and release
@@ -562,7 +563,17 @@ Batch 1 evidence/restart details:
   counts, development gains 64 and loses 5 prior passes; release gains 334 and
   loses 2. See worker `target/a1-20260918/census-report.md` and `summary.json`
   for exact populations/provenance. This is the pre-batch engine, not acceptance
-  of F1/C2.1. Performance refresh remains open.
+  of F1/C2.1. Original34 latency evaluation completed: 25 pass / 9 fail.
+  Failed faster-reference ratios: decimal grouped cents 2.060x, decimal equality
+  join 3.072x, USING inner join 1.830x, NATURAL semi join 1.899x, partition SUM
+  window 1.054x, QUALIFY window 1.012x, grouped SUM 1.706x, ROLLUP SUM 1.098x,
+  CUBE SUM 1.885x. Native 12-case and ordering manifests pass. Exact workload
+  IDs, both reference identities and samples are in worker
+  `target/a1-20260918/performance-report.md` and the `perf-*-{release,development,fastest}.json`
+  files. Resource/configuration coverage beyond those manifests remains open.
+  A1 implementation=N/A (evaluation only), functional evaluation=complete,
+  performance evaluation=complete (25 pass/9 fail, not whole-engine parity),
+  implementation sweep/Kani=N/A. No extra engine sweep is required for evaluation.
   Six lost pin/file passes reach the same comma-substitution runner bug:
   `list/aggregates/incorrect.test` and `numeric/test_trunc.test` on both pins,
   plus development `numeric/test_trunc_precision.test` and `float/nan_cast.test`.
@@ -581,13 +592,22 @@ Batch 1 evidence/restart details:
   Partial acceptance uses the new `table_functions` target, affected execution/
   FROM-first/registration contracts, selected upstream range/error files, scoped
   lint/tracing, and new native/process range workloads. Recovery/Kani: N/A to
-  these contracts, not passed. Detailed case/command records go under worker
-  `target/f1/`; final acceptance must cover integrated inputs.
+  these contracts, not passed. Worker handoff `261100a` integrated as `449d92c`;
+  follow-up commits must not amend that handoff. Detailed case/command records
+  are in worker `target/f1/validation-manifest.md`. The independent scoped
+  verifier `batch1_f1_scoped_verifier` owns integrated checks/logs under root
+  `target/batch1/f1-verifier/`; no full-engine/recovery/Kani run was dispatched.
+  Final upstream/performance acceptance remains open.
 - C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
   it must preserve a bound constant separator through grouped and window paths.
   Mutable per-row separators must not silently replace the pinned bind contract.
-  Draft commits `7dc9590` and `bd3baa5` are on the worker branch, not integrated
-  acceptance. Two focused grouping/window tests passed. Additional selected-
+  Draft commit chain through `b29823a` is on the worker branch, not integrated
+  acceptance. Focused grouping/window tests passed; the development window
+  source file passes 4/4 records. Original aggregate/distinct files remain
+  blocked by external/parallel verification configurations; do not remove those
+  directives or relabel entire files as passing. Release window diagnostics
+  now include the capitalized `Separator` required by its unchanged regex,
+  pending rerun. Additional selected-
   adapter/invalid-bind contract tests, unchanged upstream feedback, valid native
   checksum workloads, final lint/trace/scoped verification and performance remain
   open. Exact manifest: worker `target/c2-1/validation-manifest.md`.
