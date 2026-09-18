@@ -1,0 +1,17 @@
+# G07.3b repeated FROM-first CTAS-from-VALUES parse/bind/execute cycles.
+loop iteration 0 128
+
+statement ok
+DROP TABLE IF EXISTS g07_from_first_ctas_process;
+
+statement ok
+CREATE TABLE g07_from_first_ctas_process AS
+FROM VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'),
+            (5, 'e'), (6, 'f'), (7, 'g'), (8, 'h') rows(i, v);
+
+query I
+SELECT sum(i) FROM g07_from_first_ctas_process;
+----
+36
+
+endloop

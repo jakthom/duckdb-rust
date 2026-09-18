@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE t AS SELECT i FROM range(50000) t(i); CREATE TABLE keyed(i BIGINT PRIMARY KEY); INSERT INTO keyed SELECT i FROM range(50000) t(i); CREATE TABLE u AS SELECT i FROM range(32) u(i)",
+  "workloads": [
+    {
+      "name": "alter_add_column",
+      "sql": "ALTER TABLE t ADD COLUMN added BIGINT DEFAULT 7",
+      "reset": "ALTER TABLE t DROP COLUMN IF EXISTS added",
+      "verify": "SELECT sum(added) FROM t",
+      "rows": 1,
+      "sum": "350000"
+    }
+  ]
+}

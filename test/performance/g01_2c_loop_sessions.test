@@ -1,0 +1,70 @@
+# G01.2c source-matched loop, concurrent scheduling, and lifecycle workload.
+
+load {TEST_DIR}/g01_2c_loop_sessions.duckdb
+
+statement ok writer
+CREATE TABLE state(i INTEGER); INSERT INTO state VALUES (1), (2)
+
+statement ok reader
+BEGIN
+
+query I reader
+SELECT count(*) FROM state
+----
+2
+
+statement ok writer
+INSERT INTO state VALUES (3)
+
+reconnect
+
+query I reader
+SELECT count(*) FROM state
+----
+2
+
+query I
+SELECT count(*) FROM state
+----
+3
+
+restart
+
+query I
+SELECT sum(i) FROM state
+----
+6
+
+# Both pinned command implementations execute the start once when start >= end.
+loop odd 3 1
+
+query I
+SELECT {odd} - {odd}
+----
+0
+
+endloop
+
+loop i 0 3
+
+onlyif i>=0&&i<=2
+query I
+SELECT {i} - {i}
+----
+0
+
+endloop
+
+concurrentloop threadid 0 4
+
+query II
+SELECT {threadid} - {threadid}, sum(i) FROM range(100000) values(i)
+----
+0	4999950000
+
+endloop
+
+query I
+SELECT 42
+----
+42

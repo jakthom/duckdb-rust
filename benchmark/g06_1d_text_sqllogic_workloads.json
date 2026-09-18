@@ -1,0 +1,20 @@
+{
+  "workloads": [
+    {
+      "id": "g06_1d_grapheme_low_cardinality_6_4m_row_visits",
+      "path": "test/performance/g06_text_primitives_process.test"
+    },
+    {
+      "id": "g06_1d_grapheme_high_cardinality_6_4m_row_visits",
+      "path": "test/performance/g06_text_grapheme_high_process.test"
+    },
+    {
+      "id": "g06_1d_codepoint_chr_ascii_6_4m_row_visits",
+      "path": "test/performance/g06_text_chr_ascii_process.test"
+    },
+    {
+      "id": "g06_1d_codepoint_contains_6_4m_row_visits",
+      "path": "test/performance/g06_text_contains_process.test"
+    }
+  ]
+}

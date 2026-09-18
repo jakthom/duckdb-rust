@@ -1,0 +1,12 @@
+{
+  "workloads": [
+    {
+      "id": "g01_parser_directives",
+      "path": "test/performance/g01_parser_directives.test"
+    },
+    {
+      "id": "g01_fixture_oracle",
+      "path": "test/performance/g01_fixture_oracle.test"
+    }
+  ]
+}

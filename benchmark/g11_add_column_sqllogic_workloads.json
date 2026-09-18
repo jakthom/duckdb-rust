@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g11_add_column_50k_rollback_repetition",
+      "path": "test/performance/g11_add_column.test"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "writer": "v1.3.0 71c5c07cdd",
+  "cases": {
+    "before_header": {
+      "setup": "SET force_compression='uncompressed';\nCREATE TABLE t(i INTEGER PRIMARY KEY, s VARCHAR);\nINSERT INTO t VALUES(1,'old'),(2,'two'); CHECKPOINT;",
+      "transactions": "UPDATE t SET s='new' WHERE i=1; INSERT INTO t VALUES(3,'three');",
+      "abort": "BEFORE_HEADER",
+      "query": "SELECT * FROM t ORDER BY i",
+      "rows": [
+        {
+          "i": 1,
+          "s": "new"
+        },
+        {
+          "i": 2,
+          "s": "two"
+        },
+        {
+          "i": 3,
+          "s": "three"
+        }
+      ],
+      "checkpoint_published": false,
+      "checkpoint_sha256": "d9e71bb6d05f1ffc08f3dd1b2c91ebfae23a1c1dd586f4189647aada8f495d97",
+      "wal_sha256": "4965726fb2303759e217bcced9fa5ff3c93ea29fd5686bab26e774627f7714a7"
+    },
+    "before_truncate": {
+      "setup": "SET force_compression='uncompressed';\nCREATE TABLE t(i INTEGER PRIMARY KEY, s VARCHAR);\nINSERT INTO t VALUES(1,'old'),(2,'two'); CHECKPOINT;",
+      "transactions": "UPDATE t SET s='new' WHERE i=1; INSERT INTO t VALUES(3,'three');",
+      "abort": "BEFORE_TRUNCATE",
+      "query": "SELECT * FROM t ORDER BY i",
+      "rows": [
+        {
+          "i": 1,
+          "s": "new"
+        },
+        {
+          "i": 2,
+          "s": "two"
+        },
+        {
+          "i": 3,
+          "s": "three"
+        }
+      ],
+      "checkpoint_published": true,
+      "checkpoint_sha256": "332af90d79fe4d75e5ccfec00b43a187ebb8c69a0cbbc2a222e219f5beb6d023",
+      "wal_sha256": "4965726fb2303759e217bcced9fa5ff3c93ea29fd5686bab26e774627f7714a7"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE filtered AS SELECT i, i%64 AS g, CASE WHEN i%10=0 THEN NULL ELSE i%100 END AS v, i%7 AS k, CASE WHEN i%4=0 THEN true WHEN i%4=1 THEN false ELSE NULL END AS keep FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "filtered_count_sum",
+      "sql": "SELECT count(*) FILTER(keep), sum(v) FILTER(WHERE keep) FROM filtered",
+      "rows": 1,
+      "sum": "512500"
+    },
+    {
+      "name": "filtered_distinct_ordered_list",
+      "sql": "SELECT list_extract(list(DISTINCT v ORDER BY v DESC) FILTER(keep AND v IS NOT NULL),1), list_extract(list(DISTINCT v ORDER BY v DESC) FILTER(WHERE keep AND v IS NOT NULL),20), count(DISTINCT v) FILTER(keep) FROM filtered",
+      "rows": 1,
+      "sum": "120"
+    },
+    {
+      "name": "filtered_distinct_first_last_grouped",
+      "sql": "SELECT sum(first_v),sum(last_v),sum(n) FROM (SELECT g,first(DISTINCT v ORDER BY v) FILTER(keep AND v IS NOT NULL) AS first_v,last(DISTINCT v ORDER BY v) FILTER(WHERE keep AND v IS NOT NULL) AS last_v,count(DISTINCT v) FILTER(keep) AS n FROM filtered GROUP BY g) q",
+      "rows": 1,
+      "sum": "1920"
+    }
+  ]
+}

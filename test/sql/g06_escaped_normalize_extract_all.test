@@ -1,0 +1,21 @@
+# Integrated G06.1g/G06.1h/G06.2c smoke contract. Focused component tests and
+# unchanged upstream files carry the full boundary/error population.
+query I
+SELECT length(E'a\nb');
+----
+3
+
+query TT
+SELECT strip_accents('hännës mühlëïsën'), nfc_normalize(chr(101) || chr(769));
+----
+hannes muhleisen	é
+
+query I
+SELECT regexp_extract_all('1a 2b 14m', '(\d+)', 1);
+----
+[1, 2, 14]
+
+query I
+SELECT regexp_extract_all('', '(abc)?');
+----
+['']

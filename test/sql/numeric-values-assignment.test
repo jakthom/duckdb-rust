@@ -1,0 +1,78 @@
+# Destination-directed VALUES assignment versus query-level common coercion.
+# Hand-authored cases; independently checked against both pinned C++ references.
+
+statement ok
+CREATE TABLE cte_values(s VARCHAR);
+INSERT INTO cte_values WITH unused AS (SELECT 1) VALUES(1.25),(0);
+
+query T
+SELECT s FROM cte_values
+----
+1.25
+0.00
+
+statement ok
+CREATE TABLE v(s VARCHAR);
+INSERT INTO v VALUES (1.25),(0),('hello'),(NULL);
+
+query T
+SELECT s FROM v
+----
+1.25
+0
+hello
+NULL
+
+statement ok
+DELETE FROM v; INSERT INTO v(s) (VALUES (1.25),(0));
+
+query T
+SELECT s FROM v
+----
+1.25
+0
+
+statement ok
+DELETE FROM v; INSERT INTO v SELECT * FROM (VALUES (1.25),(0)) q;
+
+query T
+SELECT s FROM v
+----
+1.25
+0.00
+
+statement ok
+CREATE TABLE ordered(d DECIMAL(4,1), s VARCHAR, u UTINYINT);
+INSERT INTO ordered(s,u,d) VALUES (1.25,255,1.249),(0,0,2);
+
+query RTI
+SELECT * FROM ordered
+----
+1.2	1.25	255
+2.0	0	0
+
+statement error
+INSERT INTO ordered VALUES (1,'ok',1),(2,'bad',256)
+
+query I
+SELECT count(*) FROM ordered
+----
+2
+
+statement error
+INSERT INTO ordered VALUES (1,2)
+
+statement error
+INSERT INTO ordered VALUES (1,2,3),(1,2)
+
+statement error
+INSERT INTO ordered(s,s) VALUES (1,2)
+
+statement ok
+DELETE FROM v; INSERT INTO v VALUES(1.25) UNION ALL VALUES(0);
+
+query T
+SELECT s FROM v
+----
+1.25
+0.00

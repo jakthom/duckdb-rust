@@ -1,0 +1,44 @@
+# Aggregate FILTER shorthand and the standard WHERE spelling share semantics
+# across DISTINCT and argument ordering.
+
+statement ok
+CREATE TABLE g08_filter(g INTEGER,v INTEGER,k INTEGER,keep BOOLEAN)
+
+statement ok
+INSERT INTO g08_filter VALUES
+(1,1,3,true),(1,1,2,true),(1,2,1,true),(1,NULL,0,true),
+(1,3,4,false),(2,4,2,false),(2,4,1,NULL),(2,5,0,true)
+
+query IIIIIIII rowsort
+SELECT g,
+       count(*) FILTER(keep),
+       count(DISTINCT v) FILTER (WHERE keep),
+       sum(DISTINCT v) FILTER(keep),
+       list_extract(list(DISTINCT v ORDER BY v DESC)
+           FILTER(keep AND v IS NOT NULL),1),
+       list_extract(list(DISTINCT v ORDER BY v DESC)
+           FILTER (WHERE keep AND v IS NOT NULL),2),
+       first(v ORDER BY k) FILTER(keep),
+       last(v ORDER BY k) FILTER (WHERE keep)
+FROM g08_filter GROUP BY g
+----
+1	4	2	3	2	1	NULL	1
+2	1	1	5	5	NULL	5	5
+
+query IIIII
+SELECT count(*) FILTER(false),
+       sum(v) FILTER(NULL),
+       list_extract(list(v ORDER BY k) FILTER(false),1),
+       first(v ORDER BY k) FILTER(NULL),
+       last(v ORDER BY k) FILTER(false)
+FROM g08_filter
+----
+0	NULL	NULL	NULL	NULL
+
+query III
+SELECT count(DISTINCT v) FILTER(v > 1),
+       sum(v) FILTER (WHERE v > 1),
+       first(DISTINCT v ORDER BY v DESC) FILTER(v IS NOT NULL)
+FROM g08_filter
+----
+4	18	5

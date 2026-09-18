@@ -1,0 +1,12 @@
+{
+  "workloads": [
+    {
+      "id": "g16_3a_2_ordinary_sum_million_rows",
+      "path": "test/performance/g16_ordinary_aggregation.test"
+    },
+    {
+      "id": "g16_3a_2_repeated_sum_overflow_error",
+      "path": "test/performance/g16_ordinary_aggregation_overflow_error.test"
+    }
+  ]
+}

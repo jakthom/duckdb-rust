@@ -1,0 +1,57 @@
+# Core SQL contract shared with alternative engine compositions.
+
+statement ok
+CREATE TABLE sales(region VARCHAR, amount INTEGER)
+
+statement ok
+INSERT INTO sales VALUES ('east',10),('east',20),('west',5),(NULL,7),('west',NULL)
+
+query TIII
+SELECT region, count(*), count(amount), sum(amount) FROM sales GROUP BY region ORDER BY region
+----
+east	2	2	30
+west	2	1	5
+NULL	1	1	7
+
+query III
+SELECT count(*), count(amount), count(DISTINCT region) FROM sales
+----
+5	4	2
+
+query IRII
+SELECT sum(amount), avg(amount), min(amount), max(amount) FROM sales WHERE false
+----
+NULL	NULL	NULL	NULL
+
+query II
+SELECT sum(amount) FILTER (WHERE region='east'), count(*) FILTER (WHERE amount IS NULL) FROM sales
+----
+30	1
+
+query T rowsort
+SELECT DISTINCT region FROM sales
+----
+NULL
+east
+west
+
+statement error
+SELECT region, sum(amount) FROM sales
+----
+column "region" must appear in the GROUP BY clause
+
+statement ok
+UPDATE sales SET amount=amount+1 WHERE region='east'
+
+query I
+SELECT sum(amount) FROM sales
+----
+44
+
+statement ok
+DELETE FROM sales WHERE region IS NULL
+
+query I
+SELECT count(*) FROM sales
+----
+4

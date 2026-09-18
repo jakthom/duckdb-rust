@@ -1,0 +1,143 @@
+# Regression contract for schema, CTE, alias and wildcard name resolution.
+# Hand-authored cases; independently checked against both pinned C++ references.
+
+statement ok
+CREATE SCHEMA s1; CREATE SCHEMA s2;
+CREATE TABLE s1.tbl(a VARCHAR); INSERT INTO s1.tbl VALUES ('hello');
+CREATE TABLE s2.tbl(b VARCHAR); INSERT INTO s2.tbl VALUES ('moon');
+CREATE TABLE tbl(c VARCHAR); INSERT INTO tbl VALUES ('earth');
+
+query TT
+WITH tbl AS (SELECT 'world' b) SELECT * FROM s1.tbl, tbl
+----
+hello	world
+
+query TT
+WITH tbl AS (SELECT 'world' b) SELECT tbl.a, tbl.b FROM s1.tbl, tbl
+----
+hello	world
+
+query TT
+SELECT s1.tbl.a, s2.tbl.b FROM s1.tbl, s2.tbl
+----
+hello	moon
+
+query TT
+SELECT tbl.a, tbl.b FROM s1.tbl, s2.tbl
+----
+hello	moon
+
+query TT
+SELECT * FROM s1.tbl, tbl
+----
+hello	earth
+
+query TT
+WITH tbl AS (SELECT 'world' b) SELECT main.tbl.c, tbl.b FROM main.tbl, tbl
+----
+earth	world
+
+query TT
+SELECT * FROM s1.tbl AS x, s2.tbl AS x
+----
+hello	moon
+
+query TT
+SELECT x.a, x.b FROM s1.tbl AS x, s2.tbl AS x
+----
+hello	moon
+
+query TT
+SELECT * FROM s1.tbl AS x, (SELECT 'world' b) x
+----
+hello	world
+
+query TT
+SELECT * FROM s1.tbl AS x(a), s1.tbl AS x(b)
+----
+hello	hello
+
+query I
+SELECT 42 FROM s1.tbl, s1.tbl
+----
+42
+
+query I
+SELECT 42 FROM s1.tbl JOIN s1.tbl USING(a)
+----
+42
+
+query T
+SELECT (SELECT s1.tbl.a) FROM s1.tbl
+----
+hello
+
+query T
+WITH tbl AS (SELECT 'world' b) SELECT (SELECT tbl.b) FROM s1.tbl, tbl
+----
+world
+
+query TT
+SELECT x.* FROM (s1.tbl CROSS JOIN s2.tbl) x
+----
+hello	moon
+
+query TT
+SELECT s1.tbl.a, s2.tbl.b FROM (s1.tbl CROSS JOIN s2.tbl)
+----
+hello	moon
+
+statement ok
+CREATE SCHEMA "s.dot"; CREATE TABLE "s.dot"."t.dot"("a.dot" INTEGER);
+INSERT INTO "s.dot"."t.dot" VALUES (7);
+
+query I
+SELECT "s.dot"."t.dot"."a.dot" FROM "s.dot"."t.dot"
+----
+7
+
+query I
+SELECT "t.dot".* FROM "s.dot"."t.dot"
+----
+7
+
+query I
+SELECT "x.dot".* FROM "s.dot"."t.dot" AS "x.dot"
+----
+7
+
+query T
+SELECT S1.TBL.A FROM s1.tbl
+----
+hello
+
+statement error
+WITH tbl AS (SELECT 'world' b) SELECT tbl.* FROM s1.tbl, tbl
+
+statement error
+WITH tbl AS (SELECT 'world' a) SELECT * FROM s1.tbl, tbl
+
+statement error
+SELECT tbl.* FROM s1.tbl, s2.tbl
+
+statement error
+SELECT x.* FROM s1.tbl AS x, s2.tbl AS x
+
+statement error
+SELECT * FROM s1.tbl, s1.tbl
+
+statement error
+SELECT * FROM s1.tbl FULL JOIN s1.tbl USING(a)
+
+statement error
+SELECT s1.tbl.a FROM s1.tbl AS x
+
+statement error
+SELECT s1.x.a FROM s1.tbl AS x
+
+statement error
+SELECT s1.tbl.a FROM (s1.tbl CROSS JOIN s2.tbl) x
+
+statement error
+SELECT s1.tbl.* FROM s1.tbl
+

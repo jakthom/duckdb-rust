@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g07_3a_distinct_on_100k_deterministic_survivor",
+      "path": "test/performance/g07_distinct_on.test"
+    }
+  ]
+}

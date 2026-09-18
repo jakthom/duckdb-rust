@@ -1,0 +1,17 @@
+# G06.1c process-level search workload. Native measurements carry direct
+# projection transport; this repeatedly exercises both aggregate consumers.
+statement ok
+CREATE TABLE g06_search_process AS
+SELECT CASE i % 4 WHEN 0 THEN 'alphabet soup' WHEN 1 THEN 'é🦆x' WHEN 2 THEN 'a\0é' ELSE '' END AS haystack,
+       CASE i % 4 WHEN 0 THEN 's' WHEN 1 THEN '🦆' WHEN 2 THEN '\0é' ELSE '' END AS needle
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query II
+SELECT sum(instr(haystack,needle)), sum(strpos(haystack,needle))
+FROM g06_search_process;
+----
+187500	187500
+
+endloop

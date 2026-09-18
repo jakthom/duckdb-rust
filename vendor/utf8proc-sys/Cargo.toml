@@ -1,0 +1,16 @@
+[package]
+name = "utf8proc-sys"
+version = "0.1.2"
+edition = "2024"
+rust-version = "1.87"
+links = "utf8proc"
+build = "build.rs"
+license = "MIT AND Unicode-3.0"
+description = "Locally pinned utf8proc bindings for DuckDB parity"
+
+[lib]
+name = "utf8proc_sys"
+path = "src/lib.rs"
+
+[build-dependencies]
+cc = "1"

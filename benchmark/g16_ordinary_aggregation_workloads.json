@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE t AS SELECT i FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "aggregate",
+      "sql": "SELECT sum(i) FROM t",
+      "rows": 1,
+      "sum": "1249975000"
+    },
+    {
+      "name": "count",
+      "sql": "SELECT count(*) FROM t",
+      "rows": 1,
+      "sum": "50000"
+    }
+  ]
+}

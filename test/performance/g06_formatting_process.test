@@ -1,0 +1,17 @@
+# G06.1f dynamic formatting workload: 128 * 50k = 6.4m stored-column
+# row visits through the SQLLogic runner.
+statement ok
+CREATE TABLE g06_formatting_process AS
+SELECT i,
+       CASE i % 4 WHEN 0 THEN 'alpha' WHEN 1 THEN 'beta' WHEN 2 THEN 'gamma' ELSE 'delta' END AS v,
+       CASE i % 2 WHEN 0 THEN '{}:{}' ELSE '{1}:{0}' END AS fmt
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query I
+SELECT sum(strlen(format(fmt, i, v))) FROM g06_formatting_process;
+----
+526390
+
+endloop

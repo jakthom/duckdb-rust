@@ -1,0 +1,42 @@
+# G08.2b process-level FILTER/DISTINCT/argument-order resource workload. Each
+# loop consumes the same stored 50,000 rows through three aggregate shapes.
+statement ok
+CREATE TABLE g08_filter_process AS
+SELECT i, i%64 AS g,
+       CASE WHEN i%10=0 THEN NULL ELSE i%100 END AS v,
+       i%7 AS k,
+       CASE WHEN i%4=0 THEN true WHEN i%4=1 THEN false ELSE NULL END AS keep
+FROM range(50000) t(i)
+
+loop iteration 0 128
+
+query II
+SELECT count(*) FILTER(keep),sum(v) FILTER(WHERE keep)
+FROM g08_filter_process
+----
+12500	500000
+
+query III
+SELECT list_extract(list(DISTINCT v ORDER BY v DESC)
+           FILTER(keep AND v IS NOT NULL),1),
+       list_extract(list(DISTINCT v ORDER BY v DESC)
+           FILTER(WHERE keep AND v IS NOT NULL),20),
+       count(DISTINCT v) FILTER(keep)
+FROM g08_filter_process
+----
+96	4	20
+
+query III
+SELECT sum(first_v),sum(last_v),sum(n)
+FROM (
+    SELECT g,
+           first(DISTINCT v ORDER BY v) FILTER(keep AND v IS NOT NULL) AS first_v,
+           last(DISTINCT v ORDER BY v) FILTER(WHERE keep AND v IS NOT NULL) AS last_v,
+           count(DISTINCT v) FILTER(keep) AS n
+    FROM g08_filter_process
+    GROUP BY g
+) q
+----
+64	1536	320
+
+endloop
