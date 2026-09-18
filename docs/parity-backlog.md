@@ -527,7 +527,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active at baseline `44538fb`: workers `batch1_a1`, `batch1_f1`, `batch1_c2_1` own sibling worktrees `../duckdb-rust-batch1-{a1,f1,c2-1}` on matching `codex/batch1-*` branches. A1/F1 manifests reviewed; C2.1 mapping/binding design in progress. No implementation acceptance yet. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active at baseline `44538fb`: workers `batch1_a1`, `batch1_f1`, `batch1_c2_1` own sibling worktrees `../duckdb-rust-batch1-{a1,f1,c2-1}` on matching `codex/batch1-*` branches. Both census first passes finished, exact timeout retries active; F1 implementation/tests active; C2.1 draft committed with acceptance still open. |
 | 2 | A2.1 first measured unblocked harness gap (A3/A4 fallback); F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance; choose exact A2.1 gap from A1 evidence. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -553,6 +553,14 @@ Batch 1 evidence/restart details:
   numeric (8), relational (10), grouping (3) and ordering (1) manifests; paired
   21-sample measurements are held until a quiet-host grant. Evaluation failures
   remain visible, not a claim of engine acceptance.
+  Exact commands/restart details: worker `target/a1-20260918/manifest.md`.
+  Provisional first-pass raw counts: development 584 pass / 5,049 fail / 5
+  incomplete across 5,638 candidates; release 550 / 4,280 / 5 across 4,835.
+  Each pin has 13 timeouts under retry. The binary fixture
+  `data/parquet-testing/orders_small_parquet.test` is accounted separately,
+  yielding executable populations 5,637 / 4,834; final retry outcomes and
+  historical pass-loss comparisons are not yet recorded. Do not quote these
+  provisional counts as final current parity.
 - F1 owns table-function modules/tests and provisional shared table-plan seams
   on its branch. Reviewed scope includes registry/bind/schema/per-open scan and
   exactly-once cleanup, integer range extremes/NULLs, prepared reuse and affected
@@ -566,6 +574,11 @@ Batch 1 evidence/restart details:
 - C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
   it must preserve a bound constant separator through grouped and window paths.
   Mutable per-row separators must not silently replace the pinned bind contract.
+  Draft commits `7dc9590` and `bd3baa5` are on the worker branch, not integrated
+  acceptance. Two focused grouping/window tests passed. Additional selected-
+  adapter/invalid-bind contract tests, unchanged upstream feedback, valid native
+  checksum workloads, final lint/trace/scoped verification and performance remain
+  open. Exact manifest: worker `target/c2-1/validation-manifest.md`.
 - All final implementation/performance/scoped-sweep outcomes remain **open**.
   Resume by reading the worker manifests/reports and branch diffs, not by
   restarting completed checks or dispatching a full sweep. Do not start batch 2
@@ -932,7 +945,7 @@ case are the first tasks, not optional future validation.
   Final: full assigned range/table-function cases, mixed query consumers,
   affected coverage/trace check, native and process range workloads plus scoped sweep.
 - **C2.1 (T):** own STRING_AGG implementation and focused tests in
-  `src/function/aggregate.rs`, its leaf modules and `test/grouping.rs`;
+  `src/function/aggregate.rs`, its leaf modules and `test/component/grouping.rs`;
   lead integrates any required registry/binder/operator seams. Provisional edits
   to those named seams may be proposed in the worker's own worktree, with lead
   review before integration. First inspect both pinned STRING_AGG populations,
