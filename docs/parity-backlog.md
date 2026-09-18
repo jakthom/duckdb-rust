@@ -810,6 +810,18 @@ Batch 1 evidence/restart details:
   all failures. Fresh sampled profiles of these unchanged workloads precede
   further correction; a grouped-only checked 2x string growth hypothesis is
   assigned to S `batch1_f1_performance` after the profiling freeze is released.
+  Fresh candidate 5 profiles confirmed dictionary logical-value prescans and
+  pair reconstruction in grouped SUM/CUBE (the earlier two-flat-BIGINT tuple
+  path does not admit modulo's dictionary outputs). They also identified
+  per-group result-row reallocations. Candidate 6 worker `1c83a67`, integrated
+  as `164eee2`, removes eligible dictionary prescans, memoizes bounded physical
+  dictionary pairs without speculative groups, uses bounded open-addressed
+  small DISTINCT lookup, doubles reused grouped-string capacity with checked
+  overflow, and preallocates result-row/output capacity. No query-name routing
+  or new adapter API. Index 13/13, string leaf 6/6, modifier 1/1 and grouping
+  75/75 pass; the post-row-assembly edit reran grouping only, reusing unchanged
+  leaf/index checks. Fresh release binaries/untimed fixtures precede the next
+  quiet diagnostic campaign. No final acceptance claim yet.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
