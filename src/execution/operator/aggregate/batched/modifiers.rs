@@ -474,7 +474,7 @@ impl PhysicalDistinctMemo {
         let Some(entries) = groups.checked_mul(parent_values) else {
             return Ok(None);
         };
-        let row_bound = rows.checked_mul(4).unwrap_or(usize::MAX);
+        let row_bound = rows.saturating_mul(4);
         if entries > MAX_PHYSICAL_DISTINCT_MEMO || entries > row_bound {
             return Ok(None);
         }
