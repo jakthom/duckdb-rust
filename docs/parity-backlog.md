@@ -893,6 +893,11 @@ Batch 1 evidence/restart details:
   cancellation/limits, grouping masks and custom callback identity. Manifests
   are worker `target/c2-1/candidate9-{aggregate-columns,columnar-grouped,list-varchar-validation}-manifest.md`.
   All four existing native/process workload families remain acceptance gates.
+  The additive NodeAggregate dispatch also touches F1's ungrouped publication:
+  final integrated-root acceptance must refresh the F1 range native/process
+  manifests as a fifth family. The C2 worker has the older range implementation,
+  so F1 timing belongs only on root with `324878c`, not that worker. Earlier F1
+  acceptance remains recorded; this refresh is for an actually changed consumer.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
