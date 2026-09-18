@@ -1366,6 +1366,21 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
     assert_eq!(
         connection
             .query(
+                "SELECT buffered_probe(DISTINCT x ORDER BY x) \
+                 FROM (VALUES \
+                    (''),('a'),('a\0'),('a\0b'),('abcdefg'),('abcdefg0'),\
+                    ('abcdefg0-tail'),('abcdefg1-tail'),('éééé'),\
+                    ('a\0'),('abcdefg0-tail'),('éééé')\
+                 ) t(x)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar(
+            "|a|a\0|a\0b|abcdefg|abcdefg0|abcdefg0-tail|abcdefg1-tail|éééé".into(),
+        )]],
+    );
+    assert_eq!(
+        connection
+            .query(
                 "SELECT list_extract(list(x ORDER BY k),1), \
                         list_extract(list(x ORDER BY k),2), \
                         list_extract(list(x ORDER BY k),3), \

@@ -276,12 +276,18 @@ impl GroupedAggregateState for IntegerGroups {
                 }
                 return query.check();
             }
-            // Read Value storage sequentially. Counting non-NULL updates once
-            // per group proves wide sums safe without permuting the values.
-            if let Some(values) = column.flat_values() {
-                self.update_sum(groups, values.iter().cloned(), counted, query)?;
+            if matches!(kernel, SumKernel::Signed(_))
+                && let Some(values) = column.flat_bigints()
+            {
+                self.update_flat_bigints(groups, values, counted, query)?;
             } else {
-                self.update_sum(groups, column.values(), counted, query)?;
+                // Read Value storage sequentially. Counting non-NULL updates once
+                // per group proves wide sums safe without permuting the values.
+                if let Some(values) = column.flat_values() {
+                    self.update_sum(groups, values.iter().cloned(), counted, query)?;
+                } else {
+                    self.update_sum(groups, column.values(), counted, query)?;
+                }
             }
         } else if !counted {
             if let Some(column) = column {
@@ -326,6 +332,29 @@ impl GroupedAggregateState for IntegerGroups {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IntegerGroups {
+    fn update_flat_bigints(
+        &mut self,
+        groups: &GroupSelection<'_>,
+        values: &[i64],
+        counted: bool,
+        query: &QueryContext,
+    ) -> Result<()> {
+        // Flat BIGINT construction proves every input is a valid, non-NULL
+        // signed coefficient. The bound SUM kernel and lifetime counts prove
+        // each i128 prefix safe; keep logical row order and cancellation
+        // cadence without rebuilding owned Values.
+        for (index, (&group, &value)) in groups.indices().iter().zip(values).enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            if !counted {
+                self.increment_by(group, 1)?;
+            }
+            self.values[group] += i128::from(value);
+        }
+        Ok(())
+    }
+
     fn update_sum(
         &mut self,
         groups: &GroupSelection<'_>,

@@ -55,8 +55,13 @@ struct BufferedGroup {
 
 enum DistinctKeys {
     Canonical(HashSet<Vec<u8>>),
-    SmallVarchar(Vec<Vec<u8>>),
+    SmallVarchar(Vec<SmallVarcharKey>),
     VarcharHash(HashSet<Vec<u8>>),
+}
+
+struct SmallVarcharKey {
+    prefix: u64,
+    bytes: Vec<u8>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -111,7 +116,16 @@ impl BufferedGroup {
             keys.insert(owned);
             return Ok(true);
         };
-        let insertion = match keys.binary_search_by(|key| key.as_slice().cmp(bytes)) {
+        let prefix = varchar_key_prefix(bytes);
+        let insertion = match keys.binary_search_by(|key| {
+            key.prefix.cmp(&prefix).then_with(|| {
+                if bytes.len() <= 7 {
+                    Ordering::Equal
+                } else {
+                    key.bytes.as_slice().cmp(bytes)
+                }
+            })
+        }) {
             Ok(_) => return Ok(false),
             Err(insertion) => insertion,
         };
@@ -125,7 +139,13 @@ impl BufferedGroup {
         if keys.len() < SMALL_VARCHAR_DISTINCT_KEYS {
             keys.try_reserve(1)
                 .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
-            keys.insert(insertion, owned);
+            keys.insert(
+                insertion,
+                SmallVarcharKey {
+                    prefix,
+                    bytes: owned,
+                },
+            );
             return Ok(true);
         }
 
@@ -138,7 +158,7 @@ impl BufferedGroup {
             .try_reserve(capacity)
             .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
         for key in std::mem::take(keys) {
-            hashed.insert(key);
+            hashed.insert(key.bytes);
         }
         hashed.insert(owned);
         self.seen = DistinctKeys::VarcharHash(hashed);
@@ -154,6 +174,19 @@ fn copy_distinct_key(bytes: &[u8]) -> Result<Vec<u8>> {
         .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
     owned.extend_from_slice(bytes);
     Ok(owned)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn varchar_key_prefix(bytes: &[u8]) -> u64 {
+    let mut prefix = if bytes.len() <= 7 {
+        (bytes.len() as u64) << 56
+    } else {
+        u64::MAX << 56
+    };
+    for (position, byte) in bytes.iter().take(7).enumerate() {
+        prefix |= u64::from(*byte) << (48 - position * 8);
+    }
+    prefix
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

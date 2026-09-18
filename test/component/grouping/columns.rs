@@ -119,6 +119,118 @@ fn grouped_integer_states_match_scalar_states_for_encodings_widths_and_empty_gro
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn grouped_bigint_sum_borrows_flat_lanes_and_preserves_fallbacks() -> Result<()> {
+    let query = QueryContext::background();
+    let function = FunctionRegistry::builtins().aggregate("sum").unwrap();
+    let compare = |column: Vector, destinations: Vec<usize>, groups: usize| -> Result<()> {
+        let mut state = function
+            .create_grouped_state(&[DataType::BigInt], query.types())?
+            .unwrap();
+        state.resize(groups, &query)?;
+        state.update_batch(
+            &GroupSelection::new(&destinations, groups, &query)?,
+            &DataChunk::new(vec![column.clone()], column.len())?,
+            &query,
+        )?;
+        let mut sums = vec![0_i128; groups];
+        let mut seen = vec![false; groups];
+        for (&group, value) in destinations.iter().zip(column.values()) {
+            match value {
+                Value::Integer(value) => {
+                    sums[group] += value;
+                    seen[group] = true;
+                }
+                Value::Null => {}
+                _ => unreachable!("BIGINT vector value"),
+            }
+        }
+        let expected = sums
+            .into_iter()
+            .zip(seen)
+            .map(|(sum, seen)| seen.then_some(Value::Integer(sum)).unwrap_or(Value::Null))
+            .collect::<Vec<_>>();
+        assert_eq!(state.finish(&query)?, expected);
+        Ok(())
+    };
+
+    let values = (0..4099)
+        .map(|index| {
+            Value::Integer(i128::from(match index % 6 {
+                0 => i64::MIN,
+                1 => i64::MAX,
+                2 => -1,
+                3 => 1,
+                4 => index as i64,
+                _ => -(index as i64),
+            }))
+        })
+        .collect::<Vec<_>>();
+    let flat = Vector::flat(DataType::BigInt, values.clone())?;
+    compare(flat.clone(), (0..4099).map(|index| index % 7).collect(), 9)?;
+    compare(
+        flat.slice(3, 4093)?,
+        (0..4093).map(|index| (index * 5) % 7).collect(),
+        9,
+    )?;
+
+    let short = Vector::flat(
+        DataType::BigInt,
+        vec![
+            Value::Integer(i128::from(i64::MIN)),
+            Value::Integer(i128::from(i64::MAX)),
+            Value::Integer(7),
+            Value::Integer(-7),
+        ],
+    )?;
+    compare(short, vec![0, 0, 8, 8], 9)?;
+
+    let nullable = Vector::flat(
+        DataType::BigInt,
+        values
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, value)| if index % 11 == 0 { Value::Null } else { value })
+            .collect(),
+    )?;
+    compare(
+        nullable,
+        (0..4099).map(|index| (index * 3) % 7).collect(),
+        9,
+    )?;
+
+    let dictionary = Arc::new(flat).select(vec![4098, 0, 1, 1, 2, 2048, 3, 4])?;
+    compare(dictionary, vec![0, 1, 0, 2, 1, 2, 8, 8], 9)?;
+    compare(
+        Vector::constant(DataType::BigInt, Value::Integer(i64::MAX.into()), 19)?,
+        vec![4; 19],
+        9,
+    )?;
+    compare(Vector::flat(DataType::BigInt, vec![])?, vec![], 9)?;
+
+    let groups = (0..2049).map(|index| index % 2).collect::<Vec<_>>();
+    let column = Vector::flat(DataType::BigInt, vec![Value::Integer(1); groups.len()])?;
+    let selection = GroupSelection::new(&groups, 2, &query)?;
+    let mut cancelled = function
+        .create_grouped_state(&[DataType::BigInt], query.types())?
+        .unwrap();
+    cancelled.resize(2, &query)?;
+    let interrupt = InterruptHandle::default();
+    let cancelled_query = QueryContext::new(interrupt.clone(), None, 2, usize::MAX)?;
+    interrupt.interrupt();
+    assert!(matches!(
+        cancelled.update_batch(
+            &selection,
+            &DataChunk::new(vec![column], groups.len())?,
+            &cancelled_query,
+        ),
+        Err(Error::Interrupted)
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn grouped_count_handles_nullable_strings_and_cancelled_empty_states() -> Result<()> {
     let query = QueryContext::background();
     let function = FunctionRegistry::builtins().aggregate("count").unwrap();

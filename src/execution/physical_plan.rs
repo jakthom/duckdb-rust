@@ -21,12 +21,12 @@ use super::{
 use crate::{
     catalog::TableBinding,
     common::{
-        Result, Row,
+        DataType, Result, Row,
         type_registry::OrderingRepresentation,
         vector::{DataChunk, Vector},
     },
     planner::{
-        BoundExpr, ExprKind, LogicalPlan, PlanNode, Schema,
+        BoundExpr, ExprKind, Field, LogicalPlan, PlanNode, Schema,
         aggregation::Aggregation,
         logical::{JoinKind, OrderExpr, SetOperation},
     },
@@ -727,10 +727,17 @@ impl PhysicalOperator for Operator {
                 input,
                 aggregation,
                 algorithm,
-            } => stream::deferred_owned(schema, context, move || {
-                let mut input = stream::open(input.as_ref(), context)?;
-                algorithm.aggregate(input.as_mut(), aggregation, context)
-            }),
+            } => {
+                let load = move || {
+                    let mut input = stream::open(input.as_ref(), context)?;
+                    algorithm.aggregate(input.as_mut(), aggregation, context)
+                };
+                if aggregate_uses_owned_publication(schema) {
+                    stream::deferred_owned(schema, context, load)
+                } else {
+                    stream::deferred(schema, context, load)
+                }
+            }
             Node::Window {
                 input,
                 expressions,
@@ -753,6 +760,13 @@ impl PhysicalOperator for Operator {
             }),
         })
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn aggregate_uses_owned_publication(schema: &[Field]) -> bool {
+    schema
+        .iter()
+        .any(|field| field.data_type == DataType::Varchar)
 }
 
 /// DuckDB implements DISTINCT ON as hash groups with ordered FIRST aggregates,
@@ -1246,4 +1260,35 @@ fn distinct_on(
         }
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::NestedType;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn aggregate_publication_owns_only_exact_physical_varchar_rows() {
+        assert!(!aggregate_uses_owned_publication(&[]));
+        assert!(!aggregate_uses_owned_publication(&[Field::new(
+            "sum",
+            DataType::HugeInt,
+        )]));
+        assert!(aggregate_uses_owned_publication(&[
+            Field::new("group", DataType::BigInt),
+            Field::new("text", DataType::Varchar),
+        ]));
+        assert!(!aggregate_uses_owned_publication(&[
+            Field::new("bytes", DataType::Blob),
+            Field::new(
+                "nested_text",
+                NestedType::List(DataType::Varchar).data_type(),
+            ),
+            Field::new(
+                "extension",
+                DataType::extension("test.varchar_wrapper", vec![]),
+            ),
+        ]));
+    }
 }

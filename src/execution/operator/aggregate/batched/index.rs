@@ -38,8 +38,7 @@ impl Dense {
             dimensions.iter_mut().zip(columns).zip(representations)
         {
             let (mut minimum, mut maximum) = (None::<i128>, None::<i128>);
-            if columns.len() == 1
-                && *representation == KeyRepresentation::Integer
+            if *representation == KeyRepresentation::Integer
                 && let Some(values) = column.flat_bigints()
             {
                 // An all-valid BIGINT lane is already the exact signed key
@@ -262,6 +261,19 @@ impl IntegerIndex {
                     create,
                 ),
             },
+            [a, b]
+                if representations == [KeyRepresentation::Integer; 2]
+                    && a.flat_bigints().is_some()
+                    && b.flat_bigints().is_some() =>
+            {
+                self.locate_flat_bigint_pairs(
+                    a.flat_bigints().expect("selected flat BIGINT lane"),
+                    b.flat_bigints().expect("selected flat BIGINT lane"),
+                    rows,
+                    query,
+                    create,
+                )
+            }
             [a, b] => match a.flat_values().zip(b.flat_values()) {
                 Some((a, b)) => self.locate_values(
                     a.iter()
@@ -471,6 +483,50 @@ impl IntegerIndex {
     }
 
     #[inline]
+    fn locate_flat_bigint_pairs(
+        &mut self,
+        a: &[i64],
+        b: &[i64],
+        rows: usize,
+        query: &QueryContext,
+        mut create: impl FnMut(usize) -> Result<usize>,
+    ) -> Result<Vec<usize>> {
+        let mut result = Vec::with_capacity(rows);
+        for (row, (&a, &b)) in a.iter().zip(b).enumerate() {
+            if row % 1024 == 0 {
+                query.check()?;
+            }
+            let values = [i128::from(a), i128::from(b)];
+            let slot = self.dense.as_mut().and_then(|dense| {
+                let [a, b] = dense.dimensions;
+                let x = values[0].wrapping_sub(a.minimum?) as u128;
+                let y = values[1].wrapping_sub(b.minimum?) as u128;
+                // Construction bounds both dimensions and their product.
+                // Preserve the NULL tail in each dimension's stride.
+                if x < a.values as u128 && y < b.values as u128 {
+                    Some(&mut dense.slots[x as usize * (b.values + 1) + y as usize])
+                } else {
+                    None
+                }
+            });
+            let group = if let Some(slot) = slot {
+                if *slot == EMPTY {
+                    *slot = create(row)?;
+                }
+                *slot
+            } else {
+                match self.sparse.entry(Key { values, nulls: 0 }) {
+                    std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                    std::collections::hash_map::Entry::Vacant(entry) => *entry.insert(create(row)?),
+                }
+            };
+            result.push(group);
+        }
+        query.check()?;
+        Ok(result)
+    }
+
+    #[inline]
     fn flat_dense_position(&self, value: i128) -> Option<usize> {
         let dimension = self.dense.as_ref()?.dimensions[0];
         let offset = value.wrapping_sub(dimension.minimum?) as u128;
@@ -597,6 +653,133 @@ mod tests {
                 Ok(group)
             },
         )
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn flat_bigint_pairs_preserve_dense_sparse_and_nullable_identities() -> Result<()> {
+        let query = QueryContext::background();
+        for base in [i64::MIN, 0, i64::MAX - 1] {
+            let mut index = IntegerIndex::default();
+            let mut reference = HashMap::new();
+            let mut next = 0;
+            for pairs in [
+                vec![
+                    (Some(base), Some(0)),
+                    (Some(base + 1), Some(1)),
+                    (Some(base), Some(0)),
+                ],
+                vec![(Some(base), Some(1)), (Some(base + 1), Some(0))],
+                vec![
+                    (None, Some(0)),
+                    (Some(base), None),
+                    (None, None),
+                    (Some(base), Some(0)),
+                ],
+                vec![
+                    (Some(i64::MAX), Some(i64::MIN)),
+                    (Some(base), Some(1)),
+                    (Some(i64::MAX), Some(i64::MIN)),
+                ],
+                vec![],
+            ] {
+                let mut expected = Vec::new();
+                for pair in &pairs {
+                    let ordinal = reference.len();
+                    expected.push(*reference.entry(*pair).or_insert(ordinal));
+                }
+                let vectors = [0, 1].map(|column| {
+                    Vector::flat(
+                        DataType::BigInt,
+                        pairs
+                            .iter()
+                            .map(|&(a, b)| {
+                                [a, b][column]
+                                    .map_or(Value::Null, |v| Value::Integer(i128::from(v)))
+                            })
+                            .collect(),
+                    )
+                });
+                let [a, b] = vectors;
+                let (a, b) = (a?, b?);
+                let actual = index.locate(
+                    &[&a, &b],
+                    &[KeyRepresentation::Integer; 2],
+                    pairs.len(),
+                    &query,
+                    |_| {
+                        let group = next;
+                        next += 1;
+                        Ok(group)
+                    },
+                )?;
+                assert_eq!(actual, expected);
+                assert_eq!(next, reference.len());
+                assert!(index.dense.is_some());
+            }
+            assert!(!index.sparse.is_empty());
+        }
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn flat_bigint_pairs_handle_empty_initialization_extremes_and_cancellation() -> Result<()> {
+        let query = QueryContext::background();
+        let empty = flat_bigints(&[])?;
+        let mut index = IntegerIndex::default();
+        assert!(
+            index
+                .locate(
+                    &[&empty, &empty],
+                    &[KeyRepresentation::Integer; 2],
+                    0,
+                    &query,
+                    |_| unreachable!()
+                )?
+                .is_empty()
+        );
+        let a = flat_bigints(&[i64::MIN, i64::MAX, i64::MIN])?;
+        let b = flat_bigints(&[i64::MAX, i64::MIN, i64::MAX])?;
+        let mut next = 0;
+        assert_eq!(
+            index.locate(
+                &[&a, &b],
+                &[KeyRepresentation::Integer; 2],
+                3,
+                &query,
+                |_| {
+                    let group = next;
+                    next += 1;
+                    Ok(group)
+                }
+            )?,
+            [0, 1, 0]
+        );
+        assert!(matches!(
+            index.locate(
+                &[&a, &b],
+                &[KeyRepresentation::Integer],
+                3,
+                &query,
+                |_| unreachable!()
+            ),
+            Err(Error::Internal(_))
+        ));
+        let interrupt = InterruptHandle::default();
+        let cancelled = QueryContext::new(interrupt.clone(), None, 1, usize::MAX)?;
+        interrupt.interrupt();
+        assert!(matches!(
+            index.locate(
+                &[&a, &b],
+                &[KeyRepresentation::Integer; 2],
+                3,
+                &cancelled,
+                |_| unreachable!()
+            ),
+            Err(Error::Interrupted)
+        ));
+        Ok(())
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
