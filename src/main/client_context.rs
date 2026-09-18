@@ -134,6 +134,61 @@ impl crate::execution::physical_plan::PhysicalOperator for InsertDefaults {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Services {
+    /// Execute a physical SELECT whose optimization and physical planning were
+    /// performed for this exact catalog/settings snapshot. Operators are
+    /// immutable; each executor invocation still opens fresh local state.
+    pub(super) fn cached_query(
+        &self,
+        plan: Arc<dyn crate::execution::physical_plan::PhysicalOperator>,
+        transaction: &dyn Transaction,
+        query: &QueryContext,
+    ) -> Result<QueryResult> {
+        query.check()?;
+        let started = std::time::Instant::now();
+        let result = (|| {
+            let mut sink = CollectingSink {
+                rows: RowCollection::new(plan.schema().len()),
+                query,
+            };
+            let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
+            self.executor.execute(
+                plan.as_ref(),
+                &self.execution_context(transaction, query, &subquery_plans),
+                &mut sink,
+            )?;
+            Ok(QueryResult {
+                columns: plan.schema().clone(),
+                rows: sink.rows,
+                affected_rows: 0,
+            })
+        })();
+        match result {
+            Ok(result) => {
+                query.settings().emit_profile(
+                    &settings::QueryProfile::new(started.elapsed(), result.rows.len(), false),
+                    query,
+                )?;
+                Ok(result)
+            }
+            Err(error) => {
+                let _ = query.settings().emit_profile(
+                    &settings::QueryProfile::new(started.elapsed(), 0, false),
+                    query,
+                );
+                Err(error)
+            }
+        }
+    }
+
+    pub(super) fn plan_cached_query(
+        &self,
+        plan: LogicalPlan,
+        transaction: &dyn Transaction,
+        query: &QueryContext,
+    ) -> Result<Arc<dyn crate::execution::physical_plan::PhysicalOperator>> {
+        let plan = self.optimize(plan, transaction, query)?;
+        self.physical_planner.plan(&plan)
+    }
     fn execution_context<'a>(
         &'a self,
         transaction: &'a dyn Transaction,

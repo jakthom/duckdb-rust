@@ -142,6 +142,72 @@ fn expression_adapters_preserve_lazy_branches_first_errors_and_effect_counts() -
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn bigint_power_of_two_remainder_filter_preserves_signed_remainder_semantics() -> Result<()> {
+    let mut connection = DatabaseBuilder::new()
+        .expressions(Arc::new(BatchedEvaluator))
+        .batch_size(2048)
+        .build()?
+        .connect();
+    connection.execute(
+        "CREATE TABLE t(i BIGINT); \
+         INSERT INTO t VALUES \
+         (-9223372036854775808),(-9),(-8),(-3),(-2),(-1),(0),(1),(2),(3),(8),(9)",
+    )?;
+    assert_eq!(
+        connection.query("SELECT i FROM t WHERE i % 2 = 0")?.rows,
+        vec![
+            ints(&[-9223372036854775808]),
+            ints(&[-8]),
+            ints(&[-2]),
+            ints(&[0]),
+            ints(&[2]),
+            ints(&[8]),
+        ],
+    );
+    assert_eq!(
+        connection.query("SELECT i FROM t WHERE i % -8 = 0")?.rows,
+        vec![
+            ints(&[-9223372036854775808]),
+            ints(&[-8]),
+            ints(&[0]),
+            ints(&[8]),
+        ],
+    );
+    assert_eq!(
+        connection
+            .query("SELECT i FROM t WHERE i % -9223372036854775808 = 0")?
+            .rows,
+        vec![ints(&[-9223372036854775808]), ints(&[0])],
+    );
+    assert_eq!(
+        connection
+            .query(
+                "SELECT i FROM (VALUES (NULL::BIGINT),(2::BIGINT),(3::BIGINT)) t(i) \
+                 WHERE i % 2 = 0",
+            )?
+            .rows,
+        vec![ints(&[2])],
+    );
+    assert_eq!(
+        connection.query("SELECT i FROM t WHERE i % 3 = 0")?.rows,
+        vec![ints(&[-9]), ints(&[-3]), ints(&[0]), ints(&[3]), ints(&[9])],
+    );
+    assert!(
+        connection
+            .query("SELECT i FROM t WHERE i % -1 = 0")
+            .is_err()
+    );
+    assert!(
+        connection
+            .query("SELECT i FROM t WHERE i % 0 = 0")?
+            .rows
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn speculative_multi_column_projection_restores_row_major_first_error() -> Result<()> {
     let mut connection = DatabaseBuilder::new()
         .expressions(Arc::new(BatchedEvaluator))

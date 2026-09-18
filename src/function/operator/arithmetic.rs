@@ -8,6 +8,12 @@ impl OperatorFunction for NumericArithmetic {
     fn name(&self) -> &'static str {
         "checked-numeric-arithmetic"
     }
+    #[allow(private_interfaces)]
+    fn batch_kind(&self, _: OperatorBatchAccess) -> Option<OperatorBatchKind> {
+        Some(OperatorBatchKind::builtin(
+            OperatorBatchIdentity::NumericArithmetic,
+        ))
+    }
     fn supports(&self, signature: &OperatorSignature) -> bool {
         use Operator::*;
         let t = &signature.result;

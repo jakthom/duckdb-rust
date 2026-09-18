@@ -5,7 +5,12 @@ use std::sync::{Mutex, RwLock};
 #[derive(Debug)]
 pub struct SnapshotConfiguration {
     registry: Arc<SettingRegistry>,
-    global: Arc<RwLock<Arc<SettingValues>>>,
+    global: Arc<RwLock<SnapshotValues>>,
+}
+#[derive(Clone, Debug)]
+struct SnapshotValues {
+    values: Arc<SettingValues>,
+    generation: u64,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for SnapshotConfiguration {
@@ -18,7 +23,10 @@ impl SnapshotConfiguration {
     pub fn new(registry: Arc<SettingRegistry>) -> Self {
         Self {
             registry,
-            global: Arc::new(RwLock::new(Arc::new(BTreeMap::new()))),
+            global: Arc::new(RwLock::new(SnapshotValues {
+                values: Arc::new(BTreeMap::new()),
+                generation: 0,
+            })),
         }
     }
 }
@@ -32,20 +40,36 @@ impl Configuration for SnapshotConfiguration {
             registry: self.registry.clone(),
             global: self.global.clone(),
             session: Arc::new(BTreeMap::new()),
+            session_identity: Arc::new(SettingsSessionIdentity),
+            session_generation: 0,
         })
     }
 }
 struct SnapshotSession {
     registry: Arc<SettingRegistry>,
-    global: Arc<RwLock<Arc<SettingValues>>>,
+    global: Arc<RwLock<SnapshotValues>>,
     session: Arc<SettingValues>,
+    session_identity: Arc<SettingsSessionIdentity>,
+    session_generation: u64,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ConfigurationSession for SnapshotSession {
     fn snapshot(&self, query: &QueryContext) -> Result<SettingsSnapshot> {
         query.check()?;
         let global = self.global.read().map_err(|_| poisoned())?.clone();
-        SettingsSnapshot::new(self.registry.clone(), global, self.session.clone(), query)
+        SettingsSnapshot::new(
+            self.registry.clone(),
+            global.values,
+            self.session.clone(),
+            query,
+        )
+        .map(|snapshot| {
+            snapshot.with_generation(SettingsGeneration {
+                global: global.generation,
+                session_identity: self.session_identity.clone(),
+                session: self.session_generation,
+            })
+        })
     }
     fn apply(&mut self, change: &SettingChange, query: &QueryContext) -> Result<()> {
         change.validate(&self.registry, query)?;
@@ -53,11 +77,21 @@ impl ConfigurationSession for SnapshotSession {
             SettingScope::Global => {
                 let mut global = self.global.write().map_err(|_| poisoned())?;
                 query.check()?;
-                update(Arc::make_mut(&mut global), change);
+                let generation = global
+                    .generation
+                    .checked_add(1)
+                    .ok_or_else(|| Error::Resource("settings generation exhausted".into()))?;
+                update(Arc::make_mut(&mut global.values), change);
+                global.generation = generation;
             }
             SettingScope::Session => {
                 query.check()?;
+                let generation = self
+                    .session_generation
+                    .checked_add(1)
+                    .ok_or_else(|| Error::Resource("settings generation exhausted".into()))?;
                 update(Arc::make_mut(&mut self.session), change);
+                self.session_generation = generation;
             }
         }
         Ok(())
@@ -69,7 +103,12 @@ impl ConfigurationSession for SnapshotSession {
 #[derive(Debug)]
 pub struct LockedConfiguration {
     registry: Arc<SettingRegistry>,
-    global: Arc<Mutex<SettingValues>>,
+    global: Arc<Mutex<LockedValues>>,
+}
+#[derive(Debug)]
+struct LockedValues {
+    values: SettingValues,
+    generation: u64,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for LockedConfiguration {
@@ -82,7 +121,10 @@ impl LockedConfiguration {
     pub fn new(registry: Arc<SettingRegistry>) -> Self {
         Self {
             registry,
-            global: Arc::new(Mutex::new(BTreeMap::new())),
+            global: Arc::new(Mutex::new(LockedValues {
+                values: BTreeMap::new(),
+                generation: 0,
+            })),
         }
     }
 }
@@ -96,25 +138,36 @@ impl Configuration for LockedConfiguration {
             registry: self.registry.clone(),
             global: self.global.clone(),
             session: BTreeMap::new(),
+            session_identity: Arc::new(SettingsSessionIdentity),
+            session_generation: 0,
         })
     }
 }
 struct LockedSession {
     registry: Arc<SettingRegistry>,
-    global: Arc<Mutex<SettingValues>>,
+    global: Arc<Mutex<LockedValues>>,
     session: SettingValues,
+    session_identity: Arc<SettingsSessionIdentity>,
+    session_generation: u64,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ConfigurationSession for LockedSession {
     fn snapshot(&self, query: &QueryContext) -> Result<SettingsSnapshot> {
         query.check()?;
-        let global = self.global.lock().map_err(|_| poisoned())?.clone();
+        let global = self.global.lock().map_err(|_| poisoned())?;
         SettingsSnapshot::new(
             self.registry.clone(),
-            Arc::new(global),
+            Arc::new(global.values.clone()),
             Arc::new(self.session.clone()),
             query,
         )
+        .map(|snapshot| {
+            snapshot.with_generation(SettingsGeneration {
+                global: global.generation,
+                session_identity: self.session_identity.clone(),
+                session: self.session_generation,
+            })
+        })
     }
     fn apply(&mut self, change: &SettingChange, query: &QueryContext) -> Result<()> {
         change.validate(&self.registry, query)?;
@@ -122,11 +175,21 @@ impl ConfigurationSession for LockedSession {
             SettingScope::Global => {
                 let mut global = self.global.lock().map_err(|_| poisoned())?;
                 query.check()?;
-                update(&mut global, change);
+                let generation = global
+                    .generation
+                    .checked_add(1)
+                    .ok_or_else(|| Error::Resource("settings generation exhausted".into()))?;
+                update(&mut global.values, change);
+                global.generation = generation;
             }
             SettingScope::Session => {
                 query.check()?;
+                let generation = self
+                    .session_generation
+                    .checked_add(1)
+                    .ok_or_else(|| Error::Resource("settings generation exhausted".into()))?;
                 update(&mut self.session, change);
+                self.session_generation = generation;
             }
         }
         Ok(())

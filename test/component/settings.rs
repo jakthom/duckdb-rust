@@ -135,3 +135,95 @@ fn global_session_and_prepared_views_preserve_scope_and_transaction_lifetimes() 
     }
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn zero_parameter_prepared_queries_refresh_snapshots_and_invalidate_cache_keys() -> Result<()> {
+    for configuration in configurations() {
+        let database = DatabaseBuilder::new()
+            .configuration(configuration)
+            .build()?;
+        let mut connection = database.connect();
+        connection.execute(
+            "CREATE TABLE prepared_cache(i INTEGER); INSERT INTO prepared_cache VALUES (2),(1)",
+        )?;
+        let rows = connection.prepare("SELECT i FROM prepared_cache ORDER BY i")?;
+
+        // The second call is a warm cache hit, but table data is read through
+        // a fresh transaction and freshly-opened physical operator state.
+        assert_eq!(
+            connection.execute_prepared(&rows, &[])?.rows,
+            vec![vec![Value::Integer(1)], vec![Value::Integer(2)]]
+        );
+        connection.execute("INSERT INTO prepared_cache VALUES (3)")?;
+        assert_eq!(
+            connection.execute_prepared(&rows, &[])?.rows,
+            vec![
+                vec![Value::Integer(1)],
+                vec![Value::Integer(2)],
+                vec![Value::Integer(3)]
+            ]
+        );
+
+        // A catalog version change must rebind rather than execute ordinal
+        // bindings from the previous catalog snapshot.
+        connection.execute("DROP TABLE prepared_cache; CREATE TABLE prepared_cache(j INTEGER)")?;
+        assert!(connection.execute_prepared(&rows, &[]).is_err());
+        connection.execute("DROP TABLE prepared_cache; CREATE TABLE prepared_cache(i INTEGER); INSERT INTO prepared_cache VALUES (9)")?;
+        assert_eq!(
+            connection.execute_prepared(&rows, &[])?.rows,
+            vec![vec![Value::Integer(9)]]
+        );
+
+        let ordered =
+            connection.prepare("SELECT i FROM (VALUES (1),(NULL),(2)) t(i) ORDER BY i")?;
+        assert_eq!(
+            connection.execute_prepared(&ordered, &[])?.rows[0][0],
+            Value::Integer(1)
+        );
+        connection.execute("SET default_null_order=first")?;
+        assert_eq!(
+            connection.execute_prepared(&ordered, &[])?.rows[0][0],
+            Value::Null
+        );
+
+        // An explicit transaction must keep its own snapshot and not retain
+        // execution state from the preceding cached invocation.
+        connection.execute("BEGIN; INSERT INTO prepared_cache VALUES (10)")?;
+        assert_eq!(
+            connection.execute_prepared(&rows, &[])?.rows,
+            vec![vec![Value::Integer(9)], vec![Value::Integer(10)]]
+        );
+        connection.execute("ROLLBACK")?;
+        assert_eq!(
+            connection.execute_prepared(&rows, &[])?.rows,
+            vec![vec![Value::Integer(9)]]
+        );
+
+        // A bind failure before `run` must return ownership of an explicit
+        // transaction to the connection.
+        let missing = connection.prepare("SELECT * FROM missing_prepared_cache")?;
+        connection.execute("BEGIN")?;
+        assert!(connection.execute_prepared(&missing, &[]).is_err());
+        connection.execute("INSERT INTO prepared_cache VALUES (11); ROLLBACK")?;
+
+        // A cached physical plan still uses the ordinary failed-transaction
+        // state on an execution error and remains reusable after rollback.
+        connection.execute(
+            "CREATE TABLE prepared_runtime(v VARCHAR); INSERT INTO prepared_runtime VALUES ('1')",
+        )?;
+        let runtime = connection.prepare("SELECT CAST(v AS INTEGER) FROM prepared_runtime")?;
+        assert_eq!(
+            connection.execute_prepared(&runtime, &[])?.rows,
+            vec![vec![Value::Integer(1)]]
+        );
+        connection.execute("BEGIN; INSERT INTO prepared_runtime VALUES ('bad')")?;
+        assert!(connection.execute_prepared(&runtime, &[]).is_err());
+        connection.execute("ROLLBACK")?;
+        assert_eq!(
+            connection.execute_prepared(&runtime, &[])?.rows,
+            vec![vec![Value::Integer(1)]]
+        );
+    }
+    Ok(())
+}

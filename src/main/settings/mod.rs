@@ -233,6 +233,28 @@ impl SettingChange {
 
 pub type SettingValues = BTreeMap<String, Value>;
 
+/// Publication identity for one effective configuration view. The session
+/// token distinguishes connections; counters distinguish later publications.
+#[derive(Debug)]
+pub(crate) struct SettingsSessionIdentity;
+
+#[derive(Clone, Debug)]
+pub(crate) struct SettingsGeneration {
+    pub(crate) global: u64,
+    pub(crate) session_identity: Arc<SettingsSessionIdentity>,
+    pub(crate) session: u64,
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl PartialEq for SettingsGeneration {
+    fn eq(&self, other: &Self) -> bool {
+        self.global == other.global
+            && self.session == other.session
+            && Arc::ptr_eq(&self.session_identity, &other.session_identity)
+    }
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Eq for SettingsGeneration {}
+
 /// An owned view of one global publication and one session's overrides.
 /// Values are canonical registered names. Views survive later changes and
 /// connection destruction. No transaction/catalog snapshot is implied.
@@ -241,6 +263,7 @@ pub struct SettingsSnapshot {
     registry: Arc<SettingRegistry>,
     global: Arc<SettingValues>,
     session: Arc<SettingValues>,
+    generation: Option<SettingsGeneration>,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for SettingsSnapshot {
@@ -251,6 +274,7 @@ impl Default for SettingsSnapshot {
                 registry: Arc::new(SettingRegistry::builtins()),
                 global: Arc::new(BTreeMap::new()),
                 session: Arc::new(BTreeMap::new()),
+                generation: None,
             })
             .clone()
     }
@@ -284,7 +308,15 @@ impl SettingsSnapshot {
             registry,
             global,
             session,
+            generation: None,
         })
+    }
+    pub(in crate::main) fn with_generation(mut self, generation: SettingsGeneration) -> Self {
+        self.generation = Some(generation);
+        self
+    }
+    pub(in crate::main) fn generation(&self) -> Option<SettingsGeneration> {
+        self.generation.clone()
     }
     pub fn registry(&self) -> &Arc<SettingRegistry> {
         &self.registry

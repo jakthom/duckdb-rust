@@ -65,6 +65,31 @@ pub struct OperatorSignature {
     pub nullable: bool,
 }
 
+/// Opaque identity for a built-in physical operator implementation.
+#[derive(Debug)]
+pub(crate) struct OperatorBatchKind(OperatorBatchIdentity);
+
+/// Capability supplied only by crate-owned executors. External operator
+/// replacements cannot claim a built-in physical composition.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OperatorBatchAccess;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OperatorBatchIdentity {
+    NumericArithmetic,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl OperatorBatchKind {
+    pub(crate) const fn builtin(identity: OperatorBatchIdentity) -> Self {
+        Self(identity)
+    }
+
+    pub(crate) const fn is(&self, identity: OperatorBatchIdentity) -> bool {
+        self.0 as u8 == identity as u8
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Synchronous scalar operation on non-NULL, already typed arguments. Inputs
 /// are borrowed; output and retained configuration are owned. Implementations
@@ -75,6 +100,14 @@ pub struct OperatorSignature {
 /// Coercion is selected at binding and never performed inside this callback.
 pub trait OperatorFunction: Debug + Send + Sync {
     fn name(&self) -> &'static str;
+    /// Crate-private built-in identity for narrowly source-compatible physical
+    /// compositions. The inaccessible capability prevents replacements from
+    /// opting into an implementation-specific shortcut.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn batch_kind(&self, _access: OperatorBatchAccess) -> Option<OperatorBatchKind> {
+        None
+    }
     fn supports(&self, signature: &OperatorSignature) -> bool;
     /// Optional parameterized signature construction. Only adapters explicitly
     /// installed with register_family participate; exact signatures override it.
@@ -146,6 +179,9 @@ impl BoundOperator {
     }
     pub fn adapter(&self) -> &'static str {
         self.function.name()
+    }
+    pub(crate) fn batch_kind(&self, access: OperatorBatchAccess) -> Option<OperatorBatchKind> {
+        self.function.batch_kind(access)
     }
     pub fn effects(&self) -> FunctionEffects {
         self.effects

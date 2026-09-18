@@ -683,6 +683,13 @@ impl ExpressionEvaluator for BatchedEvaluator {
         }
         if input.len() > 1
             && expression.is_pure_and_total()
+            && let Some(selected) =
+                select_bigint_power_of_two_remainder_zero(expression, input, context.query())?
+        {
+            return Ok(selected);
+        }
+        if input.len() > 1
+            && expression.is_pure_and_total()
             && let ExprKind::Scalar(function, arguments) = &expression.kind
             && function
                 .batch_kind(crate::function::ScalarBatchAccess)
@@ -770,6 +777,79 @@ impl ExpressionEvaluator for BatchedEvaluator {
             context.query(),
         )
     }
+}
+
+/// Select `BIGINT_column % power_of_two = 0` without first materializing the
+/// remainder dictionary. The generic route needs that dictionary for arbitrary
+/// downstream expressions, but a filter consumes only these final row indices.
+/// Keep this deliberately tied to the built-in arithmetic adapter: a replaced
+/// modulo implementation may retain distinct batch behavior.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn select_bigint_power_of_two_remainder_zero(
+    expression: &BoundExpr,
+    input: &DataChunk,
+    query: &QueryContext,
+) -> Result<Option<Vec<usize>>> {
+    let ExprKind::Binary(BinaryOp::Equal, left, right, _) = &expression.kind else {
+        return Ok(None);
+    };
+    let ExprKind::Operator(operator, arguments) = &left.kind else {
+        return Ok(None);
+    };
+    let signature = operator.signature();
+    if !operator
+        .batch_kind(crate::function::operator::OperatorBatchAccess)
+        .is_some_and(|kind| {
+            kind.is(crate::function::operator::OperatorBatchIdentity::NumericArithmetic)
+        })
+        || signature.operator != crate::function::operator::Operator::Modulo
+        || signature.arguments.as_slice() != [DataType::BigInt, DataType::BigInt]
+        || signature.result != DataType::BigInt
+        || right.constant_value() != Some(&Value::Integer(0))
+    {
+        return Ok(None);
+    }
+    let [
+        BoundExpr {
+            kind: ExprKind::Column(column),
+            data_type: DataType::BigInt,
+        },
+        divisor,
+    ] = arguments.as_slice()
+    else {
+        return Ok(None);
+    };
+    let Some(Value::Integer(divisor)) = divisor.constant_value() else {
+        return Ok(None);
+    };
+    let Ok(divisor) = i64::try_from(*divisor) else {
+        return Ok(None);
+    };
+    // `-1` is the one signed remainder divisor whose i64::MIN input reports
+    // overflow. The generic evaluator retains that error behavior.
+    if divisor == 0 || divisor == -1 || !divisor.unsigned_abs().is_power_of_two() {
+        return Ok(None);
+    }
+    let Some(values) = input
+        .columns()
+        .get(*column)
+        .filter(|column| column.data_type() == &DataType::BigInt && column.all_valid())
+        .and_then(Vector::flat_bigints)
+    else {
+        return Ok(None);
+    };
+    let mask = divisor.unsigned_abs() - 1;
+    let mut selected = Vec::with_capacity(values.len() / 2);
+    for (index, &value) in values.iter().enumerate() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        if value.unsigned_abs() & mask == 0 {
+            selected.push(index);
+        }
+    }
+    query.check()?;
+    Ok(Some(selected))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

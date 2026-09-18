@@ -1242,13 +1242,36 @@ collations remain outside this slice. The integration owner alone owns
 batch interface, the local combined SQLLogic fixture, native/process workload
 manifests and fixtures, and this backlog entry.
 
+Gate-P remediation also owns `src/main/connection.rs`,
+`src/main/client_context.rs`, `src/main/settings/{mod.rs,store.rs}` and
+`test/component/settings.rs` for a zero-parameter prepared-SELECT physical-plan
+cache keyed by exact versioned catalog identity and built-in settings
+generation. Parameterized statements, non-queries, custom settings providers,
+unversioned catalogs, forced external execution and verification retain the
+ordinary bind/plan path. Every cache hit opens fresh transaction, subquery,
+operator and sink state. The same remediation owns
+`src/execution/expression_executor/batch.rs`,
+`src/function/operator/{mod.rs,arithmetic.rs}` and the focused execution
+expression test for a crate-owned BIGINT `% power_of_two = 0` selection that
+avoids materializing an intermediate remainder dictionary. NULL inputs, zero,
+non-power-of-two and overflowing divisors, non-flat vectors, and replaced
+operator adapters retain the generic path.
+
 Fast checks are the three complete focused targets:
 `cargo test -p duckdb-rust --test from_first`,
 `cargo test -p duckdb-rust --test text_formatting`, and
 `cargo test -p duckdb-rust --test text_regex_value`; regex edits also run the
 existing `text_regex` target, formatting runs the existing `text_codepoint` and
 `binary_scalars` consumers, and FROM-first runs the complete `sql` and
-`sqllogic_runner` targets. The local functional gate is the combined
+`sqllogic_runner` targets. Cache/filter remediation additionally runs the
+`zero_parameter_prepared_queries_refresh_snapshots_and_invalidate_cache_keys`
+filter in `settings` and the
+`bigint_power_of_two_remainder_filter_preserves_signed_remainder_semantics`
+filter in `execution`; final acceptance runs both complete targets. Their
+negative/boundary coverage includes schema/settings invalidation, mutations,
+explicit transaction rollback, pre-run bind failure, cached runtime failure,
+signed minima, negative and zero divisors, NULLs, non-power-of-two fallback and
+custom operator replacement. The local functional gate is the combined
 `test/sql/g06_format_regex_g07_from_first.test` fixture. The exact unchanged
 upstream IDs for both pins are
 `test/sql/function/string/regex_search.test`,
@@ -1286,13 +1309,17 @@ VALUES, provides variadic `printf`/`format`, and provides `regexp_replace`,
 scalar-group `regexp_extract` and `regexp_escape`. Constant formats compile to
 statement-local plans, low-cardinality formats use a bounded batch cache, and
 the common BIGINT/VARCHAR formatting and constant replacement shapes avoid
-per-row constant/string cloning. The focused and affected targets listed above
-pass on the integrated tree, as does the 8-record combined local fixture;
-`cargo dev coverage` reports no missing annotations and
-`cargo dev trace check --workspace --all-targets` completes with no errors,
-panics or open spans. The latest 9-sample development-pin tuning run passes all
-seven native workloads, with its largest Rust/reference ratio 0.952 for global
-replacement; this is diagnostic evidence, not the final 21-sample Gate P run.
+per-row constant/string cloning. Repeated zero-parameter SELECT execution now
+reuses its immutable optimized physical plan without retaining transaction or
+operator state, and the declared FROM-first filter selects even BIGINT rows in
+one pass before its existing dictionary-aware SUM reduction. Focused cache and
+filter boundary tests pass. The latest 9-sample release-pin tuning run passes
+all seven native workloads: FROM-first filtered aggregation improves from
+1.815 to 0.802 of the reference and FROM-VALUES improves from 1.196 to 0.362;
+global replacement remains the narrowest diagnostic margin at 0.995. This is
+diagnostic evidence, not the final 21-sample Gate P run. Final focused/affected
+targets, the 8-record combined fixture, coverage, trace compatibility and the
+full acceptance campaigns are rerun only after this integrated tree is frozen.
 
 The selected upstream development cases fully pass regex search, Unicode/NUL,
 format, regex escape and regex extract. `test_printf` retains the unrelated

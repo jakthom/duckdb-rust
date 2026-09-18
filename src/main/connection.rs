@@ -21,6 +21,13 @@ struct BoundWork {
 
 pub struct PreparedStatement {
     syntax: crate::parser::Statement,
+    cached_query: std::sync::Mutex<Option<CachedPreparedQuery>>,
+}
+
+struct CachedPreparedQuery {
+    catalog: crate::catalog::CatalogIdentity,
+    settings: settings::SettingsGeneration,
+    plan: Arc<dyn crate::execution::physical_plan::PhysicalOperator>,
 }
 
 /// Connections are exclusively borrowed for execution. Independent connections
@@ -120,6 +127,7 @@ impl Connection {
         }
         Ok(PreparedStatement {
             syntax: statements.remove(0),
+            cached_query: std::sync::Mutex::new(None),
         })
     }
     pub fn execute_prepared(
@@ -127,7 +135,143 @@ impl Connection {
         statement: &PreparedStatement,
         parameters: &[Value],
     ) -> Result<QueryResult> {
-        self.execute_statement(&statement.syntax, parameters)
+        if !parameters.is_empty()
+            || !matches!(
+                statement.syntax,
+                crate::parser::Statement::Sql(ref syntax) if matches!(**syntax, ast::Statement::Query(_))
+            )
+        {
+            return self.execute_statement(&statement.syntax, parameters);
+        }
+        self.execute_prepared_query(statement)
+    }
+
+    fn execute_prepared_query(&mut self, prepared: &PreparedStatement) -> Result<QueryResult> {
+        // Preserve the ordinary path for failed transactions and every
+        // non-query statement. A fresh context/transaction is acquired before
+        // cache lookup, so a reused physical plan never retains execution or
+        // snapshot state.
+        if matches!(self.session, Session::Failed) {
+            return self.execute_statement(&prepared.syntax, &[]);
+        }
+        let work = self.begin_work()?;
+        let cache_key = match self.cache_key(&work) {
+            Ok(cache_key) => cache_key,
+            Err(error) => {
+                self.restore_unbound_work(work);
+                return Err(error);
+            }
+        };
+        if let Some((catalog, settings)) = cache_key.as_ref() {
+            let cached = prepared
+                .cached_query
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .filter(|cached| cached.catalog == *catalog && cached.settings == *settings)
+                .map(|cached| cached.plan.clone());
+            if let Some(plan) = cached {
+                return self.run(work, |services, _, transaction, context| {
+                    services.cached_query(plan, transaction, context)
+                });
+            }
+        }
+        let work = self.bind_work(work, &prepared.syntax, &[])?;
+        let BoundWork {
+            statement,
+            transaction,
+            explicit,
+            context,
+            timestamp_micros,
+        } = work;
+        let BoundStatement::Query(logical) = statement else {
+            return Err(Error::Internal(
+                "prepared SELECT did not bind as a query".into(),
+            ));
+        };
+        let (result, cached) = self.run(
+            BoundWork {
+                statement: BoundStatement::Query(logical),
+                transaction,
+                explicit,
+                context,
+                timestamp_micros,
+            },
+            |services, statement, transaction, context| {
+                let BoundStatement::Query(logical) = statement else {
+                    unreachable!("selected query")
+                };
+                if let Some((catalog, settings)) = cache_key {
+                    let plan = services.plan_cached_query(logical, transaction, context)?;
+                    let result = services.cached_query(plan.clone(), transaction, context)?;
+                    Ok((
+                        result,
+                        Some(CachedPreparedQuery {
+                            catalog,
+                            settings,
+                            plan,
+                        }),
+                    ))
+                } else {
+                    services
+                        .query(logical, transaction, context)
+                        .map(|result| (result, None))
+                }
+            },
+        )?;
+        if let Some(cached) = cached {
+            *prepared
+                .cached_query
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(cached);
+        }
+        Ok(result)
+    }
+
+    fn restore_unbound_work(&mut self, work: BoundWork) {
+        if work.explicit {
+            self.session = Session::Active(ActiveTransaction {
+                transaction: work.transaction,
+                timestamp_micros: work.timestamp_micros,
+            });
+        }
+    }
+
+    fn cache_key(
+        &self,
+        work: &BoundWork,
+    ) -> Result<
+        Option<(
+            crate::catalog::CatalogIdentity,
+            settings::SettingsGeneration,
+        )>,
+    > {
+        self.cache_key_for(work.transaction.as_ref(), &work.context)
+    }
+
+    fn cache_key_for(
+        &self,
+        transaction: &dyn Transaction,
+        context: &QueryContext,
+    ) -> Result<
+        Option<(
+            crate::catalog::CatalogIdentity,
+            settings::SettingsGeneration,
+        )>,
+    > {
+        if context.settings().force_external(context)?
+            || context.settings().verification_enabled(context)?
+        {
+            return Ok(None);
+        }
+        Ok(transaction.catalog().identity().and_then(|catalog| {
+            catalog.version.and_then(|_| {
+                context
+                    .settings()
+                    .generation()
+                    .map(|settings| (catalog, settings))
+            })
+        }))
     }
     fn context(&self) -> Result<QueryContext> {
         self.interrupt.reset();
@@ -285,6 +429,11 @@ impl Connection {
                 "transaction is aborted; ROLLBACK is required".into(),
             ));
         }
+        let work = self.begin_work()?;
+        self.bind_work(work, syntax, parameters)
+    }
+
+    fn begin_work(&mut self) -> Result<BoundWork> {
         let context = self.context()?;
         let previous = std::mem::replace(&mut self.session, Session::Idle);
         let explicit = matches!(previous, Session::Active(_));
@@ -301,6 +450,28 @@ impl Connection {
             }
         };
         let context = context.with_transaction_timestamp(timestamp_micros);
+        Ok(BoundWork {
+            statement: BoundStatement::Noop,
+            transaction,
+            explicit,
+            context,
+            timestamp_micros,
+        })
+    }
+
+    fn bind_work(
+        &mut self,
+        work: BoundWork,
+        syntax: &crate::parser::Statement,
+        parameters: &[Value],
+    ) -> Result<BoundWork> {
+        let BoundWork {
+            transaction,
+            explicit,
+            context,
+            timestamp_micros,
+            ..
+        } = work;
         match self.services.binder.bind(
             syntax,
             &BindContext {
