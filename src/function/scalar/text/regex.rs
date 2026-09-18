@@ -122,7 +122,7 @@ impl ScalarFunction for RegexValueFunction {
         let valid = match self.name {
             "regexp_escape" => n == 1,
             "regexp_replace" => matches!(n, 3 | 4),
-            "regexp_extract" => matches!(n, 2 | 3 | 4),
+            "regexp_extract" => matches!(n, 2..=4),
             _ => false,
         };
         if !valid {

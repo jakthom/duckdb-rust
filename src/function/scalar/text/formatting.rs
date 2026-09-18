@@ -774,10 +774,10 @@ fn render_printf(
             )));
         }
     };
-    if spec == b's' {
-        if let Some(limit) = precision {
-            text = text.chars().take(limit).collect();
-        }
+    if spec == b's'
+        && let Some(limit) = precision
+    {
+        text = text.chars().take(limit).collect();
     }
     Ok(text)
 }
