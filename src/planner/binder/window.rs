@@ -277,9 +277,8 @@ impl State<'_, '_> {
             };
             if !super::constant_expression(argument) {
                 return Err(Error::Bind(format!(
-                    "{} requires a constant expression for argument {}",
+                    "{} separator must be a constant expression",
                     implementation.name(),
-                    index + 1
                 )));
             }
             constants[index] = Some(self.context.expressions.evaluate(

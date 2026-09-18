@@ -91,7 +91,7 @@ fn string_agg_window_keeps_the_bound_separator_across_frames() -> Result<()> {
             connection.query(
                 "SELECT string_agg(i::VARCHAR, i::VARCHAR) OVER () FROM range(2) t(i)"
             ),
-            Err(Error::Bind(message)) if message == "string_agg requires a constant expression for argument 2"
+            Err(Error::Bind(message)) if message == "string_agg separator must be a constant expression"
         ));
     }
     Ok(())
