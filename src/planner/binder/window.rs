@@ -277,7 +277,7 @@ impl State<'_, '_> {
             };
             if !super::constant_expression(argument) {
                 return Err(Error::Bind(format!(
-                    "{} separator must be a constant expression",
+                    "Separator argument to {} must be a constant expression",
                     implementation.name(),
                 )));
             }

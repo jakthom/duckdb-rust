@@ -789,7 +789,7 @@ impl State<'_, '_> {
                         };
                         if !arguments.get(index).is_some_and(super::constant_expression) {
                             return Err(Error::Bind(format!(
-                                "{} separator must be a constant expression",
+                                "Separator argument to {} must be a constant expression",
                                 aggregate.name(),
                             )));
                         }
