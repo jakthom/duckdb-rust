@@ -113,8 +113,10 @@ inventories upstream inputs; it is not a passing-test report. `specs/components/
 describes the C++ source and required behavior, not automatically implemented Rust
 counterparts.
 
-Run targeted checks during edits and the [chunk sweep](../scripts/verify_chunk.py)
-at explicit completion boundaries. Full upstream, API, configuration, platform and
+Run targeted checks during edits and impact-scoped checks at completion under
+the [durable validation policy](../AGENTS.md#validation-scope--durable-policy).
+The [full-only runner](../scripts/verify_chunk.py) is reserved for justified broad
+checkpoints, not ordinary subsystem completion. Full upstream, API, configuration, platform and
 performance acceptance require the additional work in G01/G24 of the backlog.
 Use [reference builds](reference-builds.md), [tracing](dev-tracing.md) and
 [adversarial testing](sqlite-testing-review.md) for reproduction procedures.

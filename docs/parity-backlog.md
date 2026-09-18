@@ -527,7 +527,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: freeze worker manifests and case/workload selections, then implement/evaluate in isolated worktrees. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active at baseline `44538fb`: workers `batch1_a1`, `batch1_f1`, `batch1_c2_1` own sibling worktrees `../duckdb-rust-batch1-{a1,f1,c2-1}` on matching `codex/batch1-*` branches. A1/F1 manifests reviewed; C2.1 mapping/binding design in progress. No implementation acceptance yet. |
 | 2 | A2.1 first measured unblocked harness gap (A3/A4 fallback); F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance; choose exact A2.1 gap from A1 evidence. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -544,6 +544,32 @@ changes. Each implementation track uses scoped checks and both-pin affected
 functional/performance acceptance. A1 is read-only evaluation, including its
 explicitly assigned broad census, not a full-engine regression gate on F1/C2.1.
 Reserve quiet host windows for all final performance measurements.
+
+Batch 1 evidence/restart details:
+
+- A1 owns `../duckdb-rust-batch1-a1/target/a1-20260918/`: both-pin full
+  `run_upstream.py --timeout 10 --jobs 4`, exact timeout retries at 60 seconds,
+  then accounted summaries. Original 34 workloads are the existing native (12),
+  numeric (8), relational (10), grouping (3) and ordering (1) manifests; paired
+  21-sample measurements are held until a quiet-host grant. Evaluation failures
+  remain visible, not a claim of engine acceptance.
+- F1 owns table-function modules/tests and provisional shared table-plan seams
+  on its branch. Reviewed scope includes registry/bind/schema/per-open scan and
+  exactly-once cleanup, integer range extremes/NULLs, prepared reuse and affected
+  existing consumers. Keep legacy public `PlanNode::Range` compatible. Temporal
+  and correlated range cases remain separate obligations; preserve source IDs.
+  Partial acceptance uses the new `table_functions` target, affected execution/
+  FROM-first/registration contracts, selected upstream range/error files, scoped
+  lint/tracing, and new native/process range workloads. Recovery/Kani: N/A to
+  these contracts, not passed. Detailed case/command records go under worker
+  `target/f1/`; final acceptance must cover integrated inputs.
+- C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
+  it must preserve a bound constant separator through grouped and window paths.
+  Mutable per-row separators must not silently replace the pinned bind contract.
+- All final implementation/performance/scoped-sweep outcomes remain **open**.
+  Resume by reading the worker manifests/reports and branch diffs, not by
+  restarting completed checks or dispatching a full sweep. Do not start batch 2
+  while these acceptance obligations remain open.
 
 The first round starts from the latest accepted integrated revision, after the
 lead freezes the F1 and C2.1 scope/consumer manifests. Planned modules/targets below are
