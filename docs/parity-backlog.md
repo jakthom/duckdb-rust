@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 5 is integrated through `ea430e2`, grouping resource fixture at `db71451`; focused correctness passes. ROLLUP now passes diagnostic latency, but four C2 native cases, grouped SUM/CUBE and process wall/CPU remain below acceptance. Fresh profiles precede candidate 6. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 6 is integrated through `164eee2`, grouping resource fixture at `db71451`. All grouping/G08 diagnostic latency and grouping resources pass; three C2 native cases and C2 process wall/CPU remain below acceptance. Candidate 7 addresses owned LIST completion, DISTINCT lookup and grouped-string delivery; focused validation is in progress. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -832,6 +832,17 @@ Batch 1 evidence/restart details:
   Reports are worker `target/c2-1/*candidate6*.json`, with failed runs retained.
   Fresh profiles of the remaining three C2 cases precede candidate 7. These
   diagnostics are not final 21-sample performance acceptance or verifier passes.
+  Candidate 7 ownership: root adds explicit `BufferedOwnedTotal` /
+  `AggregateFunction::finish_owned` contract, signed-DISTINCT admission and
+  custom/default/faulty-adapter tests; S `batch1_f1` owns selected modifier
+  dispatch and bounded direct-prefix/borrowed-dictionary lookup; S
+  `batch1_f1_performance` owns move-only LIST completion and grouped-string
+  destination/value zipping. Generic/default callbacks and OrderedAggregation's
+  row/state fallback remain unchanged. An initial test incorrectly expected
+  OrderedAggregation to use the optional owned path; that assertion was fixed,
+  not the executor broadened. C6 profiles justify the changes; no new unsafe
+  vector construction or function-name routing. Worker manifests are
+  `target/c2-1/{owned-finish-contract-manifest,candidate7-owned-list-finish-manifest,candidate7-grouped-string-delivery-manifest}.md`.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
