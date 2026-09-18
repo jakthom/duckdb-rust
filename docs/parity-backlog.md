@@ -751,8 +751,14 @@ Batch 1 evidence/restart details:
   aggregation-only deferred stream, leaving other stream consumers unchanged.
   Candidate 3 is worker `2e46214`, integrated as `6f16ce5`; its focused type-key
   tests pass 2/2, STRING_AGG leaf 4/4, two owned-publication unit filters 1/1
-  each, grouping 74/74 and untimed process fixture 257/257. Fresh release
-  binaries are undergoing diagnostic timing; no performance pass is implied.
+  each, grouping 74/74 and untimed process fixture 257/257. Candidate 3's native
+  9-sample diagnostic passes ungrouped at 0.660–0.662x but still fails few groups
+  at 1.277–1.279x, many at 1.752–1.785x, ordered DISTINCT at 1.921–1.937x and
+  mixed consumers at 1.795–1.869x. Matched process wall/CPU still fail at
+  1.679x/1.691x; RSS passes at 0.626x, block I/O zero. Existing G08 native
+  consumers all pass diagnostic gates. Preserve worker `*candidate3*.json` and
+  their source/binary identities. Short sampled CPU profiles of the unchanged
+  failing workloads are next; no final performance claim or rerun-to-green.
   Manifest additions are worker `target/c2-1/borrowed-key-manifest.md` and
   `publication-correction-manifest.md`. The latter uses
   `src/execution/physical_plan.rs` to opt only Aggregate nodes into owned
