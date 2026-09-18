@@ -788,16 +788,15 @@ impl State<'_, '_> {
                             return Err(Error::Internal("aggregate constant argument outside signature".into()));
                         };
                         if !arguments.get(index).is_some_and(super::constant_expression) {
-                            return Err(Error::Bind(format!(
-                                "Separator argument to {} must be a constant expression",
-                                aggregate.name(),
-                            )));
+                            let message = aggregate.constant_argument_label(index).map_or_else(
+                                || format!("{} argument {} must be a constant expression", aggregate.name(), index + 1),
+                                |label| format!("{label} argument to {} must be a constant expression", aggregate.name()),
+                            );
+                            return Err(Error::Bind(message));
                         }
-                        constants[index] = Some(
-                            self.context
-                                .expressions
-                                .evaluate(argument, &Vec::new(), self.context.query)?,
-                        );
+                        let value = self.context.expressions.evaluate(argument, &Vec::new(), self.context.query)?;
+                        self.context.query.types().bind(&argument.data_type)?.validate(&value, self.context.query)?;
+                        constants[index] = Some(value);
                     }
                     let (aggregate, arguments) = if let Some(binding) = aggregate.bind(&constants)? {
                         let mut arguments = arguments;

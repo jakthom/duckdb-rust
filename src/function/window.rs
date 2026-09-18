@@ -38,6 +38,9 @@ pub trait WindowFunction: Debug + Send + Sync {
     fn constant_arguments(&self, _arity: usize) -> &[usize] {
         &[]
     }
+    fn constant_argument_label(&self, _index: usize) -> Option<&str> {
+        None
+    }
     fn bind(&self, _constants: &[Option<Value>]) -> Result<Option<WindowBinding>> {
         Ok(None)
     }
@@ -83,6 +86,9 @@ impl WindowFunction for AggregateWindow {
     }
     fn constant_arguments(&self, arity: usize) -> &[usize] {
         self.0.constant_arguments(arity)
+    }
+    fn constant_argument_label(&self, index: usize) -> Option<&str> {
+        self.0.constant_argument_label(index)
     }
     fn bind(&self, constants: &[Option<Value>]) -> Result<Option<WindowBinding>> {
         let Some(aggregate) = self.0.bind(constants)? else {

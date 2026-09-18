@@ -32,6 +32,9 @@ impl AggregateFunction for StringAgg {
     fn constant_arguments(&self, arity: usize) -> &[usize] {
         if arity == 2 { &[1] } else { &[] }
     }
+    fn constant_argument_label(&self, index: usize) -> Option<&str> {
+        (index == 1).then_some("Separator")
+    }
 
     fn bind(&self, constants: &[Option<Value>]) -> Result<Option<AggregateBinding>> {
         let separator = match constants.len() {

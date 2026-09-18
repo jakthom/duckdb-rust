@@ -524,6 +524,9 @@ pub trait AggregateFunction: Debug + Send + Sync {
     fn constant_arguments(&self, _arity: usize) -> &[usize] {
         &[]
     }
+    fn constant_argument_label(&self, _index: usize) -> Option<&str> {
+        None
+    }
     /// Capture binding-time aggregate data and optionally remove constant-only
     /// expressions from the execution argument row. The default retains both
     /// the registered implementation and every bound argument.

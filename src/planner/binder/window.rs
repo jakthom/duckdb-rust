@@ -276,16 +276,33 @@ impl State<'_, '_> {
                 ));
             };
             if !super::constant_expression(argument) {
-                return Err(Error::Bind(format!(
-                    "Separator argument to {} must be a constant expression",
-                    implementation.name(),
-                )));
+                let message = implementation.constant_argument_label(index).map_or_else(
+                    || {
+                        format!(
+                            "{} argument {} must be a constant expression",
+                            implementation.name(),
+                            index + 1
+                        )
+                    },
+                    |label| {
+                        format!(
+                            "{label} argument to {} must be a constant expression",
+                            implementation.name()
+                        )
+                    },
+                );
+                return Err(Error::Bind(message));
             }
-            constants[index] = Some(self.context.expressions.evaluate(
-                argument,
-                &Vec::new(),
-                self.context.query,
-            )?);
+            let value =
+                self.context
+                    .expressions
+                    .evaluate(argument, &Vec::new(), self.context.query)?;
+            self.context
+                .query
+                .types()
+                .bind(&argument.data_type)?
+                .validate(&value, self.context.query)?;
+            constants[index] = Some(value);
         }
         let (implementation, arguments) = if let Some(binding) = implementation.bind(&constants)? {
             let mut arguments = arguments;
@@ -331,6 +348,18 @@ impl State<'_, '_> {
                 "bound window function changed argument cardinality".into(),
             ));
         }
+        let arguments = arguments
+            .into_iter()
+            .zip(&types)
+            .map(|(argument, target)| {
+                argument.cast(
+                    target.clone(),
+                    CastMode::Implicit,
+                    self.context.casts,
+                    self.context.query.types(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
         let data_type = implementation.return_type(&types, options, self.context.query.types())?;
         let partition = spec
             .partition_by
