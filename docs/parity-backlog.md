@@ -1214,6 +1214,70 @@ I/O; its worst ratios are 0.638 wall, 0.500 CPU, 0.723 RSS and 1.000 block I/O.
 The source tree is frozen for the delegated `python3 scripts/verify_chunk.py`
 sweep; a passing sweep on this tree completes this slice.
 
+**G07.3b/G06.1f/G06.2b frozen validation manifest — FROM-first syntax,
+variadic formatting and regex value functions.** This batch has three leaf
+owners and one integration owner. The FROM-first leaf owns
+`src/planner/binder/query.rs`, a focused `test/component/from_first.rs` target,
+and no scalar-function files. It adds the implicit star projection for
+`FROM relation [WHERE ...]` and `CREATE TABLE ... AS FROM VALUES ...` while
+retaining explicit FROM-first projection, alias, order, limit, prepared and
+nested-query behavior. The formatting leaf owns a new
+`src/function/scalar/text/formatting.rs` implementation and
+`test/component/text_formatting.rs`; it covers `printf` and `format`, variadic
+binding/coercion, constant and row-varying formats, integer widths, floating
+precision, booleans, strings and cast-to-string values, NULL demand, embedded
+NULs, excess/missing arguments, invalid specifiers and invalid UTF-8 `%c`
+output. The regex-value leaf owns `src/function/scalar/text/regex.rs` and
+`test/component/text_regex_value.rs`; it adds `regexp_replace`, scalar-group
+`regexp_extract` and `regexp_escape`, including constant/dynamic patterns,
+constant options and groups, replacement backreferences, `g`/`k` legality,
+empty/no-match/NULL/NUL/Unicode cases, invalid patterns/replacements/groups,
+first-error order, prepared reuse and flat/constant/dictionary/selected batches.
+Collection/STRUCT regex extraction, `regexp_extract_all`, regex splitting and
+collations remain outside this slice. The integration owner alone owns
+`Cargo.toml`, `src/function/scalar/text.rs`, any required shared scalar bind or
+batch interface, the local combined SQLLogic fixture, native/process workload
+manifests and fixtures, and this backlog entry.
+
+Fast checks are the three complete focused targets:
+`cargo test -p duckdb-rust --test from_first`,
+`cargo test -p duckdb-rust --test text_formatting`, and
+`cargo test -p duckdb-rust --test text_regex_value`; regex edits also run the
+existing `text_regex` target, formatting runs the existing `text_codepoint` and
+`binary_scalars` consumers, and FROM-first runs the complete `sql` and
+`sqllogic_runner` targets. The local functional gate is the combined
+`test/sql/g06_format_regex_g07_from_first.test` fixture. The exact unchanged
+upstream IDs for both pins are
+`test/sql/function/string/regex_search.test`,
+`test/sql/function/string/regexp_unicode_literal.test`,
+`test/sql/function/string/null_byte.test`,
+`test/sql/function/string/test_printf.test`,
+`test/sql/function/string/test_format.test`,
+`test/sql/function/string/regex_replace.test`,
+`test/sql/function/string/regex_extract.test`, and
+`test/sql/function/string/regex_escape.test`, selected from a target-local path
+list with `python3 scripts/run_upstream.py --target <release|development>
+--path-list ...`. Each file retains its real first blocker; a prefix does not
+become a full-file pass. Full functional acceptance runs every focused and
+affected target, the complete local fixture, and that exact list against both
+pins. New Rust files additionally require `cargo dev coverage`; shared execution
+changes require `cargo dev trace check --workspace --all-targets`.
+
+Gate P declares quiet-host, single-thread, release/no-tracing native workloads
+for FROM-first filtered aggregation and CTAS-from-VALUES planning/execution,
+constant and low-cardinality dynamic `printf`/`format`, constant-pattern global
+regex replacement, scalar-group extraction with both constant and dynamic
+patterns, and regex escaping. Matching process fixtures exercise at least 6.4
+million row visits for the formatting and regex families and repeated FROM-first
+parse/bind/execute cycles. Results and errors are validated before timing. Both
+exact pinned C++ references run through `scripts/compare_native.py`, followed by
+their joint `scripts/fastest_reference.py` gate; the process adapter gates wall
+latency, throughput, CPU, peak RSS and block I/O independently against the faster
+pin. Samples, reference identities, source/binary hashes and failures stay below
+`target/next-batch/g06_1f_2b_g07_3b/`. Completion requires the frozen integrated
+tree's delegated `python3 scripts/verify_chunk.py` sweep after all functional and
+performance evidence is final.
+
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
   Match character versus byte indexing and invalid-input behavior.
