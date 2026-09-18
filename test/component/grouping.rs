@@ -1378,6 +1378,24 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
             "|a|a\0|a\0b|abcdefg|abcdefg0|abcdefg0-tail|abcdefg1-tail|éééé".into(),
         )]],
     );
+    let collision_values = (0..20)
+        .map(|value| format!("abcdefg-tail{value:02}"))
+        .collect::<Vec<_>>();
+    let collision_rows = collision_values
+        .iter()
+        .chain(collision_values.iter().rev())
+        .map(|value| format!("('{value}')"))
+        .collect::<Vec<_>>()
+        .join(",");
+    assert_eq!(
+        connection
+            .query(&format!(
+                "SELECT buffered_probe(DISTINCT x ORDER BY x) \
+                 FROM (VALUES {collision_rows}) t(x)"
+            ))?
+            .rows,
+        vec![vec![Value::Varchar(collision_values.join("|"))]],
+    );
     assert_eq!(
         connection
             .query(

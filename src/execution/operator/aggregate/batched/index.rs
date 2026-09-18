@@ -158,8 +158,10 @@ impl IntegerIndex {
         if !initialized_now
             && let [column] = columns
             && !(representations[0] == KeyRepresentation::Integer
-                && column.flat_bigints().is_some()
-                && !column.numeric_ascending())
+                && ((column.flat_bigints().is_some() && !column.numeric_ascending())
+                    || column
+                        .dictionary()
+                        .is_some_and(|(parent, _)| parent.len() <= rows / 4)))
         {
             self.grow_monotonic_dense(column, representations[0], query)?;
         }
@@ -180,11 +182,14 @@ impl IntegerIndex {
                 }
                 if groups[index] == EMPTY {
                     let value = dictionary.get(index).expect("checked dictionary position");
-                    groups[index] = self.locate_one(
-                        [representations[0].integer_key(&value)?],
-                        row,
-                        &mut create,
-                    )?;
+                    let coefficient = representations[0].integer_key(&value)?;
+                    if representations[0] == KeyRepresentation::Integer
+                        && let Some(value) = coefficient
+                        && self.flat_dense_position(value).is_none()
+                    {
+                        self.grow_flat_dense_to(value, query)?;
+                    }
+                    groups[index] = self.locate_one([coefficient], row, &mut create)?;
                     remaining -= 1;
                     identity &= groups[index] == index;
                     if remaining == 0 && identity {
@@ -202,6 +207,45 @@ impl IntegerIndex {
                     }
                 }
                 result.push(groups[index]);
+            }
+            query.check()?;
+            return Ok(result);
+        }
+        if let [a, b] = columns
+            && let Some((parent_a, selected_a)) = a.dictionary()
+            && let Some((parent_b, selected_b)) = b.dictionary()
+            && let Some(slots) = parent_a.len().checked_mul(parent_b.len())
+            && slots <= MAX_DENSE_SLOTS
+            && slots <= rows.saturating_mul(4)
+        {
+            // Physical identity pairs are only a per-batch memo. Duplicate
+            // parent values still converge through the selected key mapping,
+            // and unobserved parent entries never create speculative groups.
+            let mut cached = Vec::new();
+            cached
+                .try_reserve_exact(slots)
+                .map_err(|_| Error::Resource("dictionary grouping allocation failed".into()))?;
+            cached.resize(slots, EMPTY);
+            let mut create = create;
+            let mut result = Vec::with_capacity(rows);
+            for (row, (&a, &b)) in selected_a.iter().zip(selected_b).enumerate() {
+                if row % 1024 == 0 {
+                    query.check()?;
+                }
+                let slot = &mut cached[a * parent_b.len() + b];
+                if *slot == EMPTY {
+                    let a = parent_a.get(a).expect("checked dictionary position");
+                    let b = parent_b.get(b).expect("checked dictionary position");
+                    *slot = self.locate_one(
+                        [
+                            representations[0].integer_key(&a)?,
+                            representations[1].integer_key(&b)?,
+                        ],
+                        row,
+                        &mut create,
+                    )?;
+                }
+                result.push(*slot);
             }
             query.check()?;
             return Ok(result);
@@ -653,6 +697,162 @@ mod tests {
                 Ok(group)
             },
         )
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn dictionary_growth_discovers_only_observed_keys_and_preserves_nulls() -> Result<()> {
+        let query = QueryContext::background();
+        let mut index = IntegerIndex::default();
+        let mut next = 0;
+        let mut reference = HashMap::new();
+        for parents in [
+            vec![
+                Value::Integer(0),
+                Value::Null,
+                Value::Integer(0),
+                Value::Null,
+            ],
+            vec![
+                Value::Integer(7),
+                Value::Integer(3),
+                Value::Integer(1),
+                Value::Null,
+            ],
+            vec![
+                Value::Integer(-1),
+                Value::Integer(i64::MAX.into()),
+                Value::Integer(7),
+                Value::Null,
+            ],
+        ] {
+            let parent = std::sync::Arc::new(Vector::flat(DataType::BigInt, parents)?);
+            let selected = (0..32).map(|i| [2, 0, 3, 1][i % 4]).collect::<Vec<_>>();
+            let column = parent.select(selected)?;
+            assert!(column.dictionary().is_some());
+            let expected = column
+                .values()
+                .map(|value| {
+                    let key = match value {
+                        Value::Integer(v) => Some(v),
+                        Value::Null => None,
+                        _ => unreachable!(),
+                    };
+                    let ordinal = reference.len();
+                    *reference.entry(key).or_insert(ordinal)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                locate_one_column(&mut index, &column, &mut next, &query)?,
+                expected
+            );
+            assert_eq!(next, reference.len());
+        }
+        assert!(!index.sparse.is_empty());
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn dictionary_pairs_preserve_duplicate_values_nulls_and_changed_parents() -> Result<()> {
+        let query = QueryContext::background();
+        let mut index = IntegerIndex::default();
+        let mut next = 0;
+        let mut reference = HashMap::new();
+        for parents in [
+            [
+                vec![
+                    Value::Integer(1),
+                    Value::Integer(1),
+                    Value::Integer(2),
+                    Value::Null,
+                ],
+                vec![Value::Null, Value::Integer(4), Value::Integer(4)],
+            ],
+            [
+                vec![
+                    Value::Null,
+                    Value::Integer(1),
+                    Value::Integer(-1),
+                    Value::Integer(i64::MAX.into()),
+                ],
+                vec![
+                    Value::Integer(4),
+                    Value::Null,
+                    Value::Integer(i64::MIN.into()),
+                ],
+            ],
+        ] {
+            let [a, b] = parents;
+            let a = std::sync::Arc::new(Vector::flat(DataType::BigInt, a)?)
+                .select((0..48).map(|i| [3, 1, 0, 2][i % 4]).collect())?;
+            let b = std::sync::Arc::new(Vector::flat(DataType::BigInt, b)?)
+                .select((0..48).map(|i| [2, 0, 1][i % 3]).collect())?;
+            assert!(a.dictionary().is_some() && b.dictionary().is_some());
+            let expected = a
+                .values()
+                .zip(b.values())
+                .map(|(a, b)| {
+                    let key = [a, b].map(|v| match v {
+                        Value::Integer(v) => Some(v),
+                        Value::Null => None,
+                        _ => unreachable!(),
+                    });
+                    let ordinal = reference.len();
+                    *reference.entry(key).or_insert(ordinal)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                index.locate(
+                    &[&a, &b],
+                    &[KeyRepresentation::Integer; 2],
+                    a.len(),
+                    &query,
+                    |_| {
+                        let ordinal = next;
+                        next += 1;
+                        Ok(ordinal)
+                    }
+                )?,
+                expected
+            );
+            assert_eq!(next, reference.len());
+            let interrupt = InterruptHandle::default();
+            let cancelled = QueryContext::new(interrupt.clone(), None, 1, usize::MAX)?;
+            interrupt.interrupt();
+            assert!(matches!(
+                index.locate(
+                    &[&a, &b],
+                    &[KeyRepresentation::Integer; 2],
+                    a.len(),
+                    &cancelled,
+                    |_| unreachable!()
+                ),
+                Err(Error::Interrupted)
+            ));
+        }
+        // A parent Cartesian product over the memo bound retains generic
+        // lookup; a small logical selection cannot cause a large allocation.
+        let parent = std::sync::Arc::new(flat_bigints(&(0..300).collect::<Vec<_>>())?);
+        let a = parent.clone().select(vec![299, 0, 299])?;
+        let b = parent.select(vec![0, 299, 0])?;
+        let mut fallback = IntegerIndex::default();
+        let mut next = 0;
+        assert_eq!(
+            fallback.locate(
+                &[&a, &b],
+                &[KeyRepresentation::Integer; 2],
+                3,
+                &query,
+                |_| {
+                    let ordinal = next;
+                    next += 1;
+                    Ok(ordinal)
+                }
+            )?,
+            [0, 1, 0]
+        );
+        Ok(())
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

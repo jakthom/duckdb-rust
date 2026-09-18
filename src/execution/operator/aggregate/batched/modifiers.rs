@@ -29,7 +29,9 @@ use crate::{
 use std::{cmp::Ordering, collections::HashSet, sync::Arc};
 
 const SMALL_VARCHAR_DISTINCT_KEYS: usize = 64;
+const MAX_SMALL_VARCHAR_SLOTS: usize = SMALL_VARCHAR_DISTINCT_KEYS * 2;
 const MAX_SIGNED_ORDER_BUCKETS: usize = 65_536;
+const EMPTY_SMALL_VARCHAR_SLOT: usize = usize::MAX;
 
 enum Accumulator {
     Grouped(Box<dyn GroupedAggregateState>),
@@ -55,8 +57,13 @@ struct BufferedGroup {
 
 enum DistinctKeys {
     Canonical(HashSet<Vec<u8>>),
-    SmallVarchar(Vec<SmallVarcharKey>),
+    SmallVarchar(SmallVarcharKeys),
     VarcharHash(HashSet<Vec<u8>>),
+}
+
+struct SmallVarcharKeys {
+    keys: Vec<SmallVarcharKey>,
+    slots: Vec<usize>,
 }
 
 struct SmallVarcharKey {
@@ -71,7 +78,10 @@ impl BufferedGroup {
             arguments: (0..arguments).map(|_| Vec::new()).collect(),
             order: (0..order).map(|_| Vec::new()).collect(),
             seen: if borrowed_varchar_key {
-                DistinctKeys::SmallVarchar(Vec::new())
+                DistinctKeys::SmallVarchar(SmallVarcharKeys {
+                    keys: Vec::new(),
+                    slots: Vec::new(),
+                })
             } else {
                 DistinctKeys::Canonical(HashSet::new())
             },
@@ -86,7 +96,7 @@ impl BufferedGroup {
     fn distinct_count(&self) -> Result<usize> {
         let non_null = match &self.seen {
             DistinctKeys::Canonical(keys) | DistinctKeys::VarcharHash(keys) => keys.len(),
-            DistinctKeys::SmallVarchar(keys) => keys.len(),
+            DistinctKeys::SmallVarchar(keys) => keys.keys.len(),
         };
         non_null
             .checked_add(usize::from(self.seen_null))
@@ -95,7 +105,7 @@ impl BufferedGroup {
 
     fn insert_varchar_key(&mut self, bytes: &[u8], query: &QueryContext) -> Result<bool> {
         let null_count = usize::from(self.seen_null);
-        let DistinctKeys::SmallVarchar(keys) = &mut self.seen else {
+        let DistinctKeys::SmallVarchar(small) = &mut self.seen else {
             let DistinctKeys::VarcharHash(keys) = &mut self.seen else {
                 return Err(Error::Internal(
                     "borrowed VARCHAR key used with canonical DISTINCT state".into(),
@@ -117,52 +127,118 @@ impl BufferedGroup {
             return Ok(true);
         };
         let prefix = varchar_key_prefix(bytes);
-        let insertion = match keys.binary_search_by(|key| {
-            key.prefix.cmp(&prefix).then_with(|| {
-                if bytes.len() <= 7 {
-                    Ordering::Equal
-                } else {
-                    key.bytes.as_slice().cmp(bytes)
-                }
-            })
-        }) {
-            Ok(_) => return Ok(false),
-            Err(insertion) => insertion,
-        };
-        let next = keys
+        if small.contains(prefix, bytes) {
+            return Ok(false);
+        }
+        let next = small
+            .keys
             .len()
             .checked_add(null_count)
             .and_then(|count| count.checked_add(1))
             .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
         query.check_rows(next)?;
         let owned = copy_distinct_key(bytes)?;
-        if keys.len() < SMALL_VARCHAR_DISTINCT_KEYS {
-            keys.try_reserve(1)
+        if small.keys.len() < SMALL_VARCHAR_DISTINCT_KEYS {
+            small
+                .keys
+                .try_reserve(1)
                 .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
-            keys.insert(
-                insertion,
-                SmallVarcharKey {
-                    prefix,
-                    bytes: owned,
-                },
-            );
+            small.reserve_slot_for_insert()?;
+            let slot = small
+                .vacant_slot(prefix)
+                .expect("half-full VARCHAR key table has an empty slot");
+            let key = small.keys.len();
+            small.keys.push(SmallVarcharKey {
+                prefix,
+                bytes: owned,
+            });
+            small.slots[slot] = key;
             return Ok(true);
         }
 
         let mut hashed = HashSet::new();
-        let capacity = keys
+        let capacity = small
+            .keys
             .len()
             .checked_add(1)
             .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
         hashed
             .try_reserve(capacity)
             .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
-        for key in std::mem::take(keys) {
+        for key in std::mem::take(&mut small.keys) {
             hashed.insert(key.bytes);
         }
         hashed.insert(owned);
         self.seen = DistinctKeys::VarcharHash(hashed);
         Ok(true)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl SmallVarcharKeys {
+    fn contains(&self, prefix: u64, bytes: &[u8]) -> bool {
+        if self.slots.is_empty() {
+            return false;
+        }
+        let mask = self.slots.len() - 1;
+        let mut slot = varchar_prefix_hash(prefix) & mask;
+        for _ in 0..self.slots.len() {
+            let key = self.slots[slot];
+            if key == EMPTY_SMALL_VARCHAR_SLOT {
+                return false;
+            }
+            let key = &self.keys[key];
+            if key.prefix == prefix && (bytes.len() <= 7 || key.bytes.as_slice() == bytes) {
+                return true;
+            }
+            slot = (slot + 1) & mask;
+        }
+        false
+    }
+
+    fn vacant_slot(&self, prefix: u64) -> Option<usize> {
+        let mask = self.slots.len().checked_sub(1)?;
+        let mut slot = varchar_prefix_hash(prefix) & mask;
+        for _ in 0..self.slots.len() {
+            if self.slots[slot] == EMPTY_SMALL_VARCHAR_SLOT {
+                return Some(slot);
+            }
+            slot = (slot + 1) & mask;
+        }
+        None
+    }
+
+    fn reserve_slot_for_insert(&mut self) -> Result<()> {
+        let keys = self
+            .keys
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
+        let required = keys
+            .checked_mul(2)
+            .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
+        if required <= self.slots.len() {
+            return Ok(());
+        }
+        let slots = required
+            .checked_next_power_of_two()
+            .filter(|&slots| slots <= MAX_SMALL_VARCHAR_SLOTS)
+            .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
+        let mut resized = Vec::new();
+        resized
+            .try_reserve_exact(slots)
+            .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
+        resized.resize(slots, EMPTY_SMALL_VARCHAR_SLOT);
+        for (index, key) in self.keys.iter().enumerate() {
+            let mask = resized.len() - 1;
+            let mut slot = varchar_prefix_hash(key.prefix) & mask;
+            while resized[slot] != EMPTY_SMALL_VARCHAR_SLOT {
+                slot = (slot + 1) & mask;
+            }
+            resized[slot] = index;
+        }
+        self.slots = resized;
+        Ok(())
     }
 }
 
@@ -187,6 +263,40 @@ fn varchar_key_prefix(bytes: &[u8]) -> u64 {
         prefix |= u64::from(*byte) << (48 - position * 8);
     }
     prefix
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline]
+fn varchar_prefix_hash(mut prefix: u64) -> usize {
+    prefix ^= prefix >> 33;
+    prefix = prefix.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    prefix ^= prefix >> 33;
+    prefix = prefix.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    prefix ^= prefix >> 33;
+    prefix as usize
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline]
+fn insert_borrowed_varchar(
+    retained: &mut BufferedGroup,
+    representation: KeyRepresentation,
+    value: &Value,
+    query: &QueryContext,
+) -> Result<bool> {
+    match representation.varchar_key(value)? {
+        None if retained.seen_null => Ok(false),
+        None => {
+            let next = retained
+                .distinct_count()?
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
+            query.check_rows(next)?;
+            retained.seen_null = true;
+            Ok(true)
+        }
+        Some(bytes) => retained.insert_varchar_key(bytes, query),
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -428,6 +538,9 @@ pub(super) fn try_run(
                         };
                         buffered.argument_keys[0].validate_vector(column, context.query)?;
                     }
+                    let flat_borrowed_varchar = borrowed_varchar_key
+                        .then(|| input.columns()[0].flat_values())
+                        .flatten();
                     for (row, &group) in destinations.iter().enumerate() {
                         if row % 1024 == 0 {
                             context.query.check()?;
@@ -436,28 +549,27 @@ pub(super) fn try_run(
                         if buffered.distinct {
                             if borrowed_varchar_key {
                                 let representation = buffered.argument_keys[0].key_representation();
-                                let inserted = with_value(&input.columns()[0], row, |value| {
-                                    match representation.varchar_key(value)? {
-                                        None if retained.seen_null => Ok(false),
-                                        None => {
-                                            let next = retained
-                                                .distinct_count()?
-                                                .checked_add(1)
-                                                .ok_or_else(|| {
-                                                    Error::Resource(
-                                                        "buffered DISTINCT key count overflow"
-                                                            .into(),
-                                                    )
-                                                })?;
-                                            context.query.check_rows(next)?;
-                                            retained.seen_null = true;
-                                            Ok(true)
-                                        }
-                                        Some(bytes) => {
-                                            retained.insert_varchar_key(bytes, context.query)
-                                        }
-                                    }
-                                })?;
+                                let inserted = if let Some(values) = flat_borrowed_varchar {
+                                    insert_borrowed_varchar(
+                                        retained,
+                                        representation,
+                                        values.get(row).ok_or_else(|| {
+                                            Error::Internal(
+                                                "aggregate vector row outside input".into(),
+                                            )
+                                        })?,
+                                        context.query,
+                                    )?
+                                } else {
+                                    with_value(&input.columns()[0], row, |value| {
+                                        insert_borrowed_varchar(
+                                            retained,
+                                            representation,
+                                            value,
+                                            context.query,
+                                        )
+                                    })?
+                                };
                                 if !inserted {
                                     continue;
                                 }

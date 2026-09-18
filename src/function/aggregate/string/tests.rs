@@ -164,10 +164,18 @@ fn grouped_inline_storage_preserves_boundaries_promotion_and_capacity_policy() -
     assert!(reused.ends_with("|z"));
 
     assert_eq!(grouped_promotion_capacity(96, false), 96);
-    assert_eq!(grouped_promotion_capacity(34, true), 51);
+    assert_eq!(grouped_promotion_capacity(34, true), 68);
     assert_eq!(grouped_promotion_capacity(usize::MAX, true), usize::MAX);
+    assert_eq!(
+        grouped_promotion_capacity(usize::MAX / 2 + 1, true),
+        usize::MAX / 2 + 1
+    );
     assert_eq!(grouped_heap_capacity(8, 16), 16);
-    assert_eq!(grouped_heap_capacity(17, 16), 24);
+    assert_eq!(grouped_heap_capacity(17, 16), 32);
+    assert_eq!(
+        grouped_heap_capacity(usize::MAX - 1, usize::MAX / 2 + 1),
+        usize::MAX - 1
+    );
     assert_eq!(
         grouped_heap_capacity(usize::MAX, usize::MAX - 1),
         usize::MAX

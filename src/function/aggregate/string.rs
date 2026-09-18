@@ -284,7 +284,7 @@ fn grouped_promotion_capacity(required: usize, reused: bool) -> usize {
     if !reused {
         return required;
     }
-    required.checked_add(required / 2).unwrap_or(required)
+    required.checked_mul(2).unwrap_or(required)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -292,7 +292,7 @@ fn grouped_heap_capacity(required: usize, capacity: usize) -> usize {
     if required <= capacity {
         return capacity;
     }
-    required.max(capacity.checked_add(capacity / 2).unwrap_or(required))
+    required.max(capacity.checked_mul(2).unwrap_or(required))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

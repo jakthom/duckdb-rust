@@ -95,6 +95,11 @@ pub(super) fn try_run(
         return Ok(None);
     }
     aggregation.validate_metadata(context.query)?;
+    let row_width = aggregation
+        .groups
+        .len()
+        .checked_add(aggregation.outputs.len())
+        .ok_or_else(|| Error::Resource("aggregate result width exceeds usize".into()))?;
     let functions = aggregation.functions().collect::<Vec<_>>();
     let mut accumulators = Vec::with_capacity(functions.len());
     for function in &functions {
@@ -138,7 +143,12 @@ pub(super) fn try_run(
             if set.is_empty() {
                 context.query.check_rows(groups.len() + 1)?;
                 index.set_empty(groups.len());
-                groups.push((vec![Value::Null; aggregation.groups.len()], set_index));
+                let mut values = Vec::new();
+                values
+                    .try_reserve_exact(row_width)
+                    .map_err(|_| Error::Resource("aggregate row allocation failed".into()))?;
+                values.resize(aggregation.groups.len(), Value::Null);
+                groups.push((values, set_index));
             }
             Ok(index)
         })
@@ -178,17 +188,17 @@ pub(super) fn try_run(
                 |row| {
                     context.query.check_rows(groups.len() + 1)?;
                     let index = groups.len();
-                    let values = columns
-                        .iter()
-                        .enumerate()
-                        .map(|(i, values)| {
-                            if set.contains(i) {
-                                values.get(row).expect("validated grouping column")
-                            } else {
-                                Value::Null
-                            }
-                        })
-                        .collect();
+                    let mut values = Vec::new();
+                    values
+                        .try_reserve_exact(row_width)
+                        .map_err(|_| Error::Resource("aggregate row allocation failed".into()))?;
+                    for (i, column) in columns.iter().enumerate() {
+                        values.push(if set.contains(i) {
+                            column.get(row).expect("validated grouping column")
+                        } else {
+                            Value::Null
+                        });
+                    }
                     groups.push((values, set_index));
                     Ok(index)
                 },
@@ -223,30 +233,28 @@ pub(super) fn try_run(
             Ok(values)
         })
         .collect::<Result<Vec<_>>>()?;
-    let rows = groups
-        .into_iter()
-        .enumerate()
-        .map(|(group_index, (mut row, set_index))| {
-            context.query.check()?;
-            let mut function = 0;
-            for output in &aggregation.outputs {
-                row.push(match output {
-                    AggregateOutput::Function(_) => {
-                        let value =
-                            std::mem::replace(&mut values[function][group_index], Value::Null);
-                        function += 1;
-                        value
-                    }
-                    AggregateOutput::Grouping(indices) => {
-                        Value::Integer(indices.iter().fold(0, |mask, &index| {
-                            (mask << 1) | i128::from(!aggregation.sets[set_index].contains(index))
-                        }))
-                    }
-                });
-            }
-            Ok(row)
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let mut rows = Vec::new();
+    rows.try_reserve_exact(groups.len())
+        .map_err(|_| Error::Resource("aggregate result allocation failed".into()))?;
+    for (group_index, (mut row, set_index)) in groups.into_iter().enumerate() {
+        context.query.check()?;
+        let mut function = 0;
+        for output in &aggregation.outputs {
+            row.push(match output {
+                AggregateOutput::Function(_) => {
+                    let value = std::mem::replace(&mut values[function][group_index], Value::Null);
+                    function += 1;
+                    value
+                }
+                AggregateOutput::Grouping(indices) => {
+                    Value::Integer(indices.iter().fold(0, |mask, &index| {
+                        (mask << 1) | i128::from(!aggregation.sets[set_index].contains(index))
+                    }))
+                }
+            });
+        }
+        rows.push(row);
+    }
     Ok(Some(rows))
 }
 
