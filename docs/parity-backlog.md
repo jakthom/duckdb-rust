@@ -646,6 +646,13 @@ Batch 1 evidence/restart details:
   `target/c2-1/native-{release,development}.json`. Process-fixture correctness is
   complete: 257 records/assertions pass on Rust and each pinned native runner,
   with logs and binary identities under worker `target/c2-1/process-*`.
+  Subsequent review found those process queries observed only outer row counts,
+  permitting reference projection pruning of the intended aggregate work. The
+  257 passes validate the old count fixture, not STRING_AGG contents or resource
+  parity. Replace its outer counts with the already validated native aggregate
+  checksums, retain the declared workload size/repetition, validate all three
+  engines untimed, then measure the corrected fixture. Preserve any earlier
+  observations as invalid-coverage diagnostics, never acceptance evidence.
   Binder contract review is escalated to S after repeated correction cycles;
   this does not authorize unrelated engine changes or a full-engine sweep.
   Exact per-pin record extraction now lives in worker
@@ -663,6 +670,16 @@ Batch 1 evidence/restart details:
   unary plus, parentheses and negative numerics. For `-(1.5)` specifically,
   development accepts while release rejects; the implementation follows the
   development pin rather than claiming identical reference behavior.
+  First native 9-sample diagnostic validates results but fails all five latency
+  cases: ungrouped 2.18–2.20x, few groups 14.26–14.55x, many groups 13.42–13.75x,
+  ordered DISTINCT 18.37–18.49x and mixed SUM/LIST/STRING_AGG 7.97–7.99x against
+  the faster reference. Evidence: worker
+  `target/c2-1/native-{release,development,fastest}-diagnostic-20260918.json`.
+  The corrected process fixture now validates its aggregate checksums on all
+  three engines (257 records/assertions each); its first diagnostic is in
+  progress. C2.1 remains incomplete pending measured batch/group/modifier
+  performance corrections, final affected verification and final performance
+  gates. Do not drop workloads or weaken their oracles to close this chunk.
   Exact manifest: worker `target/c2-1/validation-manifest.md`.
 - F1 performance and C2.1 final implementation/acceptance remain **open**;
   A1's frozen evaluation is complete as recorded above.
