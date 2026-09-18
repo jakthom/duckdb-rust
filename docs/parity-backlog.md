@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`, with performance at `90d63ab`. C2.1 implementation and independent partial verification are green through `5c10878`; dense-offset proof passed at unchanged inputs `b72ea46`. Final native campaign: 22/23 pass; C2 few-groups fails at 1.002x the development reference (release 0.959x). Five process families pass; regex process timing remains in flight. Next: finish the campaign, profile the single failure, make a scoped correction and refresh affected evidence only. Do not start Batch 2 yet. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`. C2.1 independent partial verification is green through `5c10878`; dense-offset proof passed at unchanged inputs `b72ea46`. Final campaign at `5c10878`: 22/23 native cases and all six process families pass. C2 few-groups fails at 1.002387x: development-campaign Rust versus the faster C++ release median. Profile-informed grouped separator correction `6d221b8` passes 8 leaf/81 grouping tests; independent delta verification is running. Next: finish that partial check, measure only C2 native/process workloads, then accept Batch 1 if all gates pass. Do not start Batch 2 yet. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -694,7 +694,7 @@ Batch 1 evidence/restart details:
   interval assumption, not all grouping or construction behavior. Later
   unrelated changes reuse the proof; unrelated harnesses are not applicable.
 
-  Final quiet-host performance campaign is running on integrated root: six
+  Final quiet-host performance campaign completed on integrated root `5c10878`: six
   affected native/process families—C2 STRING_AGG, grouping SUM/ROLLUP/CUBE,
   G08 filter, G08 ordered aggregate, F1 range publication, and regex extract-all
   LIST(VARCHAR). Regex selects exactly the two maintained constant/dynamic native
@@ -705,13 +705,21 @@ Batch 1 evidence/restart details:
   Exact build, both-pin 21-sample native/joint and matched-serial process commands
   are `target/batch1/c2-final/performance-manifest.md`; reports stay beside it.
   All latency/throughput and CPU/RSS/I/O gates must pass independently.
-  Current final21 results: 22/23 native cases pass. Only
-  `string_agg_few_groups` fails (release 0.959x, development 1.002x); the other
-  four C2 cases and all five other native families pass. C2, grouping, both G08
-  families and F1 process campaigns pass. Regex process timing is still in
-  flight; do not interrupt a healthy reference run or retry the failed q2 to
-  green. After the campaign, capture a focused q2 profile before changing code.
-  A future STRING_AGG-only correction may reuse unchanged other-family evidence.
+  Final21 results: 22/23 native cases pass. Only `string_agg_few_groups` fails:
+  Rust release/development campaigns are 819,708/856,958 ns versus the common
+  faster C++ release median 854,917 ns (0.958816x/1.002387x). The development
+  C++ median is 1,258,167 ns; it is not the governing baseline. The other four
+  C2 cases and all five other native families pass. All six process families
+  pass wall/CPU/RSS/I/O gates, including completed regex timing. Full results:
+  `target/batch1/c2-final/performance-results.md`. Preserve the failed q2.
+  The focused q2 profile supports append/copy work as the next experiment,
+  without proving separator copying dominates. Candidate10 `6d221b8` changes
+  only grouped Heap append: safe `String::push` for one-byte ASCII separators,
+  existing `push_str` otherwise. Scalar/inline/promotion/capacity paths stay
+  unchanged. Leaf 8/8 and grouping 81/81 pass; independent partial delta is
+  running under `target/batch1/c2-final/candidate10-verification.md`.
+  After it passes, refresh C2 five-case native and 257-record process acceptance
+  only; retain unchanged five-family results and the earlier unaffected proof.
 
   Historical candidates/profiles/failures remain in worker
   `target/c2-1/*candidate*.json`, `profile-candidate*.txt`, manifests and Git
