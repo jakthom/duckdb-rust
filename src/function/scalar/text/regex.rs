@@ -88,6 +88,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
                 constant: None,
                 extract_group: None,
                 extract_group_is_null: false,
+                constant_replacement: None,
             }))
             .expect("unique regexp value function");
     }
@@ -103,8 +104,10 @@ struct RegexValueFunction {
     constant: Option<Regex>,
     extract_group: Option<usize>,
     extract_group_is_null: bool,
+    constant_replacement: Option<String>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for RegexValueFunction {
     fn name(&self) -> &str {
         self.name
@@ -215,6 +218,21 @@ impl ScalarFunction for RegexValueFunction {
         } else {
             None
         };
+        let constant_replacement = if self.name == "regexp_replace" {
+            match (args.constant_if_closed(2)?, constant.as_ref()) {
+                (Some(Value::Varchar(replacement)), Some(pattern)) => {
+                    Some(re2_replacement(&replacement, pattern.captures_len())?)
+                }
+                (Some(Value::Null) | None, _) | (_, None) => None,
+                (Some(_), Some(_)) => {
+                    return Err(Error::Internal(
+                        "regexp replacement constant is not VARCHAR".into(),
+                    ));
+                }
+            }
+        } else {
+            None
+        };
         Ok(Some(Arc::new(Self {
             name: self.name,
             signature: Some(sig),
@@ -222,6 +240,7 @@ impl ScalarFunction for RegexValueFunction {
             constant,
             extract_group,
             extract_group_is_null,
+            constant_replacement,
         })))
     }
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
@@ -245,8 +264,18 @@ impl ScalarFunction for RegexValueFunction {
         arguments: &DataChunk,
         query: &QueryContext,
     ) -> Result<Option<Vector>> {
+        // The common replacement shape has a statement-local pattern and
+        // replacement.  Reading a full row for it needlessly clones those two
+        // constants and goes through the dynamic-pattern cache for every
+        // input.  Keep this path deliberately narrow: the generic evaluator
+        // remains responsible for dynamic values and their first-error order.
+        if let Some(output) = self.constant_replace_batch(arguments, query)? {
+            return Ok(Some(output));
+        }
         let mut row = Vec::with_capacity(arguments.columns().len());
-        let mut out = Vec::with_capacity(arguments.len());
+        let mut out = Vec::new();
+        out.try_reserve_exact(arguments.len())
+            .map_err(|_| Error::Resource("cannot allocate regexp value function result".into()))?;
         // A small per-batch cache preserves first-error order while avoiding repeated dynamic compilation.
         let mut cache: Vec<(String, Regex)> = Vec::new();
         for i in 0..arguments.len() {
@@ -264,7 +293,53 @@ impl ScalarFunction for RegexValueFunction {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RegexValueFunction {
+    fn constant_replace_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        if self.name != "regexp_replace" {
+            return Ok(None);
+        }
+        let (Some(regex), Some(replacement), Some(input)) = (
+            self.constant.as_ref(),
+            self.constant_replacement.as_deref(),
+            arguments.columns().first().and_then(VarcharBatch::new),
+        ) else {
+            return Ok(None);
+        };
+
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(arguments.len())
+            .map_err(|_| Error::Resource("cannot allocate regexp replacement result".into()))?;
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let value = input.get(index)?;
+            let Value::Varchar(value) = value else {
+                if value.is_null() {
+                    output.push(Value::Null);
+                    continue;
+                }
+                return Err(Error::Internal(
+                    "regexp replacement input is not VARCHAR".into(),
+                ));
+            };
+            let replaced = if self.options.global {
+                regex.replace_all(value, replacement)
+            } else {
+                regex.replace(value, replacement)
+            };
+            output.push(Value::Varchar(replaced.into_owned()));
+        }
+        query.check()?;
+        Vector::flat(DataType::Varchar, output).map(Some)
+    }
+
     fn apply(&self, a: &[Value], cache: &mut Vec<(String, Regex)>) -> Result<Value> {
         if self.name == "regexp_extract" && self.extract_group_is_null {
             return if a.first().is_some_and(Value::is_null) || a.get(1).is_some_and(Value::is_null)
@@ -314,11 +389,17 @@ impl RegexValueFunction {
                 let Value::Varchar(replacement) = &a[2] else {
                     return Err(Error::Internal("regexp replacement".into()));
                 };
-                let replacement = re2_replacement(replacement, regex.captures_len())?;
-                let result = if self.options.global {
-                    regex.replace_all(input, replacement.as_str())
+                let dynamic_replacement;
+                let replacement = if let Some(replacement) = &self.constant_replacement {
+                    replacement.as_str()
                 } else {
-                    regex.replace(input, replacement.as_str())
+                    dynamic_replacement = re2_replacement(replacement, regex.captures_len())?;
+                    dynamic_replacement.as_str()
+                };
+                let result = if self.options.global {
+                    regex.replace_all(input, replacement)
+                } else {
+                    regex.replace(input, replacement)
                 };
                 Ok(Value::Varchar(result.into_owned()))
             }
@@ -343,6 +424,7 @@ impl RegexValueFunction {
 }
 
 // RE2 uses \\1 while Rust regex uses $1. Preserve escaped non-group text.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn re2_replacement(value: &str, captures_len: usize) -> Result<String> {
     let mut out = String::with_capacity(value.len());
     let mut chars = value.chars().peekable();
@@ -375,12 +457,16 @@ fn re2_replacement(value: &str, captures_len: usize) -> Result<String> {
                 "regexp replacement group {group} is out of range"
             )));
         }
-        out.push('$');
+        // Braces keep a following alphanumeric literal from becoming part of
+        // the capture name in the Rust regex replacement grammar.
+        out.push_str("${");
         out.push(next);
+        out.push('}');
     }
     Ok(out)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn re2_escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for ch in value.chars() {
@@ -736,6 +822,7 @@ fn parse_options(value: Value) -> Result<RegexOptions> {
     parse_options_for(value, false, false)
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_options_for(value: Value, allow_global: bool, allow_keep: bool) -> Result<RegexOptions> {
     let Value::Varchar(options) = value else {
         return if value.is_null() {
@@ -803,6 +890,7 @@ fn compile(pattern: &str, options: RegexOptions, kind: MatchKind) -> Result<Rege
         .map_err(|error| regex_compile_error(pattern, error))
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn regex_compile_error(pattern: String, error: regex::Error) -> Error {
     let message = error.to_string();
     let message = if message.contains("unrecognized escape sequence")

@@ -1281,6 +1281,31 @@ pin. Samples, reference identities, source/binary hashes and failures stay below
 tree's delegated `python3 scripts/verify_chunk.py` sweep after all functional and
 performance evidence is final.
 
+The implementation now binds implicit-star FROM-first queries and CTAS from
+VALUES, provides variadic `printf`/`format`, and provides `regexp_replace`,
+scalar-group `regexp_extract` and `regexp_escape`. Constant formats compile to
+statement-local plans, low-cardinality formats use a bounded batch cache, and
+the common BIGINT/VARCHAR formatting and constant replacement shapes avoid
+per-row constant/string cloning. The focused and affected targets listed above
+pass on the integrated tree, as does the 8-record combined local fixture;
+`cargo dev coverage` reports no missing annotations and
+`cargo dev trace check --workspace --all-targets` completes with no errors,
+panics or open spans. The latest 9-sample development-pin tuning run passes all
+seven native workloads, with its largest Rust/reference ratio 0.952 for global
+replacement; this is diagnostic evidence, not the final 21-sample Gate P run.
+
+The selected upstream development cases fully pass regex search, Unicode/NUL,
+format, regex escape and regex extract. `test_printf` retains the unrelated
+missing `strip_accents` prefix blocker and `regex_replace` retains the unrelated
+unsupported `E'...'` parser prefix blocker. The release pin fully passes its
+Unicode/NUL, formatting, replacement and escape selections, while regex search
+and extract stop at pin-specific dynamic-options/group error-category
+expectations; the development pin remains authoritative for those deliberate
+semantic disagreements. Final frozen evidence is written to
+`target/next-batch/g06_1f_2b_g07_3b/` using the exact manifest commands above,
+including separate 21-sample native reports for both references, their joint
+faster-reference report and the process wall/throughput/CPU/RSS/I/O report.
+
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
   Match character versus byte indexing and invalid-input behavior.

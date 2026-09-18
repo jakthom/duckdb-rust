@@ -5,6 +5,7 @@ use duckdb_rust::{
     execution::expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn regex_value_functions_cover_options_groups_nulls_and_nuls() -> Result<()> {
     for expressions in [
@@ -83,6 +84,36 @@ fn regex_value_functions_cover_options_groups_nulls_and_nuls() -> Result<()> {
                 .unwrap_err()
                 .to_string()
                 .contains("invalid escape sequence")
+        );
+        let prepared = connection
+            .prepare("SELECT regexp_replace($1, $2, $3, 'g'), regexp_extract($1, $2, 1)")?;
+        assert_eq!(
+            connection
+                .execute_prepared(
+                    &prepared,
+                    &[
+                        Value::Varchar("a1a".into()),
+                        Value::Varchar("(a)".into()),
+                        Value::Varchar("\\1x".into()),
+                    ],
+                )?
+                .rows,
+            vec![vec![
+                Value::Varchar("ax1ax".into()),
+                Value::Varchar("a".into()),
+            ]]
+        );
+        assert!(
+            connection
+                .execute_prepared(
+                    &prepared,
+                    &[
+                        Value::Varchar("a".into()),
+                        Value::Varchar("(a)".into()),
+                        Value::Varchar("\\".into()),
+                    ],
+                )
+                .is_err()
         );
     }
     Ok(())

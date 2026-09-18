@@ -29,6 +29,15 @@ fn printf_and_format_cover_values_nulls_nuls_and_errors() -> Result<()> {
             vec![vec![Value::Varchar("  12".into()), Value::Varchar("7".into()), Value::Varchar("0.00023".into()), Value::Varchar("0.0".into()), Value::Varchar("0.00".into())]]
         );
         assert_eq!(
+            connection
+                .query("SELECT printf('%08d:%s', -12, 'é'), format('{1}:{0}', 12, 'x')")?
+                .rows,
+            vec![vec![
+                Value::Varchar("-0000012:é".into()),
+                Value::Varchar("x:12".into()),
+            ]]
+        );
+        assert_eq!(
             connection.query("SELECT printf('%d:%#o', 18446744073709551615::UBIGINT, 100), printf('floats: %4.2f %+.0e %E', 3.1416, 3.1416, 3.1416), printf('%s', DATE '1992-01-01'), format('{}', DATE '1992-01-01')")?.rows,
             vec![vec![
                 Value::Varchar("18446744073709551615:0144".into()),

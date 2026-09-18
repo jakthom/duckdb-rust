@@ -11,10 +11,8 @@
       "sum": "624975000"
     },
     {
-      "name": "g07_3b_ctas_from_values",
-      "sql": "CREATE TABLE g07_3b_ctas AS FROM VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e'), (6, 'f'), (7, 'g'), (8, 'h') rows(i, v)",
-      "reset": "DROP TABLE IF EXISTS g07_3b_ctas",
-      "verify": "SELECT sum(i) FROM g07_3b_ctas",
+      "name": "g07_3b_from_values_8_rows",
+      "sql": "SELECT sum(i) FROM (FROM VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e'), (6, 'f'), (7, 'g'), (8, 'h') rows(i, v))",
       "rows": 1,
       "sum": "36"
     },
