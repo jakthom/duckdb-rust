@@ -729,11 +729,26 @@ Batch 1 evidence/restart details:
   RSS passes at 0.636x and block I/O is zero for all engines. Reports are worker
   `target/c2-1/native-*-buffered-diagnostic-20260918.json` and
   `process-serial-buffered-diagnostic-20260918.json`. These are diagnostic,
-  not final acceptance. Next correction splits grouped string reservation from
-  ordered LIST delivery/comparison costs, with unchanged workloads and typed
-  custom-adapter guards. Existing signed LIST G08 native/process workloads are
-  also required affected-consumer evidence. Final measurements follow only
-  after corrections pass.
+  not final acceptance. Measured candidate 2 is preserved as worker `c9a12a3`:
+  dictionary delivery/selected signed comparisons improve mixed consumers to
+  1.911–1.929x and matched process wall/CPU to 1.759x/1.763x (still failing).
+  Its two-pass grouped reservation hypothesis regresses few/many groups to
+  1.531–1.627x/2.352–2.428x and is being removed; keep the measured commit and
+  reports, not the slower code. Ordered DISTINCT remains failing/variable at
+  3.945–7.339x. All three affected G08 native consumers pass their 9-sample
+  diagnostic; final native/process consumer acceptance remains required.
+  Reports are worker `target/c2-1/*candidate2*.json` (exact paths/hashes in
+  the worker manifest). Current correction ownership: root adds explicit
+  selected `VarcharBytes` key capability/type-boundary tests; S `batch1_f1`
+  consumes borrowed keys only for admitted single-argument DISTINCT and retains
+  custom canonical-key fallback; S `batch1_f1_performance` removes duplicate
+  aggregate-result copies using owned row-to-column construction and an opt-in
+  aggregation-only deferred stream, leaving other stream consumers unchanged.
+  Manifest additions are worker `target/c2-1/borrowed-key-manifest.md` and its
+  publication handoff. Root's original window-file acceptance refresh runs
+  separately against the unchanged integrated window/binder inputs under
+  `target/batch1/c2-window-upstream/`. Final measurements follow only after
+  corrections pass; do not start batch 2 yet.
   C2.1 remains incomplete pending measured batch/group/modifier
   performance corrections, final affected verification and final performance
   gates. Do not drop workloads or weaken their oracles to close this chunk.
