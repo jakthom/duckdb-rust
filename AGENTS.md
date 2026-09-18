@@ -11,6 +11,15 @@ changes; do not create another progress/checkpoint summary document.
 
 ## Edit loop
 
+Classify the actual change before choosing validation. Documentation, plans,
+status reports, comments with no executable effect, and agent instructions
+(including instruction-only `.codex/` configuration) must NEVER trigger an
+engine build, full verifier sweep, recovery/Kani run, or benchmark campaign.
+Use only relevant diff, link, example, syntax or consistency checks. A new commit
+hash or the word "chunk" does not justify engine validation. Documentation used
+as executable input, such as a changed doctest or generated-code input, is checked
+according to that actual effect, not its file extension.
+
 At assignment, record a small validation manifest in the chunk's backlog entry
 or handoff: owned paths, fast check commands, affected test targets/filters,
 unchanged upstream case IDs, full functional acceptance commands, and the
@@ -46,7 +55,13 @@ source/binary/profile provenance. Stop a watcher before another validation
 process starts in the worktree. Never treat stale workers or modified cached
 inputs as current. See [testing cadence](specs/testing/parity.md#continuous-feedback-and-completion).
 
-## Chunk completion sweep
+## Chunk completion sweep — implementation changes only
+
+This section applies to implementation changes affecting the engine or its
+build, dependencies, executable tests/harnesses, fixtures or workloads. It does
+not apply to documentation/planning/status/agent-instruction-only changes.
+Do not dispatch the verifier for those changes; if dispatched accidentally,
+the verifier must decline without starting the sweep.
 
 A chunk is an explicit goal group, feature slice, subsystem or adapter
 implementation, cross-module refactor, or other unit of work identified in the
@@ -70,16 +85,20 @@ and performs formatting, all-target checking, all-target Clippy, the full test
 suite except the exhaustive recovery truncation test, that exhaustive test in a
 visible final test stage, and the maintained Kani checkpoint. A chunk is not
 complete until every ordinary stage has passed against its final source tree and
-Kani has been run and reported. If an edit is made after the sweep begins, rerun
-the complete sweep against the new final tree. Use
+Kani has been run and reported. If an implementation or validation-input edit is
+made after the sweep begins, rerun the complete sweep against the new final tree.
+Unrelated documentation, planning, status or agent-instruction edits do not
+invalidate the result or require a rerun. Use
 `python3 scripts/verify_chunk.py --list` to inspect the stages without executing
 them.
 
 The sweep is the common regression gate, not the entire acceptance decision:
 the chunk's unchanged upstream/interop/contract cases and the performance gate
 below must also be satisfied on that final tree. Do not defer these obligations
-until the final PR or G24. Any edit invalidates the completion result and requires
-a new full sweep and refreshed affected acceptance evidence.
+until the final PR or G24. Only changes to the tested implementation or relevant
+validation inputs invalidate its completion evidence. Retain the tested revision
+and scope when unrelated documentation changes land; do not pretend it was a new
+test run, and do not rerun merely to obtain a newer commit hash.
 
 ## Per-chunk performance gate
 

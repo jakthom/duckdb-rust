@@ -36,13 +36,15 @@ a newer result.
 
 **Planning maintenance chunk (this change).** Own only
 `docs/parity-backlog.md`, `docs/architecture.md`,
-`specs/testing/parity.md`, and `AGENTS.md`. Fast validation: reviewed diff,
+`specs/testing/parity.md`, `AGENTS.md`, and instruction-only
+`.codex/agents/verifier.toml`. Validation: reviewed diff,
 `git diff --check`, local-link/anchor and command/target checks, plus independent
 status and dispatch review. No SQL/source/build/configuration/fixture/workload
-changes; unchanged upstream IDs have no new behavioral obligation. Full
-completion: configured verifier runs `python3 scripts/verify_chunk.py` after
-the documentation freezes; report its result in the handoff. Performance:
-**not applicable: documentation-only**, subject to the reviewed four-file diff.
+changes; unchanged upstream IDs have no new behavioral obligation. Completion
+uses only the relevant documentation checks and TOML syntax validation. Engine
+sweep, recovery, Kani and performance: **not applicable: documentation/instructions-only**.
+The mistakenly dispatched sweep at `d32f08c` was cancelled during its test stage;
+it is incomplete and is not acceptance evidence. It must not be restarted.
 This updates the plan; it does not execute or close its queued engine chunks.
 
 ## Target and evidence
@@ -360,6 +362,9 @@ exceeds one coherent change, split it again while retaining its parent ID.
 
 For every assigned chunk:
 
+0. Classify the change. Documentation/planning/status/agent-instruction-only work
+   gets relevant artifact checks only; steps 1–7 below govern implementation.
+   Never dispatch an engine sweep or benchmark for unrelated prose changes.
 1. Resolve the pinned source/tests for its precise behavior. Classify existing
    passing behavior, engine gaps, harness gaps and reference divergences.
    Declare its validation manifest: fast commands, exact affected cases, full
@@ -531,7 +536,8 @@ workloads; the parent stays open until every inventoried family has a dispositio
 | Shared-contract edit / integration | Broaden to all listed consumers and compare debug/ordinary release outcomes. Include prepared reuse, custom adapters, vector encodings, rollback/reopen or foreign destruction as relevant. Re-run on the integrated tree; worker results are not integration results. |
 | Early performance diagnosis | After correct representative execution exists, time the predeclared hot path on a quiet host. Diagnose a slowdown before implementing the whole family. This is not acceptance or permission to reduce semantics/workloads. |
 | Ready | Independent reviewer checks pinned semantics, missing cases, ownership, performance comparability and manifest completeness. Freeze source and manifest before final gates. |
-| Complete | Full assigned unchanged upstream/API/native/configuration population; every gate-P workload; delegated full sweep with Kani report. Same final tree, no stale binaries, no unexplained ordinary failures. |
+| Complete implementation | Full assigned unchanged upstream/API/native/configuration population; every gate-P workload; delegated full sweep with Kani report. Same tested implementation and validation inputs, no stale binaries or unexplained ordinary failures. |
+| Complete documentation/instructions | Relevant diff, links, examples, syntax and consistency checks only. Never dispatch engine validation; retain existing engine evidence with its actual tested revision. |
 | Handoff | Update the existing status row in place with four gate fields, exact revisions/reports, remaining IDs and next dependency. Raw artifacts stay under `target/`. State whether full census is fresh or historical. |
 
 During edits, a targeted `cargo test -p duckdb-rust --test <target> <filter>`
@@ -566,14 +572,17 @@ Fast-cache and source-tamper negatives must continue to fail closed. New Rust
 interfaces/files require `cargo dev coverage` and
 `cargo dev trace check --workspace --all-targets` at integration.
 
-The configured verifier alone runs `python3 scripts/verify_chunk.py` on the
-frozen tree. It owns format, all-target check, all-target Clippy, the full tests,
+For implementation changes, the configured verifier alone runs
+`python3 scripts/verify_chunk.py` on the frozen tree. It first rejects unrelated
+documentation/planning/status/agent-instruction-only dispatches. The sweep owns
+format, all-target check, all-target Clippy, the full tests,
 visible exhaustive recovery and the maintained Kani checkpoint. The primary
 does not run or babysit the sweep. Every ordinary stage must pass; Kani must run
-and its findings/limits must be reported under the exploratory policy. An edit
-after freeze invalidates completion and requires a new sweep and refreshed
-affected acceptance. Finish prose updates before freeze; report the terminal
-sweep outcome in the handoff to avoid a self-invalidating documentation edit.
+and its findings/limits must be reported under the exploratory policy. An
+implementation or relevant validation-input edit after freeze requires a new
+sweep and refreshed affected acceptance. Unrelated prose and agent instructions
+do not invalidate evidence. Update status after validation without rerunning
+the engine merely because the documentation or commit hash changed.
 
 ### At-parity or better performance
 
@@ -2641,8 +2650,9 @@ Elapsed effort: <implementation, feedback, integration, acceptance; review rewor
 Constraints: selected subsystem interfaces; development wins semantic disagreements;
              no skips relabeled as passes; raw evidence only in ignored target/.
 Readiness: agent says ready -> freeze integrated tree -> independent full pass.
-Completion: functional acceptance + full sweep/Kani report + performance gate P;
-            satisfy this group's exit criteria; any edit invalidates completion.
+Completion (implementation): functional acceptance + full sweep/Kani report + gate P;
+            only changed implementation/relevant validation inputs invalidate evidence.
+Completion (documentation/instructions): relevant artifact checks only; no engine sweep.
 ```
 
 ## Documentation maintenance

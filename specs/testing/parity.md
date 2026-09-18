@@ -24,6 +24,18 @@ inventory and all prior performance provenance. See the [build runbook](../../do
 
 ## Continuous feedback and completion
 
+Accepted user clarification, 2026-09-18: documentation, planning, status and
+agent-instruction-only changes must NEVER trigger an engine verifier sweep.
+This includes instruction-only agent configuration and comments with no
+executable effect. Validate only the changed artifact: diff, links, examples,
+syntax and consistency as applicable. No engine build, full tests, recovery,
+Kani or benchmarks are required. A changed executable example, generated input,
+build setting or test fixture is classified by its actual effect instead.
+Unrelated documentation edits do not invalidate prior engine acceptance or
+require a fresh tested commit hash. Preserve the actual tested revision/scope.
+The implementation workflow below applies only when relevant executable or
+validation inputs change; the verifier must reject documentation-only dispatches.
+
 Accepted user clarification, 2026-09-15: use fast, targeted feedback while work
 is in progress, then a full independent pass when the agent believes the planned
 chunk is 100% complete. That belief changes its status to **ready for verification**;
@@ -39,6 +51,7 @@ when scope changes and preserve the reason; do not shrink it to hide failures.
 
 | Stage | Required feedback | Not a completion claim |
 | --- | --- | --- |
+| Documentation/planning/status/instructions only | Relevant diff, link, example, syntax and consistency checks | Never an engine sweep; existing engine evidence remains valid for its tested inputs. |
 | Small edit batch | Affected package/target check, e.g. `cargo check -p duckdb-rust --lib` for library edits | Does not execute tests or check unrelated targets. |
 | Behavior change | Named test target/filter plus the assigned small upstream set; affected Python tests for Python-only changes | Does not cover the whole goal or establish performance parity. |
 | Ready for verification | Frozen integrated tree; delegated full sweep, complete assigned functional population and at-parity or better performance | Completion requires all applicable gates, not the agent's confidence or Cargo alone. |
@@ -88,8 +101,10 @@ chunk's performance workloads are additional acceptance gates: the current sweep
 does not automatically select or execute them. The integration owner must collect
 all three outcomes for the same final tree. Run timing campaigns serially on a
 quiet host, not alongside the sweep. Every ordinary sweep stage must pass and
-Kani must run and be reported under its exploratory policy. Any subsequent edit
-invalidates completion; rerun the full sweep and refresh affected acceptance evidence.
+Kani must run and be reported under its exploratory policy. Subsequent changes
+to the implementation or relevant validation inputs invalidate completion;
+rerun the sweep and refresh affected acceptance evidence for those changes.
+Unrelated prose or agent-instruction changes do not invalidate these results.
 
 ## Correctness
 
