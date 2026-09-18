@@ -1217,8 +1217,11 @@ sweep; a passing sweep on this tree completes this slice.
 **G07.3b/G06.1f/G06.2b frozen validation manifest — FROM-first syntax,
 variadic formatting and regex value functions.** This batch has three leaf
 owners and one integration owner. The FROM-first leaf owns
-`src/planner/binder/query.rs`, a focused `test/component/from_first.rs` target,
-and no scalar-function files. It adds the implicit star projection for
+`src/planner/binder/query.rs`, `src/parser/dialect.rs`, the narrow vendored
+sqlparser parser/AST/test/PATCHES surface required because its current
+`FromFirstNoSelect` path returns before DuckDB's trailing WHERE/ORDER/LIMIT
+clauses, a focused `test/component/from_first.rs` target, and no scalar-function
+files. It adds the implicit star projection for
 `FROM relation [WHERE ...]` and `CREATE TABLE ... AS FROM VALUES ...` while
 retaining explicit FROM-first projection, alias, order, limit, prepared and
 nested-query behavior. The formatting leaf owns a new
