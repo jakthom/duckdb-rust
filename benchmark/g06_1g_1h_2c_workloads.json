@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE g06_1g_1h_2c AS SELECT i, i::VARCHAR || '-alpha ' || (i + 1)::VARCHAR || '-beta' AS v, CASE i % 2 WHEN 0 THEN '([0-9]+)' ELSE '([0-9]+)-[a-z]+' END AS pattern, 'hännës mühlëïsën' AS accented, chr(101) || chr(769) AS decomposed FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "g06_1g_escaped_literal_newline",
+      "sql": "SELECT length(E'alpha\\nbeta')",
+      "rows": 1,
+      "sum": "10"
+    },
+    {
+      "name": "g06_1h_strip_accents_50k",
+      "sql": "SELECT sum(length(strip_accents(accented))) FROM g06_1g_1h_2c",
+      "rows": 1,
+      "sum": "800000"
+    },
+    {
+      "name": "g06_1h_nfc_normalize_50k",
+      "sql": "SELECT sum(length(nfc_normalize(decomposed))) FROM g06_1g_1h_2c",
+      "rows": 1,
+      "sum": "50000"
+    },
+    {
+      "name": "g06_2c_regexp_extract_all_constant_50k",
+      "sql": "SELECT sum(list_position(regexp_extract_all(v, '([0-9]+)', 1), i::VARCHAR)) FROM g06_1g_1h_2c",
+      "rows": 1,
+      "sum": "50000"
+    },
+    {
+      "name": "g06_2c_regexp_extract_all_dynamic_50k",
+      "sql": "SELECT sum(list_position(regexp_extract_all(v, pattern, 1), i::VARCHAR)) FROM g06_1g_1h_2c",
+      "rows": 1,
+      "sum": "50000"
+    },
+    {
+      "name": "g06_2b_regexp_extract_dynamic_consumer_50k",
+      "sql": "SELECT sum(regexp_extract(v, pattern, 1)::BIGINT) FROM g06_1g_1h_2c",
+      "rows": 1,
+      "sum": "1249975000"
+    },
+    {
+      "name": "g06_2b_regexp_replace_constant_consumer_50k",
+      "sql": "SELECT sum(length(regexp_replace(v, '[0-9]', 'X', 'g'))) FROM g06_1g_1h_2c",
+      "rows": 1,
+      "sum": "1077784"
+    }
+  ]
+}

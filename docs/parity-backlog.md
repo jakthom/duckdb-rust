@@ -1333,6 +1333,61 @@ semantic disagreements. Final frozen evidence is written to
 including separate 21-sample native reports for both references, their joint
 faster-reference report and the process wall/throughput/CPU/RSS/I/O report.
 
+**G06.1g/G06.1h/G06.2c frozen validation manifest — escaped literals,
+normalization and list regex extraction.** Three isolated leaf owners start
+from executable revision `0abcd58`. The escaped-literal leaf owns the narrow
+vendored sqlparser tokenizer/parser/dialect surface, `src/parser/dialect.rs`
+only if needed, and existing literal/parser tests. It adds DuckDB `E'...'`
+decoding with quote, backslash, control, numeric, Unicode, embedded newline
+and malformed-input coverage; ordinary quoted strings keep their current
+meaning. The normalization leaf owns `src/function/scalar/text/codepoint.rs`
+and `test/component/text_codepoint.rs`; it adds `strip_accents` and
+`nfc_normalize` against the pinned utf8proc/Unicode tables, preserving empty,
+NULL, NUL, prepared and vector-shape behavior. The regex leaf owns
+`src/function/scalar/text/regex.rs` and
+`test/component/text_regex_value.rs`; it adds scalar-group
+`regexp_extract_all` as `LIST(VARCHAR)` with constant/dynamic patterns,
+constant group/options binding, empty and zero-width matches, unmatched capture
+NULLs, Unicode/NUL, prepared reuse and physical vector views. Named-group STRUCT
+extraction, regex splitting and regex table functions remain outside this slice.
+The integration owner alone owns shared registration/interfaces, Cargo targets,
+the combined SQLLogic fixture, workload manifests/fixtures and this backlog.
+
+Fast checks are the affected filters in `types`, `text_codepoint` and
+`text_regex_value`; final functional acceptance runs those complete targets plus
+`sql`, `sqllogic_runner`, `text_formatting`, `text_regex`, `text_grapheme` and
+the combined `test/sql/g06_escaped_normalize_extract_all.test` fixture. Exact
+unchanged upstream IDs are
+`test/sql/function/string/regex_replace.test`,
+`test/sql/function/string/test_printf.test`,
+`test/sql/function/string/strip_accents.test`, and
+`test/sql/function/string/regex_extract_all.test` against both pins with their
+real first blockers and record accounting. The `nfc_normalize` contract also
+retains the exact normalization assertion in
+`test/sql/collate/test_icu_collate.test`; CSV consumers remain blocked on the
+separate G19/G20 reader work and are covered locally without relabeling those
+files. Negative/boundary coverage includes truncated and invalid escapes,
+invalid regex/options/groups, zero-width progress, unmatched groups, combining
+marks, characters without decompositions, invalid UTF-8 propagation, embedded
+NUL and custom physical vector views. New Rust files require `cargo dev
+coverage`; parser/scalar execution changes require `cargo dev trace check
+--workspace --all-targets`.
+
+Gate P declares quiet-host, one-thread, release/no-tracing native workloads in
+`benchmark/g06_1g_1h_2c_workloads.json`: repeated escaped-literal execution,
+50k-row accent stripping and NFC composition, constant and low-cardinality
+dynamic `regexp_extract_all`, plus the existing dynamic scalar extraction and
+constant replacement consumers. Process workloads in
+`benchmark/g06_1g_1h_2c_sqllogic_workloads.json` exercise repeated parse/bind
+cycles and at least 6.4 million stored-row visits for normalization and list
+regex extraction. Every result is validated before timing. Both exact pins run
+through `scripts/compare_native.py`, then `scripts/fastest_reference.py`; the
+process adapter independently gates wall time, throughput, CPU, peak RSS and
+block I/O. Samples, reference identities, source/binary hashes and failed runs
+stay under `target/next-batch/g06_1g_1h_2c/`. Completion requires the frozen
+integrated tree's delegated `python3 scripts/verify_chunk.py` sweep after all
+functional and performance evidence is final.
+
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.
   Match character versus byte indexing and invalid-input behavior.
