@@ -35,8 +35,11 @@ impl Dialect for RewriteDialect {
     fn supports_string_escape_constant(&self) -> bool {
         true
     }
-    fn supports_escaped_string_literal_nul(&self) -> bool {
+    fn uses_duckdb_escaped_string_literal_escapes(&self) -> bool {
         true
+    }
+    fn supports_escaped_string_literal_nul(&self) -> bool {
+        false
     }
     delegate_flags!(
         supports_trailing_commas,
@@ -268,8 +271,8 @@ mod tests {
         let expressions = [
             ("E'line\\nnext'", "line\nnext"),
             ("e'quote\\' slash\\\\'", "quote' slash\\"),
-            ("E'\\u03bb\\U0001F986'", "λ🦆"),
-            ("E'a\\0b'", "a\0b"),
+            ("E'\\xC3\\xA9'", "é"),
+            ("E'\\u03bb\\U0001F986'", "u03bbU0001F986"),
         ];
         let mut connection = crate::DatabaseBuilder::new().build().unwrap().connect();
         for (literal, expected) in expressions {
@@ -301,11 +304,12 @@ mod tests {
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
-    fn escaped_string_literals_reject_unterminated_and_invalid_unicode_escapes() {
+    fn escaped_string_literals_reject_nul_invalid_bytes_and_unterminated_input() {
         for sql in [
             "SELECT E'unterminated",
-            "SELECT E'\\u123'",
-            "SELECT E'\\U00110000'",
+            "SELECT E'a\\0b'",
+            "SELECT E'a\0b'",
+            "SELECT E'\\xC3'",
         ] {
             assert!(DuckDbParser.parse(sql).is_err(), "{sql}");
         }

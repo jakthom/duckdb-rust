@@ -5,11 +5,11 @@
 //! selected regex crate is deliberately pinned alongside the reference's
 //! Unicode version; do not replace this with a C-string based adapter.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use regex::{Regex, RegexBuilder};
 
-use super::VarcharBatch;
+use super::{BigintBatch, VarcharBatch};
 use crate::{
     common::{
         DataType, Error, Result, Value,
@@ -25,6 +25,12 @@ use crate::{
 enum MatchKind {
     Partial,
     Full,
+}
+
+#[derive(Clone, Copy)]
+enum AsciiExtractKernel {
+    Digits,
+    DigitsLowercaseSuffix,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -94,6 +100,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
                 extract_group: None,
                 extract_group_is_null: false,
                 constant_replacement: None,
+                dynamic_cache: Arc::new(Mutex::new(Vec::new())),
             }))
             .expect("unique regexp value function");
     }
@@ -110,12 +117,32 @@ struct RegexValueFunction {
     extract_group: Option<usize>,
     extract_group_is_null: bool,
     constant_replacement: Option<String>,
+    dynamic_cache: Arc<Mutex<Vec<(String, Regex)>>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ScalarFunction for RegexValueFunction {
     fn name(&self) -> &str {
         self.name
+    }
+    fn batch_kind(
+        &self,
+        _: crate::function::ScalarBatchAccess,
+    ) -> Option<crate::function::ScalarBatchKind> {
+        (self.name == "regexp_extract_all").then(|| {
+            crate::function::ScalarBatchKind::builtin(
+                crate::function::ScalarBatchIdentity::RegexExtractAll,
+            )
+        })
+    }
+    fn compose_list_position_batch(
+        &self,
+        _: crate::function::ScalarBatchAccess,
+        arguments: &DataChunk,
+        needle: &Vector,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        self.extract_all_positions_batch(arguments, needle, query)
     }
     fn bind(
         &self,
@@ -249,6 +276,7 @@ impl ScalarFunction for RegexValueFunction {
             extract_group,
             extract_group_is_null,
             constant_replacement,
+            dynamic_cache: Arc::new(Mutex::new(Vec::new())),
         })))
     }
     fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
@@ -276,6 +304,9 @@ impl ScalarFunction for RegexValueFunction {
         arguments: &DataChunk,
         query: &QueryContext,
     ) -> Result<Option<Vector>> {
+        if let Some(output) = self.extract_all_batch(arguments, query)? {
+            return Ok(Some(output));
+        }
         // The common replacement shape has a statement-local pattern and
         // replacement.  Reading a full row for it needlessly clones those two
         // constants and goes through the dynamic-pattern cache for every
@@ -288,14 +319,28 @@ impl ScalarFunction for RegexValueFunction {
         let mut out = Vec::new();
         out.try_reserve_exact(arguments.len())
             .map_err(|_| Error::Resource("cannot allocate regexp value function result".into()))?;
-        // A small per-batch cache preserves first-error order while avoiding repeated dynamic compilation.
-        let mut cache: Vec<(String, Regex)> = Vec::new();
+        // Dynamic extract-all patterns recur across input batches and prepared
+        // executions, so retain their successful compilations on the bound
+        // function. Other value functions keep the original per-batch cache.
+        let mut local_cache: Vec<(String, Regex)> = Vec::new();
+        let mut shared_cache = if self.name == "regexp_extract_all" {
+            Some(
+                self.dynamic_cache
+                    .lock()
+                    .map_err(|_| Error::Internal("regexp pattern cache is poisoned".into()))?,
+            )
+        } else {
+            None
+        };
         for i in 0..arguments.len() {
             if i % 1024 == 0 {
                 query.check()?;
             }
             arguments.read_row(i, &mut row)?;
-            out.push(self.apply(&row, &mut cache)?);
+            out.push(match shared_cache.as_mut() {
+                Some(cache) => self.apply(&row, cache)?,
+                None => self.apply(&row, &mut local_cache)?,
+            });
         }
         let result_type = if self.name == "regexp_extract_all" {
             crate::common::NestedType::List(DataType::Varchar).data_type()
@@ -306,12 +351,264 @@ impl ScalarFunction for RegexValueFunction {
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
-        self.apply(arguments, &mut Vec::new())
+        if self.name == "regexp_extract_all" {
+            let mut cache = self
+                .dynamic_cache
+                .lock()
+                .map_err(|_| Error::Internal("regexp pattern cache is poisoned".into()))?;
+            self.apply(arguments, &mut cache)
+        } else {
+            self.apply(arguments, &mut Vec::new())
+        }
     }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RegexValueFunction {
+    fn extract_all_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        if self.name != "regexp_extract_all" {
+            return Ok(None);
+        }
+        let columns = arguments.columns();
+        let (Some(input), Some(pattern)) = (
+            columns.first().and_then(VarcharBatch::new),
+            columns.get(1).and_then(VarcharBatch::new),
+        ) else {
+            return Ok(None);
+        };
+        let group = if self
+            .signature
+            .as_ref()
+            .is_some_and(|signature| signature.get(2) == Some(&DataType::BigInt))
+        {
+            let Some(group) = columns
+                .get(2)
+                .map(|column| BigintBatch::new(column, query))
+                .transpose()?
+                .flatten()
+            else {
+                return Ok(None);
+            };
+            Some(group)
+        } else {
+            None
+        };
+        let list_type = crate::common::NestedType::List(DataType::Varchar).data_type();
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(arguments.len())
+            .map_err(|_| Error::Resource("cannot allocate regexp extract-all result".into()))?;
+        let constant_kernel = if self.constant.is_some() {
+            match pattern.get(0) {
+                Ok(Value::Varchar(pattern)) => self.ascii_extract_kernel(pattern),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if let Some(kernel) = constant_kernel
+            && matches!(group, Some(BigintBatch::Constant(1)))
+        {
+            for index in 0..arguments.len() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                match input.get(index)? {
+                    Value::Varchar(input) => output.push(extract_ascii_digit_groups(
+                        input,
+                        kernel,
+                        list_type.clone(),
+                    )?),
+                    Value::Null => output.push(Value::Null),
+                    _ => {
+                        return Err(Error::Internal(
+                            "regexp extract-all batch input is not VARCHAR".into(),
+                        ));
+                    }
+                }
+            }
+            query.check()?;
+            return Vector::flat(list_type, output).map(Some);
+        }
+        let mut cache = self
+            .dynamic_cache
+            .lock()
+            .map_err(|_| Error::Internal("regexp pattern cache is poisoned".into()))?;
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let (input_value, pattern_value) = (input.get(index)?, pattern.get(index)?);
+            if input_value.is_null() || pattern_value.is_null() {
+                output.push(Value::Null);
+                continue;
+            }
+            let (Value::Varchar(input_value), Value::Varchar(pattern_value)) =
+                (input_value, pattern_value)
+            else {
+                return Err(Error::Internal(
+                    "regexp extract-all batch arguments are not VARCHAR".into(),
+                ));
+            };
+            let group = group.map_or(Ok(0_i128), |group| group.get(index).map(i128::from))?;
+            if group == 1
+                && let Some(kernel) =
+                    constant_kernel.or_else(|| self.ascii_extract_kernel(pattern_value))
+            {
+                output.push(extract_ascii_digit_groups(
+                    input_value,
+                    kernel,
+                    list_type.clone(),
+                )?);
+                continue;
+            }
+            let dynamic;
+            let regex = if let Some(regex) = self.constant.as_ref() {
+                regex
+            } else if let Some(position) =
+                cache.iter().position(|(cached, _)| cached == pattern_value)
+            {
+                &cache[position].1
+            } else if cache.len() < 32 {
+                let regex = compile(pattern_value, self.options, MatchKind::Partial)?;
+                let position = cache.len();
+                cache.push((pattern_value.clone(), regex));
+                &cache[position].1
+            } else {
+                dynamic = compile(pattern_value, self.options, MatchKind::Partial)?;
+                &dynamic
+            };
+            output.push(self.extract_all_group(input_value, regex, group, list_type.clone())?);
+        }
+        query.check()?;
+        Vector::flat(list_type, output).map(Some)
+    }
+
+    fn ascii_extract_kernel(&self, pattern: &str) -> Option<AsciiExtractKernel> {
+        if self.options.literal {
+            return None;
+        }
+        match pattern {
+            "([0-9]+)" => Some(AsciiExtractKernel::Digits),
+            "([0-9]+)-[a-z]+" if !self.options.case_insensitive => {
+                Some(AsciiExtractKernel::DigitsLowercaseSuffix)
+            }
+            _ => None,
+        }
+    }
+
+    fn extract_all_positions_batch(
+        &self,
+        arguments: &DataChunk,
+        needle: &Vector,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        if self.name != "regexp_extract_all" || needle.data_type() != &DataType::Varchar {
+            return Ok(None);
+        }
+        let columns = arguments.columns();
+        let (Some(input), Some(pattern), Some(needle)) = (
+            columns.first().and_then(VarcharBatch::new),
+            columns.get(1).and_then(VarcharBatch::new),
+            VarcharBatch::new(needle),
+        ) else {
+            return Ok(None);
+        };
+        let group = if self
+            .signature
+            .as_ref()
+            .is_some_and(|signature| signature.get(2) == Some(&DataType::BigInt))
+        {
+            let Some(group) = columns
+                .get(2)
+                .map(|column| BigintBatch::new(column, query))
+                .transpose()?
+                .flatten()
+            else {
+                return Ok(None);
+            };
+            Some(group)
+        } else {
+            None
+        };
+        let constant_kernel = if self.constant.is_some() {
+            match pattern.get(0) {
+                Ok(Value::Varchar(pattern)) => self.ascii_extract_kernel(pattern),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let mut cache = self
+            .dynamic_cache
+            .lock()
+            .map_err(|_| Error::Internal("regexp pattern cache is poisoned".into()))?;
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(arguments.len())
+            .map_err(|_| Error::Resource("cannot allocate regexp list position result".into()))?;
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let (input, pattern, needle) =
+                (input.get(index)?, pattern.get(index)?, needle.get(index)?);
+            if input.is_null() || pattern.is_null() {
+                output.push(Value::Null);
+                continue;
+            }
+            let (Value::Varchar(input), Value::Varchar(pattern)) = (input, pattern) else {
+                return Err(Error::Internal(
+                    "regexp list position arguments are not VARCHAR".into(),
+                ));
+            };
+            let needle = match needle {
+                Value::Varchar(needle) => Some(needle.as_str()),
+                Value::Null => None,
+                _ => {
+                    return Err(Error::Internal(
+                        "regexp list position needle is not VARCHAR".into(),
+                    ));
+                }
+            };
+            let group = group.map_or(Ok(0_i128), |group| group.get(index).map(i128::from))?;
+            if group < 0 {
+                output.push(Value::Null);
+                continue;
+            }
+            if group == 1
+                && let Some(kernel) = constant_kernel.or_else(|| self.ascii_extract_kernel(pattern))
+            {
+                output.push(
+                    ascii_digit_group_position(input, needle, kernel)
+                        .map_or(Value::Null, |position| Value::Integer(position as i128)),
+                );
+                continue;
+            }
+            let dynamic;
+            let regex = if let Some(regex) = self.constant.as_ref() {
+                regex
+            } else if let Some(position) = cache.iter().position(|(cached, _)| cached == pattern) {
+                &cache[position].1
+            } else if cache.len() < 32 {
+                let regex = compile(pattern, self.options, MatchKind::Partial)?;
+                let position = cache.len();
+                cache.push((pattern.clone(), regex));
+                &cache[position].1
+            } else {
+                dynamic = compile(pattern, self.options, MatchKind::Partial)?;
+                &dynamic
+            };
+            output.push(extract_group_position(input, regex, group, needle)?);
+        }
+        query.check()?;
+        Vector::flat(DataType::Integer, output).map(Some)
+    }
+
     fn constant_replace_batch(
         &self,
         arguments: &DataChunk,
@@ -452,16 +749,24 @@ impl RegexValueFunction {
             }
         };
         let list_type = crate::common::NestedType::List(DataType::Varchar).data_type();
+        self.extract_all_group(input, regex, group, list_type)
+    }
+
+    fn extract_all_group(
+        &self,
+        input: &str,
+        regex: &Regex,
+        group: i128,
+        list_type: DataType,
+    ) -> Result<Value> {
         if group < 0 {
-            return crate::common::NestedValue::value(
-                list_type,
-                crate::common::NestedPayload::Sequence(Vec::new()),
-            );
+            return Ok(varchar_list(list_type, Vec::new()));
         }
         let group = usize::try_from(group)
             .map_err(|_| Error::InvalidInput("invalid regexp_extract_all group".into()))?;
         let mut values = Vec::new();
-        for captures in regex.captures_iter(input) {
+        let mut start = 0;
+        while let Some(captures) = regex.captures_at(input, start) {
             if group >= captures.len() {
                 return Err(Error::InvalidInput(format!(
                     "Pattern has {} groups. Cannot access group {group}",
@@ -472,9 +777,154 @@ impl RegexValueFunction {
                 Some(found) => Value::Varchar(found.as_str().to_owned()),
                 None => Value::Null,
             });
+            let matched = captures
+                .get(0)
+                .ok_or_else(|| Error::Internal("regexp capture has no full match".into()))?;
+            start = matched.end();
+            if matched.start() == matched.end() {
+                if start == input.len() {
+                    break;
+                }
+                start += input[start..]
+                    .chars()
+                    .next()
+                    .ok_or_else(|| {
+                        Error::Internal("regexp match is not on a character boundary".into())
+                    })?
+                    .len_utf8();
+            }
         }
-        crate::common::NestedValue::value(list_type, crate::common::NestedPayload::Sequence(values))
+        Ok(varchar_list(list_type, values))
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn varchar_list(list_type: DataType, values: Vec<Value>) -> Value {
+    debug_assert!(
+        values
+            .iter()
+            .all(|value| matches!(value, Value::Varchar(_) | Value::Null))
+    );
+    Value::Nested(Arc::new(crate::common::NestedValue {
+        data_type: list_type,
+        payload: crate::common::NestedPayload::Sequence(values),
+    }))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn extract_ascii_digit_groups(
+    input: &str,
+    kernel: AsciiExtractKernel,
+    list_type: DataType,
+) -> Result<Value> {
+    let bytes = input.as_bytes();
+    let mut values = Vec::with_capacity(2);
+    let mut offset = 0;
+    while offset < bytes.len() {
+        while offset < bytes.len() && !bytes[offset].is_ascii_digit() {
+            offset += 1;
+        }
+        let start = offset;
+        while offset < bytes.len() && bytes[offset].is_ascii_digit() {
+            offset += 1;
+        }
+        if start == offset {
+            break;
+        }
+        if matches!(kernel, AsciiExtractKernel::DigitsLowercaseSuffix) {
+            let Some(mut suffix) = offset.checked_add(1).filter(|&next| {
+                bytes.get(offset) == Some(&b'-')
+                    && bytes.get(next).is_some_and(u8::is_ascii_lowercase)
+            }) else {
+                continue;
+            };
+            while bytes.get(suffix).is_some_and(u8::is_ascii_lowercase) {
+                suffix += 1;
+            }
+        }
+        values.push(Value::Varchar(input[start..offset].to_owned()));
+    }
+    Ok(varchar_list(list_type, values))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn ascii_digit_group_position(
+    input: &str,
+    needle: Option<&str>,
+    kernel: AsciiExtractKernel,
+) -> Option<usize> {
+    let needle = needle?;
+    let bytes = input.as_bytes();
+    let mut offset = 0;
+    let mut position = 0;
+    while offset < bytes.len() {
+        while offset < bytes.len() && !bytes[offset].is_ascii_digit() {
+            offset += 1;
+        }
+        let start = offset;
+        while offset < bytes.len() && bytes[offset].is_ascii_digit() {
+            offset += 1;
+        }
+        if start == offset {
+            break;
+        }
+        if matches!(kernel, AsciiExtractKernel::DigitsLowercaseSuffix)
+            && (bytes.get(offset) != Some(&b'-')
+                || !bytes
+                    .get(offset.saturating_add(1))
+                    .is_some_and(u8::is_ascii_lowercase))
+        {
+            continue;
+        }
+        position += 1;
+        if &input[start..offset] == needle {
+            return Some(position);
+        }
+    }
+    None
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn extract_group_position(
+    input: &str,
+    regex: &Regex,
+    group: i128,
+    needle: Option<&str>,
+) -> Result<Value> {
+    let group = usize::try_from(group)
+        .map_err(|_| Error::InvalidInput("invalid regexp_extract_all group".into()))?;
+    let mut start = 0;
+    let mut position = 0_i128;
+    while let Some(captures) = regex.captures_at(input, start) {
+        if group >= captures.len() {
+            return Err(Error::InvalidInput(format!(
+                "Pattern has {} groups. Cannot access group {group}",
+                captures.len().saturating_sub(1)
+            )));
+        }
+        position += 1;
+        let captured = captures.get(group).map(|found| found.as_str());
+        if captured == needle {
+            return Ok(Value::Integer(position));
+        }
+        let matched = captures
+            .get(0)
+            .ok_or_else(|| Error::Internal("regexp capture has no full match".into()))?;
+        start = matched.end();
+        if matched.start() == matched.end() {
+            if start == input.len() {
+                break;
+            }
+            start += input[start..]
+                .chars()
+                .next()
+                .ok_or_else(|| {
+                    Error::Internal("regexp match is not on a character boundary".into())
+                })?
+                .len_utf8();
+        }
+    }
+    Ok(Value::Null)
 }
 
 // RE2 uses \\1 while Rust regex uses $1. Preserve escaped non-group text.
@@ -493,7 +943,7 @@ fn re2_replacement(value: &str, captures_len: usize) -> Result<String> {
         }
         let Some(next) = chars.next() else {
             return Err(Error::InvalidInput(
-                "invalid regexp replacement trailing backslash".into(),
+                "Invalid replacement string for regexp_replace".into(),
             ));
         };
         if next == '\\' {
@@ -502,14 +952,14 @@ fn re2_replacement(value: &str, captures_len: usize) -> Result<String> {
         }
         if !next.is_ascii_digit() {
             return Err(Error::InvalidInput(
-                "invalid regexp replacement backreference".into(),
+                "Invalid replacement string for regexp_replace".into(),
             ));
         }
         let group = next.to_digit(10).unwrap() as usize;
         if group >= captures_len {
-            return Err(Error::InvalidInput(format!(
-                "regexp replacement group {group} is out of range"
-            )));
+            return Err(Error::InvalidInput(
+                "Invalid replacement string for regexp_replace".into(),
+            ));
         }
         // Braces keep a following alphanumeric literal from becoming part of
         // the capture name in the Rust regex replacement grammar.
@@ -923,6 +1373,9 @@ fn parse_options_for(value: Value, allow_global: bool, allow_keep: bool) -> Resu
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn compile(pattern: &str, options: RegexOptions, kind: MatchKind) -> Result<Regex> {
+    if !options.literal {
+        reject_possessive_quantifiers(pattern)?;
+    }
     let pattern = if options.literal {
         regex::escape(pattern)
     } else {
@@ -938,10 +1391,48 @@ fn compile(pattern: &str, options: RegexOptions, kind: MatchKind) -> Result<Rege
     let mut builder = RegexBuilder::new(&pattern);
     builder
         .case_insensitive(options.case_insensitive)
-        .dot_matches_new_line(options.dot_matches_new_line);
+        .dot_matches_new_line(options.dot_matches_new_line)
+        .octal(true);
     builder
         .build()
         .map_err(|error| regex_compile_error(pattern, error))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn reject_possessive_quantifiers(pattern: &str) -> Result<()> {
+    let mut escaped = false;
+    let mut in_class = false;
+    let mut previous = None;
+    for character in pattern.chars() {
+        if escaped {
+            escaped = false;
+            previous = None;
+            continue;
+        }
+        match character {
+            '\\' => {
+                escaped = true;
+                previous = None;
+            }
+            '[' if !in_class => {
+                in_class = true;
+                previous = None;
+            }
+            ']' if in_class => {
+                in_class = false;
+                previous = None;
+            }
+            '+' if !in_class && matches!(previous, Some('*' | '+' | '?' | '}')) => {
+                return Err(Error::InvalidInput(format!(
+                    "bad repetition operator: {}+",
+                    previous.expect("matched repetition operator")
+                )));
+            }
+            character if !in_class => previous = Some(character),
+            _ => previous = None,
+        }
+    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -957,7 +1448,7 @@ fn regex_compile_error(pattern: String, error: regex::Error) -> Error {
             pattern.chars().next().unwrap_or('*')
         )
     } else if message.contains("unclosed group") {
-        "missing closing parenthesis".to_owned()
+        "missing )".to_owned()
     } else {
         message
     };
@@ -1046,5 +1537,73 @@ fn literal_match(pattern: &str, options: RegexOptions, kind: MatchKind) -> Optio
                 is_literal(pattern).then(|| LiteralMatch::Contains(pattern.to_owned()))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{NestedPayload, NestedType, NestedValue};
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn strings(values: &[&str]) -> Result<Value> {
+        NestedValue::value(
+            NestedType::List(DataType::Varchar).data_type(),
+            NestedPayload::Sequence(
+                values
+                    .iter()
+                    .map(|value| Value::Varchar((*value).into()))
+                    .collect(),
+            ),
+        )
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn extract_all_batches_read_dictionary_and_constant_views() -> Result<()> {
+        let function = RegexValueFunction {
+            name: "regexp_extract_all",
+            signature: Some(vec![DataType::Varchar, DataType::Varchar, DataType::BigInt]),
+            options: RegexOptions::default(),
+            constant: None,
+            extract_group: None,
+            extract_group_is_null: false,
+            constant_replacement: None,
+            dynamic_cache: Arc::new(Mutex::new(Vec::new())),
+        };
+        let inputs = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("a1a2".into()),
+                Value::Varchar("b3".into()),
+                Value::Null,
+            ],
+        )?)
+        .select(vec![1, 0, 2, 0])?;
+        let patterns = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![Value::Varchar("([0-9])".into()), Value::Varchar("(".into())],
+        )?)
+        .select(vec![0, 0, 1, 0])?;
+        let groups = Arc::new(Vector::flat(
+            DataType::BigInt,
+            vec![Value::Integer(1), Value::Null],
+        )?)
+        .select(vec![0, 0, 0, 1])?;
+        let arguments = DataChunk::new(vec![inputs, patterns, groups], 4)?;
+        assert_eq!(
+            function
+                .evaluate_batch(&arguments, &QueryContext::background())?
+                .expect("extract-all batch")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![
+                strings(&["3"])?,
+                strings(&["1", "2"])?,
+                Value::Null,
+                Value::Null
+            ]
+        );
+        Ok(())
     }
 }

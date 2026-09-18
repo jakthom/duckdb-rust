@@ -1367,6 +1367,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Whether `E'...'` uses DuckDB's byte-oriented escape rules.
+    fn uses_duckdb_escaped_string_literal_escapes(&self) -> bool {
+        false
+    }
+
     /// Returns true when `E'...'` literals may contain an escaped NUL byte.
     ///
     /// PostgreSQL rejects these, while DuckDB preserves them in VARCHAR data.

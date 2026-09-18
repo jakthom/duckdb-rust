@@ -1199,6 +1199,7 @@ impl<'a> Tokenizer<'a> {
                                 starting_loc,
                                 chars,
                                 self.dialect.supports_escaped_string_literal_nul(),
+                                self.dialect.uses_duckdb_escaped_string_literal_escapes(),
                             )?;
                             Ok(Some(Token::EscapedStringLiteral(s)))
                         }
@@ -2090,8 +2091,14 @@ impl<'a> Tokenizer<'a> {
         starting_loc: Location,
         chars: &mut State,
         allow_nul: bool,
+        duckdb_escapes: bool,
     ) -> Result<String, TokenizerError> {
-        if let Some(s) = unescape_single_quoted_string(chars, allow_nul) {
+        let result = if duckdb_escapes {
+            unescape_duckdb_single_quoted_string(chars)
+        } else {
+            unescape_single_quoted_string(chars, allow_nul)
+        };
+        if let Some(s) = result {
             return Ok(s);
         }
 
@@ -2442,6 +2449,72 @@ fn peeking_next_take_while(
 
 fn unescape_single_quoted_string(chars: &mut State<'_>, allow_nul: bool) -> Option<String> {
     Unescape::new(chars, allow_nul).unescape()
+}
+
+/// DuckDB assembles octal and hexadecimal escaped bytes before UTF-8 validation.
+fn unescape_duckdb_single_quoted_string(chars: &mut State<'_>) -> Option<String> {
+    let mut bytes = Vec::new();
+    chars.next(); // opening quote
+    while let Some(c) = chars.next() {
+        if c == '\'' {
+            if chars.peek() == Some(&'\'') {
+                chars.next();
+                bytes.push(b'\'');
+                continue;
+            }
+            return (!bytes.contains(&0))
+                .then(|| String::from_utf8(bytes).ok())
+                .flatten();
+        }
+        if c != '\\' {
+            if c == '\0' {
+                return None;
+            }
+            let mut buffer = [0; 4];
+            bytes.extend_from_slice(c.encode_utf8(&mut buffer).as_bytes());
+            continue;
+        }
+        let escaped = chars.next()?;
+        match escaped {
+            'b' => bytes.push(0x08),
+            'f' => bytes.push(0x0C),
+            'n' => bytes.push(b'\n'),
+            'r' => bytes.push(b'\r'),
+            't' => bytes.push(b'\t'),
+            'x' => {
+                let mut digits = String::new();
+                for _ in 0..2 {
+                    match chars.peek() {
+                        Some(c) if c.is_ascii_hexdigit() => digits.push(chars.next()?),
+                        _ => break,
+                    }
+                }
+                if digits.is_empty() {
+                    bytes.push(b'x');
+                } else {
+                    bytes.push(u8::from_str_radix(&digits, 16).ok()?);
+                }
+            }
+            first if first.is_digit(8) => {
+                let mut digits = String::from(first);
+                for _ in 0..2 {
+                    match chars.peek() {
+                        Some(c) if c.is_digit(8) => digits.push(chars.next()?),
+                        _ => break,
+                    }
+                }
+                bytes.push(u8::from_str_radix(&digits, 8).ok()?);
+            }
+            other => {
+                let mut buffer = [0; 4];
+                bytes.extend_from_slice(other.encode_utf8(&mut buffer).as_bytes());
+            }
+        }
+        if bytes.last() == Some(&0) {
+            return None;
+        }
+    }
+    None
 }
 
 struct Unescape<'a: 'b, 'b> {

@@ -57,6 +57,11 @@ fn regex_value_functions_cover_options_groups_nulls_and_nuls() -> Result<()> {
                 .query("SELECT regexp_replace('x', '(x)', '\\2')")
                 .is_err()
         );
+        assert!(matches!(
+            connection.query("SELECT regexp_replace('abc', '(b)', '\\3Y')"),
+            Err(duckdb_rust::Error::InvalidInput(message))
+                if message == "Invalid replacement string for regexp_replace"
+        ));
         assert!(
             connection
                 .query("SELECT regexp_replace('x', '(x)', '\\x')")
@@ -120,6 +125,7 @@ fn regex_value_functions_cover_options_groups_nulls_and_nuls() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn strings(values: &[Option<&str>]) -> Result<Value> {
     NestedValue::value(
         NestedType::List(DataType::Varchar).data_type(),
@@ -148,6 +154,31 @@ fn regexp_extract_all_scalar_groups_cover_matches_and_boundaries() -> Result<()>
             connection.query("SELECT regexp_extract_all('a1a2', '(a)([0-9])', 1), regexp_extract_all('a1a2', '(a)([0-9])', 2), regexp_extract_all('abc', 'z'), regexp_extract_all('', '')")?.rows,
             vec![vec![strings(&[Some("a"), Some("a")])?, strings(&[Some("1"), Some("2")])?, strings(&[])?, strings(&[Some("")])?]]
         );
+        assert_eq!(
+            connection.query("SELECT regexp_extract_all('1-a 22-b 333', '([0-9]+)', 1), regexp_extract_all('1-a 22-b 333', '([0-9]+)-[a-z]+', 1)")?.rows,
+            vec![vec![
+                strings(&[Some("1"), Some("22"), Some("333")])?,
+                strings(&[Some("1"), Some("22")])?
+            ]]
+        );
+        assert_eq!(
+            connection
+                .query("SELECT regexp_extract_all('aabca', 'a*')")?
+                .rows,
+            vec![vec![strings(&[
+                Some("aa"),
+                Some(""),
+                Some(""),
+                Some("a"),
+                Some("")
+            ])?]]
+        );
+        assert_eq!(
+            connection
+                .query(r"SELECT regexp_extract_all('\001\002\003', '\002?')")?
+                .rows,
+            vec![vec![strings(&[Some(""); 13])?]]
+        );
         connection.execute("CREATE TABLE regex_all(s VARCHAR, p VARCHAR, g BIGINT)")?;
         connection.execute("INSERT INTO regex_all VALUES ('a\0a', 'a', 0), ('éé', '.', 0), ('x', '(a)?', 1), (NULL, 'x', 0)")?;
         assert_eq!(
@@ -158,6 +189,20 @@ fn regexp_extract_all_scalar_groups_cover_matches_and_boundaries() -> Result<()>
                 vec![strings(&[Some("a"), Some("a")])?],
                 vec![strings(&[None, None])?],
                 vec![strings(&[Some("é"), Some("é")])?],
+                vec![Value::Null],
+            ]
+        );
+        connection.execute(
+            "CREATE TABLE regex_positions(id INTEGER, s VARCHAR, p VARCHAR, g BIGINT, n VARCHAR)",
+        )?;
+        connection.execute("INSERT INTO regex_positions VALUES (1, '1-a 22-b', '([0-9]+)', 1, '22'), (2, 'x', '(a)?', 1, NULL), (3, NULL, 'x', 0, 'x')")?;
+        assert_eq!(
+            connection
+                .query("SELECT list_position(regexp_extract_all(s, p, g), n) FROM regex_positions ORDER BY id")?
+                .rows,
+            vec![
+                vec![Value::Integer(2)],
+                vec![Value::Integer(1)],
                 vec![Value::Null],
             ]
         );
@@ -177,6 +222,11 @@ fn regexp_extract_all_scalar_groups_cover_matches_and_boundaries() -> Result<()>
                 .query("SELECT regexp_extract_all('x', '(', 0)")
                 .is_err()
         );
+        assert!(matches!(
+            connection.query("SELECT regexp_extract_all('abb', 'ab++')"),
+            Err(duckdb_rust::Error::InvalidInput(message))
+                if message == "bad repetition operator: ++"
+        ));
         assert!(
             connection
                 .query("SELECT regexp_extract_all('x', 'x', 0, $1)")

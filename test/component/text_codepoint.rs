@@ -182,6 +182,17 @@ fn unicode_normalization_functions_cover_scalar_null_prepared_and_batched_rows()
                 Value::Null,
             ]]
         );
+        assert_eq!(
+            connection
+                .query("SELECT strip_accents('각'), nfc_normalize('각'), strip_accents('\u{0378}'), nfc_normalize('\u{0378}')")?
+                .rows,
+            vec![vec![
+                Value::Varchar("각".into()),
+                Value::Varchar("각".into()),
+                Value::Varchar("\u{0378}".into()),
+                Value::Varchar("\u{0378}".into()),
+            ]]
+        );
         assert!(matches!(
             connection.query("SELECT strip_accents(42)"),
             Err(Error::Bind(message)) if message.contains("No function matches")

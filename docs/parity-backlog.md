@@ -1338,16 +1338,17 @@ normalization and list regex extraction.** Three isolated leaf owners start
 from executable revision `0abcd58`. The escaped-literal leaf owns the narrow
 vendored sqlparser tokenizer/parser/dialect surface, `src/parser/dialect.rs`
 only if needed, and existing literal/parser tests. It adds DuckDB `E'...'`
-decoding with quote, backslash, control, numeric, Unicode, embedded newline
-and malformed-input coverage; ordinary quoted strings keep their current
-meaning. The normalization leaf owns `src/function/scalar/text/codepoint.rs`
+decoding with quote, backslash, control, numeric-byte, validated UTF-8 and
+embedded-newline coverage, including rejection of raw/decoded NUL and malformed
+byte sequences; ordinary quoted strings keep their current meaning. The
+normalization leaf owns `src/function/scalar/text/codepoint.rs`
 and `test/component/text_codepoint.rs`; it adds `strip_accents` and
 `nfc_normalize` against the pinned utf8proc/Unicode tables, preserving empty,
 NULL, NUL, prepared and vector-shape behavior. The regex leaf owns
 `src/function/scalar/text/regex.rs` and
 `test/component/text_regex_value.rs`; it adds scalar-group
-`regexp_extract_all` as `LIST(VARCHAR)` with constant/dynamic patterns,
-constant group/options binding, empty and zero-width matches, unmatched capture
+`regexp_extract_all` as `LIST(VARCHAR)` with constant/dynamic patterns and
+groups, constant options binding, empty and zero-width matches, unmatched capture
 NULLs, Unicode/NUL, prepared reuse and physical vector views. Named-group STRUCT
 extraction, regex splitting and regex table functions remain outside this slice.
 The integration owner alone owns shared registration/interfaces, Cargo targets,
@@ -1387,6 +1388,34 @@ block I/O. Samples, reference identities, source/binary hashes and failed runs
 stay under `target/next-batch/g06_1g_1h_2c/`. Completion requires the frozen
 integrated tree's delegated `python3 scripts/verify_chunk.py` sweep after all
 functional and performance evidence is final.
+
+The integrated implementation now uses DuckDB-specific byte escape decoding
+without changing PostgreSQL/generic dialect behavior; `\u` and `\U` retain
+DuckDB's unknown-escape treatment rather than being decoded. Normalization uses
+the length-aware pinned `utf8proc_map` with exactly `STABLE|COMPOSE` and optional
+`STRIPMARK`, preserving embedded NUL, Hangul recomposition and unassigned scalar
+values without the high-level wrapper's unintended `REJECTNA`. Extract-all
+matches DuckDB's zero-width advancement, optional-capture NULLs, octal regex
+escapes, dynamic groups and RE2 rejection/error contracts. Its bound cache is
+shared across batches/prepared execution, and a guarded built-in
+`list_position(regexp_extract_all(...), needle)` composition avoids materializing
+intermediate lists while retaining scalar fallback and error order. The shared
+VARCHAR list-position batch consumer has focused nested-suite coverage.
+
+Pre-freeze functional acceptance passes the complete affected target set, the
+4-record combined fixture, coverage with no missing instrumentation, and
+all-target tracing compatibility. Both unchanged upstream populations fully
+pass all four selected files: development records are 40 `regex_replace`, 48
+`test_printf`, 8 `strip_accents` and 91 `regex_extract_all`; release records are
+22, 45, 8 and 92 respectively. The 9-sample native diagnostic passes every
+workload against both references and their joint faster-reference gate; the
+narrowest observed ratio is 0.472. The independent 9-sample process diagnostic
+passes all five workloads on wall time, throughput, CPU, peak RSS and block I/O;
+its narrowest wall/RSS ratios are 0.488 and 0.759. These are tuning evidence,
+not completion evidence. Frozen 21-sample reports, the refreshed combined and
+upstream acceptance reports, and the delegated completion sweep are retained
+under `target/next-batch/g06_1g_1h_2c/` after this backlog update is committed;
+no source edit may follow without rerunning them.
 
 - **G06.1 Finish text functions.** Implement length/substrings/search/replace/split,
   Unicode case and normalization, formatting/padding, encodings and relevant aliases.

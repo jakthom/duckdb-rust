@@ -64,6 +64,8 @@ pub(crate) enum ScalarBatchIdentity {
     GraphemeLength,
     GraphemeSubstring,
     RegexPredicate,
+    RegexExtractAll,
+    ListPosition,
     Substring,
     VarcharContains,
 }
@@ -297,6 +299,19 @@ pub trait ScalarFunction: Debug + Send + Sync {
         _arguments: &DataChunk,
         _context: &QueryContext,
     ) -> Result<Option<Vec<usize>>> {
+        Ok(None)
+    }
+    /// Optional built-in composition that searches an extract-all result
+    /// without materializing every intermediate LIST value.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn compose_list_position_batch(
+        &self,
+        _access: ScalarBatchAccess,
+        _arguments: &DataChunk,
+        _needle: &Vector,
+        _context: &QueryContext,
+    ) -> Result<Option<Vector>> {
         Ok(None)
     }
     /// Explicit opt-in to named argument metadata, checked by the frontend

@@ -1,6 +1,10 @@
 //! Non-lambda LIST/ARRAY search, selection, resize, and reversal mechanics.
 use super::*;
-use crate::common::{cast::CastMode, type_registry::BoundType};
+use crate::common::{
+    cast::CastMode,
+    type_registry::BoundType,
+    vector::{DataChunk, Vector},
+};
 use crate::function::ArgumentEvaluation;
 
 const MAX_SEQUENCE_CHILDREN: usize = 16_777_216;
@@ -38,6 +42,44 @@ struct SequenceBinding {
     modes: Vec<CastMode>,
     result: DataType,
     child: Option<DataType>,
+}
+
+#[derive(Clone, Copy)]
+enum SequenceBatchValue<'a> {
+    Flat(&'a [Value]),
+    Constant(&'a Value),
+    Dictionary {
+        values: &'a [Value],
+        selection: &'a [usize],
+    },
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl<'a> SequenceBatchValue<'a> {
+    fn new(vector: &'a Vector) -> Option<Self> {
+        if let Some(values) = vector.flat_values() {
+            return Some(Self::Flat(values));
+        }
+        if let Some(value) = vector.constant_value() {
+            return Some(Self::Constant(value));
+        }
+        let (parent, selection) = vector.dictionary()?;
+        Some(Self::Dictionary {
+            values: parent.flat_values()?,
+            selection,
+        })
+    }
+
+    fn get(self, index: usize) -> Result<&'a Value> {
+        match self {
+            Self::Flat(values) => values.get(index),
+            Self::Constant(value) => Some(value),
+            Self::Dictionary { values, selection } => selection
+                .get(index)
+                .and_then(|&selected| values.get(selected)),
+        }
+        .ok_or_else(|| Error::Internal("list search batch is out of bounds".into()))
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -149,6 +191,19 @@ impl ScalarFunction for BoundSequenceFunction {
         self.name
     }
 
+    fn batch_kind(
+        &self,
+        _: crate::function::ScalarBatchAccess,
+    ) -> Option<crate::function::ScalarBatchKind> {
+        (self.operation == SequenceOperation::Position
+            && self.child.as_ref().map(BoundType::data_type) == Some(&DataType::Varchar))
+        .then(|| {
+            crate::function::ScalarBatchKind::builtin(
+                crate::function::ScalarBatchIdentity::ListPosition,
+            )
+        })
+    }
+
     fn argument_evaluation(&self) -> ArgumentEvaluation {
         if self.known_null {
             ArgumentEvaluation::TypeOnly
@@ -197,6 +252,88 @@ impl ScalarFunction for BoundSequenceFunction {
             )));
         }
         Ok(self.result.data_type().clone())
+    }
+
+    fn supports_batch_evaluation(&self, arguments: &[DataType]) -> bool {
+        self.operation == SequenceOperation::Position
+            && self.child.as_ref().map(BoundType::data_type) == Some(&DataType::Varchar)
+            && arguments.len() == 2
+    }
+
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        if self.operation != SequenceOperation::Position
+            || self.child.as_ref().map(BoundType::data_type) != Some(&DataType::Varchar)
+            || arguments.columns().len() != 2
+        {
+            return Ok(None);
+        }
+        if arguments.columns().len() != self.arguments.len()
+            || arguments
+                .columns()
+                .iter()
+                .zip(&self.arguments)
+                .any(|(actual, expected)| actual.data_type() != expected.data_type())
+        {
+            return Err(Error::Internal(
+                "list position batch differs from binding".into(),
+            ));
+        }
+        let (Some(lists), Some(needles)) = (
+            SequenceBatchValue::new(&arguments.columns()[0]),
+            SequenceBatchValue::new(&arguments.columns()[1]),
+        ) else {
+            return Ok(None);
+        };
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(arguments.len())
+            .map_err(|_| Error::Resource("cannot allocate list position result".into()))?;
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            let (list, needle) = (lists.get(index)?, needles.get(index)?);
+            if list.is_null() {
+                output.push(Value::Null);
+                continue;
+            }
+            let values = sequence_values(list, self.name)?;
+            let position = if needle.is_null() {
+                values.iter().position(Value::is_null)
+            } else {
+                let Value::Varchar(needle) = needle else {
+                    return Err(Error::Internal(
+                        "VARCHAR list position needle has a different type".into(),
+                    ));
+                };
+                let mut found = None;
+                for (offset, value) in values.iter().enumerate() {
+                    match value {
+                        Value::Null => {}
+                        Value::Varchar(value) if value == needle => {
+                            found = Some(offset);
+                            break;
+                        }
+                        Value::Varchar(_) => {}
+                        _ => {
+                            return Err(Error::Internal(
+                                "VARCHAR list position element has a different type".into(),
+                            ));
+                        }
+                    }
+                }
+                found
+            };
+            output.push(position.map_or(Value::Null, |position| {
+                Value::Integer((position + 1) as i128)
+            }));
+        }
+        query.check()?;
+        Vector::flat(self.result.data_type().clone(), output).map(Some)
     }
 
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {

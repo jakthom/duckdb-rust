@@ -865,6 +865,50 @@ fn evaluate_scalar_composition<T: ExpressionEvaluator + ?Sized>(
         return Ok(None);
     };
     let outer_kind = outer.batch_kind(crate::function::ScalarBatchAccess);
+    if outer_kind
+        .as_ref()
+        .is_some_and(|kind| kind.is(ScalarBatchIdentity::ListPosition))
+        && let [list, needle] = outer_arguments.as_slice()
+        && let ExprKind::Scalar(inner, inner_arguments) = &list.kind
+        && inner
+            .batch_kind(crate::function::ScalarBatchAccess)
+            .is_some_and(|kind| kind.is(ScalarBatchIdentity::RegexExtractAll))
+        && composition_infallible_varchar(needle)
+        && inner_arguments.iter().all(BoundExpr::is_pure_and_total)
+    {
+        let mut columns = Vec::with_capacity(inner_arguments.len());
+        for argument in inner_arguments {
+            match evaluator.evaluate_batch(argument, input, context) {
+                Ok(column) => columns.push(column),
+                Err(error) if speculative_data_error(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            }
+        }
+        let needle = match evaluator.evaluate_batch(needle, input, context) {
+            Ok(needle) => needle,
+            Err(error) if speculative_data_error(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let arguments = DataChunk::new(columns, input.len())?;
+        match inner.compose_list_position_batch(
+            crate::function::ScalarBatchAccess,
+            &arguments,
+            &needle,
+            context.query(),
+        ) {
+            Ok(Some(output)) => {
+                if output.data_type() != &expression.data_type || output.len() != input.len() {
+                    return Err(Error::Internal(
+                        "regexp list-position composition differs from binding".into(),
+                    ));
+                }
+                return Ok(Some(output));
+            }
+            Ok(None) => {}
+            Err(error) if speculative_data_error(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        }
+    }
     if !outer_kind.as_ref().is_some_and(|kind| {
         kind.is(ScalarBatchIdentity::CharacterLength)
             || kind.is(ScalarBatchIdentity::GraphemeLength)
@@ -931,6 +975,18 @@ fn evaluate_scalar_composition<T: ExpressionEvaluator + ?Sized>(
         Err(error) if speculative_data_error(&error) => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn composition_infallible_varchar(expression: &BoundExpr) -> bool {
+    expression.is_pure_and_total()
+        || matches!(
+            &expression.kind,
+            ExprKind::Cast(inner, _, false)
+                if expression.data_type == DataType::Varchar
+                    && inner.data_type.is_integer()
+                    && inner.is_pure_and_total()
+        )
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

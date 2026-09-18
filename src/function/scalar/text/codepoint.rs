@@ -188,6 +188,18 @@ fn is_ascii(value: &str) -> bool {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn utf8proc_compose(value: &str, strip_marks: bool) -> Result<String> {
+    let mut options = utf8proc_sys::utf8proc_option_t::UTF8PROC_STABLE
+        | utf8proc_sys::utf8proc_option_t::UTF8PROC_COMPOSE;
+    if strip_marks {
+        options |= utf8proc_sys::utf8proc_option_t::UTF8PROC_STRIPMARK;
+    }
+    let bytes = utf8proc_sys::map_bytes(value.as_bytes(), options)
+        .map_err(|message| Error::Resource(format!("utf8proc normalization failed: {message}")))?;
+    String::from_utf8(bytes).map_err(|_| Error::Internal("utf8proc returned invalid UTF-8".into()))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn strip_accents_value(value: &Value) -> Result<Value> {
     let Value::Varchar(value) = value else {
         return if value.is_null() {
@@ -201,18 +213,7 @@ fn strip_accents_value(value: &Value) -> Result<Value> {
     if is_ascii(value) {
         return Ok(Value::Varchar(value.clone()));
     }
-    let decomposed =
-        utf8proc::transform::normalize(value, utf8proc::transform::UnicodeNormalizationForm::NFD)
-            .map_err(|error| Error::Resource(format!("utf8proc normalization failed: {error}")))?;
-    Ok(Value::Varchar(
-        decomposed
-            .chars()
-            .filter(|character| {
-                utf8proc::properties::CharProperties::for_char(*character).major_category()
-                    != utf8proc::properties::MajorCategory::Mark
-            })
-            .collect(),
-    ))
+    utf8proc_compose(value, true).map(Value::Varchar)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -229,12 +230,7 @@ fn nfc_normalize_value(value: &Value) -> Result<Value> {
     if is_ascii(value) {
         return Ok(Value::Varchar(value.clone()));
     }
-    let mut options = utf8proc::transform::TransformOptions::default();
-    options.composition = Some(utf8proc::transform::CompositionOptions::compose());
-    options.stable = true;
-    utf8proc::transform::map(value.as_str(), &options)
-        .map(Value::Varchar)
-        .map_err(|error| Error::Resource(format!("utf8proc normalization failed: {error}")))
+    utf8proc_compose(value, false).map(Value::Varchar)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

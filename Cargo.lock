@@ -146,6 +146,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "utf8proc",
+ "utf8proc-sys",
 ]
 
 [[package]]
