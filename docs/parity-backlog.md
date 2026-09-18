@@ -615,8 +615,20 @@ Batch 1 evidence/restart details:
   pass diagnostic wall/CPU/RSS/I/O/throughput gates. Raw reports are worker
   `target/f1/performance/*-diagnostic-9.json`. S agent
   `batch1_f1_performance` owns a measured correction on the F1 branch; preserve
-  `261100a` and add follow-up commits. This failure blocks F1 acceptance; do not
-  remove the workload, substitute the prior Rust baseline or retry to green.
+  `261100a` and add follow-up commits. Candidate 1 removed redundant checked
+  vector construction but still failed at 2.80–2.85x. Candidate 2 computes the
+  batch cardinality once, fills a proved BIGINT progression with cancellation
+  checks at most 1,024 rows apart, and preserves the authoritative i128 state.
+  Its fresh 9-sample diagnostic passes all four native workloads: aggregate
+  0.851–0.877 ms versus faster-reference 1.024 ms (0.832–0.857x). No shared SUM
+  kernel change was needed. Reports are `*-candidate{1,2}-9.json` in the same
+  directory; original failed samples remain preserved. Candidate 2 is committed
+  as worker `ccb0100` and integrated as `324878c`. Its correction manifest is the
+  top section of worker `target/f1/validation-manifest.md`, also available at
+  `target/f1/performance/range-correction-validation-manifest.md`. It still needs
+  refreshed affected verification/upstream evidence and final
+  21-sample native/process measurements. Do not call diagnostic success final
+  acceptance or remove/redefine a failing workload to make it pass.
 - C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
   it must preserve a bound constant separator through grouped and window paths.
   Mutable per-row separators must not silently replace the pinned bind contract.
@@ -635,7 +647,22 @@ Batch 1 evidence/restart details:
   complete: 257 records/assertions pass on Rust and each pinned native runner,
   with logs and binary identities under worker `target/c2-1/process-*`.
   Binder contract review is escalated to S after repeated correction cycles;
-  this does not authorize unrelated engine changes or broaden verification.
+  this does not authorize unrelated engine changes or a full-engine sweep.
+  Exact per-pin record extraction now lives in worker
+  `target/c2-1/source-case-map.json` (35/10/5 release records and 34/9/4
+  development records for aggregate/distinct/window files). Separately replayed
+  default-configuration SQL/assertions cannot close the original forced-external
+  or parallel configurations; those remain E3/E5 obligations. A discovered
+  default-mode negative case (distinct/grouped source record line 54 development,
+  57 release) expects `ORDER BY non-integer literal has no effect`, but reaches
+  the later DISTINCT diagnostic instead. Keep it in C2.1 acceptance and correct
+  the bounded shared aggregate-order validation, including SUM/LIST consumers.
+  The positive opt-in setting remains a separate B4 configuration obligation.
+  Parent review also caught and corrected accidental rejection of nonliteral
+  unary ORDER expressions. Both-pin controls retain column negation, computed
+  unary plus, parentheses and negative numerics. For `-(1.5)` specifically,
+  development accepts while release rejects; the implementation follows the
+  development pin rather than claiming identical reference behavior.
   Exact manifest: worker `target/c2-1/validation-manifest.md`.
 - F1 performance and C2.1 final implementation/acceptance remain **open**;
   A1's frozen evaluation is complete as recorded above.
