@@ -296,6 +296,11 @@ impl State<'_, '_> {
                     .ok_or_else(|| Error::Internal("window replacement outside signature".into()))?
                     .data_type
                     .clone();
+                self.context
+                    .query
+                    .types()
+                    .bind(&data_type)?
+                    .validate(&value, self.context.query)?;
                 arguments[index] = BoundExpr {
                     kind: ExprKind::Literal(value),
                     data_type,

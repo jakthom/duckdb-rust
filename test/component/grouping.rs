@@ -11,7 +11,10 @@ use duckdb_rust::{
         operator::aggregate::{AggregationAlgorithm, HashAggregation, OrderedAggregation},
         physical_plan::NativePhysicalPlanner,
     },
-    function::{FunctionEffects, FunctionRegistry, ScalarFunction},
+    function::{
+        AggregateBinding, AggregateFunction, AggregateState, FunctionEffects, FunctionRegistry,
+        ScalarFunction,
+    },
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
     parallel::{InterruptHandle, QueryContext},
     planner::{
@@ -961,5 +964,72 @@ fn string_agg_binds_constant_separators_and_composes_with_grouping_modifiers() -
             Err(Error::Bind(message)) if message.contains("no overload")
         ));
     }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct InvalidAggregateBinding {
+    source: Arc<dyn AggregateFunction>,
+    replacement: bool,
+}
+
+impl AggregateFunction for InvalidAggregateBinding {
+    fn name(&self) -> &str {
+        if self.replacement {
+            "invalid_binding_replacement"
+        } else {
+            "invalid_binding_index"
+        }
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        types: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        self.source.return_type(arguments, types)
+    }
+    fn create_state(
+        &self,
+        arguments: &[DataType],
+        types: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<Box<dyn AggregateState>> {
+        self.source.create_state(arguments, types)
+    }
+    fn bind(&self, _: &[Option<Value>]) -> Result<Option<AggregateBinding>> {
+        Ok(Some(AggregateBinding {
+            function: self.source.clone(),
+            retain_arguments: vec![if self.replacement { 0 } else { 1 }],
+            replacements: self
+                .replacement
+                .then_some((0, Value::Varchar("wrong".into())))
+                .into_iter()
+                .collect(),
+        }))
+    }
+}
+
+#[test]
+fn aggregate_binding_metadata_rejects_invalid_indices_and_typed_literals() -> Result<()> {
+    let mut functions = FunctionRegistry::builtins();
+    let sum = functions.aggregate("sum").expect("builtin SUM");
+    functions.register_aggregate(Arc::new(InvalidAggregateBinding {
+        source: sum.clone(),
+        replacement: false,
+    }))?;
+    functions.register_aggregate(Arc::new(InvalidAggregateBinding {
+        source: sum,
+        replacement: true,
+    }))?;
+    let mut connection = DatabaseBuilder::new()
+        .functions(functions)
+        .build()?
+        .connect();
+    assert!(
+        matches!(connection.query("SELECT invalid_binding_index(i) FROM range(1) t(i)"), Err(Error::Internal(message)) if message == "aggregate retained argument outside signature")
+    );
+    assert!(matches!(
+        connection.query("SELECT invalid_binding_replacement(i) FROM range(1) t(i)"),
+        Err(Error::Conversion(_))
+    ));
     Ok(())
 }
