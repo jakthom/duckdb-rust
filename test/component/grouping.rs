@@ -1291,6 +1291,23 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
     assert_eq!(
         connection
             .query(
+                "SELECT list_extract(list(x ORDER BY k),1), \
+                        list_extract(list(x ORDER BY k),2), \
+                        list_extract(list(x ORDER BY k),3), \
+                        list_extract(list(x ORDER BY k),4) \
+                 FROM (VALUES ('a',1),('b',1),('c',0),(NULL,-1)) t(x,k)",
+            )?
+            .rows,
+        vec![vec![
+            Value::Null,
+            Value::Varchar("c".into()),
+            Value::Varchar("a".into()),
+            Value::Varchar("b".into()),
+        ]]
+    );
+    assert_eq!(
+        connection
+            .query(
                 "SELECT signed_buffered_probe(DISTINCT i ORDER BY i DESC) \
                  FROM (VALUES (2),(1),(2)) t(i)",
             )?

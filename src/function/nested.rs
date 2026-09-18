@@ -5,6 +5,7 @@ use crate::{
     common::{
         DataType, Error, NestedPayload, NestedType, NestedValue, Result, Value,
         type_registry::{BoundType, TypeRegistry},
+        vector::{DataChunk, Vector},
     },
     parallel::QueryContext,
 };
@@ -410,6 +411,7 @@ impl AggregateFunction for CollectList {
     ) -> Result<Box<dyn AggregateState>> {
         Ok(Box::new(CollectedList {
             data_type: self.return_type(arguments, types)?,
+            argument_type: arguments[0].clone(),
             values: Vec::new(),
         }))
     }
@@ -424,6 +426,7 @@ impl AggregateFunction for CollectList {
 
 struct CollectedList {
     data_type: DataType,
+    argument_type: DataType,
     values: Vec<Value>,
 }
 
@@ -444,6 +447,32 @@ impl AggregateState for CollectedList {
             .map_err(|_| Error::Resource("list aggregate allocation failed".into()))?;
         self.values.push(value.clone());
         Ok(())
+    }
+    fn update_batch(&mut self, arguments: &DataChunk, query: &QueryContext) -> Result<()> {
+        let [column] = arguments.columns() else {
+            return Err(Error::Internal("list aggregate argument count".into()));
+        };
+        self.update_column(column, query)
+    }
+    fn update_column(&mut self, column: &Vector, query: &QueryContext) -> Result<()> {
+        if column.data_type() != &self.argument_type {
+            return Err(Error::Internal("list aggregate argument type".into()));
+        }
+        let next = self
+            .values
+            .len()
+            .checked_add(column.len())
+            .ok_or_else(|| Error::Resource("list aggregate cardinality overflow".into()))?;
+        query.check_rows(next)?;
+        self.values
+            .try_reserve(column.len())
+            .map_err(|_| Error::Resource("list aggregate allocation failed".into()))?;
+        for start in (0..column.len()).step_by(1024) {
+            query.check()?;
+            let count = (column.len() - start).min(1024);
+            column.slice(start, count)?.append_to(&mut self.values);
+        }
+        query.check()
     }
     fn finish(self: Box<Self>) -> Result<Value> {
         if self.values.is_empty() {

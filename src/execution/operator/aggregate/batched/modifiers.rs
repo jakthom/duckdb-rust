@@ -1,17 +1,18 @@
 //! Generic column evaluation for total buffered aggregate modifiers.
 //!
 //! The executor retains owned values by group and column. Ordered groups build
-//! a stable row permutation and clone their values into the permuted delivery
-//! vectors before calling the selected aggregate state's batch callback. This
-//! deliberately favors a bounded, capability-checked implementation over a
-//! shallow-chunk or zero-copy representation; measurements decide whether a
-//! later storage specialization is warranted.
+//! a stable row permutation. Each ordered argument moves into one flat parent
+//! and uses that checked permutation as a dictionary selection, so the driver
+//! does not clone every payload again before the selected aggregate state's
+//! batch callback. This deliberately favors a bounded, capability-checked
+//! implementation over a shallow-chunk representation; measurements decide
+//! whether a later storage specialization is warranted.
 use super::index::IntegerIndex;
 use crate::{
     DataType, Value,
     common::{
         Error, Result, Row,
-        type_registry::BoundType,
+        type_registry::{BoundType, OrderingRepresentation},
         vector::{DataChunk, Vector},
     },
     execution::{ExecutionContext, stream::BatchStream, subquery::PreparedExpression},
@@ -391,15 +392,12 @@ impl BufferedAccumulator {
                 .into_iter()
                 .zip(&self.argument_types)
                 .map(|(values, data_type)| {
-                    let values = if self.order.is_empty() {
-                        values
+                    let values = Vector::flat(data_type.clone(), values)?;
+                    if self.order.is_empty() {
+                        Ok(values)
                     } else {
-                        permutation
-                            .iter()
-                            .map(|&index| values[index].clone())
-                            .collect()
-                    };
-                    Vector::flat(data_type.clone(), values)
+                        Arc::new(values).select(permutation.clone())
+                    }
                 })
                 .collect::<Result<Vec<_>>>()?;
             let mut state = self
@@ -432,7 +430,10 @@ fn stable_permutation(
             let middle = start.saturating_add(width).min(rows);
             let end = middle.saturating_add(width).min(rows);
             let (mut left, mut right) = (start, middle);
-            for output in &mut scratch[start..end] {
+            for (offset, output) in scratch[start..end].iter_mut().enumerate() {
+                if offset % 1024 == 0 {
+                    context.query.check()?;
+                }
                 let take_left = left < middle
                     && (right == end
                         || compare_order(
@@ -489,7 +490,19 @@ fn compare_order(
                 }
             }
             (false, false) => {
-                let comparison = data_type.compare(left, right, context.query)?;
+                let comparison = if data_type.ordering_representation()
+                    == OrderingRepresentation::SignedInteger
+                    && !data_type.requires_logical_validation()
+                {
+                    let (Value::Integer(left), Value::Integer(right)) = (left, right) else {
+                        return Err(Error::Internal(
+                            "signed ordering value differs from selected representation".into(),
+                        ));
+                    };
+                    left.cmp(right)
+                } else {
+                    data_type.compare(left, right, context.query)?
+                };
                 if order.descending {
                     comparison.reverse()
                 } else {
