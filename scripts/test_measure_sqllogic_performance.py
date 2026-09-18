@@ -58,11 +58,14 @@ class PerformanceGateTests(unittest.TestCase):
 
     def test_serialized_raw_evidence_recomputes_gate(self):
         workloads, release, development = self.reports()
-        report = {"samples": 9, "workloads": [{**workloads[0], "observations": {
+        report = {"samples": 9, "execution_configuration": measure.SERIAL_CONFIGURATION, "workloads": [{**workloads[0], "observations": {
             "release": release["workloads"][0]["cpp"],
             "development": development["workloads"][0]["cpp"],
             "rust": release["workloads"][0]["rust"],
         }}]}
+        for target in ("release", "development"):
+            for observation in report["workloads"][0]["observations"][target]:
+                observation["command"].append("--single-threaded")
         serialized = json.loads(json.dumps(report))
         result = measure.gate_report(serialized, workloads)
         self.assertTrue(result["passed"])
@@ -71,7 +74,7 @@ class PerformanceGateTests(unittest.TestCase):
 
     def test_raw_summary_or_partial_observation_fails_closed(self):
         workloads, release, development = self.reports()
-        report = {"samples": 9, "workloads": [{**workloads[0], "observations": {
+        report = {"samples": 9, "execution_configuration": measure.SERIAL_CONFIGURATION, "workloads": [{**workloads[0], "observations": {
             "release": release["workloads"][0]["cpp"],
             "development": development["workloads"][0]["cpp"],
             "rust": release["workloads"][0]["rust"],
@@ -118,6 +121,25 @@ class PerformanceGateTests(unittest.TestCase):
             self.assertEqual(observations["development"][0]["command"][1:4],
                              ["--test-dir", shared_root, "a.test"])
             self.assertEqual(observations["rust"][0]["command"][1:], [shared_root, "a.test"])
+
+    def test_serial_cpp_flag_and_metadata_fail_closed(self):
+        workloads, release, development = self.reports()
+        report = {"samples": 9, "execution_configuration": measure.SERIAL_CONFIGURATION,
+                  "workloads": [{**workloads[0], "observations": {
+                      "release": release["workloads"][0]["cpp"],
+                      "development": development["workloads"][0]["cpp"],
+                      "rust": release["workloads"][0]["rust"],
+                  }}]}
+        for target in ("release", "development"):
+            for observation in report["workloads"][0]["observations"][target]:
+                observation["command"].append("--single-threaded")
+        self.assertTrue(measure.gate_report(report, workloads)["passed"])
+        report["workloads"][0]["observations"]["release"][0]["command"].remove("--single-threaded")
+        with self.assertRaisesRegex(ValueError, "single-threaded"):
+            measure.gate_report(report, workloads)
+        report.pop("execution_configuration")
+        with self.assertRaisesRegex(ValueError, "serial execution"):
+            measure.gate_report(report, workloads)
 
     def test_manifest_rejects_bad_and_duplicate_paths(self):
         with tempfile.TemporaryDirectory() as directory:

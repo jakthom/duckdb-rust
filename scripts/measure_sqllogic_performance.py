@@ -27,6 +27,10 @@ from source_identity import vendored_sources
 
 
 METRICS = ("wall_ns", "cpu_ns", "max_rss_bytes", "block_input", "block_output")
+SERIAL_CONFIGURATION = {
+    "cpp": {"threads": 1, "flag": "--single-threaded"},
+    "rust": {"threads": 1, "scheduler": "inline"},
+}
 
 
 class SampleFailure(RuntimeError):
@@ -256,6 +260,18 @@ def validate_observation(sample):
         raise ValueError("raw observation has incomplete timing metrics")
 
 
+def validate_serial_configuration(report, target, sample):
+    configuration = report.get("execution_configuration")
+    if configuration != SERIAL_CONFIGURATION:
+        raise ValueError("raw report has missing or nonmatching serial execution configuration")
+    command = sample["command"]
+    if target in ("release", "development"):
+        if command.count("--single-threaded") != 1:
+            raise ValueError("C++ observation is missing or duplicates --single-threaded")
+    elif target == "rust" and "--single-threaded" in command:
+        raise ValueError("Rust observation must use its recorded inline scheduler configuration")
+
+
 def gate_report(report, workloads):
     """Recompute Gate P from a serialized campaign report; fail closed."""
     sample_count = report.get("samples")
@@ -280,6 +296,7 @@ def gate_report(report, workloads):
                 raise ValueError("raw workload has incomplete samples: " + identifier + "/" + target)
             for sample in samples:
                 validate_observation(sample)
+                validate_serial_configuration(report, target, sample)
             if len({sample["records"] for sample in samples}) != 1:
                 raise ValueError("inconsistent SQLLogic PASS count: " + identifier + "/" + target)
         raw[identifier] = observations
@@ -330,16 +347,17 @@ def run_campaign(args):
               "workloads_manifest": str(Path(args.workloads).resolve()),
               "workloads_manifest_sha256": digest(args.workloads), "workloads": [], "references": references,
               "rust_binary": str(rust), "rust_binary_sha256": digest(rust), "rust_source_sha256": source_digest(),
-              "platform": platform.platform(), "machine": platform.machine(), "passed": False,
+              "platform": platform.platform(), "machine": platform.machine(),
+              "execution_configuration": SERIAL_CONFIGURATION, "passed": False,
               "at_parity_or_better_performance": False}
     try:
         for workload in workloads:
             relative = workload["path"]
             commands = {
                 "release": [args.release_cpp, "--test-dir", root, relative,
-                            "--use-colour", "no", "--durations", "no"],
+                            "--use-colour", "no", "--durations", "no", "--single-threaded"],
                 "development": [args.development_cpp, "--test-dir", root, relative,
-                                "--use-colour", "no", "--durations", "no"],
+                                "--use-colour", "no", "--durations", "no", "--single-threaded"],
                 "rust": [rust, root, relative],
             }
             samples = {name: [] for name in commands}
