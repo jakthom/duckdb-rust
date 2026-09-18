@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 8 is integrated through `3b2f6a1`, grouping resource fixture at `db71451`. Focused checks pass; quiet diagnostics pass all four process families and grouping/G08 native families. Two C2 native cases still fail: many groups 1.084–1.096x and mixed 1.002–1.025x. Next: profile those remaining costs, then bounded corrections; final acceptance remains open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with performance at `90d63ab`. C2.1 candidate 9 is integrated at `8e27760` (worker `94dc0f2`); focused checks and grouping81 pass. Dense HUGEINT growth-bound correction is in validation. Last measured candidate8 still fails many-groups/mixed native latency; candidate9 final performance is not yet measured. Next: freeze boundary correction, independent partial verifier, then six affected workload families on integrated root. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -898,6 +898,24 @@ Batch 1 evidence/restart details:
   manifests as a fifth family. The C2 worker has the older range implementation,
   so F1 timing belongs only on root with `324878c`, not that worker. Earlier F1
   acceptance remains recorded; this refresh is for an actually changed consumer.
+  Candidate 9 worker `94dc0f2` is integrated as `8e27760`; grouping81 and focused
+  transport3, columnar1, publication1, LIST validation1, recursive-budget1 and
+  old owned-stream1 checks pass. Initial format-only mismatch, zero-test short
+  `--exact` filter and an invalid GROUPING-only-empty-set fixture were retained
+  as non-green evidence; corrected declared-group fixture passes.
+  Consumer audit adds only the two existing constant/dynamic regex-extract-all
+  native cases and their one process fixture from `g06_1g_1h_2c` (sixth family),
+  since they construct LIST(VARCHAR). Subset JSON under root
+  `target/batch1/c2-final/regex-{native,process}-workloads.json` is structurally
+  identical to those maintained source entries/configuration; unrelated text
+  cases are excluded. Final manifest is
+  `target/batch1/c2-final/scoped-verification.md` (not yet dispatched).
+  Boundary review reproduced geometric dense growth beyond i128::MAX with
+  HUGEINT dictionaries, violating the maintained nonwrapping interval invariant.
+  Narrow correction uses the required observed width when spare geometric
+  capacity would overflow; the regression first failed before the fix. This
+  makes the one maintained dense-offset Kani harness applicable, not full Kani
+  or recovery. Root `target/batch1/c2-final/dense-bound-*` retains evidence.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.

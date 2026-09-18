@@ -605,6 +605,14 @@ impl IntegerIndex {
         let width = required
             .max(dimension.values.saturating_mul(2))
             .min(MAX_DENSE_SLOTS - 1);
+        // Dictionary parents may carry full-width HUGEINT coefficients. An
+        // observed endpoint fits i128, but geometric spare capacity beyond it
+        // need not. Keep Dense::position's nonwrapping interval invariant.
+        let width = if minimum.checked_add((width - 1) as i128).is_some() {
+            width
+        } else {
+            required
+        };
         query.check()?;
         dense
             .slots
@@ -749,6 +757,60 @@ mod tests {
             assert_eq!(next, reference.len());
         }
         assert!(!index.sparse.is_empty());
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn dictionary_hugeint_growth_preserves_nonwrapping_dense_bounds() -> Result<()> {
+        let query = QueryContext::background();
+        let mut index = IntegerIndex::default();
+        let mut next = 0;
+        let mut reference = HashMap::new();
+        for parents in [
+            vec![
+                Value::Integer(i128::MAX - 5),
+                Value::Integer(i128::MAX - 2),
+                Value::Null,
+            ],
+            vec![
+                Value::Integer(i128::MAX),
+                Value::Integer(i128::MIN),
+                Value::Null,
+            ],
+        ] {
+            let parent = std::sync::Arc::new(Vector::flat(DataType::HugeInt, parents)?);
+            let column = parent.select((0..12).map(|i| i % 3).collect())?;
+            let expected = column
+                .values()
+                .map(|value| {
+                    let key = match value {
+                        Value::Integer(value) => Some(value),
+                        Value::Null => None,
+                        _ => unreachable!(),
+                    };
+                    let ordinal = reference.len();
+                    *reference.entry(key).or_insert(ordinal)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                locate_one_column(&mut index, &column, &mut next, &query)?,
+                expected
+            );
+            let dense = index.dense.as_ref().unwrap();
+            let dimension = dense.dimensions[0];
+            assert!(
+                dimension
+                    .minimum
+                    .unwrap()
+                    .checked_add((dimension.values - 1) as i128)
+                    .is_some()
+            );
+            assert_eq!(dense.position(&[Some(i128::MIN)]), None);
+        }
+        assert_eq!(next, 5);
+        assert_eq!(index.dense.as_ref().unwrap().dimensions[0].values, 6);
+        assert_eq!(index.sparse.len(), 1);
         Ok(())
     }
 
