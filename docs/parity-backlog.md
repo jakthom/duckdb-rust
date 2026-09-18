@@ -597,11 +597,19 @@ Batch 1 evidence/restart details:
   are in worker `target/f1/validation-manifest.md`. The independent scoped
   verifier `batch1_f1_scoped_verifier` owns integrated checks/logs under root
   `target/batch1/f1-verifier/`; no full-engine/recovery/Kani run was dispatched.
-  Final upstream/performance acceptance remains open.
+  Ordinary selected upstream acceptance now matches debug feedback: 36 integer
+  records pass per pin; the final correlated record at line 226 remains the
+  declared C6.1 gap, not a whole-file pass. Exact remaining source/configuration
+  blockers are in worker `target/f1/ordinary-mapped-open.json`; integer evidence
+  is `target/f1/ordinary-integer-selected.json`. All four native workloads have
+  correct rows/checksums on Rust and both pins; both process fixtures pass
+  64/128 records respectively on all three engines. These are untimed correctness
+  checks, not performance acceptance. Final scoped verification and quiet-host
+  native/process performance acceptance remain open.
 - C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
   it must preserve a bound constant separator through grouped and window paths.
   Mutable per-row separators must not silently replace the pinned bind contract.
-  Draft commit chain through `b29823a` is on the worker branch, not integrated
+  Draft commit chain through `2d27fd6` is on the worker branch, not integrated
   acceptance. Focused grouping/window tests passed; the development window
   source file passes 4/4 records. Original aggregate/distinct files remain
   blocked by external/parallel verification configurations; do not remove those
@@ -610,8 +618,14 @@ Batch 1 evidence/restart details:
   pending rerun. Additional selected-
   adapter/invalid-bind contract tests, unchanged upstream feedback, valid native
   checksum workloads, final lint/trace/scoped verification and performance remain
-  open. Exact manifest: worker `target/c2-1/validation-manifest.md`.
-- All final implementation/performance/scoped-sweep outcomes remain **open**.
+  open. All five native workload queries now produce the exact expected numeric
+  checksums on Rust and both pins; reference outputs are worker
+  `target/c2-1/native-{release,development}.json`. Process-fixture correctness is
+  next. Binder contract review is escalated to S after repeated correction cycles;
+  this does not authorize unrelated engine changes or broaden verification.
+  Exact manifest: worker `target/c2-1/validation-manifest.md`.
+- F1/C2.1 final implementation/performance/scoped-sweep outcomes remain **open**;
+  A1's frozen evaluation is complete as recorded above.
   Resume by reading the worker manifests/reports and branch diffs, not by
   restarting completed checks or dispatching a full sweep. Do not start batch 2
   while these acceptance obligations remain open.
