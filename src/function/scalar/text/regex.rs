@@ -264,6 +264,7 @@ impl ScalarFunction for RegexPredicate {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RegexPredicate {
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn select_matches(&self, arguments: &DataChunk, query: &QueryContext) -> Result<Vec<usize>> {
@@ -357,6 +358,7 @@ impl RegexPredicate {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CompiledPattern {
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn is_match(&self, input: &str) -> bool {
@@ -374,6 +376,7 @@ impl CompiledPattern {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LiteralMatch {
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn is_match(&self, input: &str) -> bool {
