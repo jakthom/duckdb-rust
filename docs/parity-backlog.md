@@ -612,7 +612,9 @@ Batch 1 evidence/restart details:
   Quiet-host performance diagnostic (9 samples, not final acceptance) is complete:
   three native workloads pass, but `range_aggregate_1m` fails at 4.73–4.75x
   (Rust 4.91–4.94 ms versus faster-reference 1.039 ms). Both process workloads
-  pass diagnostic wall/CPU/RSS/I/O/throughput gates. Raw reports are worker
+  initially passed the numerical diagnostic gates, but later review found
+  unmatched thread settings; those process results are not acceptance evidence.
+  Raw reports are worker
   `target/f1/performance/*-diagnostic-9.json`. S agent
   `batch1_f1_performance` owns a measured correction on the F1 branch; preserve
   `261100a` and add follow-up commits. Candidate 1 removed redundant checked
@@ -646,8 +648,8 @@ Batch 1 evidence/restart details:
   now include the capitalized `Separator` required by its unchanged regex,
   pending rerun. Additional selected-
   adapter/invalid-bind contract tests, unchanged upstream feedback, valid native
-  checksum workloads, final lint/trace/scoped verification and performance remain
-  open. All five native workload queries now produce the exact expected numeric
+  checksum workloads, final lint/trace/scoped verification and performance were
+  the remaining integration obligations. All five native workload queries produce the exact expected numeric
   checksums on Rust and both pins; reference outputs are worker
   `target/c2-1/native-{release,development}.json`. Process-fixture correctness is
   complete: 257 records/assertions pass on Rust and each pinned native runner,
@@ -655,9 +657,9 @@ Batch 1 evidence/restart details:
   Subsequent review found those process queries observed only outer row counts,
   permitting reference projection pruning of the intended aggregate work. The
   257 passes validate the old count fixture, not STRING_AGG contents or resource
-  parity. Replace its outer counts with the already validated native aggregate
-  checksums, retain the declared workload size/repetition, validate all three
-  engines untimed, then measure the corrected fixture. Preserve any earlier
+  parity. Its outer counts were replaced with the validated native aggregate
+  checksums without changing workload size/repetition; all three engines passed
+  the corrected fixture untimed. Preserve earlier
   observations as invalid-coverage diagnostics, never acceptance evidence.
   Binder contract review is escalated to S after repeated correction cycles;
   this does not authorize unrelated engine changes or a full-engine sweep.
@@ -667,9 +669,9 @@ Batch 1 evidence/restart details:
   default-configuration SQL/assertions cannot close the original forced-external
   or parallel configurations; those remain E3/E5 obligations. A discovered
   default-mode negative case (distinct/grouped source record line 54 development,
-  57 release) expects `ORDER BY non-integer literal has no effect`, but reaches
-  the later DISTINCT diagnostic instead. Keep it in C2.1 acceptance and correct
-  the bounded shared aggregate-order validation, including SUM/LIST consumers.
+  57 release) expected `ORDER BY non-integer literal has no effect`, but reached
+  the later DISTINCT diagnostic instead. The bounded shared aggregate-order
+  validation was corrected, retaining that case and SUM/LIST consumers in acceptance.
   The positive opt-in setting remains a separate B4 configuration obligation.
   Parent review also caught and corrected accidental rejection of nonliteral
   unary ORDER expressions. Both-pin controls retain column negation, computed
@@ -685,6 +687,13 @@ Batch 1 evidence/restart details:
   three engines (257 records/assertions each); its first diagnostic fails wall
   8.16x and CPU 7.38x, while RSS passes at 0.667x and block I/O is zero for all
   engines. Evidence: worker `target/c2-1/process-diagnostic-20260918.json`.
+  That process diagnostic also used unmatched thread settings and is historical,
+  not comparable acceptance evidence. Tooling correction `0e82fbf` now requires
+  `--single-threaded` for both pinned C++ runners, records Rust's inline scheduler
+  and rejects missing/mismatched configuration when replaying reports. Its focused
+  Python tests pass 15/15; independent tooling verification remains pending.
+  Native campaigns already used one thread and are unaffected. New process
+  reports must use the corrected adapter; never rewrite old reports as matched.
   Performance ownership is split in the C2 worktree: root owns borrowed
   STRING_AGG column/grouped kernels in `src/function/aggregate/string.rs` and
   leaf tests; S owns generic modifier/ordered batching, explicit `BufferedTotal`
@@ -692,7 +701,14 @@ Batch 1 evidence/restart details:
   validation-process owner there; coalesce logical edits before checks. Root's
   leaf manifest is `target/c2-1/string-kernel-manifest.md`. Preserve selected
   adapters/types, generic fallback, stable ties, cancellation and resource limits;
-  no function-name routing or query-specific shortcuts. C2.1 remains incomplete pending measured batch/group/modifier
+  no function-name routing or query-specific shortcuts. The first optimized
+  candidate is frozen and freshly release-built: leaf tests 4/4, grouping 74/74,
+  selected window contracts 1/1 each and corrected Rust process fixture 257/257.
+  The generic modifier path buffers owned columns, preserves selected typed
+  DISTINCT/order semantics and retains the existing signed LIST fast path;
+  FILTER falls back before consuming input. Quiet-host native/process diagnostics
+  are next, followed by final measurements only after corrections pass.
+  C2.1 remains incomplete pending measured batch/group/modifier
   performance corrections, final affected verification and final performance
   gates. Do not drop workloads or weaken their oracles to close this chunk.
   Exact manifest: worker `target/c2-1/validation-manifest.md`.
