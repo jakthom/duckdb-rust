@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use duckdb_rust::{
     DatabaseBuilder, Result, Value,
+    common::{DataType, NestedPayload, NestedType, NestedValue},
     execution::expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
 };
 
@@ -114,6 +115,86 @@ fn regex_value_functions_cover_options_groups_nulls_and_nuls() -> Result<()> {
                     ],
                 )
                 .is_err()
+        );
+    }
+    Ok(())
+}
+
+fn strings(values: &[Option<&str>]) -> Result<Value> {
+    NestedValue::value(
+        NestedType::List(DataType::Varchar).data_type(),
+        NestedPayload::Sequence(
+            values
+                .iter()
+                .map(|value| value.map_or(Value::Null, |value| Value::Varchar(value.into())))
+                .collect(),
+        ),
+    )
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn regexp_extract_all_scalar_groups_cover_matches_and_boundaries() -> Result<()> {
+    for expressions in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut connection = DatabaseBuilder::new()
+            .expressions(expressions)
+            .batch_size(2)
+            .build()?
+            .connect();
+        assert_eq!(
+            connection.query("SELECT regexp_extract_all('a1a2', '(a)([0-9])', 1), regexp_extract_all('a1a2', '(a)([0-9])', 2), regexp_extract_all('abc', 'z'), regexp_extract_all('', '')")?.rows,
+            vec![vec![strings(&[Some("a"), Some("a")])?, strings(&[Some("1"), Some("2")])?, strings(&[])?, strings(&[Some("")])?]]
+        );
+        connection.execute("CREATE TABLE regex_all(s VARCHAR, p VARCHAR, g BIGINT)")?;
+        connection.execute("INSERT INTO regex_all VALUES ('a\0a', 'a', 0), ('éé', '.', 0), ('x', '(a)?', 1), (NULL, 'x', 0)")?;
+        assert_eq!(
+            connection
+                .query("SELECT regexp_extract_all(s, p, g) FROM regex_all ORDER BY s NULLS LAST")?
+                .rows,
+            vec![
+                vec![strings(&[Some("a"), Some("a")])?],
+                vec![strings(&[None, None])?],
+                vec![strings(&[Some("é"), Some("é")])?],
+                vec![Value::Null],
+            ]
+        );
+        assert!(
+            connection
+                .query("SELECT regexp_extract_all('x', '(x)', 2)")
+                .is_err()
+        );
+        assert_eq!(
+            connection
+                .query("SELECT regexp_extract_all('x', '(x)', -1)")?
+                .rows,
+            vec![vec![strings(&[])?]]
+        );
+        assert!(
+            connection
+                .query("SELECT regexp_extract_all('x', '(', 0)")
+                .is_err()
+        );
+        assert!(
+            connection
+                .query("SELECT regexp_extract_all('x', 'x', 0, $1)")
+                .is_err()
+        );
+        let prepared = connection.prepare("SELECT regexp_extract_all($1, $2, $3)")?;
+        assert_eq!(
+            connection
+                .execute_prepared(
+                    &prepared,
+                    &[
+                        Value::Varchar("b1b2".into()),
+                        Value::Varchar("(b)([0-9])".into()),
+                        Value::Integer(2)
+                    ]
+                )?
+                .rows,
+            vec![vec![strings(&[Some("1"), Some("2")])?]]
         );
     }
     Ok(())

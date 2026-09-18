@@ -79,7 +79,12 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
             }))
             .expect("unique regexp predicate function");
     }
-    for name in ["regexp_replace", "regexp_extract", "regexp_escape"] {
+    for name in [
+        "regexp_replace",
+        "regexp_extract",
+        "regexp_extract_all",
+        "regexp_escape",
+    ] {
         registry
             .register_scalar(Arc::new(RegexValueFunction {
                 name,
@@ -122,7 +127,7 @@ impl ScalarFunction for RegexValueFunction {
         let valid = match self.name {
             "regexp_escape" => n == 1,
             "regexp_replace" => matches!(n, 3 | 4),
-            "regexp_extract" => matches!(n, 2..=4),
+            "regexp_extract" | "regexp_extract_all" => matches!(n, 2..=4),
             _ => false,
         };
         if !valid {
@@ -131,18 +136,19 @@ impl ScalarFunction for RegexValueFunction {
                 self.name
             )));
         }
-        if self.name == "regexp_extract"
+        if matches!(self.name, "regexp_extract" | "regexp_extract_all")
             && n == 4
             && matches!(args.data_type(2)?, DataType::Varchar)
         {
-            return Err(Error::Bind(
-                "Could not choose a best candidate function for regexp_extract".into(),
-            ));
+            return Err(Error::Bind(format!(
+                "Could not choose a best candidate function for {}",
+                self.name
+            )));
         }
         let mut sig = Vec::with_capacity(n);
         for i in 0..n {
             let ty = args.data_type(i)?;
-            let expect_int = self.name == "regexp_extract"
+            let expect_int = matches!(self.name, "regexp_extract" | "regexp_extract_all")
                 && ((n == 3 && i == 2 && !matches!(ty, DataType::Varchar)) || (n == 4 && i == 2));
             if expect_int {
                 sig.push(DataType::BigInt);
@@ -157,8 +163,10 @@ impl ScalarFunction for RegexValueFunction {
         }
         let options_index = match self.name {
             "regexp_replace" if n == 4 => Some(3),
-            "regexp_extract" if n == 3 && sig[2] == DataType::Varchar => Some(2),
-            "regexp_extract" if n == 4 => Some(3),
+            "regexp_extract" | "regexp_extract_all" if n == 3 && sig[2] == DataType::Varchar => {
+                Some(2)
+            }
+            "regexp_extract" | "regexp_extract_all" if n == 4 => Some(3),
             _ => None,
         };
         let options = match options_index {
@@ -251,7 +259,11 @@ impl ScalarFunction for RegexValueFunction {
             .ok_or_else(|| Error::Bind(format!("no overload for {}({arguments:?})", self.name)))
     }
     fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
-        Ok(DataType::Varchar)
+        Ok(if self.name == "regexp_extract_all" {
+            crate::common::NestedType::List(DataType::Varchar).data_type()
+        } else {
+            DataType::Varchar
+        })
     }
     fn is_total(&self, _: &[Option<&Value>]) -> bool {
         self.name == "regexp_escape"
@@ -285,7 +297,12 @@ impl ScalarFunction for RegexValueFunction {
             arguments.read_row(i, &mut row)?;
             out.push(self.apply(&row, &mut cache)?);
         }
-        Vector::flat(DataType::Varchar, out).map(Some)
+        let result_type = if self.name == "regexp_extract_all" {
+            crate::common::NestedType::List(DataType::Varchar).data_type()
+        } else {
+            DataType::Varchar
+        };
+        Vector::flat(result_type, out).map(Some)
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
         query.check()?;
@@ -418,8 +435,45 @@ impl RegexValueFunction {
                     None => Ok(Value::Varchar(String::new())),
                 }
             }
+            "regexp_extract_all" => self.extract_all(input, regex, a),
             _ => Err(Error::Internal("unknown regexp value function".into())),
         }
+    }
+
+    fn extract_all(&self, input: &str, regex: &Regex, arguments: &[Value]) -> Result<Value> {
+        let group = match arguments.get(2) {
+            None => 0,
+            Some(Value::Integer(group)) => *group,
+            Some(Value::Null) => return Ok(Value::Null),
+            Some(_) => {
+                return Err(Error::Internal(
+                    "regexp_extract_all group is not BIGINT".into(),
+                ));
+            }
+        };
+        let list_type = crate::common::NestedType::List(DataType::Varchar).data_type();
+        if group < 0 {
+            return crate::common::NestedValue::value(
+                list_type,
+                crate::common::NestedPayload::Sequence(Vec::new()),
+            );
+        }
+        let group = usize::try_from(group)
+            .map_err(|_| Error::InvalidInput("invalid regexp_extract_all group".into()))?;
+        let mut values = Vec::new();
+        for captures in regex.captures_iter(input) {
+            if group >= captures.len() {
+                return Err(Error::InvalidInput(format!(
+                    "Pattern has {} groups. Cannot access group {group}",
+                    captures.len().saturating_sub(1)
+                )));
+            }
+            values.push(match captures.get(group) {
+                Some(found) => Value::Varchar(found.as_str().to_owned()),
+                None => Value::Null,
+            });
+        }
+        crate::common::NestedValue::value(list_type, crate::common::NestedPayload::Sequence(values))
     }
 }
 
