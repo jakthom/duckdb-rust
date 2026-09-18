@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 through `324878c` has passed refreshed scoped verification/upstream and performance diagnostics, final timing open. C2.1 functional code is integrated through `6258294`; measured performance corrections remain active in its worker tree. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 through `324878c` has passed refreshed scoped verification/upstream and native performance diagnostics, final timing open. C2.1 functional code and first optimization are integrated through `3cb6e3e`; four native latency cases and process wall/CPU still fail. Targeted corrections remain active. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -691,23 +691,38 @@ Batch 1 evidence/restart details:
   not comparable acceptance evidence. Tooling correction `0e82fbf` now requires
   `--single-threaded` for both pinned C++ runners, records Rust's inline scheduler
   and rejects missing/mismatched configuration when replaying reports. Its focused
-  Python tests pass 15/15; independent tooling verification remains pending.
+  Python tests initially passed 15/15. Independent tooling review found replay
+  accepted extra unsupported flags; exact raw-command validation and negative
+  tests are being tightened. Generated commands are already matched and do not
+  change for that fix; valid raw reports can be rechecked without new timing.
   Native campaigns already used one thread and are unaffected. New process
   reports must use the corrected adapter; never rewrite old reports as matched.
-  Performance ownership is split in the C2 worktree: root owns borrowed
-  STRING_AGG column/grouped kernels in `src/function/aggregate/string.rs` and
-  leaf tests; S owns generic modifier/ordered batching, explicit `BufferedTotal`
+  Performance ownership is split in the C2 worktree: S agent
+  `batch1_f1_performance` now owns the root's borrowed STRING_AGG column/grouped
+  kernels in `src/function/aggregate/string.rs` and leaf tests; S agent
+  `batch1_f1` owns generic modifier/ordered batching, explicit `BufferedTotal`
   no-effect capability, LIST opt-in and affected component tests. S is the sole
   validation-process owner there; coalesce logical edits before checks. Root's
   leaf manifest is `target/c2-1/string-kernel-manifest.md`. Preserve selected
   adapters/types, generic fallback, stable ties, cancellation and resource limits;
   no function-name routing or query-specific shortcuts. The first optimized
-  candidate is frozen and freshly release-built: leaf tests 4/4, grouping 74/74,
+  candidate is worker `4f7b51a`, integrated as `3cb6e3e`, and freshly release-built:
+  leaf tests 4/4, grouping 74/74,
   selected window contracts 1/1 each and corrected Rust process fixture 257/257.
   The generic modifier path buffers owned columns, preserves selected typed
   DISTINCT/order semantics and retains the existing signed LIST fast path;
-  FILTER falls back before consuming input. Quiet-host native/process diagnostics
-  are next, followed by final measurements only after corrections pass.
+  FILTER falls back before consuming input. Its native 9-sample diagnostic
+  passes ungrouped at 0.644–0.654x but fails few groups at 1.205–1.256x, many
+  groups at 1.942–1.990x, ordered DISTINCT at 3.991–4.036x and mixed consumers
+  at 3.566x. Matched serial process diagnostic fails wall/CPU at 2.987x/3.037x;
+  RSS passes at 0.636x and block I/O is zero for all engines. Reports are worker
+  `target/c2-1/native-*-buffered-diagnostic-20260918.json` and
+  `process-serial-buffered-diagnostic-20260918.json`. These are diagnostic,
+  not final acceptance. Next correction splits grouped string reservation from
+  ordered LIST delivery/comparison costs, with unchanged workloads and typed
+  custom-adapter guards. Existing signed LIST G08 native/process workloads are
+  also required affected-consumer evidence. Final measurements follow only
+  after corrections pass.
   C2.1 remains incomplete pending measured batch/group/modifier
   performance corrections, final affected verification and final performance
   gates. Do not drop workloads or weaken their oracles to close this chunk.
