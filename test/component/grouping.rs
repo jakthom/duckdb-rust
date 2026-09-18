@@ -955,6 +955,12 @@ fn string_agg_binds_constant_separators_and_composes_with_grouping_modifiers() -
                 .rows,
             vec![vec![Value::Null, Value::Null]]
         );
+        assert_eq!(
+            connection
+                .query("SELECT listagg(x, '|') FROM strings WHERE g=1")?
+                .rows,
+            vec![vec![Value::Varchar("b|a|a".into())]]
+        );
         assert!(matches!(
             connection.query("SELECT string_agg(x, CAST(g AS VARCHAR)) FROM strings"),
             Err(Error::Bind(message)) if message == "string_agg separator must be a constant expression"

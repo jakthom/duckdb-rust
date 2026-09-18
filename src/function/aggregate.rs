@@ -25,7 +25,7 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
             .register_aggregate(Arc::new(Builtin(name)))
             .expect("unique builtin name");
     }
-    for name in ["string_agg", "group_concat"] {
+    for name in ["string_agg", "group_concat", "listagg"] {
         registry
             .register_aggregate(Arc::new(StringAgg(name, None)))
             .expect("unique string aggregate name");
