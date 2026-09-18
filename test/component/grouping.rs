@@ -1432,7 +1432,7 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
         memo_groups
             .rows
             .iter()
-            .all(|row| row == &[Value::Varchar("NULL|a|b".into())]),
+            .all(|row| row == [Value::Varchar("NULL|a|b".into())]),
         "unexpected physical memo groups: {:?}",
         memo_groups.rows
     );

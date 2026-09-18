@@ -227,7 +227,7 @@ fn grouped_bigint_sum_borrows_flat_lanes_and_preserves_fallbacks() -> Result<()>
         let expected = sums
             .into_iter()
             .zip(seen)
-            .map(|(sum, seen)| seen.then_some(Value::Integer(sum)).unwrap_or(Value::Null))
+            .map(|(sum, seen)| if seen { Value::Integer(sum) } else { Value::Null })
             .collect::<Vec<_>>();
         assert_eq!(state.finish(&query)?, expected);
         Ok(())
