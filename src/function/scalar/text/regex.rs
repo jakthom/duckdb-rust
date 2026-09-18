@@ -32,6 +32,8 @@ struct RegexOptions {
     case_insensitive: bool,
     literal: bool,
     dot_matches_new_line: bool,
+    global: bool,
+    keep: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -77,6 +79,323 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
             }))
             .expect("unique regexp predicate function");
     }
+    for name in ["regexp_replace", "regexp_extract", "regexp_escape"] {
+        registry
+            .register_scalar(Arc::new(RegexValueFunction {
+                name,
+                signature: None,
+                options: RegexOptions::default(),
+                constant: None,
+                extract_group: None,
+                extract_group_is_null: false,
+            }))
+            .expect("unique regexp value function");
+    }
+}
+
+/// The value functions intentionally share compilation with predicates, but do
+/// not use predicate selection: a replacement/extraction must retain every row.
+#[derive(Clone, Debug)]
+struct RegexValueFunction {
+    name: &'static str,
+    signature: Option<Vec<DataType>>,
+    options: RegexOptions,
+    constant: Option<Regex>,
+    extract_group: Option<usize>,
+    extract_group_is_null: bool,
+}
+
+impl ScalarFunction for RegexValueFunction {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn bind(
+        &self,
+        args: &dyn ScalarBindArguments,
+        query: &QueryContext,
+    ) -> Result<Option<Arc<dyn ScalarFunction>>> {
+        query.check()?;
+        let n = args.len();
+        let valid = match self.name {
+            "regexp_escape" => n == 1,
+            "regexp_replace" => matches!(n, 3 | 4),
+            "regexp_extract" => matches!(n, 2 | 3 | 4),
+            _ => false,
+        };
+        if !valid {
+            return Err(Error::Bind(format!(
+                "invalid argument count for {}",
+                self.name
+            )));
+        }
+        if self.name == "regexp_extract"
+            && n == 4
+            && matches!(args.data_type(2)?, DataType::Varchar)
+        {
+            return Err(Error::Bind(
+                "Could not choose a best candidate function for regexp_extract".into(),
+            ));
+        }
+        let mut sig = Vec::with_capacity(n);
+        for i in 0..n {
+            let ty = args.data_type(i)?;
+            let expect_int = self.name == "regexp_extract"
+                && ((n == 3 && i == 2 && !matches!(ty, DataType::Varchar)) || (n == 4 && i == 2));
+            if expect_int {
+                sig.push(DataType::BigInt);
+            } else if matches!(ty, DataType::Varchar | DataType::Null) {
+                sig.push(DataType::Varchar);
+            } else {
+                return Err(Error::Bind(format!(
+                    "{} requires VARCHAR arguments",
+                    self.name
+                )));
+            }
+        }
+        let options_index = match self.name {
+            "regexp_replace" if n == 4 => Some(3),
+            "regexp_extract" if n == 3 && sig[2] == DataType::Varchar => Some(2),
+            "regexp_extract" if n == 4 => Some(3),
+            _ => None,
+        };
+        let options = match options_index {
+            Some(i) => {
+                if !args.is_closed(i)? {
+                    return Err(Error::Bind(format!(
+                        "Regex options field for {} must be a constant expression",
+                        self.name
+                    )));
+                }
+                parse_options_for(
+                    args.constant_as(i, &DataType::Varchar, CastMode::Implicit)?,
+                    self.name == "regexp_replace",
+                    self.name == "regexp_extract",
+                )?
+            }
+            None => RegexOptions::default(),
+        };
+        let constant = if self.name == "regexp_escape" {
+            None
+        } else {
+            args.constant_if_closed(1)?
+                .map(|v| match v {
+                    Value::Null => Ok(None),
+                    Value::Varchar(p) => compile(&p, options, MatchKind::Partial).map(Some),
+                    _ => Err(Error::Internal("regexp pattern not VARCHAR".into())),
+                })
+                .transpose()?
+                .flatten()
+        };
+        let mut extract_group_is_null = false;
+        let extract_group = if self.name == "regexp_extract" && n >= 3 && sig[2] == DataType::BigInt
+        {
+            if !args.is_closed(2)? {
+                return Err(Error::Bind(
+                    "regexp_extract group must be a constant expression".into(),
+                ));
+            }
+            match args.constant_as(2, &DataType::BigInt, CastMode::Implicit)? {
+                Value::Null => {
+                    extract_group_is_null = true;
+                    Some(0)
+                }
+                Value::Integer(value) => {
+                    let group = usize::try_from(value).map_err(|_| {
+                        Error::InvalidInput("Group index must be between 0 and 9".into())
+                    })?;
+                    if group > 9 {
+                        return Err(Error::InvalidInput(
+                            "Group index must be between 0 and 9".into(),
+                        ));
+                    }
+                    Some(group)
+                }
+                _ => return Err(Error::Internal("regexp_extract group is not BIGINT".into())),
+            }
+        } else {
+            None
+        };
+        Ok(Some(Arc::new(Self {
+            name: self.name,
+            signature: Some(sig),
+            options,
+            constant,
+            extract_group,
+            extract_group_is_null,
+        })))
+    }
+    fn argument_types(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<Vec<DataType>> {
+        self.signature
+            .as_ref()
+            .filter(|s| s.len() == arguments.len())
+            .cloned()
+            .ok_or_else(|| Error::Bind(format!("no overload for {}({arguments:?})", self.name)))
+    }
+    fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        Ok(DataType::Varchar)
+    }
+    fn is_total(&self, _: &[Option<&Value>]) -> bool {
+        self.name == "regexp_escape"
+    }
+    fn supports_batch_evaluation(&self, _: &[DataType]) -> bool {
+        true
+    }
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        let mut row = Vec::with_capacity(arguments.columns().len());
+        let mut out = Vec::with_capacity(arguments.len());
+        // A small per-batch cache preserves first-error order while avoiding repeated dynamic compilation.
+        let mut cache: Vec<(String, Regex)> = Vec::new();
+        for i in 0..arguments.len() {
+            if i % 1024 == 0 {
+                query.check()?;
+            }
+            arguments.read_row(i, &mut row)?;
+            out.push(self.apply(&row, &mut cache)?);
+        }
+        Vector::flat(DataType::Varchar, out).map(Some)
+    }
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        self.apply(arguments, &mut Vec::new())
+    }
+}
+
+impl RegexValueFunction {
+    fn apply(&self, a: &[Value], cache: &mut Vec<(String, Regex)>) -> Result<Value> {
+        if self.name == "regexp_extract" && self.extract_group_is_null {
+            return if a.first().is_some_and(Value::is_null) || a.get(1).is_some_and(Value::is_null)
+            {
+                Ok(Value::Null)
+            } else {
+                Ok(Value::Varchar(String::new()))
+            };
+        }
+        if a.iter().any(Value::is_null) {
+            return Ok(Value::Null);
+        }
+        if self.name == "regexp_escape" {
+            return match a {
+                [Value::Varchar(s)] => Ok(Value::Varchar(re2_escape(s))),
+                _ => Err(Error::Internal("regexp_escape argument".into())),
+            };
+        }
+        let (Value::Varchar(input), Value::Varchar(pattern)) = (&a[0], &a[1]) else {
+            return Err(Error::Internal("regexp value VARCHAR arguments".into()));
+        };
+        let regex = match &self.constant {
+            Some(r) => r,
+            None => {
+                if let Some((_, r)) = cache.iter().find(|(p, _)| p == pattern) {
+                    r
+                } else {
+                    let r = compile(pattern, self.options, MatchKind::Partial)?;
+                    if cache.len() < 32 {
+                        cache.push((pattern.clone(), r));
+                        cache.last().map(|x| &x.1).unwrap()
+                    } else {
+                        return self.apply_uncached(input, pattern, a);
+                    }
+                }
+            }
+        };
+        self.apply_regex(input, regex, a)
+    }
+    fn apply_uncached(&self, input: &str, pattern: &str, a: &[Value]) -> Result<Value> {
+        let r = compile(pattern, self.options, MatchKind::Partial)?;
+        self.apply_regex(input, &r, a)
+    }
+    fn apply_regex(&self, input: &str, regex: &Regex, a: &[Value]) -> Result<Value> {
+        match self.name {
+            "regexp_replace" => {
+                let Value::Varchar(replacement) = &a[2] else {
+                    return Err(Error::Internal("regexp replacement".into()));
+                };
+                let replacement = re2_replacement(replacement, regex.captures_len())?;
+                let result = if self.options.global {
+                    regex.replace_all(input, replacement.as_str())
+                } else {
+                    regex.replace(input, replacement.as_str())
+                };
+                Ok(Value::Varchar(result.into_owned()))
+            }
+            "regexp_extract" => {
+                let group = self.extract_group.unwrap_or(0);
+                if group >= regex.captures_len() {
+                    return if self.options.keep {
+                        Ok(Value::Varchar(input.to_owned()))
+                    } else {
+                        Ok(Value::Varchar(String::new()))
+                    };
+                }
+                match regex.captures(input).and_then(|c| c.get(group)) {
+                    Some(m) => Ok(Value::Varchar(m.as_str().to_owned())),
+                    None if self.options.keep => Ok(Value::Varchar(input.to_owned())),
+                    None => Ok(Value::Varchar(String::new())),
+                }
+            }
+            _ => Err(Error::Internal("unknown regexp value function".into())),
+        }
+    }
+}
+
+// RE2 uses \\1 while Rust regex uses $1. Preserve escaped non-group text.
+fn re2_replacement(value: &str, captures_len: usize) -> Result<String> {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            if c == '$' {
+                out.push_str("$$");
+            } else {
+                out.push(c);
+            }
+            continue;
+        }
+        let Some(next) = chars.next() else {
+            return Err(Error::InvalidInput(
+                "invalid regexp replacement trailing backslash".into(),
+            ));
+        };
+        if next == '\\' {
+            out.push('\\');
+            continue;
+        }
+        if !next.is_ascii_digit() {
+            return Err(Error::InvalidInput(
+                "invalid regexp replacement backreference".into(),
+            ));
+        }
+        let group = next.to_digit(10).unwrap() as usize;
+        if group >= captures_len {
+            return Err(Error::InvalidInput(format!(
+                "regexp replacement group {group} is out of range"
+            )));
+        }
+        out.push('$');
+        out.push(next);
+    }
+    Ok(out)
+}
+
+fn re2_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_ascii() && !ch.is_ascii_alphanumeric() && ch != '_' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -414,6 +733,10 @@ impl LiteralMatch {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn parse_options(value: Value) -> Result<RegexOptions> {
+    parse_options_for(value, false, false)
+}
+
+fn parse_options_for(value: Value, allow_global: bool, allow_keep: bool) -> Result<RegexOptions> {
     let Value::Varchar(options) = value else {
         return if value.is_null() {
             Err(Error::InvalidInput(
@@ -435,6 +758,8 @@ fn parse_options(value: Value) -> Result<RegexOptions> {
             'm' | 'n' | 'p' => parsed.dot_matches_new_line = false,
             's' => parsed.dot_matches_new_line = true,
             ' ' | '\t' | '\n' => {}
+            'g' if allow_global => parsed.global = true,
+            'k' if allow_keep => parsed.keep = true,
             'g' => {
                 return Err(Error::InvalidInput(
                     "Option 'g' (global replace) is only valid for regexp_replace".into(),
@@ -475,7 +800,26 @@ fn compile(pattern: &str, options: RegexOptions, kind: MatchKind) -> Result<Rege
         .dot_matches_new_line(options.dot_matches_new_line);
     builder
         .build()
-        .map_err(|error| Error::InvalidInput(error.to_string()))
+        .map_err(|error| regex_compile_error(pattern, error))
+}
+
+fn regex_compile_error(pattern: String, error: regex::Error) -> Error {
+    let message = error.to_string();
+    let message = if message.contains("unrecognized escape sequence")
+        || message.contains("not a Unicode scalar value")
+    {
+        "invalid escape sequence".to_owned()
+    } else if message.contains("repetition operator missing expression") {
+        format!(
+            "no argument for repetition operator: {}",
+            pattern.chars().next().unwrap_or('*')
+        )
+    } else if message.contains("unclosed group") {
+        "missing closing parenthesis".to_owned()
+    } else {
+        message
+    };
+    Error::InvalidInput(message)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

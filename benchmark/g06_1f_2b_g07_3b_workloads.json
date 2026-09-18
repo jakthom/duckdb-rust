@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE g06_1f_2b_g07_3b AS SELECT i, CASE i % 4 WHEN 0 THEN 'alpha' WHEN 1 THEN 'beta' WHEN 2 THEN 'gamma' ELSE 'delta' END AS v, CASE i % 2 WHEN 0 THEN '{}:{}' ELSE '{1}:{0}' END AS fmt, CASE i % 4 WHEN 0 THEN '^([0-9]+)-alpha$' WHEN 1 THEN '^([0-9]+)-beta$' WHEN 2 THEN '^([0-9]+)-gamma$' ELSE '^([0-9]+)-delta$' END AS pattern, CASE i % 4 WHEN 0 THEN 'a+b' WHEN 1 THEN 'c?d' WHEN 2 THEN '[xy]' ELSE 'plain' END AS escaped FROM range(50000) t(i); CREATE TABLE g07_3b_from_first AS SELECT i FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "g07_3b_from_first_filtered_aggregation_50k",
+      "sql": "SELECT sum(i) FROM (FROM g07_3b_from_first WHERE i % 2 = 0) filtered",
+      "rows": 1,
+      "sum": "624975000"
+    },
+    {
+      "name": "g07_3b_ctas_from_values",
+      "sql": "CREATE TABLE g07_3b_ctas AS FROM VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e'), (6, 'f'), (7, 'g'), (8, 'h') rows(i, v)",
+      "reset": "DROP TABLE IF EXISTS g07_3b_ctas",
+      "verify": "SELECT sum(i) FROM g07_3b_ctas",
+      "rows": 1,
+      "sum": "36"
+    },
+    {
+      "name": "g06_1f_printf_constant_format_50k",
+      "sql": "SELECT sum(strlen(printf('%08d:%s', i, v))) FROM g06_1f_2b_g07_3b",
+      "rows": 1,
+      "sum": "687500"
+    },
+    {
+      "name": "g06_1f_format_dynamic_low_cardinality_50k",
+      "sql": "SELECT sum(strlen(format(fmt, i, v))) FROM g06_1f_2b_g07_3b",
+      "rows": 1,
+      "sum": "526390"
+    },
+    {
+      "name": "g06_2b_regexp_replace_global_constant_50k",
+      "sql": "SELECT sum(strlen(regexp_replace(i::VARCHAR || '-' || v, '[0-9]', 'X', 'g'))) FROM g06_1f_2b_g07_3b",
+      "rows": 1,
+      "sum": "526390"
+    },
+    {
+      "name": "g06_2b_regexp_extract_dynamic_pattern_50k",
+      "sql": "SELECT sum(regexp_extract(i::VARCHAR || '-' || v, pattern, 1)::BIGINT) FROM g06_1f_2b_g07_3b",
+      "rows": 1,
+      "sum": "1249975000"
+    },
+    {
+      "name": "g06_2b_regexp_escape_50k",
+      "sql": "SELECT sum(strlen(regexp_escape(escaped))) FROM g06_1f_2b_g07_3b",
+      "rows": 1,
+      "sum": "237500"
+    }
+  ]
+}

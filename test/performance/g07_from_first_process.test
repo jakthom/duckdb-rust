@@ -1,0 +1,14 @@
+# G07.3b FROM-first filter/projection workload: 128 * 50k = 6.4m
+# stored-column row visits through the SQLLogic runner.
+statement ok
+CREATE TABLE g07_from_first_process AS SELECT i FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query I
+SELECT sum(i)
+FROM (FROM g07_from_first_process WHERE i % 2 = 0) filtered;
+----
+624975000
+
+endloop

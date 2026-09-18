@@ -55,6 +55,9 @@ impl Dialect for RewriteDialect {
         supports_select_wildcard_replace,
         supports_comma_separated_trim,
     );
+    fn supports_values_as_table_factor(&self) -> bool {
+        true
+    }
     fn parse_infix(
         &self,
         parser: &mut Parser,

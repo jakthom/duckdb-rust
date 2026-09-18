@@ -30,3 +30,9 @@ whole engine to GenericDialect or rewriting SQL text. Remove these corrections
 when an adopted upstream release provides them. Engine tests exercise the
 grammar through its normal parser and binder. Report source identities include
 vendored Rust sources and manifests, not merely Cargo.lock.
+
+FROM-first DuckDB queries without an explicit `SELECT` list now parse their
+optional `WHERE` predicate before returning the restricted select. `ORDER BY`
+and `LIMIT` remain in the existing outer query parser. The engine regression is
+`test/component/from_first.rs`, including `FROM items WHERE ... ORDER BY ...`
+and `CREATE TABLE ... AS FROM VALUES ... AS alias(...)`.

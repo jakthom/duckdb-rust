@@ -116,6 +116,18 @@ name = "text_regex"
 path = "test/component/text_regex.rs"
 
 [[test]]
+name = "text_regex_value"
+path = "test/component/text_regex_value.rs"
+
+[[test]]
+name = "text_formatting"
+path = "test/component/text_formatting.rs"
+
+[[test]]
+name = "from_first"
+path = "test/component/from_first.rs"
+
+[[test]]
 name = "casts"
 path = "test/component/casts.rs"
 

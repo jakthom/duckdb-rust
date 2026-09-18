@@ -14782,6 +14782,14 @@ impl<'a> Parser<'a> {
             let from_token = self.expect_keyword(Keyword::FROM)?;
             let from = self.parse_table_with_joins()?;
             if !self.peek_keyword(Keyword::SELECT) {
+                // A no-SELECT FROM-first query still has the normal filter
+                // clause. ORDER BY and LIMIT are parsed by parse_query after
+                // this restricted SELECT returns.
+                let selection = if self.parse_keyword(Keyword::WHERE) {
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
                 return Ok(Select {
                     select_token: AttachedToken(from_token),
                     optimizer_hints: vec![],
@@ -14795,7 +14803,7 @@ impl<'a> Parser<'a> {
                     from,
                     lateral_views: vec![],
                     prewhere: None,
-                    selection: None,
+                    selection,
                     group_by: GroupByExpr::Expressions(vec![], vec![]),
                     cluster_by: vec![],
                     distribute_by: vec![],

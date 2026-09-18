@@ -314,6 +314,12 @@ impl State<'_, '_> {
                 _ => return Err(unsupported(item)),
             }
         }
+        // DuckDB's FROM-first spelling has no explicit SELECT list.  Its
+        // projection is the same unqualified star used by `SELECT *`, after
+        // FROM bindings (and therefore aliases) have been established.
+        if items.is_empty() && matches!(select.flavor, ast::SelectFlavor::FromFirstNoSelect) {
+            items.extend(scope.star(None)?);
+        }
         if items.is_empty() {
             return Err(Error::Bind("SELECT has no columns".into()));
         }

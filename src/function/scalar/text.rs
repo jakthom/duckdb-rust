@@ -4,6 +4,7 @@
 //! value must retain the source's original UTF-8 bytes (including NULs).
 
 mod codepoint;
+mod formatting;
 mod grapheme;
 mod metrics;
 mod regex;
@@ -252,6 +253,7 @@ impl<'a> BigintBatch<'a> {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(super) fn register(registry: &mut FunctionRegistry) {
     codepoint::register(registry);
+    formatting::register(registry);
     grapheme::register(registry);
     metrics::register(registry);
     regex::register(registry);
