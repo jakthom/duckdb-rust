@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 3 is integrated through `6f16ce5`; focused correctness passes, but four native latency cases and process wall/CPU still fail. CPU profiling precedes the next correction. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 4 is integrated through `70ee5ff`; focused correctness passes, but four native latency cases, process wall/CPU and three affected grouping consumers still fail. Candidate 5 addresses measured key/index/SUM costs; acceptance remains open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -758,15 +758,35 @@ Batch 1 evidence/restart details:
   1.679x/1.691x; RSS passes at 0.626x, block I/O zero. Existing G08 native
   consumers all pass diagnostic gates. Preserve worker `*candidate3*.json` and
   their source/binary identities. Short sampled CPU profiles of the unchanged
-  failing workloads are next; no final performance claim or rerun-to-green.
+  failing workloads identified repeated key scans, DISTINCT hashing and short
+  grouped-string allocations; raw profiles are worker
+  `target/c2-1/profile-candidate3-q{2,3,4,5}.txt`. No final performance claim.
   Manifest additions are worker `target/c2-1/borrowed-key-manifest.md` and
   `publication-correction-manifest.md`. The latter uses
   `src/execution/physical_plan.rs` to opt only Aggregate nodes into owned
   publication. This later change affects F1 aggregate consumers, so C2's final
   integrated performance selection includes F1 native/process workloads again;
   it does not invalidate F1's earlier accepted revision or require a whole F1
-  functional sweep. Final measurements follow only after
-  corrections pass; do not start batch 2 yet.
+  functional sweep. Candidate 4 is worker `703e0ed`, integrated as `70ee5ff`:
+  on-demand bounded dense growth, inline short grouped strings, small DISTINCT
+  sets and bounded stable integer counting-order. Focused index 9/9, string 6/6,
+  modifier 1/1, grouping 74/74 and process 257/257 pass. Native diagnostics pass
+  ungrouped 0.646–0.671x; few groups fail 1.310–1.352x, many 1.308–1.326x,
+  ordered DISTINCT regresses to 2.737–2.792x, mixed improves but fails
+  1.549–1.554x. Process wall/CPU fail 1.433x/1.438x; RSS passes 0.630x,
+  block I/O zero. G08 native consumers pass. Shared indexing also affects the
+  existing grouping workloads: grouped SUM 1.644–1.740x, ROLLUP 1.062–1.114x,
+  CUBE 1.950–2.742x all fail and remain obligations, not waived baseline gaps.
+  Preserve `target/c2-1/*candidate4*.json` and exact identities in the manifest.
+  Candidate 5 ownership: S `batch1_f1` repairs small DISTINCT lookup with
+  collision-safe integer prefixes; root adds direct two-flat-BIGINT tuple
+  indexing; S `batch1_f1_performance` borrows grouped SUM lanes and narrows
+  owned publication to schemas containing physical VARCHAR. The latter can
+  remove publication-only impact on numeric/F1 consumers after reviewed input
+  comparison; it does not remove the affected grouping workload obligations.
+  One validator (`batch1_f1`) coalesces focused tests, then freezes before quiet
+  diagnostics. Final measurements follow only after corrections pass;
+  do not start batch 2 yet.
   C2.1 remains incomplete pending measured batch/group/modifier
   performance corrections, final affected verification and final performance
   gates. Do not drop workloads or weaken their oracles to close this chunk.
