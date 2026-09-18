@@ -9,6 +9,47 @@ reports. The specs describe requirements and the pinned C++ source, not a claim
 that the Rust counterpart exists. Update the backlog in place when behavior
 changes; do not create another progress/checkpoint summary document.
 
+## Validation scope — durable policy
+
+Accepted user clarification, 2026-09-18: **impact-scoped validation is the default
+both during implementation and at chunk completion. A full-engine sweep must
+not gate an isolated subsystem change.** This section is the source of truth
+for validation scope, independent of the changing backlog, plans and status
+reports. Those documents and agent handoffs must link to and follow this policy;
+updating them cannot reinstate a full-sweep-per-chunk requirement.
+
+- Documentation/planning/status/instruction-only changes receive artifact checks
+  only, never engine validation.
+- Bounded implementation changes receive a partial sweep: relevant formatting,
+  lint/build checks, affected tests and unchanged upstream/interop cases, and
+  affected performance workloads. Include negative/boundary cases and existing
+  consumers of changed behavior. Python-only tooling uses Python checks.
+- Shared-contract changes expand coverage to affected consumers and dependencies,
+  not automatically to the whole engine. Scope follows behavioral impact, not
+  merely changed filenames. Account for transitive consumers and build/features.
+- Full sweeps are reserved for explicit broad integration/release checkpoints
+  or changes whose impact genuinely spans the engine. Before dispatch, record
+  the concrete reason targeted coverage is insufficient. A commit, chunk label,
+  shared file, or uncertainty alone is not justification: investigate the impact
+  first. Missing scope information requires clarification, not a default full run.
+- Recovery, Kani and performance checks follow the same impact boundary.
+  Exhaustive recovery belongs to changes affecting durability/recovery contracts;
+  Kani covers affected maintained proofs/invariants. Unrelated suites do not gate
+  completion. Report omitted suites as not applicable with a scope rationale,
+  never as passed. Full checkpoints include the maintained Kani suite.
+- Reuse evidence while its tested implementation, dependencies, configuration
+  and validation inputs remain unchanged. An edit invalidates only affected
+  evidence; rerun that selection and newly affected consumers. Neither unrelated
+  edits nor a new commit hash require repeating unchanged checks.
+
+Every implementation handoff must declare: baseline and owned/changed paths;
+changed contracts and affected consumers; scope (`partial` or `full`) and reason;
+exact commands, targets/filters and case IDs; excluded suites and rationale;
+functional/performance obligations; and source/input identities for evidence.
+Review this manifest before execution. Unknown filters, zero tests, missing
+coverage and stale results cannot count as success. Broaden the manifest when
+impact grows, never shrink it to conceal failures.
+
 ## Edit loop
 
 Classify the actual change before choosing validation. Documentation, plans,
@@ -55,7 +96,7 @@ source/binary/profile provenance. Stop a watcher before another validation
 process starts in the worktree. Never treat stale workers or modified cached
 inputs as current. See [testing cadence](specs/testing/parity.md#continuous-feedback-and-completion).
 
-## Chunk completion sweep — implementation changes only
+## Chunk completion sweep — impact-scoped implementation checks
 
 This section applies to implementation changes affecting the engine or its
 build, dependencies, executable tests/harnesses, fixtures or workloads. It does
@@ -70,11 +111,15 @@ boundary merely because an intermediate edit or commit is complete.
 
 An agent's "100% complete" assessment means **ready for verification**, not done.
 Freeze the integrated source tree and the chunk's validation manifest. Before
-declaring each chunk complete, delegate one full sweep to the project
-`verifier` agent. The primary agent must not run or babysit the full sweep. The
+declaring each chunk complete, delegate its impact-scoped sweep to the project
+`verifier` agent. The primary agent must not run or babysit the sweep. The
 verifier uses `gpt-5.6-terra` with low reasoning effort, as configured in
 `.codex/agents/verifier.toml`. Do not silently substitute a higher-priced model
-for verification. The verifier runs this single command from the repository root:
+for verification. For partial sweeps, the verifier runs the manifest's exact
+commands progressively and fail-fast, recording stage times and selected test
+counts. Do not substitute the full runner for a partial sweep. The existing
+runner below is **full-only**, not an automatic impact selector; invoke it only
+for a justified full checkpoint:
 
 ```sh
 python3 scripts/verify_chunk.py
@@ -84,15 +129,16 @@ The runner is progressive and fail-fast. It reports elapsed time for each stage
 and performs formatting, all-target checking, all-target Clippy, the full test
 suite except the exhaustive recovery truncation test, that exhaustive test in a
 visible final test stage, and the maintained Kani checkpoint. A chunk is not
-complete until every ordinary stage has passed against its final source tree and
-Kani has been run and reported. If an implementation or validation-input edit is
-made after the sweep begins, rerun the complete sweep against the new final tree.
+complete until every applicable ordinary stage has passed against its final
+implementation inputs and applicable Kani checks have been run and reported.
+If an edit affects a running check's inputs, mark that result stale and rerun
+the affected checks and any newly affected consumers, not the entire sweep.
 Unrelated documentation, planning, status or agent-instruction edits do not
 invalidate the result or require a rerun. Use
 `python3 scripts/verify_chunk.py --list` to inspect the stages without executing
 them.
 
-The sweep is the common regression gate, not the entire acceptance decision:
+The scoped sweep is the regression gate, not the entire acceptance decision:
 the chunk's unchanged upstream/interop/contract cases and the performance gate
 below must also be satisfied on that final tree. Do not defer these obligations
 until the final PR or G24. Only changes to the tested implementation or relevant
@@ -130,13 +176,16 @@ See [acceptance](specs/testing/parity.md#per-chunk-performance-acceptance).
 
 ## Exploratory checkpoints with Kani
 
-The chunk completion runner invokes `python3 scripts/verify_kani.py` after all
-ordinary stages. Keep Kani out of the routine edit/check/test loop. Focused
-`cargo kani --harness ...` runs are useful when debugging a proof, but stage
-completion requires the full maintained suite through the command above.
+The full checkpoint runner invokes `python3 scripts/verify_kani.py` after all
+ordinary stages. Partial sweeps run only affected maintained harnesses through
+explicit manifest commands; unrelated proof coverage is not a gate. If no proof
+or proved invariant is affected, report Kani as not applicable with a rationale.
+Keep Kani out of the routine edit/check/test loop except focused proof debugging.
+Only full checkpoints require the full maintained suite through the command above.
 
-During the exploratory rewrite, the requirement is to run Kani and report what
-was learned. A passing proof suite is not required to complete the chunk. The
+When Kani is applicable during the exploratory rewrite, the requirement is to
+run the selected proofs and report what was learned. A passing proof suite is
+not required to complete the chunk. The
 runner's nonzero status reports unsuccessful or incomplete verification; it is
 not a stage-completion verdict. Investigate counterexamples against the intended
 behavior and handle confirmed bugs through the ordinary correctness process.
@@ -196,7 +245,9 @@ performance acceptance. Compare production builds against both pinned C++ versio
 
 Use `cargo dev coverage` when changing interfaces or adding Rust files. Missing
 attributes can be added with `cargo dev coverage --write` and then reviewed.
-Check instrumentation compatibility with `cargo dev trace check --workspace --all-targets`.
+Check instrumentation compatibility with an affected-package/target
+`cargo dev trace check`; use `--workspace --all-targets` only for justified broad
+checks under the validation scope policy.
 Production builds use `cargo build --release --no-default-features` and exclude tracing.
 
 ## Validation artifacts

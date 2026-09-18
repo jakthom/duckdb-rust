@@ -14,19 +14,24 @@ are deferred until the design settles.
 ## Cadence and completion
 
 Use normal checks, unit/contract tests, and targeted reproductions while editing.
-Run Kani before completing a feature slice, subsystem or adapter, cross-module
-refactor, or change to a significant representation, ownership, arithmetic, or
-state-transition invariant. A chunk can span multiple commits. Every such chunk
-gets a checkpoint, even within a long-running PR; do not wait for final PR review.
-Routine documentation, formatting and isolated low-impact edits do not create a
-chunk boundary. At an explicitly declared work-chunk boundary, the full staged
-sweep required by [AGENTS.md](../../AGENTS.md) includes the Kani checkpoint; this
-applies even when that explicit chunk concerns documentation or tooling.
+Follow the durable [validation scope policy](../../AGENTS.md#validation-scope--durable-policy).
+Before completing changes affecting maintained proofs or proved representation,
+ownership, arithmetic or state-transition invariants, run the affected harnesses
+listed in the validation manifest. A chunk can span multiple commits. A chunk
+label or size alone does not require Kani. Unrelated subsystem changes report
+not applicable with a scope rationale; documentation/planning/status/instruction-
+only changes NEVER trigger Kani. Tooling changes require proofs only if their
+actual effect reaches those proof contracts or their verification inputs.
+Full maintained-suite runs belong to explicitly justified full checkpoints,
+not every chunk. This supersedes earlier blanket checkpoint requirements.
 
 At the checkpoint:
 
-1. Run `python3 scripts/verify_kani.py` from the rewrite checkout. This runs all
-   maintained library harnesses with tracing disabled, including earlier proofs.
+1. For a partial checkpoint, run the manifest's explicit affected harness
+   commands with the pinned toolchain and tracing disabled. For a full checkpoint,
+   run `python3 scripts/verify_kani.py` from the rewrite checkout; this runs all
+   maintained library harnesses, including earlier proofs. Report actual coverage;
+   a partial checkpoint is not evidence that unselected harnesses passed.
 2. Investigate counterexamples against intended behavior. Distinguish an actual
    bug from an outdated assertion, incorrect harness assumption, or tool limit.
    Handle confirmed bugs through the ordinary correctness process; this policy
@@ -70,8 +75,8 @@ Kani manages its compiler toolchain separately from ordinary Cargo builds. See
 the official [installation guide](https://model-checking.github.io/kani/install-guide.html).
 Update the pin deliberately and rerun the suite when changing it.
 
-For proof development, select one harness, then use the full stage command when
-the chunk is ready:
+For proof development and partial checkpoints, select the affected harnesses
+explicitly; reserve the full stage command for justified full checkpoints:
 
 ```sh
 cargo kani -p duckdb-rust --lib --no-default-features \

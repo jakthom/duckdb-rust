@@ -28,7 +28,11 @@ acceptance**, **performance**, and **sweep/Kani**. Implementation states are que
 active, ready, accepted, or blocked (with an exact dependency). Acceptance fields
 are pass/fail/open plus tested revision and report; strictly documentation-only
 performance may be not applicable with a reviewed rationale. Kani is reported
-separately as successful/unsuccessful/incomplete under its exploratory policy.
+separately as successful/unsuccessful/incomplete or not applicable with a scope
+rationale under its exploratory policy. Validation scope is governed by
+[AGENTS.md's durable policy](../AGENTS.md#validation-scope--durable-policy), not
+this changing status: partial sweeps by default, full sweeps only with explicit
+justification, and no engine validation for documentation/instructions-only edits.
 “Accepted” requires the chunk's final-tree gates; retain its accepted revision
 when later unrelated work lands. New edits to its contracts reopen affected
 acceptance. Never leave an old “pending” sentence as the current status beneath
@@ -36,7 +40,7 @@ a newer result.
 
 **Planning maintenance chunk (this change).** Own only
 `docs/parity-backlog.md`, `docs/architecture.md`,
-`specs/testing/parity.md`, `AGENTS.md`, and instruction-only
+`specs/testing/parity.md`, `specs/testing/kani.md`, `AGENTS.md`, and instruction-only
 `.codex/agents/verifier.toml`. Validation: reviewed diff,
 `git diff --check`, local-link/anchor and command/target checks, plus independent
 status and dispatch review. No SQL/source/build/configuration/fixture/workload
@@ -377,8 +381,9 @@ For every assigned chunk:
 4. Run affected unchanged upstream cases and adversarial regressions; preserve
    known passing cases. Map non-SQL assertions explicitly to Rust contracts.
 5. Treat the agent's "100% complete" assessment as ready for verification; freeze
-   the integrated tree. At that boundary, delegate `python3 scripts/verify_chunk.py` to
-   the configured low-cost verifier. Follow [AGENTS.md](../AGENTS.md). Kani findings
+   the relevant integrated inputs and delegate the manifest's impact-scoped
+   commands to the configured low-cost verifier. Follow the durable
+   [scope policy](../AGENTS.md#validation-scope--durable-policy). Applicable Kani findings
    must be investigated/reported under the exploratory policy; proof success is
    not a substitute for ordinary correctness or upstream execution evidence.
 6. Require **at-parity or better performance** for every affected workload under
@@ -478,7 +483,7 @@ No token-price forecast is needed to dispatch this plan.
 | T | `gpt-5.6-terra` / medium | Default bounded implementation and independent review with strong reference cases. |
 | S | `gpt-5.6-sol` / high | Binder/catalog integration, codecs, ownership and cross-module behavior. |
 | A | `gpt-6-astra` / high | Transaction conflicts, publication failures, scheduler and foreign-handle state machines; integration decisions with broad consequences. |
-| V | configured `verifier`: `gpt-5.6-terra` / low | Mandatory one-command completion sweep; never silently substitute the implementation model. |
+| V | configured `verifier`: `gpt-5.6-terra` / low | Impact-scoped completion checks; full runner only with explicit justification. Never silently substitute the implementation model. |
 
 Use explicit model/effort on dispatch (and a bounded task brief), because the
 repository default is Terra/low and full-history forks inherit the parent.
@@ -509,13 +514,14 @@ Do not wait for all three workers before integrating a ready chunk. Finish and
 review one coherent contract at a time, then queue its acceptance. Stop adding
 implementation work when two chunks await acceptance; free a slot for the
 verifier and clear the queue. A chunk remains ready, not accepted, until its own
-functional, performance and full-sweep obligations pass. Do not batch independent
-chunks merely to waive a sweep or omit their workloads.
+functional, performance and scoped-regression obligations pass. Overlapping
+checks on identical relevant inputs can share evidence; retain each chunk's
+coverage/accounting and do not omit affected workloads.
 
 On one host, quiet performance windows pause builds, test campaigns and other
 CPU/I/O-heavy agent work across all worktrees. Separate worktrees do not isolate
 host performance. Read-only planning may continue without a competing workload.
-The full sweep also owns its integration worktree exclusively. A separate
+The scoped sweep also owns its integration worktree exclusively. A separate
 measurement host is an optional future improvement, not assumed available.
 Build all required candidates/references before timing. Never switch reference
 checkouts during another campaign.
@@ -530,13 +536,13 @@ workloads; the parent stays open until every inventoried family has a dispositio
 
 | Checkpoint | Required action and evidence |
 | --- | --- |
-| Assignment | Record baseline commit; owned/shared paths; exact model/effort; dependency; one failing reference case; affected existing consumers; fast commands and exact case IDs; complete functional commands; performance workloads/configurations/adapters. Missing coverage becomes a named task. |
+| Assignment | Record baseline/input identities; owned/shared paths; exact model/effort; dependency; one failing reference case; affected transitive consumers; partial/full scope and reason; exact commands/case IDs; excluded suites/rationale; complete functional commands; performance workloads/configurations/adapters. Missing coverage becomes a named task. |
 | First executable slice | Run one end-to-end success, one negative/boundary case and the nearest existing consumer. Confirm the selected tests actually run. Resolve shared-interface problems here. |
 | Each logical behavior batch | Run affected Cargo target/filter or Python tests, then the small unchanged upstream selection on both pins. Reuse caches; record source hash, selection/counts, result and newly exposed blocker. Do not stack edits on an unexplained regression. |
 | Shared-contract edit / integration | Broaden to all listed consumers and compare debug/ordinary release outcomes. Include prepared reuse, custom adapters, vector encodings, rollback/reopen or foreign destruction as relevant. Re-run on the integrated tree; worker results are not integration results. |
 | Early performance diagnosis | After correct representative execution exists, time the predeclared hot path on a quiet host. Diagnose a slowdown before implementing the whole family. This is not acceptance or permission to reduce semantics/workloads. |
 | Ready | Independent reviewer checks pinned semantics, missing cases, ownership, performance comparability and manifest completeness. Freeze source and manifest before final gates. |
-| Complete implementation | Full assigned unchanged upstream/API/native/configuration population; every gate-P workload; delegated full sweep with Kani report. Same tested implementation and validation inputs, no stale binaries or unexplained ordinary failures. |
+| Complete implementation | Complete assigned unchanged upstream/API/native/configuration population; every affected gate-P workload; delegated impact-scoped sweep and applicable Kani report (or reasoned N/A). Same tested relevant implementation and validation inputs, no stale binaries or unexplained ordinary failures. |
 | Complete documentation/instructions | Relevant diff, links, examples, syntax and consistency checks only. Never dispatch engine validation; retain existing engine evidence with its actual tested revision. |
 | Handoff | Update the existing status row in place with four gate fields, exact revisions/reports, remaining IDs and next dependency. Raw artifacts stay under `target/`. State whether full census is fresh or historical. |
 
@@ -570,19 +576,20 @@ A prebuilt worker additionally requires the exact current source/binary/profile
 sidecar from `--write-worker-provenance`; a prior binary is not assumed valid.
 Fast-cache and source-tamper negatives must continue to fail closed. New Rust
 interfaces/files require `cargo dev coverage` and
-`cargo dev trace check --workspace --all-targets` at integration.
+an affected-package/target `cargo dev trace check` at integration. Workspace/
+all-target tracing checks require the same broad-impact justification as other
+full checks.
 
-For implementation changes, the configured verifier alone runs
-`python3 scripts/verify_chunk.py` on the frozen tree. It first rejects unrelated
-documentation/planning/status/agent-instruction-only dispatches. The sweep owns
-format, all-target check, all-target Clippy, the full tests,
-visible exhaustive recovery and the maintained Kani checkpoint. The primary
-does not run or babysit the sweep. Every ordinary stage must pass; Kani must run
-and its findings/limits must be reported under the exploratory policy. An
-implementation or relevant validation-input edit after freeze requires a new
-sweep and refreshed affected acceptance. Unrelated prose and agent instructions
-do not invalidate evidence. Update status after validation without rerunning
-the engine merely because the documentation or commit hash changed.
+The configured verifier follows the durable
+[scope policy](../AGENTS.md#validation-scope--durable-policy): reject documentation-
+only dispatches and unjustified full sweeps, require a reviewed scope manifest,
+then run its exact affected checks progressively and fail-fast. The existing
+`python3 scripts/verify_chunk.py` is full-only, not an impact selector; use it only
+for justified broad checkpoints. The primary does not run or babysit the sweep.
+Every applicable ordinary stage must pass; report applicable Kani findings/limits
+or a scope-based N/A. Edits invalidate only evidence whose inputs or contracts
+they affect. Reuse unchanged evidence with its actual tested identities; update
+status without rerunning checks merely because a commit hash changed.
 
 ### At-parity or better performance
 
@@ -2628,6 +2635,10 @@ Owned chunks: Gxx.1 ... Gxx.n
 Dependencies: <specific capabilities; integration owner for shared files>
 Validation manifest:
   Owned paths / shared proposals: <exact files/modules>
+  Scope: <partial by default; full requires concrete broad-checkpoint/impact reason>
+  Impact: <changed contracts, transitive consumers, dependencies/features>
+  Exclusions: <unaffected suites including recovery/Kani; rationale, not a pass>
+  Evidence inputs: <tested source/dependency/configuration/fixture identities>
   First slice: <one end-to-end case, one negative/boundary, one existing consumer>
   Fast checks: <affected package/target and test filters; reject zero-test runs>
   Cadence: <after each logical behavior batch; one validation process per worktree>
@@ -2639,19 +2650,20 @@ Validation manifest:
     Baselines: <both pinned C++ identities; faster reference per workload>
     Evidence: <final source/binary hashes, commands, samples, pass/fail/open>
 Deliver: implemented behavior, unchanged upstream cases/source mappings,
-         relevant cross-consumer regressions, full-sweep/Kani result,
+         relevant cross-consumer regressions, scoped-sweep/applicable Kani result,
          at-parity or better performance evidence, remaining gaps.
 Status: implementation=<queued|active|ready|accepted|blocked + dependency>
         functional=<pass|fail|open + revision/report>
         performance=<pass|fail|open + revision/report; docs-only N/A if applicable>
-        sweep=<pass|fail|open + revision>; Kani=<successful|unsuccessful|incomplete>
+        sweep=<partial|full; pass|fail|open + revision/input identities>
+        Kani=<successful|unsuccessful|incomplete|not applicable + scope rationale>
 Feedback record: <source hash, command, exact IDs/counts, outcome, lost passes>
 Elapsed effort: <implementation, feedback, integration, acceptance; review rework>
 Constraints: selected subsystem interfaces; development wins semantic disagreements;
              no skips relabeled as passes; raw evidence only in ignored target/.
-Readiness: agent says ready -> freeze integrated tree -> independent full pass.
-Completion (implementation): functional acceptance + full sweep/Kani report + gate P;
-            only changed implementation/relevant validation inputs invalidate evidence.
+Readiness: agent says ready -> freeze relevant integrated inputs -> independent scoped pass.
+Completion (implementation): functional acceptance + scoped sweep/applicable Kani + gate P;
+            rerun only evidence affected by changed inputs, plus newly affected consumers.
 Completion (documentation/instructions): relevant artifact checks only; no engine sweep.
 ```
 

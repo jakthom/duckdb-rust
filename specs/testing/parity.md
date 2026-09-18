@@ -36,9 +36,14 @@ require a fresh tested commit hash. Preserve the actual tested revision/scope.
 The implementation workflow below applies only when relevant executable or
 validation inputs change; the verifier must reject documentation-only dispatches.
 
-Accepted user clarification, 2026-09-15: use fast, targeted feedback while work
-is in progress, then a full independent pass when the agent believes the planned
-chunk is 100% complete. That belief changes its status to **ready for verification**;
+Accepted user clarification, 2026-09-18: follow the durable
+[validation scope policy](../../AGENTS.md#validation-scope--durable-policy).
+Partial, impact-scoped sweeps are the default at completion as well as during
+implementation; they cover changed behavior and affected transitive consumers.
+This supersedes the September 15 full-sweep-per-chunk requirement. Full sweeps
+require an explicit broad integration/release checkpoint or documented whole-
+engine impact; plans and status updates cannot implicitly reinstate them.
+An agent's belief that the planned chunk is 100% complete makes it **ready for verification**;
 it is not evidence that the goal has been achieved. A chunk can span many edits
 and commits. Do not run completion gates after every edit or intermediate commit.
 
@@ -48,13 +53,16 @@ unchanged upstream IDs and negative/boundary cases; full functional acceptance
 commands; performance workload IDs, configurations and metrics. Select cases by
 the changed contract and its consumers, not only by filename. Expand the manifest
 when scope changes and preserve the reason; do not shrink it to hide failures.
+Include baseline/input identities, partial/full scope and justification, affected
+transitive consumers, and excluded suites with rationale. Missing scope must be
+resolved before dispatch, not converted into a default full sweep.
 
 | Stage | Required feedback | Not a completion claim |
 | --- | --- | --- |
 | Documentation/planning/status/instructions only | Relevant diff, link, example, syntax and consistency checks | Never an engine sweep; existing engine evidence remains valid for its tested inputs. |
 | Small edit batch | Affected package/target check, e.g. `cargo check -p duckdb-rust --lib` for library edits | Does not execute tests or check unrelated targets. |
 | Behavior change | Named test target/filter plus the assigned small upstream set; affected Python tests for Python-only changes | Does not cover the whole goal or establish performance parity. |
-| Ready for verification | Frozen integrated tree; delegated full sweep, complete assigned functional population and at-parity or better performance | Completion requires all applicable gates, not the agent's confidence or Cargo alone. |
+| Ready for verification | Frozen relevant inputs; delegated impact-scoped sweep, complete assigned functional population and at-parity or better performance | Completion requires all applicable gates, not the agent's confidence or Cargo alone. Full sweeps require explicit justification. |
 
 Keep incremental build caches worktree-local and reuse profile/feature choices.
 Do not add an unnecessary `cargo check` immediately before a targeted test that
@@ -94,17 +102,21 @@ An independent review checks semantics, ownership, missing coverage and workload
 comparability before the integrated source freezes. The maintained backlog
 records the dispatch tracks and exact per-chunk selections.
 
-At readiness, stop edits to the integrated tree. The configured Terra/low verifier
-runs exactly `python3 scripts/verify_chunk.py` for the common progressive regression
-sweep. The full assigned upstream/API/native/configuration population and the
-chunk's performance workloads are additional acceptance gates: the current sweep
-does not automatically select or execute them. The integration owner must collect
-all three outcomes for the same final tree. Run timing campaigns serially on a
-quiet host, not alongside the sweep. Every ordinary sweep stage must pass and
-Kani must run and be reported under its exploratory policy. Subsequent changes
-to the implementation or relevant validation inputs invalidate completion;
-rerun the sweep and refresh affected acceptance evidence for those changes.
-Unrelated prose or agent-instruction changes do not invalidate these results.
+At readiness, freeze the integrated implementation inputs and manifest. The
+configured Terra/low verifier runs the manifest's exact scoped commands
+progressively and fail-fast. `python3 scripts/verify_chunk.py` remains a full-only
+runner, used only for justified full checkpoints; it has no automatic impact
+selection. Missing automation is not permission to substitute a full sweep.
+The complete assigned upstream/API/native/configuration population and affected
+performance workloads remain mandatory; a partial sweep must not omit affected
+consumers. The integration owner collects all applicable outcomes against final
+relevant inputs. Run timing campaigns serially on a quiet host, not alongside
+the sweep. Every applicable ordinary stage must pass. Recovery and Kani run only
+when relevant to affected contracts/proofs, or as part of a full checkpoint;
+record exclusions as not applicable with rationale, never as passing.
+An input change invalidates only affected evidence: rerun those checks and newly
+affected consumers. Preserve unchanged results with their tested identities.
+Unrelated edits or commit hashes do not require repeating validation.
 
 ## Correctness
 
@@ -209,8 +221,9 @@ labels describe functional progress, not proof of this completion gate.
 
 ## Additional testing
 
-Each large implementation chunk must also run and report a [Kani
-checkpoint](kani.md), rather than running it on every edit. During exploration,
+Changes affecting maintained proofs or proved invariants run and report the
+affected [Kani harnesses](kani.md); unrelated subsystem chunks do not require a
+proof sweep. Explicit full checkpoints run the maintained suite. During exploration,
 proof success and comprehensive proof coverage are not stage-completion
 conditions. Investigate findings, record limitations, and let proofs follow the
 emerging design. Bounded proof results are separate evidence; they do not
