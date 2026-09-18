@@ -846,8 +846,23 @@ Batch 1 evidence/restart details:
   Candidate 7 worker `0284439` is integrated as `e25c889`. Focused checks pass:
   modifier 1/1, owned completion contracts 2/2, LIST leaf 3/3, STRING_AGG leaf
   7/7 and grouping 77/77, with formatting/diff checks clean. Fresh release
-  build/unchanged untimed fixtures and quiet diagnostics are next; performance
-  is still open, not inferred from passing functional tests.
+  build and unchanged fixtures passed. Quiet native diagnostics pass C2
+  ungrouped 0.641–0.646x and few groups 0.926–0.957x; many groups fail
+  1.190–1.202x, ordered DISTINCT 1.004–1.056x, mixed 1.163–1.177x.
+  C2 process still fails wall/CPU 1.083x/1.088x; RSS passes 0.619x, I/O ties.
+  Grouping and G08 filter native/resource diagnostics pass. Scope audit added
+  the existing six-case `g08_ordered_aggregate_workloads.json` and its process
+  manifest: grouped FIRST/LAST and mixed SUM use the changed index/state; the
+  three ungrouped native cases remain controls. All six native cases pass;
+  process passes wall/CPU/RSS at 0.954x/0.951x/0.523x. Preserve worker
+  `target/c2-1/*candidate7*.json`; these are not final acceptance.
+  Candidate 8 follows fresh profiles: root specializes only the equivalent
+  physical VARCHAR discriminator (no metadata/coercion change); S `batch1_f1`
+  memoizes bounded per-batch dictionary identities before VARCHAR DISTINCT
+  lookup; S `batch1_f1_performance` adopts checked power-of-two grouped string
+  capacity, matching the pinned C++ growth policy while leaving scalar and
+  inline storage unchanged. Both latency and RSS gates stay independent.
+  No retained-input/two-pass aggregation or new columnar interface is approved.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
