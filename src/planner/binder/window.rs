@@ -301,7 +301,13 @@ impl State<'_, '_> {
                 .query
                 .types()
                 .bind(&argument.data_type)?
-                .validate(&value, self.context.query)?;
+                .validate(&value, self.context.query)
+                .map_err(|error| match error {
+                    Error::Conversion(_) => {
+                        Error::Internal("constant evaluator returned an invalid value".into())
+                    }
+                    other => other,
+                })?;
             constants[index] = Some(value);
         }
         let (implementation, arguments) = if let Some(binding) = implementation.bind(&constants)? {

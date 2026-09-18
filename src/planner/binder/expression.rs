@@ -742,6 +742,9 @@ impl State<'_, '_> {
                         ));
                     }
                     let (argument_syntax, order_syntax) = aggregate_arguments(function)?;
+                    order_syntax
+                        .iter()
+                        .try_for_each(|order| validate_aggregate_order_literal(&order.expr))?;
                     let distinct = matches!(&function.args, ast::FunctionArguments::List(a) if a.duplicate_treatment == Some(ast::DuplicateTreatment::Distinct));
                     if distinct
                         && order_syntax.iter().any(|order| {
@@ -795,7 +798,17 @@ impl State<'_, '_> {
                             return Err(Error::Bind(message));
                         }
                         let value = self.context.expressions.evaluate(argument, &Vec::new(), self.context.query)?;
-                        self.context.query.types().bind(&argument.data_type)?.validate(&value, self.context.query)?;
+                        self.context
+                            .query
+                            .types()
+                            .bind(&argument.data_type)?
+                            .validate(&value, self.context.query)
+                            .map_err(|error| match error {
+                                Error::Conversion(_) => Error::Internal(
+                                    "constant evaluator returned an invalid value".into(),
+                                ),
+                                other => other,
+                            })?;
                         constants[index] = Some(value);
                     }
                     let (aggregate, arguments) = if let Some(binding) = aggregate.bind(&constants)? {
@@ -1028,6 +1041,43 @@ impl State<'_, '_> {
             descending,
             nulls_first,
         })
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn validate_aggregate_order_literal(expression: &ast::Expr) -> Result<()> {
+    let integer = match expression {
+        // Parentheses around the whole expression preserve literal treatment.
+        // A unary operator whose operand is parenthesized is instead an
+        // ordinary computed expression in the development pin.
+        ast::Expr::Nested(expression) => return validate_aggregate_order_literal(expression),
+        ast::Expr::Value(value) => match &value.value {
+            ast::Value::Number(value, _) => {
+                value.parse::<i128>().is_ok() || value.parse::<u128>().is_ok()
+            }
+            _ => false,
+        },
+        ast::Expr::UnaryOp {
+            op: ast::UnaryOperator::Minus,
+            expr,
+        } if matches!(expr.as_ref(), ast::Expr::Value(value) if matches!(&value.value, ast::Value::Number(_, _))) =>
+        {
+            let ast::Expr::Value(value) = expr.as_ref() else {
+                unreachable!()
+            };
+            let ast::Value::Number(value, _) = &value.value else {
+                unreachable!()
+            };
+            format!("-{value}").parse::<i128>().is_ok()
+        }
+        _ => return Ok(()),
+    };
+    if integer {
+        Ok(())
+    } else {
+        Err(Error::Bind(
+            "ORDER BY non-integer literal has no effect".into(),
+        ))
     }
 }
 

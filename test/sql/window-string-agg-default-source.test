@@ -1,0 +1,35 @@
+# Default-configuration replay of unchanged assertions extracted from:
+# development 99063af test/sql/window/test_window_string_agg.test
+# SHA-256 815e94a4d5bbffe794dc09b2ac9b4065e19317803a5e0d406ae3f4aaa5fdcf31
+# release d8cdaa33 test/sql/window/test_window_string_agg.test
+# SHA-256 596b76bd2bc0403dd165485adec0e6e429e352986d0d6aec61fa964a1ff5766b
+# The pins differ only in the final diagnostic regex; the unchanged development
+# assertion below governs while the release regex also accepts the same error.
+
+statement ok
+create table a as select range%3 j, range::varchar AS s, case when range%3=0 then '-' else '|' end sep from range(1, 7, 1)
+
+query III
+select j, s, string_agg(s) over (partition by j order by s) from a order by j, s;
+----
+0	3	3
+0	6	3,6
+1	1	1
+1	4	1,4
+2	2	2
+2	5	2,5
+
+query III
+select j, s, string_agg(s, '|') over (partition by j order by s) from a order by j, s;
+----
+0	3	3
+0	6	3|6
+1	1	1
+1	4	1|4
+2	2	2
+2	5	2|5
+
+statement error
+select j, s, string_agg(s, sep) over (partition by j order by s) from a order by j, s;
+----
+<REGEX>:.*Binder Error.*must be a constant expression.*

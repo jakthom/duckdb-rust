@@ -7,7 +7,9 @@ use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
     execution::{
         Executor, MaterializingExecutor, PullExecutor,
-        expression_executor::{BatchedEvaluator, ExpressionEvaluator, ScalarEvaluator},
+        expression_executor::{
+            BatchedEvaluator, EvaluationContext, ExpressionEvaluator, ScalarEvaluator,
+        },
         operator::aggregate::{AggregationAlgorithm, HashAggregation, OrderedAggregation},
         physical_plan::NativePhysicalPlanner,
     },
@@ -18,7 +20,7 @@ use duckdb_rust::{
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
     parallel::{InterruptHandle, QueryContext},
     planner::{
-        BoundExpr, Field, LogicalPlan, PlanNode,
+        BoundExpr, ExprKind, Field, LogicalPlan, PlanNode,
         aggregation::{AggregateOutput, Aggregation, GroupingSet},
     },
     storage::table::Snapshot,
@@ -967,24 +969,173 @@ fn string_agg_binds_constant_separators_and_composes_with_grouping_modifiers() -
         ));
         assert!(matches!(
             connection.query("SELECT string_agg(1, ',')"),
-            Err(Error::Bind(message)) if message.contains("no overload")
+            Err(Error::Bind(message)) if message.contains("No function matches")
         ));
     }
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn aggregate_order_literals_match_the_default_pinned_rule() -> Result<()> {
+    for algorithm in algorithms() {
+        let mut connection = DatabaseBuilder::new()
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(algorithm),
+            ))
+            .build()?
+            .connect();
+        for sql in [
+            "SELECT sum(i ORDER BY 1) FROM range(3) t(i)",
+            "SELECT list(i ORDER BY -1) FROM range(3) t(i)",
+            "SELECT string_agg(i::VARCHAR ORDER BY +1) FROM range(3) t(i)",
+            "SELECT string_agg(i::VARCHAR ORDER BY 1+0) FROM range(3) t(i)",
+            "SELECT list(i ORDER BY 1.0+0.0) FROM range(3) t(i)",
+            "SELECT string_agg(i::VARCHAR ORDER BY '_'||'') FROM range(3) t(i)",
+            "SELECT sum(i ORDER BY -i) FROM range(3) t(i)",
+            "SELECT list(i ORDER BY +(i+1)) FROM range(3) t(i)",
+            "SELECT string_agg(i::VARCHAR ORDER BY (1)) FROM range(3) t(i)",
+            "SELECT list(i ORDER BY -(1.5)) FROM range(3) t(i)",
+        ] {
+            connection.query(sql)?;
+        }
+        for sql in [
+            "SELECT sum(i ORDER BY 1.5) FROM range(3) t(i)",
+            "SELECT list(i ORDER BY '_') FROM range(3) t(i)",
+            "SELECT string_agg(i::VARCHAR ORDER BY NULL) FROM range(3) t(i)",
+            "SELECT sum(i ORDER BY true) FROM range(3) t(i)",
+            "SELECT list(i ORDER BY 340282366920938463463374607431768211456) FROM range(3) t(i)",
+            "SELECT string_agg(i::VARCHAR ORDER BY ('_')) FROM range(3) t(i)",
+            "SELECT list(i ORDER BY (1.5)) FROM range(3) t(i)",
+        ] {
+            assert!(matches!(
+                connection.query(sql),
+                Err(Error::Bind(message)) if message == "ORDER BY non-integer literal has no effect"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn string_agg_default_configuration_replays_pinned_source_records() -> Result<()> {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("test/sql/string-agg-default-source.test");
+    for algorithm in algorithms() {
+        let database = DatabaseBuilder::new()
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(algorithm),
+            ))
+            .build()?;
+        assert_eq!(runner::run_file(&database, &source)?, 29);
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct ConstantSeparator(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for ConstantSeparator {
+    fn name(&self) -> &str {
+        "constant_separator"
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        if arguments.is_empty() {
+            Ok(DataType::Varchar)
+        } else {
+            Err(Error::Bind("constant_separator takes no arguments".into()))
+        }
+    }
+    fn evaluate(&self, _: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(Value::Varchar("|".into()))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn string_agg_captures_constants_and_skips_input_for_null_separator() -> Result<()> {
+    for algorithm in algorithms() {
+        let input_calls = Arc::new(AtomicUsize::new(0));
+        let separator_calls = Arc::new(AtomicUsize::new(0));
+        let mut functions = FunctionRegistry::builtins();
+        functions.register_scalar(Arc::new(Observe(input_calls.clone())))?;
+        functions.register_scalar(Arc::new(ConstantSeparator(separator_calls.clone())))?;
+        let mut connection = DatabaseBuilder::new()
+            .functions(functions)
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(algorithm),
+            ))
+            .build()?
+            .connect();
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT string_agg(x, '|' ORDER BY k), \
+                            string_agg(x, '' ORDER BY k), \
+                            string_agg(observe(x), NULL) \
+                     FROM (VALUES (0,NULL::VARCHAR),(1,''),(2,'a'),(3,NULL),(4,'b')) t(k,x)",
+                )?
+                .rows,
+            vec![vec![
+                Value::Varchar("|a|b".into()),
+                Value::Varchar("ab".into()),
+                Value::Null,
+            ]]
+        );
+        assert_eq!(input_calls.load(Ordering::SeqCst), 0);
+
+        let prepared = connection.prepare(
+            "SELECT string_agg(x, constant_separator() ORDER BY k) \
+             FROM (VALUES (1,'a'),(2,'b')) t(k,x)",
+        )?;
+        for _ in 0..2 {
+            assert_eq!(
+                connection.execute_prepared(&prepared, &[])?.rows,
+                vec![vec![Value::Varchar("a|b".into())]]
+            );
+        }
+        assert_eq!(separator_calls.load(Ordering::SeqCst), 1);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug)]
+enum InvalidAggregateBindingKind {
+    ConstantIndex,
+    ReplacementIndex,
+    ReplacementType,
+    RetainedIndex,
+}
+
 #[derive(Debug)]
 struct InvalidAggregateBinding {
     source: Arc<dyn AggregateFunction>,
-    replacement: bool,
+    kind: InvalidAggregateBindingKind,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateFunction for InvalidAggregateBinding {
     fn name(&self) -> &str {
-        if self.replacement {
-            "invalid_binding_replacement"
+        match self.kind {
+            InvalidAggregateBindingKind::ConstantIndex => "invalid_aggregate_constant_index",
+            InvalidAggregateBindingKind::ReplacementIndex => "invalid_aggregate_replacement_index",
+            InvalidAggregateBindingKind::ReplacementType => "invalid_aggregate_replacement_type",
+            InvalidAggregateBindingKind::RetainedIndex => "invalid_aggregate_retained_index",
+        }
+    }
+    fn constant_arguments(&self, _: usize) -> &[usize] {
+        if matches!(self.kind, InvalidAggregateBindingKind::ConstantIndex) {
+            &[1]
         } else {
-            "invalid_binding_index"
+            &[]
         }
     }
     fn return_type(
@@ -1002,40 +1153,88 @@ impl AggregateFunction for InvalidAggregateBinding {
         self.source.create_state(arguments, types)
     }
     fn bind(&self, _: &[Option<Value>]) -> Result<Option<AggregateBinding>> {
+        let retain_arguments = if matches!(self.kind, InvalidAggregateBindingKind::RetainedIndex) {
+            vec![1]
+        } else {
+            vec![0]
+        };
+        let replacements = match self.kind {
+            InvalidAggregateBindingKind::ReplacementIndex => vec![(1, Value::Integer(0))],
+            InvalidAggregateBindingKind::ReplacementType => {
+                vec![(0, Value::Varchar("wrong".into()))]
+            }
+            _ => Vec::new(),
+        };
         Ok(Some(AggregateBinding {
             function: self.source.clone(),
-            retain_arguments: vec![if self.replacement { 0 } else { 1 }],
-            replacements: self
-                .replacement
-                .then_some((0, Value::Varchar("wrong".into())))
-                .into_iter()
-                .collect(),
+            retain_arguments,
+            replacements,
         }))
     }
 }
 
+#[derive(Debug)]
+struct InvalidStringConstant;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ExpressionEvaluator for InvalidStringConstant {
+    fn name(&self) -> &'static str {
+        "invalid-string-constant"
+    }
+    fn evaluate(
+        &self,
+        expression: &BoundExpr,
+        row: &duckdb_rust::common::Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<Value> {
+        if matches!(&expression.kind, ExprKind::Literal(Value::Varchar(value)) if value == "|") {
+            Ok(Value::Integer(7))
+        } else {
+            ScalarEvaluator.evaluate(expression, row, context)
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn aggregate_binding_metadata_rejects_invalid_indices_and_typed_literals() -> Result<()> {
     let mut functions = FunctionRegistry::builtins();
     let sum = functions.aggregate("sum").expect("builtin SUM");
-    functions.register_aggregate(Arc::new(InvalidAggregateBinding {
-        source: sum.clone(),
-        replacement: false,
-    }))?;
-    functions.register_aggregate(Arc::new(InvalidAggregateBinding {
-        source: sum,
-        replacement: true,
-    }))?;
+    for kind in [
+        InvalidAggregateBindingKind::ConstantIndex,
+        InvalidAggregateBindingKind::ReplacementIndex,
+        InvalidAggregateBindingKind::ReplacementType,
+        InvalidAggregateBindingKind::RetainedIndex,
+    ] {
+        functions.register_aggregate(Arc::new(InvalidAggregateBinding {
+            source: sum.clone(),
+            kind,
+        }))?;
+    }
     let mut connection = DatabaseBuilder::new()
         .functions(functions)
         .build()?
         .connect();
     assert!(
-        matches!(connection.query("SELECT invalid_binding_index(i) FROM range(1) t(i)"), Err(Error::Internal(message)) if message == "aggregate retained argument outside signature")
+        matches!(connection.query("SELECT invalid_aggregate_constant_index(i) FROM range(1) t(i)"), Err(Error::Internal(message)) if message == "aggregate constant argument outside signature")
+    );
+    assert!(
+        matches!(connection.query("SELECT invalid_aggregate_replacement_index(i) FROM range(1) t(i)"), Err(Error::Internal(message)) if message == "aggregate replacement outside signature")
     );
     assert!(matches!(
-        connection.query("SELECT invalid_binding_replacement(i) FROM range(1) t(i)"),
+        connection.query("SELECT invalid_aggregate_replacement_type(i) FROM range(1) t(i)"),
         Err(Error::Conversion(_))
     ));
+    assert!(
+        matches!(connection.query("SELECT invalid_aggregate_retained_index(i) FROM range(1) t(i)"), Err(Error::Internal(message)) if message == "aggregate retained argument outside signature")
+    );
+
+    let mut invalid_constant = DatabaseBuilder::new()
+        .expressions(Arc::new(InvalidStringConstant))
+        .build()?
+        .connect();
+    assert!(
+        matches!(invalid_constant.query("SELECT string_agg(x, '|') FROM (VALUES ('a')) t(x)"), Err(Error::Internal(message)) if message == "constant evaluator returned an invalid value")
+    );
     Ok(())
 }

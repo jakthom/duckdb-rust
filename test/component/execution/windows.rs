@@ -2,14 +2,15 @@ use super::*;
 use duckdb_rust::{
     common::type_registry::TypeRegistry,
     execution::{
-        expression_executor::{BatchedEvaluator, ExpressionEvaluator},
+        expression_executor::{BatchedEvaluator, EvaluationContext, ExpressionEvaluator},
         operator::window::{PartitionedWindows, SortedWindows, WindowAlgorithm},
     },
     function::{
         AggregateFunction, AggregateState,
-        window::{WindowFunction, WindowInput, WindowOptions},
+        window::{WindowBinding, WindowFunction, WindowInput, WindowOptions},
     },
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
+    planner::BoundExpr,
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -68,7 +69,11 @@ fn window_input_views_validate_bounds_and_borrow_partition_rows() -> Result<()> 
 #[test]
 fn string_agg_window_keeps_the_bound_separator_across_frames() -> Result<()> {
     for algorithm in algorithms() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut functions = FunctionRegistry::builtins();
+        functions.register_scalar(Arc::new(WindowObserve(calls.clone())))?;
         let db = DatabaseBuilder::new()
+            .functions(functions)
             .physical_planner(Arc::new(
                 NativePhysicalPlanner::default().with_windows(algorithm),
             ))
@@ -93,6 +98,289 @@ fn string_agg_window_keeps_the_bound_separator_across_frames() -> Result<()> {
             ),
             Err(Error::Bind(message)) if message == "Separator argument to string_agg must be a constant expression"
         ));
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT string_agg(window_observe(i::VARCHAR), NULL) OVER () \
+                     FROM range(2) t(i)",
+                )?
+                .rows,
+            vec![vec![Value::Null]; 2]
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn string_agg_window_default_configuration_replays_pinned_source_records() -> Result<()> {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("test/sql/window-string-agg-default-source.test");
+    for algorithm in algorithms() {
+        let database = DatabaseBuilder::new()
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_windows(algorithm),
+            ))
+            .build()?;
+        assert_eq!(runner::run_file(&database, &source)?, 4);
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct WindowObserve(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for WindowObserve {
+    fn name(&self) -> &str {
+        "window_observe"
+    }
+    fn effects(&self) -> FunctionEffects {
+        FunctionEffects {
+            volatile: true,
+            external_access: false,
+        }
+    }
+    fn return_type(&self, arguments: &[DataType], _: &TypeRegistry) -> Result<DataType> {
+        if arguments == [DataType::Varchar] {
+            Ok(DataType::Varchar)
+        } else {
+            Err(Error::Bind("window_observe requires VARCHAR".into()))
+        }
+    }
+    fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(arguments[0].clone())
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum InvalidWindowBindingKind {
+    ConstantIndex,
+    ReplacementIndex,
+    ReplacementType,
+    RetainedIndex,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct InvalidWindowBinding(InvalidWindowBindingKind);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl WindowFunction for InvalidWindowBinding {
+    fn name(&self) -> &str {
+        match self.0 {
+            InvalidWindowBindingKind::ConstantIndex => "invalid_window_constant_index",
+            InvalidWindowBindingKind::ReplacementIndex => "invalid_window_replacement_index",
+            InvalidWindowBindingKind::ReplacementType => "invalid_window_replacement_type",
+            InvalidWindowBindingKind::RetainedIndex => "invalid_window_retained_index",
+        }
+    }
+    fn argument_types(&self, arguments: &[DataType]) -> Result<Vec<DataType>> {
+        if arguments == [DataType::BigInt] {
+            Ok(arguments.to_vec())
+        } else {
+            Err(Error::Bind("invalid window binding requires BIGINT".into()))
+        }
+    }
+    fn constant_arguments(&self, _: usize) -> &[usize] {
+        if matches!(self.0, InvalidWindowBindingKind::ConstantIndex) {
+            &[1]
+        } else {
+            &[]
+        }
+    }
+    fn bind(&self, _: &[Option<Value>]) -> Result<Option<WindowBinding>> {
+        let retain_arguments = if matches!(self.0, InvalidWindowBindingKind::RetainedIndex) {
+            vec![1]
+        } else {
+            vec![0]
+        };
+        let replacements = match self.0 {
+            InvalidWindowBindingKind::ReplacementIndex => vec![(1, Value::Integer(0))],
+            InvalidWindowBindingKind::ReplacementType => {
+                vec![(0, Value::Varchar("wrong".into()))]
+            }
+            _ => Vec::new(),
+        };
+        Ok(Some(WindowBinding {
+            function: Arc::new(*self),
+            retain_arguments,
+            replacements,
+        }))
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _: WindowOptions,
+        _: &TypeRegistry,
+    ) -> Result<DataType> {
+        self.argument_types(arguments)?;
+        Ok(DataType::BigInt)
+    }
+    fn evaluate(&self, input: &WindowInput<'_>, query: &QueryContext) -> Result<Vec<Value>> {
+        query.check()?;
+        Ok(vec![Value::Integer(1); input.arguments.len()])
+    }
+}
+
+#[derive(Debug)]
+struct InvalidWindowStringConstant;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ExpressionEvaluator for InvalidWindowStringConstant {
+    fn name(&self) -> &'static str {
+        "invalid-window-string-constant"
+    }
+    fn evaluate(
+        &self,
+        expression: &BoundExpr,
+        row: &Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<Value> {
+        if matches!(&expression.kind, duckdb_rust::planner::ExprKind::Literal(Value::Varchar(value)) if value == "|")
+        {
+            Ok(Value::Integer(7))
+        } else {
+            ScalarEvaluator.evaluate(expression, row, context)
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn window_binding_metadata_rejects_invalid_indices_types_and_constants() -> Result<()> {
+    let mut functions = FunctionRegistry::builtins();
+    for kind in [
+        InvalidWindowBindingKind::ConstantIndex,
+        InvalidWindowBindingKind::ReplacementIndex,
+        InvalidWindowBindingKind::ReplacementType,
+        InvalidWindowBindingKind::RetainedIndex,
+    ] {
+        functions.register_window(Arc::new(InvalidWindowBinding(kind)))?;
+    }
+    let mut connection = DatabaseBuilder::new()
+        .functions(functions)
+        .build()?
+        .connect();
+    assert!(
+        matches!(connection.query("SELECT invalid_window_constant_index(i) OVER () FROM range(1)t(i)"), Err(Error::Internal(message)) if message == "window constant argument outside signature")
+    );
+    assert!(
+        matches!(connection.query("SELECT invalid_window_replacement_index(i) OVER () FROM range(1)t(i)"), Err(Error::Internal(message)) if message == "window replacement outside signature")
+    );
+    assert!(matches!(
+        connection.query("SELECT invalid_window_replacement_type(i) OVER () FROM range(1)t(i)"),
+        Err(Error::Conversion(_))
+    ));
+    assert!(
+        matches!(connection.query("SELECT invalid_window_retained_index(i) OVER () FROM range(1)t(i)"), Err(Error::Internal(message)) if message == "window retained argument outside signature")
+    );
+
+    let mut invalid_constant = DatabaseBuilder::new()
+        .expressions(Arc::new(InvalidWindowStringConstant))
+        .build()?
+        .connect();
+    assert!(
+        matches!(invalid_constant.query("SELECT string_agg(x, '|') OVER () FROM (VALUES ('a')) t(x)"), Err(Error::Internal(message)) if message == "constant evaluator returned an invalid value")
+    );
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SelectedStringAggWindow {
+    binds: Arc<AtomicUsize>,
+    separator: Option<String>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl WindowFunction for SelectedStringAggWindow {
+    fn name(&self) -> &str {
+        "string_agg"
+    }
+    fn argument_types(&self, arguments: &[DataType]) -> Result<Vec<DataType>> {
+        let valid = if self.separator.is_some() {
+            arguments == [DataType::Varchar]
+        } else {
+            arguments == [DataType::Varchar, DataType::Varchar]
+        };
+        if valid {
+            Ok(arguments.to_vec())
+        } else {
+            Err(Error::Bind("selected string_agg window signature".into()))
+        }
+    }
+    fn constant_arguments(&self, arity: usize) -> &[usize] {
+        if self.separator.is_none() && arity == 2 {
+            &[1]
+        } else {
+            &[]
+        }
+    }
+    fn bind(&self, constants: &[Option<Value>]) -> Result<Option<WindowBinding>> {
+        let separator = match constants.get(1).and_then(Option::as_ref) {
+            Some(Value::Varchar(separator)) => separator.clone(),
+            _ => return Err(Error::Internal("selected window separator binding".into())),
+        };
+        self.binds.fetch_add(1, Ordering::SeqCst);
+        Ok(Some(WindowBinding {
+            function: Arc::new(Self {
+                binds: self.binds.clone(),
+                separator: Some(separator),
+            }),
+            retain_arguments: vec![0],
+            replacements: Vec::new(),
+        }))
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _: WindowOptions,
+        _: &TypeRegistry,
+    ) -> Result<DataType> {
+        self.argument_types(arguments)?;
+        Ok(DataType::Varchar)
+    }
+    fn evaluate(&self, input: &WindowInput<'_>, query: &QueryContext) -> Result<Vec<Value>> {
+        query.check()?;
+        let separator = self
+            .separator
+            .as_deref()
+            .ok_or_else(|| Error::Internal("unbound selected string_agg window".into()))?;
+        Ok(vec![
+            Value::Varchar(format!("selected:{separator}"));
+            input.arguments.len()
+        ])
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn selected_same_name_window_owns_binding_and_prepared_reuse() -> Result<()> {
+    for algorithm in algorithms() {
+        let binds = Arc::new(AtomicUsize::new(0));
+        let mut functions = FunctionRegistry::builtins();
+        functions.register_window(Arc::new(SelectedStringAggWindow {
+            binds: binds.clone(),
+            separator: None,
+        }))?;
+        let mut connection = DatabaseBuilder::new()
+            .functions(functions)
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_windows(algorithm),
+            ))
+            .build()?
+            .connect();
+        let prepared =
+            connection.prepare("SELECT string_agg(i::VARCHAR, '|') OVER () FROM range(2)t(i)")?;
+        for _ in 0..2 {
+            assert_eq!(
+                connection.execute_prepared(&prepared, &[])?.rows,
+                vec![vec![Value::Varchar("selected:|".into())]; 2]
+            );
+        }
+        assert_eq!(binds.load(Ordering::SeqCst), 1);
     }
     Ok(())
 }

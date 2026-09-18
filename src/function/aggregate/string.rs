@@ -10,6 +10,7 @@ use crate::{
 #[derive(Debug)]
 pub(super) struct StringAgg(pub(super) &'static str, pub(super) Option<Option<String>>);
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateFunction for StringAgg {
     fn name(&self) -> &str {
         self.0
@@ -23,7 +24,7 @@ impl AggregateFunction for StringAgg {
             | [DataType::Null, DataType::Varchar]
             | [DataType::Null, DataType::Null] => Ok(vec![DataType::Varchar; 2]),
             _ => Err(Error::Bind(format!(
-                "no overload for {}({arguments:?})",
+                "No function matches {}({arguments:?})",
                 self.0
             ))),
         }
@@ -92,6 +93,7 @@ struct StringAggState {
     separator: Option<String>,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateState for StringAggState {
     fn update(&mut self, arguments: &[Value], query: &QueryContext) -> Result<()> {
         let [input] = arguments else {

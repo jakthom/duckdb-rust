@@ -1,16 +1,16 @@
 statement ok
-CREATE TABLE c2_string_agg_process AS SELECT i, i%64 AS g, CASE WHEN i%17=16 THEN NULL WHEN i%7=0 THEN 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' ELSE 'v' || (i%31)::VARCHAR END AS value FROM range(50000) t(i);
+CREATE TABLE c2_string_agg_process AS SELECT i, i%64 AS g, CASE WHEN i%17=16 THEN NULL WHEN i%7=0 THEN 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' ELSE 'v' || (i%31)::VARCHAR END AS value, i%97 AS order_key FROM range(50000) t(i);
 
 loop iteration 0 128
 
 query I
-SELECT count(*) FROM (SELECT string_agg(value, '|') FROM c2_string_agg_process GROUP BY g) t;
+SELECT sum(length(aggregate_value)) FROM (SELECT string_agg(value, '|') AS aggregate_value FROM c2_string_agg_process GROUP BY g) t;
 ----
-64
+800400
 
 query I
-SELECT count(*) FROM (SELECT sum(i), list_extract(list(value ORDER BY i), 1), string_agg(value, '|') FROM c2_string_agg_process GROUP BY g) t;
+SELECT sum(sum_value) + sum(length(first_value)) + sum(length(aggregate_value)) FROM (SELECT sum(i) AS sum_value, list_extract(list(value ORDER BY order_key), 1) AS first_value, string_agg(value, '|') AS aggregate_value FROM c2_string_agg_process GROUP BY g) t;
 ----
-64
+1250776400
 
 endloop
