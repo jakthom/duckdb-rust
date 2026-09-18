@@ -18,6 +18,108 @@ struct DecimalIntegerKeys {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn borrowed_varchar_keys_preserve_selection_nulls_and_resource_boundaries() -> Result<()> {
+    let query = QueryContext::background();
+    let mut types = TypeRegistry::builtins();
+    let retained = types.bind(&DataType::Varchar)?;
+    let representation = retained.key_representation();
+    assert_eq!(representation, KeyRepresentation::VarcharBytes);
+    assert!(!representation.has_integer_keys());
+    assert_eq!(representation.varchar_key(&Value::Null)?, None);
+    for text in ["", "A", "a", "é", "界\0text"] {
+        let value = Value::Varchar(text.into());
+        let key = representation.varchar_key(&value)?.unwrap();
+        assert_eq!(key, text.as_bytes());
+        let Value::Varchar(payload) = &value else {
+            unreachable!()
+        };
+        assert_eq!(key.as_ptr(), payload.as_ptr());
+    }
+    assert!(matches!(
+        representation.varchar_key(&Value::Integer(1)),
+        Err(Error::Internal(_))
+    ));
+    assert!(matches!(
+        KeyRepresentation::CanonicalBytes.varchar_key(&Value::Null),
+        Err(Error::Internal(_))
+    ));
+
+    // A replacement must explicitly advertise the capability. A previously
+    // bound type retains its own adapter selection across registry mutation.
+    types.replace(
+        DataType::Varchar.family(),
+        Arc::new(DecimalIntegerKeys {
+            representation: KeyRepresentation::CanonicalBytes,
+            writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }),
+    )?;
+    assert_eq!(
+        types.bind(&DataType::Varchar)?.key_representation(),
+        KeyRepresentation::CanonicalBytes
+    );
+    assert_eq!(
+        retained.key_representation(),
+        KeyRepresentation::VarcharBytes
+    );
+    types.replace(
+        DataType::BigInt.family(),
+        Arc::new(DecimalIntegerKeys {
+            representation: KeyRepresentation::VarcharBytes,
+            writes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }),
+    )?;
+    assert!(matches!(types.bind(&DataType::BigInt), Err(Error::Bind(_))));
+
+    // The borrowed representation cannot bypass the canonical writer's bound.
+    let limit = 16 * 1024 * 1024 - 9;
+    let boundary = Value::Varchar("x".repeat(limit));
+    assert_eq!(representation.varchar_key(&boundary)?.unwrap().len(), limit);
+    let mut canonical = Vec::new();
+    retained.append_key(&boundary, &mut canonical, &query)?;
+    assert_eq!(canonical.len(), limit + 18);
+    drop(boundary);
+    canonical.clear();
+    canonical.push(42);
+    let excessive = Value::Varchar("x".repeat(limit + 1));
+    assert!(matches!(
+        representation.varchar_key(&excessive),
+        Err(Error::Resource(_))
+    ));
+    assert!(matches!(
+        retained.append_key(&excessive, &mut canonical, &query),
+        Err(Error::Resource(_))
+    ));
+    assert_eq!(canonical, [42]);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn borrowed_varchar_keys_leave_existing_join_and_membership_consumers_unchanged() -> Result<()> {
+    let db = DatabaseBuilder::new().build()?;
+    let mut connection = db.connect();
+    connection.execute("CREATE TABLE l(s VARCHAR); CREATE TABLE r(s VARCHAR); INSERT INTO l VALUES ('A'),('a'),(''),('界'),(NULL); INSERT INTO r VALUES (''),('A'),(NULL)")?;
+    let expected = vec![
+        vec![Value::Varchar("".into())],
+        vec![Value::Varchar("A".into())],
+    ];
+    assert_eq!(
+        connection
+            .query("SELECT l.s FROM l JOIN r ON l.s=r.s ORDER BY l.s")?
+            .rows,
+        expected
+    );
+    assert_eq!(
+        connection
+            .query("SELECT l.s FROM l WHERE EXISTS(SELECT 1 FROM r WHERE r.s=l.s) ORDER BY l.s")?
+            .rows,
+        expected
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for DecimalIntegerKeys {
     fn name(&self) -> &'static str {
         "decimal-integer-keys"

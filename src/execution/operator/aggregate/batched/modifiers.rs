@@ -12,7 +12,7 @@ use crate::{
     DataType, Value,
     common::{
         Error, Result, Row,
-        type_registry::{BoundType, OrderingRepresentation},
+        type_registry::{BoundType, KeyRepresentation, OrderingRepresentation},
         vector::{DataChunk, Vector},
     },
     execution::{ExecutionContext, stream::BatchStream, subquery::PreparedExpression},
@@ -46,6 +46,7 @@ struct BufferedGroup {
     arguments: Vec<Vec<Value>>,
     order: Vec<Vec<Value>>,
     seen: HashSet<Vec<u8>>,
+    seen_null: bool,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -55,6 +56,7 @@ impl BufferedGroup {
             arguments: (0..arguments).map(|_| Vec::new()).collect(),
             order: (0..order).map(|_| Vec::new()).collect(),
             seen: HashSet::new(),
+            seen_null: false,
         }
     }
 
@@ -287,29 +289,99 @@ pub(super) fn try_run(
                 }
                 Accumulator::Buffered(buffered) => {
                     buffered.resize(groups.len());
+                    let borrowed_varchar_key = buffered.distinct
+                        && matches!(
+                            buffered.argument_keys.as_slice(),
+                            [data_type]
+                                if data_type.key_representation()
+                                    == KeyRepresentation::VarcharBytes
+                        );
+                    if borrowed_varchar_key {
+                        let [column] = input.columns() else {
+                            return Err(Error::Internal(
+                                "borrowed VARCHAR DISTINCT requires one argument".into(),
+                            ));
+                        };
+                        buffered.argument_keys[0].validate_vector(column, context.query)?;
+                    }
                     for (row, &group) in destinations.iter().enumerate() {
                         if row % 1024 == 0 {
                             context.query.check()?;
                         }
                         let retained = &mut buffered.groups[group];
                         if buffered.distinct {
-                            distinct_key.clear();
-                            for ((column, data_type), argument) in input
-                                .columns()
-                                .iter()
-                                .zip(&buffered.argument_keys)
-                                .zip(&function.arguments)
-                            {
-                                with_value(column, row, |value| {
-                                    data_type.append_key(value, &mut distinct_key, context.query)
+                            if borrowed_varchar_key {
+                                let representation = buffered.argument_keys[0].key_representation();
+                                let inserted = with_value(&input.columns()[0], row, |value| {
+                                    match representation.varchar_key(value)? {
+                                        None if retained.seen_null => Ok(false),
+                                        None => {
+                                            let next =
+                                                retained.seen.len().checked_add(1).ok_or_else(
+                                                    || {
+                                                        Error::Resource(
+                                                            "buffered DISTINCT key count overflow"
+                                                                .into(),
+                                                        )
+                                                    },
+                                                )?;
+                                            context.query.check_rows(next)?;
+                                            retained.seen_null = true;
+                                            Ok(true)
+                                        }
+                                        Some(bytes) if retained.seen.contains(bytes) => Ok(false),
+                                        Some(bytes) => {
+                                            let next = retained
+                                                .seen
+                                                .len()
+                                                .checked_add(usize::from(retained.seen_null))
+                                                .and_then(|count| count.checked_add(1))
+                                                .ok_or_else(|| {
+                                                    Error::Resource(
+                                                        "buffered DISTINCT key count overflow"
+                                                            .into(),
+                                                    )
+                                                })?;
+                                            context.query.check_rows(next)?;
+                                            let mut owned = Vec::new();
+                                            owned.try_reserve_exact(bytes.len()).map_err(|_| {
+                                                Error::Resource(
+                                                    "buffered DISTINCT key allocation failed"
+                                                        .into(),
+                                                )
+                                            })?;
+                                            owned.extend_from_slice(bytes);
+                                            retained.seen.insert(owned);
+                                            Ok(true)
+                                        }
+                                    }
                                 })?;
-                                debug_assert_eq!(column.data_type(), &argument.data_type);
+                                if !inserted {
+                                    continue;
+                                }
+                            } else {
+                                distinct_key.clear();
+                                for ((column, data_type), argument) in input
+                                    .columns()
+                                    .iter()
+                                    .zip(&buffered.argument_keys)
+                                    .zip(&function.arguments)
+                                {
+                                    with_value(column, row, |value| {
+                                        data_type.append_key(
+                                            value,
+                                            &mut distinct_key,
+                                            context.query,
+                                        )
+                                    })?;
+                                    debug_assert_eq!(column.data_type(), &argument.data_type);
+                                }
+                                if retained.seen.contains(&distinct_key) {
+                                    continue;
+                                }
+                                context.query.check_rows(retained.seen.len() + 1)?;
+                                retained.seen.insert(distinct_key.clone());
                             }
-                            if retained.seen.contains(&distinct_key) {
-                                continue;
-                            }
-                            context.query.check_rows(retained.seen.len() + 1)?;
-                            retained.seen.insert(distinct_key.clone());
                         }
                         let units = 2usize
                             .saturating_add(input.columns().len())
@@ -360,7 +432,11 @@ pub(super) fn try_run(
         .enumerate()
         .map(|(group, mut row)| {
             context.query.check()?;
-            row.extend(results.iter().map(|values| values[group].clone()));
+            row.extend(
+                results
+                    .iter_mut()
+                    .map(|values| std::mem::replace(&mut values[group], Value::Null)),
+            );
             Ok(row)
         })
         .collect::<Result<Vec<_>>>()?;

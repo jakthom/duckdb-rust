@@ -114,96 +114,6 @@ fn grouped_columns_preserve_growth_empty_groups_and_row_order() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
-fn grouped_reservation_preserves_large_growth_and_multibatch_order() -> Result<()> {
-    let query = QueryContext::background();
-    let mut grouped = StringAggGroups {
-        separator: Some("|".into()),
-        buffers: Vec::new(),
-        batch_bytes: Vec::new(),
-        batch_values: Vec::new(),
-        touched: Vec::new(),
-    };
-    grouped.resize(64, &query)?;
-
-    let first_values = vec![
-        Value::Varchar("s".into()),
-        Value::Varchar(String::new()),
-        Value::Null,
-        Value::Varchar("é".into()),
-        Value::Varchar("中\0x".into()),
-    ];
-    let first_groups = [0, 1, 2, 0, 1];
-    grouped.update_batch(
-        &GroupSelection::new(&first_groups, 64, &query)?,
-        &DataChunk::new(
-            vec![Vector::flat(DataType::Varchar, first_values)?],
-            first_groups.len(),
-        )?,
-        &query,
-    )?;
-    assert!(grouped.touched.is_empty());
-    assert!(grouped.batch_bytes.iter().all(|&bytes| bytes == 0));
-    assert!(grouped.batch_values.iter().all(|&values| values == 0));
-
-    let long = "界".repeat(256);
-    for value in [long.clone(), "t".into()] {
-        grouped.update_batch(
-            &GroupSelection::new(&[0], 64, &query)?,
-            &DataChunk::new(
-                vec![Vector::constant(
-                    DataType::Varchar,
-                    Value::Varchar(value),
-                    1,
-                )?],
-                1,
-            )?,
-            &query,
-        )?;
-    }
-
-    grouped.resize(8192, &query)?;
-    let many_groups = (64..8192).collect::<Vec<_>>();
-    grouped.update_batch(
-        &GroupSelection::new(&many_groups, 8192, &query)?,
-        &DataChunk::new(
-            vec![Vector::constant(
-                DataType::Varchar,
-                Value::Varchar("q".into()),
-                many_groups.len(),
-            )?],
-            many_groups.len(),
-        )?,
-        &query,
-    )?;
-    grouped.update_batch(
-        &GroupSelection::new(&[8191, 64], 8192, &query)?,
-        &DataChunk::new(
-            vec![Vector::flat(
-                DataType::Varchar,
-                vec![
-                    Value::Varchar("last".into()),
-                    Value::Varchar("first".into()),
-                ],
-            )?],
-            2,
-        )?,
-        &query,
-    )?;
-
-    let values = Box::new(grouped).finish(&query)?;
-    assert_eq!(values.len(), 8192);
-    assert_eq!(values[0], Value::Varchar(format!("s|é|{long}|t")));
-    assert_eq!(values[1], Value::Varchar("|中\0x".into()));
-    assert_eq!(values[2], Value::Null);
-    assert!(values[3..64].iter().all(Value::is_null));
-    assert_eq!(values[64], Value::Varchar("q|first".into()));
-    assert_eq!(values[65], Value::Varchar("q".into()));
-    assert_eq!(values[8191], Value::Varchar("q|last".into()));
-    Ok(())
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-#[test]
 fn malformed_shapes_limits_and_cancellation_are_errors() -> Result<()> {
     let query = QueryContext::background();
     let function = bound(Some("|"));
@@ -315,20 +225,6 @@ fn checked_output_lengths_reject_each_overflow_boundary() -> Result<()> {
     ));
     assert!(matches!(
         additional_bytes(usize::MAX, 0, 1),
-        Err(Error::Resource(_))
-    ));
-    assert_eq!(accumulate_grouped_bytes(0, 0, 1)?, 1);
-    assert_eq!(accumulate_grouped_bytes(1, 1, 2)?, 4);
-    assert_eq!(accumulate_grouped_bytes(4, 1, 3)?, 8);
-    assert_eq!(grouped_reserve_target(0, 0, 3, false)?, 3);
-    assert_eq!(grouped_reserve_target(1, 1, 2, true)?, 6);
-    assert_eq!(grouped_reserve_target(3, 16, 2, true)?, 16);
-    assert_eq!(
-        grouped_reserve_target(usize::MAX - 3, usize::MAX - 3, 3, true)?,
-        usize::MAX
-    );
-    assert!(matches!(
-        grouped_reserve_target(usize::MAX, usize::MAX, 1, false),
         Err(Error::Resource(_))
     ));
     Ok(())

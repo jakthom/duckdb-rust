@@ -1237,6 +1237,63 @@ impl TypeAdapter for ComparisonIntegers {
     }
 }
 
+#[derive(Debug)]
+struct CaseFoldVarchar;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TypeAdapter for CaseFoldVarchar {
+    fn name(&self) -> &'static str {
+        "case-fold-varchar"
+    }
+    fn value_validation(&self) -> ValueValidation {
+        ValueValidation::Physical
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        if data_type == &DataType::Varchar {
+            Ok(())
+        } else {
+            Err(Error::Bind("case-fold adapter requires VARCHAR".into()))
+        }
+    }
+    fn validate_value(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.validate_value(data_type, value, query)
+    }
+    fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        PrimitiveTypes.common_type(left, right)
+    }
+    fn compare(
+        &self,
+        _: &DataType,
+        left: &Value,
+        right: &Value,
+        query: &QueryContext,
+    ) -> Result<std::cmp::Ordering> {
+        query.check()?;
+        let (Value::Varchar(left), Value::Varchar(right)) = (left, right) else {
+            return Err(Error::Internal("case-fold comparison input".into()));
+        };
+        Ok(left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase()))
+    }
+    fn write_key(
+        &self,
+        _: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        query.check()?;
+        let Value::Varchar(value) = value else {
+            return Err(Error::Internal("case-fold key input".into()));
+        };
+        output.extend_from_slice(value.to_ascii_lowercase().as_bytes())
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Result<()> {
@@ -1272,10 +1329,10 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
         connection
             .query(
                 "SELECT buffered_probe(DISTINCT x ORDER BY x DESC NULLS FIRST) \
-                 FROM (VALUES ('b'),(NULL),('a'),('b')) t(x)",
+                 FROM (VALUES ('b'),(NULL),(''),('a'),('b'),(NULL),('')) t(x)",
             )?
             .rows,
-        vec![vec![Value::Varchar("NULL|b|a".into())]]
+        vec![vec![Value::Varchar("NULL|b|a|".into())]]
     );
     assert_eq!(
         connection
@@ -1287,7 +1344,7 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
         vec![vec![Value::Varchar("c|a|b".into())]]
     );
     assert_eq!(batch_calls.load(Ordering::SeqCst), 2);
-    assert_eq!(row_calls.load(Ordering::SeqCst), 6);
+    assert_eq!(row_calls.load(Ordering::SeqCst), 7);
     assert_eq!(
         connection
             .query(
@@ -1337,6 +1394,33 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
         vec![vec![Value::Varchar("2|1".into())]]
     );
     assert_eq!(custom_batch_calls.load(Ordering::SeqCst), 1);
+
+    let folded_batch_calls = Arc::new(AtomicUsize::new(0));
+    let mut folded_functions = FunctionRegistry::builtins();
+    folded_functions.register_aggregate(Arc::new(BufferedProbe {
+        name: "folded_probe",
+        strategy: AggregateModifierStrategy::BufferedTotal,
+        row_calls: Arc::new(AtomicUsize::new(0)),
+        batch_calls: folded_batch_calls.clone(),
+        interrupt: Arc::new(Mutex::new(None)),
+    }))?;
+    let mut folded_types = TypeRegistry::builtins();
+    folded_types.replace(DataType::Varchar.family(), Arc::new(CaseFoldVarchar))?;
+    let mut folded = DatabaseBuilder::new()
+        .functions(folded_functions)
+        .types(Arc::new(folded_types))
+        .build()?
+        .connect();
+    assert_eq!(
+        folded
+            .query(
+                "SELECT folded_probe(DISTINCT x ORDER BY x) \
+                 FROM (VALUES ('A'),('a'),('B')) t(x)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("A|B".into())]]
+    );
+    assert_eq!(folded_batch_calls.load(Ordering::SeqCst), 1);
 
     let before_batches = batch_calls.load(Ordering::SeqCst);
     assert_eq!(

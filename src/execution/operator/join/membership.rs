@@ -25,7 +25,9 @@ pub(super) struct MembershipBuilder {
 impl MembershipBuilder {
     pub fn new(data_type: Arc<BoundType>) -> Self {
         let keys = match data_type.key_representation() {
-            KeyRepresentation::CanonicalBytes => BuildKeys::Bytes(HashSet::new()),
+            KeyRepresentation::CanonicalBytes | KeyRepresentation::VarcharBytes => {
+                BuildKeys::Bytes(HashSet::new())
+            }
             KeyRepresentation::Integer | KeyRepresentation::NumericCoefficient => {
                 BuildKeys::Integers(HashSet::new())
             }

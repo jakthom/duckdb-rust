@@ -114,9 +114,6 @@ impl AggregateFunction for StringAgg {
         Ok(Some(Box::new(StringAggGroups {
             separator: self.1.clone().unwrap_or_else(|| Some(",".to_owned())),
             buffers: Vec::new(),
-            batch_bytes: Vec::new(),
-            batch_values: Vec::new(),
-            touched: Vec::new(),
         })))
     }
 }
@@ -161,44 +158,6 @@ impl StringBuffer {
             Value::Null
         }
     }
-
-    fn reserve_grouped(&mut self, additional: usize) -> Result<()> {
-        let target = grouped_reserve_target(
-            self.value.len(),
-            self.value.capacity(),
-            additional,
-            self.seen,
-        )?;
-        if target > self.value.capacity() {
-            self.value
-                .try_reserve_exact(target - self.value.len())
-                .map_err(|_| Error::Resource("string_agg allocation failed".into()))?;
-        }
-        Ok(())
-    }
-
-    fn append_reserved(&mut self, input: &Value, separator: &str) -> Result<()> {
-        let Value::Varchar(input) = input else {
-            if input.is_null() {
-                return Ok(());
-            }
-            return Err(Error::Internal(
-                "string_agg input differs from binding".into(),
-            ));
-        };
-        let additional = additional_bytes(
-            self.value.len(),
-            if self.seen { separator.len() } else { 0 },
-            input.len(),
-        )?;
-        debug_assert!(self.value.capacity() - self.value.len() >= additional);
-        if self.seen {
-            self.value.push_str(separator);
-        }
-        self.value.push_str(input);
-        self.seen = true;
-        Ok(())
-    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -210,34 +169,6 @@ fn additional_bytes(current: usize, separator: usize, input: usize) -> Result<us
         .checked_add(additional)
         .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
     Ok(additional)
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn accumulate_grouped_bytes(current: usize, separator: usize, input: usize) -> Result<usize> {
-    let additional = additional_bytes(current, separator, input)?;
-    current
-        .checked_add(additional)
-        .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))
-}
-
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn grouped_reserve_target(
-    current: usize,
-    capacity: usize,
-    additional: usize,
-    reused: bool,
-) -> Result<usize> {
-    let required = current
-        .checked_add(additional)
-        .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
-    if required <= capacity {
-        return Ok(capacity);
-    }
-    Ok(if reused {
-        required.checked_mul(2).unwrap_or(required)
-    } else {
-        required
-    })
 }
 
 struct StringAggState {
@@ -287,9 +218,6 @@ impl AggregateState for StringAggState {
 struct StringAggGroups {
     separator: Option<String>,
     buffers: Vec<StringBuffer>,
-    batch_bytes: Vec<usize>,
-    batch_values: Vec<usize>,
-    touched: Vec<usize>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -306,18 +234,7 @@ impl GroupedAggregateState for StringAggGroups {
         self.buffers
             .try_reserve(additional)
             .map_err(|_| Error::Resource("string_agg group allocation failed".into()))?;
-        self.batch_bytes
-            .try_reserve(additional)
-            .map_err(|_| Error::Resource("string_agg group allocation failed".into()))?;
-        self.batch_values
-            .try_reserve(additional)
-            .map_err(|_| Error::Resource("string_agg group allocation failed".into()))?;
-        self.touched
-            .try_reserve(groups.saturating_sub(self.touched.len()))
-            .map_err(|_| Error::Resource("string_agg group allocation failed".into()))?;
         self.buffers.resize_with(groups, StringBuffer::default);
-        self.batch_bytes.resize(groups, 0);
-        self.batch_values.resize(groups, 0);
         query.check()
     }
 
@@ -335,55 +252,9 @@ impl GroupedAggregateState for StringAggGroups {
         };
         validate_column(column, query)?;
         if let Some(separator) = &self.separator {
-            let indices = groups.indices();
-            let buffers = &mut self.buffers;
-            let batch_bytes = &mut self.batch_bytes;
-            let batch_values = &mut self.batch_values;
-            let touched = &mut self.touched;
-
             visit_column(column, query, |row, value| {
-                let Value::Varchar(input) = value else {
-                    if value.is_null() {
-                        return Ok(());
-                    }
-                    return Err(Error::Internal(
-                        "string_agg input differs from binding".into(),
-                    ));
-                };
-                let group = indices[row];
-                if batch_values[group] == 0 {
-                    touched.push(group);
-                }
-                let separator_bytes = if buffers[group].seen || batch_values[group] != 0 {
-                    separator.len()
-                } else {
-                    0
-                };
-                batch_bytes[group] =
-                    accumulate_grouped_bytes(batch_bytes[group], separator_bytes, input.len())?;
-                batch_values[group] = batch_values[group]
-                    .checked_add(1)
-                    .ok_or_else(|| Error::Resource("string_agg value count overflow".into()))?;
-                Ok(())
+                self.buffers[groups.indices()[row]].append(value, separator)
             })?;
-
-            for (position, &group) in touched.iter().enumerate() {
-                if position % 1024 == 0 {
-                    query.check()?;
-                }
-                buffers[group].reserve_grouped(batch_bytes[group])?;
-            }
-            query.check()?;
-
-            visit_column(column, query, |row, value| {
-                buffers[indices[row]].append_reserved(value, separator)
-            })?;
-
-            for &group in touched.iter() {
-                batch_bytes[group] = 0;
-                batch_values[group] = 0;
-            }
-            touched.clear();
         }
         query.check()
     }

@@ -183,7 +183,7 @@ pub(super) fn try_run(
                         .enumerate()
                         .map(|(i, values)| {
                             if set.contains(i) {
-                                values.get(row).expect("validated grouping column").clone()
+                                values.get(row).expect("validated grouping column")
                             } else {
                                 Value::Null
                             }
@@ -205,7 +205,7 @@ pub(super) fn try_run(
             }
         }
     }
-    let values = accumulators
+    let mut values = accumulators
         .into_iter()
         .map(|mut state| {
             state.resize(groups.len(), context.query)?;
@@ -232,7 +232,8 @@ pub(super) fn try_run(
             for output in &aggregation.outputs {
                 row.push(match output {
                     AggregateOutput::Function(_) => {
-                        let value = values[function][group_index].clone();
+                        let value =
+                            std::mem::replace(&mut values[function][group_index], Value::Null);
                         function += 1;
                         value
                     }

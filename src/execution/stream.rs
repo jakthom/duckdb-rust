@@ -173,3 +173,125 @@ pub(crate) fn deferred<'a>(
         chunk(schema, &next)
     })
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn owned_chunk(schema: &Schema, rows: Vec<Row>) -> Result<Option<DataChunk>> {
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    DataChunk::from_owned_rows(
+        &schema
+            .iter()
+            .map(|field| field.data_type.clone())
+            .collect::<Vec<_>>(),
+        rows,
+    )
+    .map(Some)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Aggregate algorithms already return newly owned rows. Consume each emitted
+/// batch at this boundary so heap-owning results are not copied into vectors.
+/// Other deferred operators retain the established borrowed conversion above.
+pub(crate) fn deferred_owned<'a>(
+    schema: &'a Schema,
+    context: &'a ExecutionContext<'a>,
+    load: impl FnOnce() -> Result<Vec<Row>> + 'a,
+) -> Stream<'a> {
+    let mut load = Some(load);
+    let mut rows = None;
+    from_fn(move |max_rows| {
+        if let Some(load) = load.take() {
+            let loaded = load()?;
+            context.query.check_rows(loaded.len())?;
+            rows = Some(loaded.into_iter());
+        }
+        let next: Vec<_> = rows
+            .as_mut()
+            .expect("loaded stream")
+            .take(max_rows)
+            .collect();
+        owned_chunk(schema, next)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        common::{DataType, Value},
+        execution::{
+            expression_executor::ScalarEvaluator,
+            physical_plan::NativePhysicalPlanner,
+            subquery::{PreparedSubqueries, StreamingSubqueries},
+        },
+        planner::Field,
+        storage::checkpoint::MemoryDurability,
+        transaction::{SnapshotTransactions, TransactionManager},
+    };
+    use std::sync::Arc;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn aggregate_owned_deferred_preserves_demand_ownership_and_terminal_errors() -> Result<()> {
+        let query = QueryContext::background();
+        let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
+        let transaction = manager.begin()?;
+        let planner = NativePhysicalPlanner::default();
+        let prepared = PreparedSubqueries::new(&planner);
+        let context = ExecutionContext {
+            transaction: transaction.as_ref(),
+            query: &query,
+            expressions: &ScalarEvaluator,
+            subquery_plans: &prepared,
+            subqueries: &StreamingSubqueries,
+            outer: None,
+            recursive: None,
+        };
+        let schema = vec![Field::new("text", DataType::Varchar)];
+        let first = String::from("first-é\0");
+        let first_pointer = first.as_ptr();
+        let mut output = deferred_owned(&schema, &context, move || {
+            Ok(vec![
+                vec![Value::Varchar(first)],
+                vec![Value::Null],
+                vec![Value::Varchar("last".into())],
+            ])
+        });
+        let batch = output.next(1)?.expect("first owned aggregate batch");
+        assert_eq!(batch.len(), 1);
+        let Value::Varchar(value) = &batch.columns()[0]
+            .flat_values()
+            .expect("owned VARCHAR flat values")[0]
+        else {
+            panic!("owned VARCHAR result");
+        };
+        assert_eq!(value.as_ptr(), first_pointer);
+        drop(batch);
+        let batch = output.next(8)?.expect("remaining owned aggregate batch");
+        assert_eq!(
+            batch.rows().collect::<Vec<_>>(),
+            vec![vec![Value::Null], vec![Value::Varchar("last".into())]]
+        );
+        assert!(output.next(8)?.is_none());
+        assert!(output.next(8)?.is_none());
+
+        let mut load_error = deferred_owned(&schema, &context, || {
+            Err(Error::Execution("owned aggregate load failure".into()))
+        });
+        assert!(matches!(load_error.next(1), Err(Error::Execution(_))));
+        assert!(load_error.next(1)?.is_none());
+
+        let mut conversion_error =
+            deferred_owned(&schema, &context, || Ok(vec![vec![Value::Integer(1)]]));
+        assert!(conversion_error.next(1).is_err());
+        assert!(conversion_error.next(1)?.is_none());
+
+        let mut invalid_demand = deferred_owned(&schema, &context, || {
+            Ok(vec![vec![Value::Varchar("unused".into())]])
+        });
+        assert!(matches!(invalid_demand.next(0), Err(Error::Internal(_))));
+        assert!(invalid_demand.next(1)?.is_none());
+        Ok(())
+    }
+}

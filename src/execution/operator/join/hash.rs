@@ -120,7 +120,9 @@ impl Index {
             KeyRepresentation::Integer | KeyRepresentation::NumericCoefficient => {
                 Self::Integers(HashMap::new())
             }
-            KeyRepresentation::CanonicalBytes => Self::Bytes(HashMap::new()),
+            KeyRepresentation::CanonicalBytes | KeyRepresentation::VarcharBytes => {
+                Self::Bytes(HashMap::new())
+            }
         }
     }
     fn insert(

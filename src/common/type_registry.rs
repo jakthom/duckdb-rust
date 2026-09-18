@@ -84,6 +84,12 @@ impl ComparisonPredicate {
 pub enum KeyRepresentation {
     /// Use `write_key`, including its normalization and failure behavior.
     CanonicalBytes,
+    /// VARCHAR equality is exactly UTF-8 byte identity. After selected logical
+    /// validation, consumers may borrow its payload instead of serializing a
+    /// key. This grants no ordering guarantee. NULL remains separate and the
+    /// ordinary 16 MiB component limit includes nine bytes of VARCHAR framing.
+    /// Only physical VARCHAR may advertise this capability.
+    VarcharBytes,
     /// Non-NULL keys are the integer payload itself. Equality must be exactly
     /// integer identity and key generation must be total after validation.
     /// Only physical integer types can advertise this capability. Consumers
@@ -100,6 +106,24 @@ pub enum KeyRepresentation {
 impl KeyRepresentation {
     pub fn has_integer_keys(self) -> bool {
         matches!(self, Self::Integer | Self::NumericCoefficient)
+    }
+    /// Borrow a selected byte-identity key after physical/logical validation.
+    /// Preserve the canonical VARCHAR key's resource boundary without copying
+    /// its tag, length or payload. Empty bytes are distinct from NULL.
+    #[inline]
+    pub fn varchar_key(self, value: &Value) -> Result<Option<&[u8]>> {
+        match (self, value) {
+            (Self::VarcharBytes, Value::Null) => Ok(None),
+            (Self::VarcharBytes, Value::Varchar(value)) => {
+                if value.len() > 16 * 1024 * 1024 - 9 {
+                    return Err(Error::Resource("type key exceeds 16 MiB".into()));
+                }
+                Ok(Some(value.as_bytes()))
+            }
+            _ => Err(Error::Internal(
+                "value differs from its borrowed VARCHAR key capability".into(),
+            )),
+        }
     }
     /// Extract a compact equality key after physical/logical validation. NULL
     /// remains distinct. The selected capability, not the consumer, defines
@@ -506,6 +530,12 @@ impl TypeRegistry {
             None => adapter,
         };
         let key_representation = adapter.key_representation(data_type);
+        if key_representation == KeyRepresentation::VarcharBytes && *data_type != DataType::Varchar
+        {
+            return Err(Error::Bind(
+                "borrowed VARCHAR keys require a physical VARCHAR type".into(),
+            ));
+        }
         if key_representation == KeyRepresentation::Integer && !data_type.is_signed_integer() {
             return Err(Error::Bind(
                 "integer equality keys require a physical integer type".into(),
@@ -814,6 +844,8 @@ impl TypeAdapter for PrimitiveTypes {
     fn key_representation(&self, data_type: &DataType) -> KeyRepresentation {
         if data_type.is_signed_integer() {
             KeyRepresentation::Integer
+        } else if *data_type == DataType::Varchar {
+            KeyRepresentation::VarcharBytes
         } else {
             KeyRepresentation::CanonicalBytes
         }

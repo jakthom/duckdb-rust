@@ -727,7 +727,7 @@ impl PhysicalOperator for Operator {
                 input,
                 aggregation,
                 algorithm,
-            } => stream::deferred(schema, context, move || {
+            } => stream::deferred_owned(schema, context, move || {
                 let mut input = stream::open(input.as_ref(), context)?;
                 algorithm.aggregate(input.as_mut(), aggregation, context)
             }),

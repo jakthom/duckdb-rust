@@ -1935,6 +1935,37 @@ impl DataChunk {
             .collect::<Result<_>>()?;
         Self::new(columns, rows.len())
     }
+    /// Transpose rows whose ownership ends at this boundary without cloning
+    /// heap-owning scalar payloads. Width is checked before any row is moved;
+    /// the ordinary vector constructors retain type and encoding validation.
+    pub(crate) fn from_owned_rows(types: &[DataType], rows: Vec<Row>) -> Result<Self> {
+        if rows.iter().any(|row| row.len() != types.len()) {
+            return Err(Error::Internal("row width differs from schema".into()));
+        }
+        let count = rows.len();
+        let mut values = Vec::new();
+        values
+            .try_reserve(types.len())
+            .map_err(|_| Error::Resource("chunk column allocation failed".into()))?;
+        for _ in types {
+            let mut column = Vec::new();
+            column
+                .try_reserve(count)
+                .map_err(|_| Error::Resource("chunk column allocation failed".into()))?;
+            values.push(column);
+        }
+        for row in rows {
+            for (column, value) in values.iter_mut().zip(row) {
+                column.push(value);
+            }
+        }
+        let columns = types
+            .iter()
+            .zip(values)
+            .map(|(data_type, values)| Vector::flat(data_type.clone(), values))
+            .collect::<Result<_>>()?;
+        Self::new(columns, count)
+    }
     pub fn len(&self) -> usize {
         self.count
     }
@@ -2009,6 +2040,51 @@ impl DataChunk {
                 .iter()
                 .map(|column| column.value(index).expect("validated chunk cardinality")),
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod data_chunk_tests {
+    use super::*;
+    use crate::common::{NestedPayload, NestedType, NestedValue};
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn owned_rows_preserve_cardinality_width_types_and_heap_ownership() -> Result<()> {
+        let empty = DataChunk::from_owned_rows(&[DataType::Varchar], Vec::new())?;
+        assert_eq!(empty.len(), 0);
+        assert_eq!(empty.columns().len(), 1);
+
+        let zero_width = DataChunk::from_owned_rows(&[], vec![vec![], vec![]])?;
+        assert_eq!(zero_width.len(), 2);
+        assert!(zero_width.columns().is_empty());
+        assert!(DataChunk::from_owned_rows(&[DataType::Varchar], vec![vec![]]).is_err());
+        assert!(
+            DataChunk::from_owned_rows(&[DataType::Varchar], vec![vec![Value::Integer(1)]],)
+                .is_err()
+        );
+
+        let data_type = NestedType::List(DataType::Varchar).data_type();
+        let nested = NestedValue::value(
+            data_type.clone(),
+            NestedPayload::Sequence(vec![Value::Varchar("child".into()), Value::Null]),
+        )?;
+        let text = String::from("moved-é\0text");
+        let text_pointer = text.as_ptr();
+        let chunk = DataChunk::from_owned_rows(
+            &[DataType::Varchar, DataType::Varchar, data_type],
+            vec![vec![Value::Varchar(text), Value::Null, nested.clone()]],
+        )?;
+        let values = chunk.columns()[0]
+            .flat_values()
+            .expect("owned VARCHAR flat values");
+        let Value::Varchar(text) = &values[0] else {
+            panic!("owned VARCHAR payload");
+        };
+        assert_eq!(text.as_ptr(), text_pointer);
+        assert_eq!(chunk.columns()[1].value(0), Some(Value::Null));
+        assert_eq!(chunk.columns()[2].value(0), Some(nested));
         Ok(())
     }
 }
