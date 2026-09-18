@@ -417,10 +417,75 @@ impl AggregateFunction for CollectList {
     }
     fn modifier_strategy(&self, arguments: &[DataType]) -> super::AggregateModifierStrategy {
         if arguments.len() == 1 {
-            super::AggregateModifierStrategy::BufferedTotal
+            super::AggregateModifierStrategy::BufferedOwnedTotal
         } else {
             super::AggregateModifierStrategy::Generic
         }
+    }
+    fn finish_owned(
+        &self,
+        arguments: &[DataType],
+        mut columns: Vec<Vec<Value>>,
+        permutation: Vec<usize>,
+        query: &QueryContext,
+    ) -> Result<Value> {
+        let data_type = self.return_type(arguments, query.types())?;
+        if columns.len() != 1 {
+            return Err(Error::Internal(
+                "owned list aggregate argument count".into(),
+            ));
+        }
+        let mut values = columns.pop().expect("checked one list column");
+        let count = values.len();
+        query.check_rows(count)?;
+        if permutation.len() != count {
+            return Err(Error::Internal(
+                "owned list aggregate permutation length".into(),
+            ));
+        }
+
+        let mut seen = Vec::new();
+        seen.try_reserve_exact(count)
+            .map_err(|_| Error::Resource("list aggregate permutation allocation failed".into()))?;
+        seen.resize(count, false);
+        let mut identity = true;
+        for (chunk_index, chunk) in permutation.chunks(1024).enumerate() {
+            query.check()?;
+            let start = chunk_index * 1024;
+            for (offset, &source) in chunk.iter().enumerate() {
+                let Some(entry) = seen.get_mut(source) else {
+                    return Err(Error::Internal(
+                        "owned list aggregate permutation index".into(),
+                    ));
+                };
+                if *entry {
+                    return Err(Error::Internal(
+                        "owned list aggregate duplicate permutation index".into(),
+                    ));
+                }
+                *entry = true;
+                identity &= source == start + offset;
+            }
+        }
+        query.check()?;
+        if values.is_empty() {
+            return Ok(Value::Null);
+        }
+        if !identity {
+            let mut ordered = Vec::new();
+            ordered.try_reserve_exact(count).map_err(|_| {
+                Error::Resource("list aggregate ordered result allocation failed".into())
+            })?;
+            for chunk in permutation.chunks(1024) {
+                query.check()?;
+                for &source in chunk {
+                    ordered.push(std::mem::replace(&mut values[source], Value::Null));
+                }
+            }
+            query.check()?;
+            values = ordered;
+        }
+        NestedValue::value(data_type, NestedPayload::Sequence(values))
     }
 }
 
@@ -479,5 +544,181 @@ impl AggregateState for CollectedList {
             return Ok(Value::Null);
         }
         NestedValue::value(self.data_type, NestedPayload::Sequence(self.values))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parallel::InterruptHandle;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn sequence(value: &Value) -> &[Value] {
+        let Value::Nested(value) = value else {
+            panic!("expected nested list value");
+        };
+        let NestedPayload::Sequence(values) = &value.payload else {
+            panic!("expected sequence payload");
+        };
+        values
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn collect_list_owned_finish_validates_shape_and_permutation() -> Result<()> {
+        let function = CollectList("list");
+        let query = QueryContext::background();
+        let arguments = [DataType::Varchar];
+
+        assert!(
+            function
+                .finish_owned(&[], vec![Vec::new()], Vec::new(), &query)
+                .is_err()
+        );
+        assert!(
+            function
+                .finish_owned(
+                    &[DataType::Varchar, DataType::Varchar],
+                    vec![Vec::new()],
+                    Vec::new(),
+                    &query,
+                )
+                .is_err()
+        );
+        assert!(
+            function
+                .finish_owned(&arguments, Vec::new(), Vec::new(), &query)
+                .is_err()
+        );
+        assert!(
+            function
+                .finish_owned(&arguments, vec![Vec::new(), Vec::new()], Vec::new(), &query,)
+                .is_err()
+        );
+        assert!(
+            function
+                .finish_owned(
+                    &arguments,
+                    vec![vec![Value::Varchar("a".into()), Value::Varchar("b".into())]],
+                    vec![0],
+                    &query,
+                )
+                .is_err()
+        );
+        assert!(
+            function
+                .finish_owned(
+                    &arguments,
+                    vec![vec![Value::Varchar("a".into()), Value::Varchar("b".into())]],
+                    vec![0, 0],
+                    &query,
+                )
+                .is_err()
+        );
+        assert!(
+            function
+                .finish_owned(
+                    &arguments,
+                    vec![vec![Value::Varchar("a".into()), Value::Varchar("b".into())]],
+                    vec![0, 2],
+                    &query,
+                )
+                .is_err()
+        );
+        assert!(
+            function
+                .finish_owned(&arguments, vec![vec![Value::Integer(1)]], vec![0], &query,)
+                .is_err()
+        );
+        assert_eq!(
+            function.finish_owned(&arguments, vec![Vec::new()], Vec::new(), &query)?,
+            Value::Null
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn collect_list_owned_finish_moves_heap_and_nested_payloads() -> Result<()> {
+        let function = CollectList("array_agg");
+        let query = QueryContext::background();
+
+        let first = String::from("thirty-two-byte-utf8-boundary-界");
+        let second = String::from("nul\0and-utf8-é");
+        let first_pointer = first.as_ptr();
+        let second_pointer = second.as_ptr();
+        let identity = function.finish_owned(
+            &[DataType::Varchar],
+            vec![vec![
+                Value::Varchar(first),
+                Value::Null,
+                Value::Varchar(second),
+            ]],
+            vec![0, 1, 2],
+            &query,
+        )?;
+        let identity = sequence(&identity);
+        assert!(matches!(&identity[0], Value::Varchar(value) if value.as_ptr() == first_pointer));
+        assert_eq!(identity[1], Value::Null);
+        assert!(matches!(&identity[2], Value::Varchar(value) if value.as_ptr() == second_pointer));
+
+        let left = String::from("left");
+        let right = String::from("right");
+        let left_pointer = left.as_ptr();
+        let right_pointer = right.as_ptr();
+        let reordered = function.finish_owned(
+            &[DataType::Varchar],
+            vec![vec![Value::Varchar(left), Value::Varchar(right)]],
+            vec![1, 0],
+            &query,
+        )?;
+        let reordered = sequence(&reordered);
+        assert!(matches!(&reordered[0], Value::Varchar(value) if value.as_ptr() == right_pointer));
+        assert!(matches!(&reordered[1], Value::Varchar(value) if value.as_ptr() == left_pointer));
+
+        let child_type = NestedType::List(DataType::Varchar).data_type();
+        let child = NestedValue::value(
+            child_type.clone(),
+            NestedPayload::Sequence(vec![Value::Varchar("nested".into()), Value::Null]),
+        )?;
+        let Value::Nested(child_pointer) = &child else {
+            unreachable!();
+        };
+        let child_pointer = Arc::as_ptr(child_pointer);
+        let nested = function.finish_owned(&[child_type], vec![vec![child]], vec![0], &query)?;
+        assert!(matches!(
+            &sequence(&nested)[0],
+            Value::Nested(value) if Arc::as_ptr(value) == child_pointer
+        ));
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn collect_list_owned_finish_honors_limits_and_cancellation() -> Result<()> {
+        let function = CollectList("list");
+        let arguments = [DataType::Integer];
+        let values = (0..2_049).map(Value::Integer).collect::<Vec<_>>();
+        let permutation = (0..values.len()).rev().collect::<Vec<_>>();
+
+        let limited = QueryContext::new(InterruptHandle::default(), None, 2, 2_048)?;
+        assert!(matches!(
+            function.finish_owned(
+                &arguments,
+                vec![values.clone()],
+                permutation.clone(),
+                &limited,
+            ),
+            Err(Error::Resource(_))
+        ));
+
+        let interrupt = InterruptHandle::default();
+        interrupt.interrupt();
+        let cancelled = QueryContext::new(interrupt, None, 2, usize::MAX)?;
+        assert!(matches!(
+            function.finish_owned(&arguments, vec![values], permutation, &cancelled),
+            Err(Error::Interrupted)
+        ));
+        Ok(())
     }
 }

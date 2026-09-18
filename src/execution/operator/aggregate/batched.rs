@@ -796,7 +796,11 @@ fn try_distinct_modifiers(
         // adapter requires. Reuse the selected state through the established
         // stable signed path when DISTINCT and ORDER BY name the same column;
         // broader typed shapes remain with the generic buffered route.
-        let strategy = if strategy == AggregateModifierStrategy::BufferedTotal {
+        let strategy = if matches!(
+            strategy,
+            AggregateModifierStrategy::BufferedTotal
+                | AggregateModifierStrategy::BufferedOwnedTotal
+        ) {
             let selected = context.query.types().bind(&argument.data_type)?;
             if selected.key_representation() != KeyRepresentation::Integer
                 || selected.ordering_representation() != OrderingRepresentation::SignedInteger
@@ -1030,6 +1034,7 @@ fn try_distinct_modifiers(
                         }
                         AggregateModifierStrategy::Generic
                         | AggregateModifierStrategy::BufferedTotal
+                        | AggregateModifierStrategy::BufferedOwnedTotal
                         | AggregateModifierStrategy::FilteredSum => {
                             unreachable!("admission rejected")
                         }

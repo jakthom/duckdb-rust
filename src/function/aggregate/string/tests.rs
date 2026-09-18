@@ -114,6 +114,66 @@ fn grouped_columns_preserve_growth_empty_groups_and_row_order() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn grouped_direct_delivery_preserves_interleaved_flat_dictionary_and_constant_order() -> Result<()>
+{
+    let query = QueryContext::background();
+    let function = bound(Some("|"));
+    let mut grouped = function
+        .create_grouped_state(&[DataType::Varchar], query.types())?
+        .expect("STRING_AGG grouped opt-in");
+    let mut scalar = (0..3)
+        .map(|_| function.create_state(&[DataType::Varchar], query.types()))
+        .collect::<Result<Vec<_>>>()?;
+    grouped.resize(3, &query)?;
+
+    let flat = Vector::flat(
+        DataType::Varchar,
+        vec![
+            Value::Varchar("a".into()),
+            Value::Null,
+            Value::Varchar(String::new()),
+            Value::Varchar("界".into()),
+        ],
+    )?;
+    let dictionary_parent = Arc::new(Vector::flat(
+        DataType::Varchar,
+        vec![
+            Value::Varchar("x".into()),
+            Value::Null,
+            Value::Varchar("é\0".into()),
+        ],
+    )?);
+    let dictionary = dictionary_parent.select(vec![2, 0, 1, 2])?;
+    let constant = Vector::constant(DataType::Varchar, Value::Varchar("c".into()), 4)?;
+
+    for (column, destinations) in [
+        (flat, vec![2, 0, 2, 1]),
+        (dictionary, vec![0, 2, 1, 0]),
+        (constant, vec![1, 0, 1, 2]),
+    ] {
+        let chunk = DataChunk::new(vec![column.clone()], column.len())?;
+        grouped.update_batch(
+            &GroupSelection::new(&destinations, 3, &query)?,
+            &chunk,
+            &query,
+        )?;
+        for (destination, value) in destinations.into_iter().zip(column.values()) {
+            scalar[destination].update(&[value], &query)?;
+        }
+    }
+
+    assert_eq!(
+        grouped.finish(&query)?,
+        scalar
+            .into_iter()
+            .map(|state| state.finish())
+            .collect::<Result<Vec<_>>>()?
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn grouped_inline_storage_preserves_boundaries_promotion_and_capacity_policy() -> Result<()> {
     assert_eq!(GroupedStringBuffer::default().finish()?, Value::Null);
 

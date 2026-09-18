@@ -33,6 +33,8 @@ use duckdb_rust::{
 mod columns;
 #[path = "grouping/domains.rs"]
 mod domains;
+#[path = "grouping/owned.rs"]
+mod owned;
 #[path = "grouping/product.rs"]
 mod product;
 #[path = "../runner/mod.rs"]
@@ -1395,6 +1397,22 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
             ))?
             .rows,
         vec![vec![Value::Varchar(collision_values.join("|"))]],
+    );
+    assert_eq!(
+        connection
+            .query("SELECT buffered_probe(DISTINCT 'constant') FROM range(9)")?
+            .rows,
+        vec![vec![Value::Varchar("constant".into())]],
+    );
+    assert_eq!(
+        connection
+            .query(
+                "SELECT buffered_probe(DISTINCT x ORDER BY x) \
+                 FROM (SELECT x FROM (VALUES ('c'),('a'),('b'),('a')) t(x) \
+                       WHERE x <> 'c') selected",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("a|b".into())]],
     );
     assert_eq!(
         connection

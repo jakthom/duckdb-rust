@@ -1,12 +1,11 @@
 //! Generic column evaluation for total buffered aggregate modifiers.
 //!
 //! The executor retains owned values by group and column. Ordered groups build
-//! a stable row permutation. Each ordered argument moves into one flat parent
-//! and uses that checked permutation as a dictionary selection, so the driver
-//! does not clone every payload again before the selected aggregate state's
-//! batch callback. This deliberately favors a bounded, capability-checked
-//! implementation over a shallow-chunk representation; measurements decide
-//! whether a later storage specialization is warranted.
+//! a stable row permutation. Ordinary buffered functions move each argument
+//! into one flat parent and use that permutation as a dictionary selection.
+//! Functions with the stronger owned-total capability consume the same checked
+//! columns and permutation directly, without cloning their payloads into a
+//! vector first. Both routes remain explicit selected-adapter capabilities.
 use super::index::IntegerIndex;
 use crate::{
     DataType, Value,
@@ -31,7 +30,9 @@ use std::{cmp::Ordering, collections::HashSet, sync::Arc};
 const SMALL_VARCHAR_DISTINCT_KEYS: usize = 64;
 const MAX_SMALL_VARCHAR_SLOTS: usize = SMALL_VARCHAR_DISTINCT_KEYS * 2;
 const MAX_SIGNED_ORDER_BUCKETS: usize = 65_536;
-const EMPTY_SMALL_VARCHAR_SLOT: usize = usize::MAX;
+// Short prefixes use their length in the high byte (0..=7), while long
+// prefixes use 0xff. This tag can therefore never describe a key.
+const EMPTY_SMALL_VARCHAR_PREFIX: u64 = 0x80 << 56;
 
 enum Accumulator {
     Grouped(Box<dyn GroupedAggregateState>),
@@ -40,6 +41,7 @@ enum Accumulator {
 
 struct BufferedAccumulator {
     function: Arc<dyn AggregateFunction>,
+    strategy: AggregateModifierStrategy,
     argument_types: Vec<DataType>,
     argument_keys: Vec<BoundType>,
     order: Vec<OrderExpr>,
@@ -63,7 +65,8 @@ enum DistinctKeys {
 
 struct SmallVarcharKeys {
     keys: Vec<SmallVarcharKey>,
-    slots: Vec<usize>,
+    slot_prefixes: Vec<u64>,
+    slot_keys: Vec<u8>,
 }
 
 struct SmallVarcharKey {
@@ -80,7 +83,8 @@ impl BufferedGroup {
             seen: if borrowed_varchar_key {
                 DistinctKeys::SmallVarchar(SmallVarcharKeys {
                     keys: Vec::new(),
-                    slots: Vec::new(),
+                    slot_prefixes: Vec::new(),
+                    slot_keys: Vec::new(),
                 })
             } else {
                 DistinctKeys::Canonical(HashSet::new())
@@ -152,7 +156,9 @@ impl BufferedGroup {
                 prefix,
                 bytes: owned,
             });
-            small.slots[slot] = key;
+            small.slot_prefixes[slot] = prefix;
+            small.slot_keys[slot] =
+                u8::try_from(key).expect("bounded VARCHAR key index fits in one byte");
             return Ok(true);
         }
 
@@ -177,19 +183,28 @@ impl BufferedGroup {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SmallVarcharKeys {
     fn contains(&self, prefix: u64, bytes: &[u8]) -> bool {
-        if self.slots.is_empty() {
+        if self.slot_prefixes.is_empty() {
             return false;
         }
-        let mask = self.slots.len() - 1;
+        let mask = self.slot_prefixes.len() - 1;
         let mut slot = varchar_prefix_hash(prefix) & mask;
-        for _ in 0..self.slots.len() {
-            let key = self.slots[slot];
-            if key == EMPTY_SMALL_VARCHAR_SLOT {
+        for _ in 0..self.slot_prefixes.len() {
+            let stored_prefix = self.slot_prefixes[slot];
+            if stored_prefix == EMPTY_SMALL_VARCHAR_PREFIX {
                 return false;
             }
-            let key = &self.keys[key];
-            if key.prefix == prefix && (bytes.len() <= 7 || key.bytes.as_slice() == bytes) {
-                return true;
+            if stored_prefix == prefix {
+                if bytes.len() <= 7 {
+                    return true;
+                }
+                let key = usize::from(self.slot_keys[slot]);
+                if self
+                    .keys
+                    .get(key)
+                    .is_some_and(|key| key.prefix == prefix && key.bytes.as_slice() == bytes)
+                {
+                    return true;
+                }
             }
             slot = (slot + 1) & mask;
         }
@@ -197,10 +212,10 @@ impl SmallVarcharKeys {
     }
 
     fn vacant_slot(&self, prefix: u64) -> Option<usize> {
-        let mask = self.slots.len().checked_sub(1)?;
+        let mask = self.slot_prefixes.len().checked_sub(1)?;
         let mut slot = varchar_prefix_hash(prefix) & mask;
-        for _ in 0..self.slots.len() {
-            if self.slots[slot] == EMPTY_SMALL_VARCHAR_SLOT {
+        for _ in 0..self.slot_prefixes.len() {
+            if self.slot_prefixes[slot] == EMPTY_SMALL_VARCHAR_PREFIX {
                 return Some(slot);
             }
             slot = (slot + 1) & mask;
@@ -217,27 +232,35 @@ impl SmallVarcharKeys {
         let required = keys
             .checked_mul(2)
             .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
-        if required <= self.slots.len() {
+        if required <= self.slot_prefixes.len() {
             return Ok(());
         }
         let slots = required
             .checked_next_power_of_two()
             .filter(|&slots| slots <= MAX_SMALL_VARCHAR_SLOTS)
             .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
-        let mut resized = Vec::new();
-        resized
+        let mut resized_prefixes = Vec::new();
+        resized_prefixes
             .try_reserve_exact(slots)
             .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
-        resized.resize(slots, EMPTY_SMALL_VARCHAR_SLOT);
+        resized_prefixes.resize(slots, EMPTY_SMALL_VARCHAR_PREFIX);
+        let mut resized_keys = Vec::new();
+        resized_keys
+            .try_reserve_exact(slots)
+            .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
+        resized_keys.resize(slots, 0);
         for (index, key) in self.keys.iter().enumerate() {
-            let mask = resized.len() - 1;
+            let mask = resized_prefixes.len() - 1;
             let mut slot = varchar_prefix_hash(key.prefix) & mask;
-            while resized[slot] != EMPTY_SMALL_VARCHAR_SLOT {
+            while resized_prefixes[slot] != EMPTY_SMALL_VARCHAR_PREFIX {
                 slot = (slot + 1) & mask;
             }
-            resized[slot] = index;
+            resized_prefixes[slot] = key.prefix;
+            resized_keys[slot] =
+                u8::try_from(index).expect("bounded VARCHAR key index fits in one byte");
         }
-        self.slots = resized;
+        self.slot_prefixes = resized_prefixes;
+        self.slot_keys = resized_keys;
         Ok(())
     }
 }
@@ -268,11 +291,9 @@ fn varchar_key_prefix(bytes: &[u8]) -> u64 {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
 fn varchar_prefix_hash(mut prefix: u64) -> usize {
-    prefix ^= prefix >> 33;
-    prefix = prefix.wrapping_mul(0xff51_afd7_ed55_8ccd);
-    prefix ^= prefix >> 33;
-    prefix = prefix.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
-    prefix ^= prefix >> 33;
+    prefix ^= prefix.rotate_right(32);
+    prefix = prefix.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    prefix ^= prefix >> 32;
     prefix as usize
 }
 
@@ -296,6 +317,94 @@ fn insert_borrowed_varchar(
             Ok(true)
         }
         Some(bytes) => retained.insert_varchar_key(bytes, query),
+    }
+}
+
+enum BorrowedVarcharValues<'a> {
+    Flat(&'a [Value]),
+    Constant {
+        value: &'a Value,
+        rows: usize,
+    },
+    DictionaryFlat {
+        values: &'a [Value],
+        selection: &'a [usize],
+    },
+    DictionaryConstant {
+        value: &'a Value,
+        parent_rows: usize,
+        selection: &'a [usize],
+    },
+    Fallback(&'a Vector),
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl<'a> BorrowedVarcharValues<'a> {
+    #[inline]
+    fn new(column: &'a Vector) -> Self {
+        if let Some(values) = column.flat_values() {
+            return Self::Flat(values);
+        }
+        if let Some(value) = column.constant_value() {
+            return Self::Constant {
+                value,
+                rows: column.len(),
+            };
+        }
+        if let Some((parent, selection)) = column.dictionary() {
+            if let Some(values) = parent.flat_values() {
+                return Self::DictionaryFlat { values, selection };
+            }
+            if let Some(value) = parent.constant_value() {
+                return Self::DictionaryConstant {
+                    value,
+                    parent_rows: parent.len(),
+                    selection,
+                };
+            }
+        }
+        Self::Fallback(column)
+    }
+
+    #[inline]
+    fn with_value<T>(&self, row: usize, callback: impl FnOnce(&Value) -> Result<T>) -> Result<T> {
+        match self {
+            Self::Flat(values) => callback(
+                values
+                    .get(row)
+                    .ok_or_else(|| Error::Internal("aggregate vector row outside input".into()))?,
+            ),
+            Self::Constant { value, rows } => {
+                if row >= *rows {
+                    return Err(Error::Internal("aggregate vector row outside input".into()));
+                }
+                callback(value)
+            }
+            Self::DictionaryFlat { values, selection } => {
+                let selected = *selection
+                    .get(row)
+                    .ok_or_else(|| Error::Internal("aggregate vector row outside input".into()))?;
+                callback(values.get(selected).ok_or_else(|| {
+                    Error::Internal("aggregate dictionary row outside parent".into())
+                })?)
+            }
+            Self::DictionaryConstant {
+                value,
+                parent_rows,
+                selection,
+            } => {
+                let selected = *selection
+                    .get(row)
+                    .ok_or_else(|| Error::Internal("aggregate vector row outside input".into()))?;
+                if selected >= *parent_rows {
+                    return Err(Error::Internal(
+                        "aggregate dictionary row outside parent".into(),
+                    ));
+                }
+                callback(value)
+            }
+            Self::Fallback(column) => with_value(column, row, callback),
+        }
     }
 }
 
@@ -362,9 +471,13 @@ pub(super) fn try_run(
             .map(|argument| argument.data_type.clone())
             .collect::<Vec<_>>();
         if function.distinct || !function.order_by.is_empty() {
+            let strategy = function.function.modifier_strategy(&argument_types);
             if argument_types.is_empty()
-                || function.function.modifier_strategy(&argument_types)
-                    != AggregateModifierStrategy::BufferedTotal
+                || !matches!(
+                    strategy,
+                    AggregateModifierStrategy::BufferedTotal
+                        | AggregateModifierStrategy::BufferedOwnedTotal
+                )
                 || function.function.ordered_strategy(&argument_types)
                     != OrderedAggregateStrategy::Buffered
             {
@@ -372,6 +485,7 @@ pub(super) fn try_run(
             }
             accumulators.push(Accumulator::Buffered(BufferedAccumulator {
                 function: function.function.clone(),
+                strategy,
                 argument_keys: argument_types
                     .iter()
                     .map(|data_type| context.query.types().bind(data_type))
@@ -538,9 +652,8 @@ pub(super) fn try_run(
                         };
                         buffered.argument_keys[0].validate_vector(column, context.query)?;
                     }
-                    let flat_borrowed_varchar = borrowed_varchar_key
-                        .then(|| input.columns()[0].flat_values())
-                        .flatten();
+                    let borrowed_varchar_values = borrowed_varchar_key
+                        .then(|| BorrowedVarcharValues::new(&input.columns()[0]));
                     for (row, &group) in destinations.iter().enumerate() {
                         if row % 1024 == 0 {
                             context.query.check()?;
@@ -549,27 +662,17 @@ pub(super) fn try_run(
                         if buffered.distinct {
                             if borrowed_varchar_key {
                                 let representation = buffered.argument_keys[0].key_representation();
-                                let inserted = if let Some(values) = flat_borrowed_varchar {
-                                    insert_borrowed_varchar(
-                                        retained,
-                                        representation,
-                                        values.get(row).ok_or_else(|| {
-                                            Error::Internal(
-                                                "aggregate vector row outside input".into(),
-                                            )
-                                        })?,
-                                        context.query,
-                                    )?
-                                } else {
-                                    with_value(&input.columns()[0], row, |value| {
+                                let inserted = borrowed_varchar_values
+                                    .as_ref()
+                                    .expect("borrowed VARCHAR view was selected")
+                                    .with_value(row, |value| {
                                         insert_borrowed_varchar(
                                             retained,
                                             representation,
                                             value,
                                             context.query,
                                         )
-                                    })?
-                                };
+                                    })?;
                                 if !inserted {
                                     continue;
                                 }
@@ -693,6 +796,22 @@ impl BufferedAccumulator {
             } else {
                 stable_permutation(&group.order, &self.order, &self.order_types, context)?
             };
+            if group.arguments.iter().any(|column| column.len() != count)
+                || permutation.len() != count
+            {
+                return Err(Error::Internal(
+                    "buffered aggregate inputs differ in row count".into(),
+                ));
+            }
+            if self.strategy == AggregateModifierStrategy::BufferedOwnedTotal {
+                output.push(self.function.finish_owned(
+                    &self.argument_types,
+                    group.arguments,
+                    permutation,
+                    context.query,
+                )?);
+                continue;
+            }
             let columns = group
                 .arguments
                 .into_iter()

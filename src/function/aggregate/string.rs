@@ -192,14 +192,13 @@ enum GroupedStringBuffer {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl GroupedStringBuffer {
     fn append(&mut self, input: &Value, separator: &str) -> Result<()> {
-        let Value::Varchar(input) = input else {
-            if input.is_null() {
-                return Ok(());
-            }
-            return Err(Error::Internal(
-                "string_agg input differs from binding".into(),
-            ));
+        let Some(input) = varchar_input(input)? else {
+            return Ok(());
         };
+        self.append_varchar(input, separator)
+    }
+
+    fn append_varchar(&mut self, input: &str, separator: &str) -> Result<()> {
         match self {
             Self::Unseen if input.len() <= GROUPED_INLINE_BYTES => {
                 let mut bytes = [0; GROUPED_INLINE_BYTES];
@@ -372,9 +371,7 @@ impl GroupedAggregateState for StringAggGroups {
         };
         validate_column(column, query)?;
         if let Some(separator) = &self.separator {
-            visit_column(column, query, |row, value| {
-                self.buffers[groups.indices()[row]].append(value, separator)
-            })?;
+            visit_grouped_column(&mut self.buffers, groups, column, separator, query)?;
         }
         query.check()
     }
@@ -405,6 +402,77 @@ fn validate_column(column: &Vector, query: &QueryContext) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn varchar_input(value: &Value) -> Result<Option<&str>> {
+    match value {
+        Value::Varchar(value) => Ok(Some(value)),
+        Value::Null => Ok(None),
+        _ => Err(Error::Internal(
+            "string_agg input differs from binding".into(),
+        )),
+    }
+}
+
+/// Zip already validated destinations with borrowed physical VARCHAR values.
+/// The generic visitor remains the authority for encodings without a direct
+/// flat parent; this path changes delivery only, not buffer growth or results.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn visit_grouped_column(
+    buffers: &mut [GroupedStringBuffer],
+    groups: &GroupSelection<'_>,
+    column: &Vector,
+    separator: &str,
+    query: &QueryContext,
+) -> Result<()> {
+    let destinations = groups.indices();
+    if let Some(values) = column.flat_values() {
+        if values.len() != destinations.len() {
+            return Err(Error::Internal("string_agg flat column cardinality".into()));
+        }
+        for (destination_chunk, value_chunk) in destinations.chunks(1024).zip(values.chunks(1024)) {
+            query.check()?;
+            for (&destination, value) in destination_chunk.iter().zip(value_chunk) {
+                if let Some(value) = varchar_input(value)? {
+                    buffers[destination].append_varchar(value, separator)?;
+                }
+            }
+        }
+    } else if let Some(value) = column.constant_value() {
+        let value = varchar_input(value)?;
+        for destination_chunk in destinations.chunks(1024) {
+            query.check()?;
+            if let Some(value) = value {
+                for &destination in destination_chunk {
+                    buffers[destination].append_varchar(value, separator)?;
+                }
+            }
+        }
+    } else if let Some((parent, indices)) = column.dictionary()
+        && let Some(values) = parent.flat_values()
+    {
+        if indices.len() != destinations.len() {
+            return Err(Error::Internal("string_agg dictionary cardinality".into()));
+        }
+        for (destination_chunk, index_chunk) in destinations.chunks(1024).zip(indices.chunks(1024))
+        {
+            query.check()?;
+            for (&destination, &index) in destination_chunk.iter().zip(index_chunk) {
+                let value = values.get(index).ok_or_else(|| {
+                    Error::Internal("string_agg dictionary index outside parent".into())
+                })?;
+                if let Some(value) = varchar_input(value)? {
+                    buffers[destination].append_varchar(value, separator)?;
+                }
+            }
+        }
+    } else {
+        visit_column(column, query, |row, value| {
+            buffers[destinations[row]].append(value, separator)
+        })?;
+    }
+    query.check()
 }
 
 /// Borrow validated string values whenever their physical encoding permits it.

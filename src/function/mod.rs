@@ -483,6 +483,11 @@ pub enum AggregateModifierStrategy {
     /// and delivered through `AggregateState::update_batch`. Cancellation and
     /// resource failures remain observable and invalidate the state.
     BufferedTotal,
+    /// The same pure/total promise as BufferedTotal, with explicit ownership
+    /// transfer to AggregateFunction::finish_owned after DISTINCT and stable
+    /// ORDER BY selection. The selected adapter must implement that hook;
+    /// executors never infer this capability from a function name.
+    BufferedOwnedTotal,
     FilteredSum,
     DistinctCount,
     DistinctList,
@@ -572,6 +577,28 @@ pub trait AggregateFunction: Debug + Send + Sync {
     /// the default so registered aggregates retain their normal callbacks.
     fn modifier_strategy(&self, _arguments: &[DataType]) -> AggregateModifierStrategy {
         AggregateModifierStrategy::Generic
+    }
+    /// Consume one complete buffered group's argument columns and a stable
+    /// permutation of every retained row exactly once. Columns contain the
+    /// already evaluated, validated bound argument values (including NULLs).
+    /// The hook must match create_state/update_batch/finish on that order,
+    /// preserve bound argument/result types, and enforce row/resource limits
+    /// and cooperative cancellation. Empty input retains ordinary aggregate
+    /// semantics. Invalid shapes/permutations must fail, never index unchecked.
+    ///
+    /// Called only after explicit BufferedOwnedTotal admission. Ownership is
+    /// final: an error invalidates the group; there is no fallback with lost
+    /// buffers. Other strategies continue through the existing state callbacks.
+    fn finish_owned(
+        &self,
+        _arguments: &[DataType],
+        _columns: Vec<Vec<Value>>,
+        _permutation: Vec<usize>,
+        _query: &QueryContext,
+    ) -> Result<Value> {
+        Err(Error::Internal(
+            "owned aggregate completion capability has no implementation".into(),
+        ))
     }
     /// Optional partition evaluation through the same window contract. None
     /// requests the generic frame evaluator; callers never inspect function names.
