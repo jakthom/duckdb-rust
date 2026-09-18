@@ -821,7 +821,17 @@ Batch 1 evidence/restart details:
   or new adapter API. Index 13/13, string leaf 6/6, modifier 1/1 and grouping
   75/75 pass; the post-row-assembly edit reran grouping only, reusing unchanged
   leaf/index checks. Fresh release binaries/untimed fixtures precede the next
-  quiet diagnostic campaign. No final acceptance claim yet.
+  quiet diagnostic campaign. Candidate 6 untimed fixtures pass C2 257/257 and
+  grouping 385/385. Quiet 9-sample diagnostics now pass ungrouped C2
+  0.657–0.666x and few groups 0.980–0.995x; many groups 1.217–1.218x,
+  ordered DISTINCT 1.191–1.223x and mixed 1.433–1.443x still fail. C2 process
+  wall/CPU fail 1.303x/1.312x; RSS passes 0.618x, I/O zero. All G08 native
+  cases pass. All grouping native cases now pass: grouped 0.831–0.838x,
+  ROLLUP 0.547–0.570x, CUBE 0.769–0.776x. Grouping process also passes all
+  resource gates (wall 0.609x, CPU 0.595x, RSS 0.243x, I/O 1.0x).
+  Reports are worker `target/c2-1/*candidate6*.json`, with failed runs retained.
+  Fresh profiles of the remaining three C2 cases precede candidate 7. These
+  diagnostics are not final 21-sample performance acceptance or verifier passes.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
