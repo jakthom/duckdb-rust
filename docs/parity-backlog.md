@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb` (reported failures remain engine gaps); F1 integrated as `449d92c`, scoped verifier active; C2.1 worker corrections/acceptance still open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb` (reported failures remain engine gaps); F1 integrated as `449d92c`, scoped verification passed, performance open; C2.1 worker corrections/acceptance still open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -604,12 +604,23 @@ Batch 1 evidence/restart details:
   is `target/f1/ordinary-integer-selected.json`. All four native workloads have
   correct rows/checksums on Rust and both pins; both process fixtures pass
   64/128 records respectively on all three engines. These are untimed correctness
-  checks, not performance acceptance. Final scoped verification and quiet-host
-  native/process performance acceptance remain open.
+  checks, not performance acceptance. The independent partial sweep passed
+  against `449d92c`: table-functions 6/6, execution 108/108, FROM-first 2/2 and
+  two contracts 1/1 each; formatting, scoped Clippy, instrumentation coverage
+  (no missing items) and trace compatibility passed. Later commits through
+  `2069859` touched documentation only and did not invalidate those checks.
+  Quiet-host performance diagnostic (9 samples, not final acceptance) is complete:
+  three native workloads pass, but `range_aggregate_1m` fails at 4.73–4.75x
+  (Rust 4.91–4.94 ms versus faster-reference 1.039 ms). Both process workloads
+  pass diagnostic wall/CPU/RSS/I/O/throughput gates. Raw reports are worker
+  `target/f1/performance/*-diagnostic-9.json`. S agent
+  `batch1_f1_performance` owns a measured correction on the F1 branch; preserve
+  `261100a` and add follow-up commits. This failure blocks F1 acceptance; do not
+  remove the workload, substitute the prior Rust baseline or retry to green.
 - C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
   it must preserve a bound constant separator through grouped and window paths.
   Mutable per-row separators must not silently replace the pinned bind contract.
-  Draft commit chain through `2d27fd6` is on the worker branch, not integrated
+  Draft commit chain through `ecccaa6` is on the worker branch, not integrated
   acceptance. Focused grouping/window tests passed; the development window
   source file passes 4/4 records. Original aggregate/distinct files remain
   blocked by external/parallel verification configurations; do not remove those
@@ -621,10 +632,12 @@ Batch 1 evidence/restart details:
   open. All five native workload queries now produce the exact expected numeric
   checksums on Rust and both pins; reference outputs are worker
   `target/c2-1/native-{release,development}.json`. Process-fixture correctness is
-  next. Binder contract review is escalated to S after repeated correction cycles;
+  complete: 257 records/assertions pass on Rust and each pinned native runner,
+  with logs and binary identities under worker `target/c2-1/process-*`.
+  Binder contract review is escalated to S after repeated correction cycles;
   this does not authorize unrelated engine changes or broaden verification.
   Exact manifest: worker `target/c2-1/validation-manifest.md`.
-- F1/C2.1 final implementation/performance/scoped-sweep outcomes remain **open**;
+- F1 performance and C2.1 final implementation/acceptance remain **open**;
   A1's frozen evaluation is complete as recorded above.
   Resume by reading the worker manifests/reports and branch diffs, not by
   restarting completed checks or dispatching a full sweep. Do not start batch 2
