@@ -1345,6 +1345,24 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
     );
     assert_eq!(batch_calls.load(Ordering::SeqCst), 2);
     assert_eq!(row_calls.load(Ordering::SeqCst), 7);
+    for distinct in [63usize, 64, 65] {
+        let mut expected = (0..distinct)
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(
+            connection
+                .query(&format!(
+                    "SELECT buffered_probe(\
+                         DISTINCT (i % {distinct})::VARCHAR \
+                         ORDER BY (i % {distinct})::VARCHAR) \
+                     FROM range({}) t(i)",
+                    distinct + 7
+                ))?
+                .rows,
+            vec![vec![Value::Varchar(expected.join("|"))]],
+        );
+    }
     assert_eq!(
         connection
             .query(
@@ -1372,6 +1390,30 @@ fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Re
         vec![vec![Value::Varchar("2|1".into())]]
     );
     assert_eq!(signed_batch_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        connection
+            .query(
+                "SELECT signed_buffered_probe(x ORDER BY k DESC NULLS FIRST) \
+                 FROM (VALUES (10,NULL),(20,-2),(30,1),(40,-2),(50,1)) t(x,k)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("10|30|50|20|40".into())]],
+    );
+    assert_eq!(
+        connection
+            .query(
+                "SELECT signed_buffered_probe(x ORDER BY k ASC NULLS LAST) \
+                 FROM (VALUES \
+                    (1,NULL::HUGEINT),\
+                    (2,'-170141183460469231731687303715884105728'::HUGEINT),\
+                    (3,'170141183460469231731687303715884105727'::HUGEINT),\
+                    (4,'-170141183460469231731687303715884105728'::HUGEINT)\
+                 ) t(x,k)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("2|4|3|1".into())]],
+    );
+    assert_eq!(signed_batch_calls.load(Ordering::SeqCst), 2);
 
     let custom_batch_calls = Arc::new(AtomicUsize::new(0));
     let mut custom_functions = FunctionRegistry::builtins();

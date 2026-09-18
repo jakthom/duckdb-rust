@@ -20,12 +20,16 @@ use crate::{
         AggregateFunction, AggregateModifierStrategy, OrderedAggregateStrategy,
         grouped::{GroupSelection, GroupedAggregateState},
     },
+    parallel::QueryContext,
     planner::{
         aggregation::{AggregateOutput, Aggregation},
         logical::OrderExpr,
     },
 };
 use std::{cmp::Ordering, collections::HashSet, sync::Arc};
+
+const SMALL_VARCHAR_DISTINCT_KEYS: usize = 64;
+const MAX_SIGNED_ORDER_BUCKETS: usize = 65_536;
 
 enum Accumulator {
     Grouped(Box<dyn GroupedAggregateState>),
@@ -45,17 +49,27 @@ struct BufferedAccumulator {
 struct BufferedGroup {
     arguments: Vec<Vec<Value>>,
     order: Vec<Vec<Value>>,
-    seen: HashSet<Vec<u8>>,
+    seen: DistinctKeys,
     seen_null: bool,
+}
+
+enum DistinctKeys {
+    Canonical(HashSet<Vec<u8>>),
+    SmallVarchar(Vec<Vec<u8>>),
+    VarcharHash(HashSet<Vec<u8>>),
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BufferedGroup {
-    fn new(arguments: usize, order: usize) -> Self {
+    fn new(arguments: usize, order: usize, borrowed_varchar_key: bool) -> Self {
         Self {
             arguments: (0..arguments).map(|_| Vec::new()).collect(),
             order: (0..order).map(|_| Vec::new()).collect(),
-            seen: HashSet::new(),
+            seen: if borrowed_varchar_key {
+                DistinctKeys::SmallVarchar(Vec::new())
+            } else {
+                DistinctKeys::Canonical(HashSet::new())
+            },
             seen_null: false,
         }
     }
@@ -63,6 +77,83 @@ impl BufferedGroup {
     fn len(&self) -> usize {
         self.arguments.first().map_or(0, Vec::len)
     }
+
+    fn distinct_count(&self) -> Result<usize> {
+        let non_null = match &self.seen {
+            DistinctKeys::Canonical(keys) | DistinctKeys::VarcharHash(keys) => keys.len(),
+            DistinctKeys::SmallVarchar(keys) => keys.len(),
+        };
+        non_null
+            .checked_add(usize::from(self.seen_null))
+            .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))
+    }
+
+    fn insert_varchar_key(&mut self, bytes: &[u8], query: &QueryContext) -> Result<bool> {
+        let null_count = usize::from(self.seen_null);
+        let DistinctKeys::SmallVarchar(keys) = &mut self.seen else {
+            let DistinctKeys::VarcharHash(keys) = &mut self.seen else {
+                return Err(Error::Internal(
+                    "borrowed VARCHAR key used with canonical DISTINCT state".into(),
+                ));
+            };
+            if keys.contains(bytes) {
+                return Ok(false);
+            }
+            let next = keys
+                .len()
+                .checked_add(null_count)
+                .and_then(|count| count.checked_add(1))
+                .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
+            query.check_rows(next)?;
+            let owned = copy_distinct_key(bytes)?;
+            keys.try_reserve(1)
+                .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
+            keys.insert(owned);
+            return Ok(true);
+        };
+        let insertion = match keys.binary_search_by(|key| key.as_slice().cmp(bytes)) {
+            Ok(_) => return Ok(false),
+            Err(insertion) => insertion,
+        };
+        let next = keys
+            .len()
+            .checked_add(null_count)
+            .and_then(|count| count.checked_add(1))
+            .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
+        query.check_rows(next)?;
+        let owned = copy_distinct_key(bytes)?;
+        if keys.len() < SMALL_VARCHAR_DISTINCT_KEYS {
+            keys.try_reserve(1)
+                .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
+            keys.insert(insertion, owned);
+            return Ok(true);
+        }
+
+        let mut hashed = HashSet::new();
+        let capacity = keys
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| Error::Resource("buffered DISTINCT key count overflow".into()))?;
+        hashed
+            .try_reserve(capacity)
+            .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
+        for key in std::mem::take(keys) {
+            hashed.insert(key);
+        }
+        hashed.insert(owned);
+        self.seen = DistinctKeys::VarcharHash(hashed);
+        Ok(true)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn copy_distinct_key(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut owned = Vec::new();
+    owned
+        .try_reserve_exact(bytes.len())
+        .map_err(|_| Error::Resource("buffered DISTINCT key allocation failed".into()))?;
+    owned.extend_from_slice(bytes);
+    Ok(owned)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -316,26 +407,9 @@ pub(super) fn try_run(
                                     match representation.varchar_key(value)? {
                                         None if retained.seen_null => Ok(false),
                                         None => {
-                                            let next =
-                                                retained.seen.len().checked_add(1).ok_or_else(
-                                                    || {
-                                                        Error::Resource(
-                                                            "buffered DISTINCT key count overflow"
-                                                                .into(),
-                                                        )
-                                                    },
-                                                )?;
-                                            context.query.check_rows(next)?;
-                                            retained.seen_null = true;
-                                            Ok(true)
-                                        }
-                                        Some(bytes) if retained.seen.contains(bytes) => Ok(false),
-                                        Some(bytes) => {
                                             let next = retained
-                                                .seen
-                                                .len()
-                                                .checked_add(usize::from(retained.seen_null))
-                                                .and_then(|count| count.checked_add(1))
+                                                .distinct_count()?
+                                                .checked_add(1)
                                                 .ok_or_else(|| {
                                                     Error::Resource(
                                                         "buffered DISTINCT key count overflow"
@@ -343,16 +417,11 @@ pub(super) fn try_run(
                                                     )
                                                 })?;
                                             context.query.check_rows(next)?;
-                                            let mut owned = Vec::new();
-                                            owned.try_reserve_exact(bytes.len()).map_err(|_| {
-                                                Error::Resource(
-                                                    "buffered DISTINCT key allocation failed"
-                                                        .into(),
-                                                )
-                                            })?;
-                                            owned.extend_from_slice(bytes);
-                                            retained.seen.insert(owned);
+                                            retained.seen_null = true;
                                             Ok(true)
+                                        }
+                                        Some(bytes) => {
+                                            retained.insert_varchar_key(bytes, context.query)
                                         }
                                     }
                                 })?;
@@ -376,11 +445,17 @@ pub(super) fn try_run(
                                     })?;
                                     debug_assert_eq!(column.data_type(), &argument.data_type);
                                 }
-                                if retained.seen.contains(&distinct_key) {
+                                let DistinctKeys::Canonical(seen) = &mut retained.seen else {
+                                    return Err(Error::Internal(
+                                        "canonical key used with borrowed VARCHAR DISTINCT state"
+                                            .into(),
+                                    ));
+                                };
+                                if seen.contains(&distinct_key) {
                                     continue;
                                 }
-                                context.query.check_rows(retained.seen.len() + 1)?;
-                                retained.seen.insert(distinct_key.clone());
+                                context.query.check_rows(seen.len() + 1)?;
+                                seen.insert(distinct_key.clone());
                             }
                         }
                         let units = 2usize
@@ -447,8 +522,18 @@ pub(super) fn try_run(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BufferedAccumulator {
     fn resize(&mut self, groups: usize) {
+        let borrowed_varchar_key = self.distinct
+            && matches!(
+                self.argument_keys.as_slice(),
+                [data_type]
+                    if data_type.key_representation() == KeyRepresentation::VarcharBytes
+            );
         self.groups.resize_with(groups, || {
-            BufferedGroup::new(self.argument_types.len(), self.order.len())
+            BufferedGroup::new(
+                self.argument_types.len(),
+                self.order.len(),
+                borrowed_varchar_key,
+            )
         });
     }
 
@@ -497,6 +582,9 @@ fn stable_permutation(
     if columns.is_empty() {
         return Ok(Vec::new());
     }
+    if let Some(permutation) = signed_counting_permutation(columns, order, types, context)? {
+        return Ok(permutation);
+    }
     let mut permutation = (0..rows).collect::<Vec<_>>();
     let mut scratch = vec![0; rows];
     let mut width = 1usize;
@@ -536,6 +624,132 @@ fn stable_permutation(
         width = width.saturating_mul(2);
     }
     Ok(permutation)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn signed_counting_permutation(
+    columns: &[Vec<Value>],
+    order: &[OrderExpr],
+    types: &[BoundType],
+    context: &ExecutionContext<'_>,
+) -> Result<Option<Vec<usize>>> {
+    let ([column], [order], [data_type]) = (columns, order, types) else {
+        return Ok(None);
+    };
+    if data_type.ordering_representation() != OrderingRepresentation::SignedInteger
+        || data_type.requires_logical_validation()
+    {
+        return Ok(None);
+    }
+    let rows = column.len();
+    if rows == 0 {
+        return Ok(Some(Vec::new()));
+    }
+    let mut minimum = None::<i128>;
+    let mut maximum = None::<i128>;
+    let mut has_null = false;
+    for (row, value) in column.iter().enumerate() {
+        if row % 1024 == 0 {
+            context.query.check()?;
+        }
+        match value {
+            Value::Null => has_null = true,
+            Value::Integer(value) => {
+                minimum = Some(minimum.map_or(*value, |current| current.min(*value)));
+                maximum = Some(maximum.map_or(*value, |current| current.max(*value)));
+            }
+            _ => {
+                return Err(Error::Internal(
+                    "signed ordering value differs from selected representation".into(),
+                ));
+            }
+        }
+    }
+    let numeric_buckets = match (minimum, maximum) {
+        (Some(minimum), Some(maximum)) => maximum
+            .checked_sub(minimum)
+            .and_then(|span| span.checked_add(1))
+            .and_then(|span| usize::try_from(span).ok()),
+        (None, None) => Some(0),
+        _ => unreachable!("minimum and maximum are updated together"),
+    };
+    let Some(numeric_buckets) = numeric_buckets else {
+        return Ok(None);
+    };
+    let Some(bucket_count) = numeric_buckets.checked_add(usize::from(has_null)) else {
+        return Ok(None);
+    };
+    if bucket_count > rows.min(MAX_SIGNED_ORDER_BUCKETS) {
+        return Ok(None);
+    }
+    let mut offsets = vec![0usize; bucket_count];
+    let minimum = minimum.unwrap_or(0);
+    let null_bucket = numeric_buckets;
+    for (row, value) in column.iter().enumerate() {
+        if row % 1024 == 0 {
+            context.query.check()?;
+        }
+        let bucket = signed_order_bucket(value, minimum, null_bucket)?;
+        offsets[bucket] = offsets[bucket]
+            .checked_add(1)
+            .ok_or_else(|| Error::Resource("signed order bucket count overflow".into()))?;
+    }
+
+    let mut next = 0usize;
+    if order.nulls_first && has_null {
+        let count = offsets[null_bucket];
+        offsets[null_bucket] = next;
+        next += count;
+    }
+    if order.descending {
+        for (iteration, bucket) in (0..numeric_buckets).rev().enumerate() {
+            if iteration % 1024 == 0 {
+                context.query.check()?;
+            }
+            let count = offsets[bucket];
+            offsets[bucket] = next;
+            next += count;
+        }
+    } else {
+        for (bucket, offset) in offsets[..numeric_buckets].iter_mut().enumerate() {
+            if bucket % 1024 == 0 {
+                context.query.check()?;
+            }
+            let count = *offset;
+            *offset = next;
+            next += count;
+        }
+    }
+    if !order.nulls_first && has_null {
+        offsets[null_bucket] = next;
+    }
+
+    let mut permutation = vec![0usize; rows];
+    for (row, value) in column.iter().enumerate() {
+        if row % 1024 == 0 {
+            context.query.check()?;
+        }
+        let bucket = signed_order_bucket(value, minimum, null_bucket)?;
+        let output = offsets[bucket];
+        permutation[output] = row;
+        offsets[bucket] = output + 1;
+    }
+    context.query.check()?;
+    Ok(Some(permutation))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn signed_order_bucket(value: &Value, minimum: i128, null_bucket: usize) -> Result<usize> {
+    match value {
+        Value::Null => Ok(null_bucket),
+        Value::Integer(value) => value
+            .checked_sub(minimum)
+            .and_then(|offset| usize::try_from(offset).ok())
+            .ok_or_else(|| Error::Internal("signed order bucket is outside planned span".into())),
+        _ => Err(Error::Internal(
+            "signed ordering value differs from selected representation".into(),
+        )),
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

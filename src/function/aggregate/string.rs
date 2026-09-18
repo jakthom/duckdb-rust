@@ -176,6 +176,125 @@ struct StringAggState {
     separator: Option<String>,
 }
 
+const GROUPED_INLINE_BYTES: usize = 32;
+
+#[derive(Default)]
+enum GroupedStringBuffer {
+    #[default]
+    Unseen,
+    Inline {
+        len: u8,
+        bytes: [u8; GROUPED_INLINE_BYTES],
+    },
+    Heap(String),
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl GroupedStringBuffer {
+    fn append(&mut self, input: &Value, separator: &str) -> Result<()> {
+        let Value::Varchar(input) = input else {
+            if input.is_null() {
+                return Ok(());
+            }
+            return Err(Error::Internal(
+                "string_agg input differs from binding".into(),
+            ));
+        };
+        match self {
+            Self::Unseen if input.len() <= GROUPED_INLINE_BYTES => {
+                let mut bytes = [0; GROUPED_INLINE_BYTES];
+                bytes[..input.len()].copy_from_slice(input.as_bytes());
+                *self = Self::Inline {
+                    len: input.len() as u8,
+                    bytes,
+                };
+            }
+            Self::Unseen => {
+                let mut value = grouped_string(grouped_promotion_capacity(input.len(), false))?;
+                value.push_str(input);
+                *self = Self::Heap(value);
+            }
+            Self::Inline { len, bytes } => {
+                let current = usize::from(*len);
+                let additional = additional_bytes(current, separator.len(), input.len())?;
+                let required = current
+                    .checked_add(additional)
+                    .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
+                if required <= GROUPED_INLINE_BYTES {
+                    let separator_end = current + separator.len();
+                    bytes[current..separator_end].copy_from_slice(separator.as_bytes());
+                    bytes[separator_end..required].copy_from_slice(input.as_bytes());
+                    *len = required as u8;
+                } else {
+                    let inline = std::str::from_utf8(&bytes[..current]).map_err(|_| {
+                        Error::Internal("string_agg inline UTF-8 is invalid".into())
+                    })?;
+                    let mut value = grouped_string(grouped_promotion_capacity(required, true))?;
+                    value.push_str(inline);
+                    value.push_str(separator);
+                    value.push_str(input);
+                    *self = Self::Heap(value);
+                }
+            }
+            Self::Heap(value) => {
+                let additional = additional_bytes(value.len(), separator.len(), input.len())?;
+                let required = value
+                    .len()
+                    .checked_add(additional)
+                    .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
+                let target = grouped_heap_capacity(required, value.capacity());
+                if target > value.capacity() {
+                    value
+                        .try_reserve_exact(target - value.len())
+                        .map_err(|_| Error::Resource("string_agg allocation failed".into()))?;
+                }
+                value.push_str(separator);
+                value.push_str(input);
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Value> {
+        match self {
+            Self::Unseen => Ok(Value::Null),
+            Self::Inline { len, bytes } => {
+                let text = std::str::from_utf8(&bytes[..usize::from(len)])
+                    .map_err(|_| Error::Internal("string_agg inline UTF-8 is invalid".into()))?;
+                let mut value = grouped_string(text.len())?;
+                value.push_str(text);
+                Ok(Value::Varchar(value))
+            }
+            Self::Heap(value) => Ok(Value::Varchar(value)),
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn grouped_string(capacity: usize) -> Result<String> {
+    let mut value = String::new();
+    value
+        .try_reserve_exact(capacity)
+        .map_err(|_| Error::Resource("string_agg allocation failed".into()))?;
+    Ok(value)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn grouped_promotion_capacity(required: usize, reused: bool) -> usize {
+    if !reused {
+        return required;
+    }
+    required.checked_add(required / 2).unwrap_or(required)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn grouped_heap_capacity(required: usize, capacity: usize) -> usize {
+    if required <= capacity {
+        return capacity;
+    }
+    required.max(capacity.checked_add(capacity / 2).unwrap_or(required))
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl AggregateState for StringAggState {
     fn update(&mut self, arguments: &[Value], query: &QueryContext) -> Result<()> {
@@ -217,7 +336,7 @@ impl AggregateState for StringAggState {
 
 struct StringAggGroups {
     separator: Option<String>,
-    buffers: Vec<StringBuffer>,
+    buffers: Vec<GroupedStringBuffer>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -234,7 +353,8 @@ impl GroupedAggregateState for StringAggGroups {
         self.buffers
             .try_reserve(additional)
             .map_err(|_| Error::Resource("string_agg group allocation failed".into()))?;
-        self.buffers.resize_with(groups, StringBuffer::default);
+        self.buffers
+            .resize_with(groups, GroupedStringBuffer::default);
         query.check()
     }
 
@@ -269,7 +389,7 @@ impl GroupedAggregateState for StringAggGroups {
             if index % 1024 == 0 {
                 query.check()?;
             }
-            values.push(buffer.finish());
+            values.push(buffer.finish()?);
         }
         query.check()?;
         Ok(values)

@@ -156,7 +156,12 @@ impl IntegerIndex {
         } else {
             false
         };
-        if !initialized_now && let [column] = columns {
+        if !initialized_now
+            && let [column] = columns
+            && !(representations[0] == KeyRepresentation::Integer
+                && column.flat_bigints().is_some()
+                && !column.numeric_ascending())
+        {
             self.grow_monotonic_dense(column, representations[0], query)?;
         }
         if let [column] = columns
@@ -438,12 +443,13 @@ impl IntegerIndex {
             let value = i128::from(value);
             // This is Dense::position for a single present value, inlined to
             // avoid its dimension loop and the [Option<i128>; 1] temporary.
-            let dense_slot = self.dense.as_mut().and_then(|dense| {
-                let dimension = dense.dimensions[0];
-                let offset = value.wrapping_sub(dimension.minimum?) as u128;
-                (offset < dimension.values as u128).then(|| &mut dense.slots[offset as usize])
-            });
-            if let Some(slot) = dense_slot {
+            let mut position = self.flat_dense_position(value);
+            if position.is_none() {
+                self.grow_flat_dense_to(value, query)?;
+                position = self.flat_dense_position(value);
+            }
+            if let Some(position) = position {
+                let slot = &mut self.dense.as_mut().expect("located dense slot").slots[position];
                 if *slot == EMPTY {
                     *slot = create(row)?;
                 }
@@ -462,6 +468,54 @@ impl IntegerIndex {
         }
         query.check()?;
         Ok(result)
+    }
+
+    #[inline]
+    fn flat_dense_position(&self, value: i128) -> Option<usize> {
+        let dimension = self.dense.as_ref()?.dimensions[0];
+        let offset = value.wrapping_sub(dimension.minimum?) as u128;
+        (offset < dimension.values as u128).then_some(offset as usize)
+    }
+
+    /// Unordered flat batches discover growth while locating actual rows. This
+    /// avoids a second full scan when every key already fits the dense range.
+    /// Geometric growth is bounded by the existing slot cap; unobserved slots
+    /// stay empty and never create groups or change first-observed ordinals.
+    fn grow_flat_dense_to(&mut self, value: i128, query: &QueryContext) -> Result<()> {
+        if !self.sparse.is_empty() {
+            return Ok(());
+        }
+        let Some(dense) = self.dense.as_mut() else {
+            return Ok(());
+        };
+        let dimension = dense.dimensions[0];
+        let Some(minimum) = dimension.minimum else {
+            return Ok(());
+        };
+        let Some(required) = value
+            .checked_sub(minimum)
+            .and_then(|offset| usize::try_from(offset).ok())
+            .and_then(|offset| offset.checked_add(1))
+        else {
+            return Ok(());
+        };
+        if required <= dimension.values || required >= MAX_DENSE_SLOTS {
+            return Ok(());
+        }
+        let width = required
+            .max(dimension.values.saturating_mul(2))
+            .min(MAX_DENSE_SLOTS - 1);
+        query.check()?;
+        dense
+            .slots
+            .try_reserve(width + 1 - dense.slots.len())
+            .map_err(|_| Error::Resource("dense grouping allocation failed".into()))?;
+        let null = dense.slots[dimension.values];
+        dense.slots.resize(width + 1, EMPTY);
+        dense.slots[dimension.values] = EMPTY;
+        dense.slots[width] = null;
+        dense.dimensions[0].values = width;
+        query.check()
     }
     // This is the per-row hot path; an out-of-line call copies the wide
     // nullable key tuple for every row and every grouping set.
@@ -571,6 +625,96 @@ mod tests {
             locate_one_column(&mut index, &third, &mut next_group, &query)?,
             vec![2]
         );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn unordered_flat_growth_preserves_nulls_ordinals_and_sparse_fallback() -> Result<()> {
+        let query = QueryContext::background();
+        let first = Vector::flat(DataType::BigInt, vec![Value::Integer(0), Value::Null])?;
+        let mut index = IntegerIndex::default();
+        let mut next = 0;
+        assert_eq!(
+            locate_one_column(&mut index, &first, &mut next, &query)?,
+            [0, 1]
+        );
+        let unordered = flat_bigints(&[3, 1, 3, 2, 0])?;
+        assert!(!unordered.numeric_ascending());
+        assert_eq!(
+            locate_one_column(&mut index, &unordered, &mut next, &query)?,
+            [2, 3, 2, 4, 0]
+        );
+        assert!(index.sparse.is_empty());
+        assert_eq!(next, 5);
+        let null_again = Vector::flat(DataType::BigInt, vec![Value::Null, Value::Integer(3)])?;
+        assert_eq!(
+            locate_one_column(&mut index, &null_again, &mut next, &query)?,
+            [1, 2]
+        );
+        let outliers = flat_bigints(&[i64::MAX, -1, i64::MAX])?;
+        assert_eq!(
+            locate_one_column(&mut index, &outliers, &mut next, &query)?,
+            [5, 6, 5]
+        );
+        let followup = flat_bigints(&[4, 3, 4])?;
+        assert_eq!(
+            locate_one_column(&mut index, &followup, &mut next, &query)?,
+            [7, 2, 7]
+        );
+        assert_eq!(next, 8);
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn unordered_flat_growth_honors_slot_cap_signed_edges_and_cancellation() -> Result<()> {
+        let query = QueryContext::background();
+        for base in [i64::MIN, i64::MAX - 3] {
+            let mut index = IntegerIndex::default();
+            let mut next = 0;
+            let first = flat_bigints(&[base, base])?;
+            let more = flat_bigints(&[base + 3, base + 1, base + 2, base])?;
+            assert_eq!(
+                locate_one_column(&mut index, &first, &mut next, &query)?,
+                [0, 0]
+            );
+            assert_eq!(
+                locate_one_column(&mut index, &more, &mut next, &query)?,
+                [1, 2, 3, 0]
+            );
+            assert!(index.sparse.is_empty());
+        }
+        let mut index = IntegerIndex::default();
+        let mut next = 0;
+        let first = Vector::flat(DataType::BigInt, vec![Value::Integer(0), Value::Null])?;
+        locate_one_column(&mut index, &first, &mut next, &query)?;
+        let edge = flat_bigints(&[(MAX_DENSE_SLOTS - 2) as i64, 0])?;
+        assert_eq!(
+            locate_one_column(&mut index, &edge, &mut next, &query)?,
+            [2, 0]
+        );
+        assert_eq!(index.dense.as_ref().unwrap().slots.len(), MAX_DENSE_SLOTS);
+        let beyond = flat_bigints(&[(MAX_DENSE_SLOTS - 1) as i64, 0])?;
+        assert_eq!(
+            locate_one_column(&mut index, &beyond, &mut next, &query)?,
+            [3, 0]
+        );
+        assert_eq!(index.dense.as_ref().unwrap().slots.len(), MAX_DENSE_SLOTS);
+        assert_eq!(index.sparse.len(), 1);
+        let null_again = Vector::flat(DataType::BigInt, vec![Value::Null])?;
+        assert_eq!(
+            locate_one_column(&mut index, &null_again, &mut next, &query)?,
+            [1]
+        );
+
+        let interrupt = crate::parallel::InterruptHandle::default();
+        let cancelled = QueryContext::new(interrupt.clone(), None, 2, usize::MAX)?;
+        interrupt.interrupt();
+        assert!(matches!(
+            locate_one_column(&mut index, &edge, &mut next, &cancelled),
+            Err(Error::Interrupted)
+        ));
         Ok(())
     }
 

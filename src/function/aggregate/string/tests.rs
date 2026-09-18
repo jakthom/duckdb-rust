@@ -114,6 +114,109 @@ fn grouped_columns_preserve_growth_empty_groups_and_row_order() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn grouped_inline_storage_preserves_boundaries_promotion_and_capacity_policy() -> Result<()> {
+    assert_eq!(GroupedStringBuffer::default().finish()?, Value::Null);
+
+    let mut empty = GroupedStringBuffer::default();
+    empty.append(&Value::Varchar(String::new()), "|")?;
+    assert!(matches!(empty, GroupedStringBuffer::Inline { len: 0, .. }));
+    assert_eq!(empty.finish()?, Value::Varchar(String::new()));
+
+    let boundary = format!("{}é", "a".repeat(30));
+    assert_eq!(boundary.len(), GROUPED_INLINE_BYTES);
+    let mut inline = GroupedStringBuffer::default();
+    inline.append(&Value::Varchar(boundary.clone()), "|")?;
+    assert!(matches!(
+        inline,
+        GroupedStringBuffer::Inline { len: 32, .. }
+    ));
+    inline.append(&Value::Varchar("中\0".into()), "|")?;
+    assert!(matches!(inline, GroupedStringBuffer::Heap(_)));
+    assert_eq!(inline.finish()?, Value::Varchar(format!("{boundary}|中\0")));
+
+    let long = "x".repeat(96);
+    let mut singleton = GroupedStringBuffer::default();
+    singleton.append(&Value::Varchar(long.clone()), "|")?;
+    assert!(matches!(singleton, GroupedStringBuffer::Heap(_)));
+    assert_eq!(singleton.finish()?, Value::Varchar(long));
+
+    let mut promoted = GroupedStringBuffer::default();
+    promoted.append(&Value::Varchar("s".into()), "|")?;
+    promoted.append(&Value::Varchar("界".repeat(32)), "|")?;
+    promoted.append(&Value::Varchar("t".into()), "|")?;
+    assert_eq!(
+        promoted.finish()?,
+        Value::Varchar(format!("s|{}|t", "界".repeat(32)))
+    );
+
+    let mut reused = String::new();
+    reused
+        .try_reserve_exact(128)
+        .map_err(|_| Error::Resource("test string allocation failed".into()))?;
+    reused.push_str(&"r".repeat(96));
+    let capacity = reused.capacity();
+    let mut reused = GroupedStringBuffer::Heap(reused);
+    reused.append(&Value::Varchar("z".into()), "|")?;
+    let GroupedStringBuffer::Heap(reused) = reused else {
+        unreachable!("heap buffer remains promoted");
+    };
+    assert_eq!(reused.capacity(), capacity);
+    assert!(reused.ends_with("|z"));
+
+    assert_eq!(grouped_promotion_capacity(96, false), 96);
+    assert_eq!(grouped_promotion_capacity(34, true), 51);
+    assert_eq!(grouped_promotion_capacity(usize::MAX, true), usize::MAX);
+    assert_eq!(grouped_heap_capacity(8, 16), 16);
+    assert_eq!(grouped_heap_capacity(17, 16), 24);
+    assert_eq!(
+        grouped_heap_capacity(usize::MAX, usize::MAX - 1),
+        usize::MAX
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn grouped_inline_storage_scales_from_empty_to_many_groups() -> Result<()> {
+    let query = QueryContext::background();
+    let mut grouped = StringAggGroups {
+        separator: Some("|".into()),
+        buffers: Vec::new(),
+    };
+    grouped.resize(64, &query)?;
+    grouped.resize(8192, &query)?;
+    let destinations = (64..8192).collect::<Vec<_>>();
+    grouped.update_batch(
+        &GroupSelection::new(&destinations, 8192, &query)?,
+        &DataChunk::new(
+            vec![Vector::constant(
+                DataType::Varchar,
+                Value::Varchar("é\0".into()),
+                destinations.len(),
+            )?],
+            destinations.len(),
+        )?,
+        &query,
+    )?;
+    assert!(
+        grouped.buffers[..64]
+            .iter()
+            .all(|buffer| matches!(buffer, GroupedStringBuffer::Unseen))
+    );
+    assert!(
+        grouped.buffers[64..]
+            .iter()
+            .all(|buffer| matches!(buffer, GroupedStringBuffer::Inline { len: 3, .. }))
+    );
+    let values = Box::new(grouped).finish(&query)?;
+    assert!(values[..64].iter().all(Value::is_null));
+    let expected = Value::Varchar("é\0".into());
+    assert!(values[64..].iter().all(|value| value == &expected));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn malformed_shapes_limits_and_cancellation_are_errors() -> Result<()> {
     let query = QueryContext::background();
     let function = bound(Some("|"));
