@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 through `324878c` has passed refreshed scoped verification/upstream and native performance diagnostics, final timing open. C2.1 functional code and first optimization are integrated through `3cb6e3e`; four native latency cases and process wall/CPU still fail. Targeted corrections remain active. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 functional code and first optimization are integrated through `3cb6e3e`; four native latency cases and process wall/CPU still fail. Targeted corrections remain active. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -627,16 +627,25 @@ Batch 1 evidence/restart details:
   directory; original failed samples remain preserved. Candidate 2 is committed
   as worker `ccb0100` and integrated as `324878c`. Its correction manifest is the
   top section of worker `target/f1/validation-manifest.md`, also available at
-  `target/f1/performance/range-correction-validation-manifest.md`. It still needs
-  final 21-sample native/process measurements. Refreshed independent partial
+  `target/f1/performance/range-correction-validation-manifest.md`. Refreshed independent partial
   verification passed at `324878c`: table-functions 7/7, two affected execution
   filters 1/1 each, scoped Clippy/format/coverage/trace; root evidence is
   `target/batch1/f1-range-verifier/`. Fresh ordinary source selection retains 36
   integer passes per pin and the declared correlated failure. Development's
   initial two 10-second timeouts are preserved as incomplete; an isolated exact
   60-second retry with the same source/worker established the 36 passes. Reports
-  and identities are linked from the correction manifest. Do not call diagnostic success final
-  acceptance or remove/redefine a failing workload to make it pass.
+  and identities are linked from the correction manifest. Final integrated
+  performance at `90d63ab` now passes: both pins, 3 warmups/21 samples, all four
+  native cases and both matched-serial process cases. Native ratios versus the
+  faster pin are scan 0.174–0.184x, million-row aggregate 0.851–0.855x, early
+  LIMIT 0.236–0.313x and reverse prepared reopen 0.266–0.272x. Process wall
+  ratios are 0.339x/0.316x; CPU/RSS/I/O/throughput gates also pass (CPU recorded
+  at the platform timer's coarse resolution, not zero actual CPU). All engines
+  validate 64/128 records respectively. Root evidence and exact identities:
+  `target/batch1/f1-final/{manifest.md,native-release.json,native-development.json,native-fastest.json,process-serial.json}`.
+  **F1's declared lifecycle/integer-range slice is accepted.** Reuse unaffected
+  scoped correctness and upstream evidence; temporal/correlated sources and
+  whole-engine parity remain open. Do not remove/redefine failing workloads.
 - C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
   it must preserve a bound constant separator through grouped and window paths.
   Mutable per-row separators must not silently replace the pinned bind contract.
@@ -691,10 +700,12 @@ Batch 1 evidence/restart details:
   not comparable acceptance evidence. Tooling correction `0e82fbf` now requires
   `--single-threaded` for both pinned C++ runners, records Rust's inline scheduler
   and rejects missing/mismatched configuration when replaying reports. Its focused
-  Python tests initially passed 15/15. Independent tooling review found replay
-  accepted extra unsupported flags; exact raw-command validation and negative
-  tests are being tightened. Generated commands are already matched and do not
-  change for that fix; valid raw reports can be rechecked without new timing.
+  Independent tooling review found replay accepted extra unsupported flags;
+  `1d07c45` fixes exact raw-command validation. The corrected independent partial
+  verification passes diff checks and 16 Python tests; evidence is root
+  `target/batch1/process-config-verifier/verification-1d07c45.json`. Generated
+  commands did not change for that fix; valid raw reports can be rechecked
+  without new timing.
   Native campaigns already used one thread and are unaffected. New process
   reports must use the corrected adapter; never rewrite old reports as matched.
   Performance ownership is split in the C2 worktree: S agent
@@ -727,8 +738,8 @@ Batch 1 evidence/restart details:
   performance corrections, final affected verification and final performance
   gates. Do not drop workloads or weaken their oracles to close this chunk.
   Exact manifest: worker `target/c2-1/validation-manifest.md`.
-- F1 performance and C2.1 final implementation/acceptance remain **open**;
-  A1's frozen evaluation is complete as recorded above.
+- C2.1 final implementation/acceptance remains **open**;
+  A1's frozen evaluation and F1's declared slice are accepted as recorded above.
   Resume by reading the worker manifests/reports and branch diffs, not by
   restarting completed checks or dispatching a full sweep. Do not start batch 2
   while these acceptance obligations remain open.
