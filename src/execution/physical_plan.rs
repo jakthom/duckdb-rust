@@ -164,6 +164,7 @@ enum Node {
         end: i64,
         step: i64,
     },
+    TableFunction(crate::function::table::BoundTableFunction),
     Filter(Arc<dyn PhysicalOperator>, BoundExpr),
     ColumnProjection(Arc<dyn PhysicalOperator>, Vec<usize>),
     Projection(Arc<dyn PhysicalOperator>, Vec<BoundExpr>),
@@ -259,6 +260,7 @@ impl PhysicalPlanner for NativePhysicalPlanner {
                 end: *end,
                 step: *step,
             },
+            PlanNode::TableFunction(source) => Node::TableFunction(source.clone()),
             PlanNode::Filter { input, predicate } => {
                 if self.scan_filters == ScanFilterStrategy::Fused
                     && let PlanNode::Scan(table) = &input.node
@@ -502,6 +504,11 @@ impl PhysicalOperator for Operator {
                         Vector::try_bigints(values.into_iter().map(|value| Ok(Some(value))))?;
                     DataChunk::new(vec![values], count).map(Some)
                 })
+            }
+            Node::TableFunction(source) => {
+                let mut scan =
+                    crate::storage::table_function::TableFunctionScan::open(source, context.query)?;
+                stream::from_fn(move |max_rows| scan.next(max_rows))
             }
             Node::Filter(input, predicate) => {
                 let predicate = PreparedExpression::new(predicate);

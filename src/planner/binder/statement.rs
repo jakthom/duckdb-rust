@@ -26,6 +26,23 @@ impl State<'_, '_> {
             }) => self.setting(name, None, None),
             S::Pragma { name, value, .. } => self.pragma(name, value.as_ref()),
             S::Query(query) => Ok(BoundStatement::Query(self.query(query)?)),
+            S::Call(function)
+                if matches!(function.parameters, ast::FunctionArguments::None)
+                    && function.over.is_none()
+                    && function.filter.is_none()
+                    && function.null_treatment.is_none()
+                    && function.within_group.is_empty() =>
+            {
+                let ast::FunctionArguments::List(arguments) = &function.args else {
+                    return Err(unsupported("CALL without table-function arguments"));
+                };
+                if arguments.duplicate_treatment.is_some() || !arguments.clauses.is_empty() {
+                    return Err(unsupported("CALL argument modifiers"));
+                }
+                Ok(BoundStatement::Query(
+                    self.table_function(&function.name, &arguments.args)?,
+                ))
+            }
             S::CreateType {
                 or_replace,
                 if_not_exists,

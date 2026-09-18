@@ -9,6 +9,7 @@ pub mod logged;
 pub mod recovery;
 pub mod scan;
 pub mod table;
+pub mod table_function;
 
 use crate::{
     catalog::{TableDefinition, TableName},

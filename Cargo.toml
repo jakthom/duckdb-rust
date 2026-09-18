@@ -80,6 +80,10 @@ name = "execution"
 path = "test/component/execution.rs"
 
 [[test]]
+name = "table_functions"
+path = "test/component/table_functions.rs"
+
+[[test]]
 name = "compression"
 path = "test/component/compression.rs"
 

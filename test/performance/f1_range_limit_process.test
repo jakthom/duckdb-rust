@@ -1,0 +1,11 @@
+# F1 early-LIMIT workload: a billion-row source must produce only the demanded
+# prefix, whose aggregate keeps the runner output bounded and exact.
+
+loop iteration 0 128
+
+query I
+SELECT sum(i) FROM (SELECT i FROM range(1000000000) t(i) LIMIT 2048)
+----
+2096128
+
+endloop

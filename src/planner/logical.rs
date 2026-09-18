@@ -66,7 +66,8 @@ impl LogicalPlan {
             | PlanNode::RecursiveInput(_)
             | PlanNode::Scan(_)
             | PlanNode::KeyLookup { .. }
-            | PlanNode::Range { .. } => (),
+            | PlanNode::Range { .. }
+            | PlanNode::TableFunction(_) => (),
         }
     }
     /// Borrow this node's expression roots; each caller owns recursion and scope.
@@ -122,6 +123,7 @@ impl LogicalPlan {
             | PlanNode::Recursive { .. }
             | PlanNode::KeyLookup { .. }
             | PlanNode::Range { .. }
+            | PlanNode::TableFunction(_)
             | PlanNode::Limit { .. }
             | PlanNode::Distinct(_)
             | PlanNode::SetOperation { .. } => (),
@@ -219,6 +221,7 @@ impl LogicalPlan {
             | PlanNode::Recursive { .. }
             | PlanNode::KeyLookup { .. }
             | PlanNode::Range { .. }
+            | PlanNode::TableFunction(_)
             | PlanNode::Limit { .. }
             | PlanNode::Distinct(_)
             | PlanNode::SetOperation { .. }) => node,
@@ -305,7 +308,8 @@ impl LogicalPlan {
             | PlanNode::RecursiveInput(_)
             | PlanNode::Scan(_)
             | PlanNode::KeyLookup { .. }
-            | PlanNode::Range { .. }) => node,
+            | PlanNode::Range { .. }
+            | PlanNode::TableFunction(_)) => node,
         };
         Ok(Self {
             schema: self.schema,
@@ -378,6 +382,9 @@ pub enum PlanNode {
         end: i64,
         step: i64,
     },
+    /// Registered source with immutable bind data. Every physical open creates
+    /// its own mutable scan state.
+    TableFunction(crate::function::table::BoundTableFunction),
     Filter {
         input: Box<LogicalPlan>,
         predicate: BoundExpr,

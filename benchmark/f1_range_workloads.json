@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "rows": 1000000,
+  "threads": 1,
+  "setup": "CREATE TABLE f1_seed(i INTEGER)",
+  "workloads": [
+    {
+      "name": "range_scan_50k",
+      "sql": "SELECT i FROM range(50000) t(i)",
+      "rows": 50000,
+      "sum": "1249975000"
+    },
+    {
+      "name": "range_aggregate_1m",
+      "sql": "SELECT count(*),sum(i) FROM range(1000000) t(i)",
+      "rows": 1,
+      "sum": "500000500000"
+    },
+    {
+      "name": "range_early_limit_2048",
+      "sql": "SELECT i FROM range(1000000000) t(i) LIMIT 2048",
+      "rows": 2048,
+      "sum": "2096128"
+    },
+    {
+      "name": "generate_series_prepared_reopen_reverse",
+      "sql": "SELECT i FROM generate_series(2047,0,-1) t(i)",
+      "rows": 2048,
+      "sum": "2096128"
+    }
+  ]
+}

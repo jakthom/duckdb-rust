@@ -277,6 +277,14 @@ impl LogicalPlan {
                 require(*step != 0, "zero range step")?;
                 vec![DataType::BigInt]
             }
+            PlanNode::TableFunction(source) => {
+                require(!source.schema().is_empty(), "empty table function schema")?;
+                source
+                    .schema()
+                    .iter()
+                    .map(|field| field.data_type.clone())
+                    .collect()
+            }
             PlanNode::KeyLookup {
                 table,
                 columns,

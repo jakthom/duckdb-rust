@@ -15,6 +15,7 @@ pub(crate) use scalar::{
 mod settings;
 mod signature;
 pub use signature::ScalarSignature;
+pub mod table;
 mod temporal;
 pub mod window;
 
@@ -563,6 +564,7 @@ pub struct FunctionRegistry {
     scalars: BTreeMap<String, Arc<dyn ScalarFunction>>,
     aggregates: BTreeMap<String, Arc<dyn AggregateFunction>>,
     windows: BTreeMap<String, Arc<dyn window::WindowFunction>>,
+    tables: BTreeMap<String, Arc<dyn table::TableFunction>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -578,6 +580,7 @@ impl FunctionRegistry {
         aggregate::register(&mut registry);
         settings::register(&mut registry);
         window::register(&mut registry);
+        table::register(&mut registry);
         registry
     }
     pub fn register_window(&mut self, function: Arc<dyn window::WindowFunction>) -> Result<()> {
@@ -617,6 +620,16 @@ impl FunctionRegistry {
         self.aggregates.insert(key, function);
         Ok(())
     }
+    pub fn register_table(&mut self, function: Arc<dyn table::TableFunction>) -> Result<()> {
+        let key = function.name().to_ascii_lowercase();
+        if self.tables.contains_key(&key) {
+            return Err(Error::Catalog(format!(
+                "table function {key} already exists"
+            )));
+        }
+        self.tables.insert(key, function);
+        Ok(())
+    }
     pub fn scalar(&self, name: &str) -> Result<Arc<dyn ScalarFunction>> {
         self.scalars
             .get(&name.to_ascii_lowercase())
@@ -627,5 +640,11 @@ impl FunctionRegistry {
     }
     pub fn aggregate(&self, name: &str) -> Option<Arc<dyn AggregateFunction>> {
         self.aggregates.get(&name.to_ascii_lowercase()).cloned()
+    }
+    pub fn table(&self, name: &str) -> Result<Arc<dyn table::TableFunction>> {
+        self.tables
+            .get(&name.to_ascii_lowercase())
+            .cloned()
+            .ok_or_else(|| Error::Catalog(format!("table function {name} does not exist")))
     }
 }

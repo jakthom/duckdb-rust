@@ -1,0 +1,11 @@
+# F1 registered integer range scan/aggregate and bind/rebind process workload.
+# The loop deliberately repeats separately bound statements through each runner.
+
+loop iteration 0 64
+
+query I
+SELECT sum(i) FROM range(50000) t(i)
+----
+1249975000
+
+endloop

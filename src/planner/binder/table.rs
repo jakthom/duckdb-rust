@@ -2,6 +2,60 @@ use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
+    pub(super) fn table_function(
+        &self,
+        name: &ast::ObjectName,
+        arguments: &[ast::FunctionArg],
+    ) -> Result<LogicalPlan> {
+        let name = function_name(name)?;
+        let function = self.context.functions.table(&name)?;
+        let arguments = arguments
+            .iter()
+            .map(|argument| {
+                let (argument_name, expression) = match argument {
+                    ast::FunctionArg::Named {
+                        name,
+                        arg: ast::FunctionArgExpr::Expr(expression),
+                        ..
+                    } => (Some(name.value.clone()), expression),
+                    ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expression)) => {
+                        (None, expression)
+                    }
+                    _ => return Err(unsupported("table function argument")),
+                };
+                let (data_type, value) = self.typed_constant(expression)?;
+                Ok(crate::function::table::TableFunctionArgument {
+                    name: argument_name,
+                    data_type,
+                    value,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let bind = function.bind(
+            &arguments,
+            &crate::function::table::TableFunctionBindContext {
+                query: self.context.query,
+            },
+        )?;
+        if bind.schema().is_empty() {
+            return Err(Error::Bind(format!(
+                "table function {name} produced an empty schema"
+            )));
+        }
+        let mut schema = bind.schema().clone();
+        for field in &mut schema {
+            if field.qualifier.is_none() {
+                field.qualifier = Some(name.clone());
+            }
+        }
+        Ok(LogicalPlan {
+            schema,
+            node: PlanNode::TableFunction(crate::function::table::BoundTableFunction::new(
+                function, bind,
+            )),
+        })
+    }
+
     pub(super) fn from(&mut self, from: &ast::TableWithJoins) -> Result<Relation> {
         let mut left = self.factor(&from.relation)?;
         for joined in &from.joins {
@@ -172,54 +226,7 @@ impl State<'_, '_> {
                 ..
             } if partitions.is_empty() => {
                 if let Some(args) = args {
-                    let name = name.to_string().to_ascii_lowercase();
-                    if name != "range" && name != "generate_series" {
-                        return Err(unsupported(format!("table function {name}")));
-                    }
-                    let args = args
-                        .args
-                        .iter()
-                        .map(function_arg)
-                        .collect::<Result<Vec<_>>>()?;
-                    let args = args
-                        .iter()
-                        .map(|e| {
-                            self.literal(e)?.as_i128().and_then(|v| {
-                                i64::try_from(v).map_err(|_| {
-                                    Error::Conversion("range argument exceeds BIGINT".into())
-                                })
-                            })
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                    let (start, mut end, step) = match args.as_slice() {
-                        [end] => (0, *end, 1),
-                        [start, end] => (*start, *end, 1),
-                        [start, end, step] => (*start, *end, *step),
-                        _ => {
-                            return Err(Error::Bind(
-                                "range expects one to three integer arguments".into(),
-                            ));
-                        }
-                    };
-                    if step == 0 {
-                        return Err(Error::Bind("range step cannot be zero".into()));
-                    }
-                    if name == "generate_series" {
-                        end = end
-                            .checked_add(step.signum())
-                            .ok_or_else(|| Error::Conversion("range bound overflow".into()))?;
-                    }
-                    (
-                        LogicalPlan {
-                            schema: vec![Field {
-                                qualifier: Some(name.clone()),
-                                name,
-                                data_type: DataType::BigInt,
-                            }],
-                            node: PlanNode::Range { start, end, step },
-                        },
-                        alias,
-                    )
+                    (self.table_function(name, &args.args)?, alias)
                 } else {
                     let unresolved = self.unresolved_table_name(name)?;
                     if unresolved.is_unqualified() && self.ctes.contains_key(unresolved.table()) {

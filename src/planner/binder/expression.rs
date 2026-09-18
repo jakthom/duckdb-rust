@@ -835,7 +835,15 @@ impl State<'_, '_> {
                     // Resolve the catalog entry before binding arguments. An
                     // absent function must not become an unsupported argument
                     // construct, and retain this same selection for binding.
-                    let function_impl = self.context.functions.scalar(&name)?;
+                    let function_impl = match self.context.functions.scalar(&name) {
+                        Ok(function) => function,
+                        Err(_) if self.context.functions.table(&name).is_ok() => {
+                            return Err(Error::Bind(format!(
+                                "table function {name} must appear in a FROM clause"
+                            )));
+                        }
+                        Err(error) => return Err(error),
+                    };
                     let parsed = super::nested::scalar_arguments(function)?;
                     let arguments = parsed.expressions
                         .iter()

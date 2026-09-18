@@ -439,7 +439,7 @@ impl State<'_, '_> {
                     Ok(Value::Varchar(v.clone()))
                 }
                 ast::Value::Number(v, _) => number(v, self.context.query),
-                _ => Err(unsupported(expr)),
+                _ => self.evaluate_constant_expression(expr),
             },
             ast::Expr::UnaryOp {
                 op: ast::UnaryOperator::Minus,
@@ -454,31 +454,37 @@ impl State<'_, '_> {
                 };
                 number(&format!("-{v}"), self.context.query)
             }
-            _ => {
-                let bound = self.expr(expr, &Scope::default(), None)?;
-                if !constant_expression(&bound) {
-                    return Err(unsupported(format!(
-                        "a constant expression is required here: {expr}"
-                    )));
-                }
-                let value =
-                    self.context
-                        .expressions
-                        .evaluate(&bound, &Vec::new(), self.context.query)?;
-                self.context
-                    .query
-                    .types()
-                    .bind(&bound.data_type)?
-                    .validate(&value, self.context.query)
-                    .map_err(|error| match error {
-                        Error::Conversion(_) => {
-                            Error::Internal("constant evaluator returned an invalid value".into())
-                        }
-                        other => other,
-                    })?;
-                Ok(value)
-            }
+            _ => self.evaluate_constant_expression(expr),
         }
+    }
+
+    fn evaluate_constant_expression(&self, expr: &ast::Expr) -> Result<Value> {
+        self.typed_constant(expr).map(|(_, value)| value)
+    }
+
+    fn typed_constant(&self, expr: &ast::Expr) -> Result<(DataType, Value)> {
+        let bound = self.expr(expr, &Scope::default(), None)?;
+        if !constant_expression(&bound) {
+            return Err(unsupported(format!(
+                "a constant expression is required here: {expr}"
+            )));
+        }
+        let value = self
+            .context
+            .expressions
+            .evaluate(&bound, &Vec::new(), self.context.query)?;
+        self.context
+            .query
+            .types()
+            .bind(&bound.data_type)?
+            .validate(&value, self.context.query)
+            .map_err(|error| match error {
+                Error::Conversion(_) => {
+                    Error::Internal("constant evaluator returned an invalid value".into())
+                }
+                other => other,
+            })?;
+        Ok((bound.data_type, value))
     }
 }
 
