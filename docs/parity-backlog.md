@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb` (reported failures remain engine gaps); F1 integrated as `449d92c`, scoped verification passed, performance open; C2.1 worker corrections/acceptance still open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 through `324878c` has passed refreshed scoped verification/upstream and performance diagnostics, final timing open. C2.1 functional code is integrated through `6258294`; measured performance corrections remain active in its worker tree. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -626,14 +626,20 @@ Batch 1 evidence/restart details:
   as worker `ccb0100` and integrated as `324878c`. Its correction manifest is the
   top section of worker `target/f1/validation-manifest.md`, also available at
   `target/f1/performance/range-correction-validation-manifest.md`. It still needs
-  refreshed affected verification/upstream evidence and final
-  21-sample native/process measurements. Do not call diagnostic success final
+  final 21-sample native/process measurements. Refreshed independent partial
+  verification passed at `324878c`: table-functions 7/7, two affected execution
+  filters 1/1 each, scoped Clippy/format/coverage/trace; root evidence is
+  `target/batch1/f1-range-verifier/`. Fresh ordinary source selection retains 36
+  integer passes per pin and the declared correlated failure. Development's
+  initial two 10-second timeouts are preserved as incomplete; an isolated exact
+  60-second retry with the same source/worker established the 36 passes. Reports
+  and identities are linked from the correction manifest. Do not call diagnostic success final
   acceptance or remove/redefine a failing workload to make it pass.
 - C2.1 owns aggregate modules/tests and provisional aggregate-binding seams;
   it must preserve a bound constant separator through grouped and window paths.
   Mutable per-row separators must not silently replace the pinned bind contract.
-  Draft commit chain through `ecccaa6` is on the worker branch, not integrated
-  acceptance. Focused grouping/window tests passed; the development window
+  The functional commit chain through worker `1413b21` is integrated as
+  `6258294`, not accepted as complete. Focused grouping/window tests passed; the development window
   source file passes 4/4 records. Original aggregate/distinct files remain
   blocked by external/parallel verification configurations; do not remove those
   directives or relabel entire files as passing. Release window diagnostics
@@ -676,8 +682,17 @@ Batch 1 evidence/restart details:
   the faster reference. Evidence: worker
   `target/c2-1/native-{release,development,fastest}-diagnostic-20260918.json`.
   The corrected process fixture now validates its aggregate checksums on all
-  three engines (257 records/assertions each); its first diagnostic is in
-  progress. C2.1 remains incomplete pending measured batch/group/modifier
+  three engines (257 records/assertions each); its first diagnostic fails wall
+  8.16x and CPU 7.38x, while RSS passes at 0.667x and block I/O is zero for all
+  engines. Evidence: worker `target/c2-1/process-diagnostic-20260918.json`.
+  Performance ownership is split in the C2 worktree: root owns borrowed
+  STRING_AGG column/grouped kernels in `src/function/aggregate/string.rs` and
+  leaf tests; S owns generic modifier/ordered batching, explicit `BufferedTotal`
+  no-effect capability, LIST opt-in and affected component tests. S is the sole
+  validation-process owner there; coalesce logical edits before checks. Root's
+  leaf manifest is `target/c2-1/string-kernel-manifest.md`. Preserve selected
+  adapters/types, generic fallback, stable ties, cancellation and resource limits;
+  no function-name routing or query-specific shortcuts. C2.1 remains incomplete pending measured batch/group/modifier
   performance corrections, final affected verification and final performance
   gates. Do not drop workloads or weaken their oracles to close this chunk.
   Exact manifest: worker `target/c2-1/validation-manifest.md`.
