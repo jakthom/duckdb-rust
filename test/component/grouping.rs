@@ -5,6 +5,9 @@ use std::sync::{
 
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
+    common::type_registry::{
+        KeyWriter, PrimitiveTypes, TypeAdapter, TypeRegistry, ValueValidation,
+    },
     execution::{
         Executor, MaterializingExecutor, PullExecutor,
         expression_executor::{
@@ -14,8 +17,8 @@ use duckdb_rust::{
         physical_plan::NativePhysicalPlanner,
     },
     function::{
-        AggregateBinding, AggregateFunction, AggregateState, FunctionEffects, FunctionRegistry,
-        ScalarFunction,
+        AggregateBinding, AggregateFunction, AggregateModifierStrategy, AggregateState,
+        FunctionEffects, FunctionRegistry, ScalarFunction,
     },
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
     parallel::{InterruptHandle, QueryContext},
@@ -1014,6 +1017,343 @@ fn aggregate_order_literals_match_the_default_pinned_rule() -> Result<()> {
             ));
         }
     }
+    Ok(())
+}
+
+struct BufferedProbe {
+    name: &'static str,
+    strategy: AggregateModifierStrategy,
+    row_calls: Arc<AtomicUsize>,
+    batch_calls: Arc<AtomicUsize>,
+    interrupt: Arc<Mutex<Option<InterruptHandle>>>,
+}
+
+impl std::fmt::Debug for BufferedProbe {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BufferedProbe")
+            .field("name", &self.name)
+            .field("strategy", &self.strategy)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregateFunction for BufferedProbe {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn argument_types(&self, arguments: &[DataType]) -> Result<Vec<DataType>> {
+        if arguments == [DataType::Varchar] {
+            Ok(arguments.to_vec())
+        } else {
+            Err(Error::Bind("buffered probe requires VARCHAR".into()))
+        }
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        self.argument_types(arguments)?;
+        Ok(DataType::Varchar)
+    }
+    fn create_state(
+        &self,
+        arguments: &[DataType],
+        types: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<Box<dyn AggregateState>> {
+        self.return_type(arguments, types)?;
+        Ok(Box::new(BufferedProbeState {
+            values: Vec::new(),
+            row_calls: self.row_calls.clone(),
+            batch_calls: self.batch_calls.clone(),
+            interrupt: self.interrupt.clone(),
+        }))
+    }
+    fn modifier_strategy(&self, _: &[DataType]) -> AggregateModifierStrategy {
+        self.strategy
+    }
+}
+
+struct BufferedProbeState {
+    values: Vec<String>,
+    row_calls: Arc<AtomicUsize>,
+    batch_calls: Arc<AtomicUsize>,
+    interrupt: Arc<Mutex<Option<InterruptHandle>>>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregateState for BufferedProbeState {
+    fn update(&mut self, arguments: &[Value], query: &QueryContext) -> Result<()> {
+        query.check()?;
+        self.row_calls.fetch_add(1, Ordering::SeqCst);
+        let [value] = arguments else {
+            return Err(Error::Internal("buffered probe argument count".into()));
+        };
+        self.values.push(match value {
+            Value::Varchar(value) => value.clone(),
+            Value::Null => "NULL".into(),
+            _ => return Err(Error::Internal("buffered probe argument type".into())),
+        });
+        Ok(())
+    }
+    fn update_batch(
+        &mut self,
+        arguments: &duckdb_rust::common::vector::DataChunk,
+        query: &QueryContext,
+    ) -> Result<()> {
+        self.batch_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(interrupt) = self.interrupt.lock().unwrap().take() {
+            interrupt.interrupt();
+            query.check()?;
+        }
+        for row in arguments.rows() {
+            self.update(&row, query)?;
+        }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<Value> {
+        Ok(Value::Varchar(self.values.join("|")))
+    }
+}
+
+#[derive(Debug)]
+struct SignedBufferedProbe(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregateFunction for SignedBufferedProbe {
+    fn name(&self) -> &str {
+        "signed_buffered_probe"
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        if matches!(arguments, [data_type] if data_type.is_signed_integer()) {
+            Ok(DataType::Varchar)
+        } else {
+            Err(Error::Bind(
+                "signed buffered probe requires an integer".into(),
+            ))
+        }
+    }
+    fn create_state(
+        &self,
+        arguments: &[DataType],
+        types: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<Box<dyn AggregateState>> {
+        self.return_type(arguments, types)?;
+        Ok(Box::new(SignedBufferedProbeState {
+            values: Vec::new(),
+            batch_calls: self.0.clone(),
+        }))
+    }
+    fn modifier_strategy(&self, _: &[DataType]) -> AggregateModifierStrategy {
+        AggregateModifierStrategy::BufferedTotal
+    }
+}
+
+struct SignedBufferedProbeState {
+    values: Vec<i128>,
+    batch_calls: Arc<AtomicUsize>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregateState for SignedBufferedProbeState {
+    fn update(&mut self, arguments: &[Value], query: &QueryContext) -> Result<()> {
+        query.check()?;
+        let [Value::Integer(value)] = arguments else {
+            return Err(Error::Internal("signed buffered probe argument".into()));
+        };
+        self.values.push(*value);
+        Ok(())
+    }
+    fn update_batch(
+        &mut self,
+        arguments: &duckdb_rust::common::vector::DataChunk,
+        query: &QueryContext,
+    ) -> Result<()> {
+        self.batch_calls.fetch_add(1, Ordering::SeqCst);
+        for row in arguments.rows() {
+            self.update(&row, query)?;
+        }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<Value> {
+        Ok(Value::Varchar(
+            self.values
+                .iter()
+                .map(i128::to_string)
+                .collect::<Vec<_>>()
+                .join("|"),
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct ComparisonIntegers;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TypeAdapter for ComparisonIntegers {
+    fn name(&self) -> &'static str {
+        "comparison-integers"
+    }
+    fn value_validation(&self) -> ValueValidation {
+        ValueValidation::Physical
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        PrimitiveTypes.validate_type(data_type)
+    }
+    fn validate_value(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.validate_value(data_type, value, query)
+    }
+    fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        PrimitiveTypes.common_type(left, right)
+    }
+    fn compare(
+        &self,
+        data_type: &DataType,
+        left: &Value,
+        right: &Value,
+        query: &QueryContext,
+    ) -> Result<std::cmp::Ordering> {
+        PrimitiveTypes.compare(data_type, left, right, query)
+    }
+    fn write_key(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.write_key(data_type, value, output, query)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn total_buffered_modifiers_preserve_types_order_identity_and_boundaries() -> Result<()> {
+    let row_calls = Arc::new(AtomicUsize::new(0));
+    let batch_calls = Arc::new(AtomicUsize::new(0));
+    let interrupt = Arc::new(Mutex::new(None));
+    let signed_batch_calls = Arc::new(AtomicUsize::new(0));
+    let mut functions = FunctionRegistry::builtins();
+    functions.register_aggregate(Arc::new(BufferedProbe {
+        name: "buffered_probe",
+        strategy: AggregateModifierStrategy::BufferedTotal,
+        row_calls: row_calls.clone(),
+        batch_calls: batch_calls.clone(),
+        interrupt: interrupt.clone(),
+    }))?;
+    functions.register_aggregate(Arc::new(BufferedProbe {
+        name: "effectful_probe",
+        strategy: AggregateModifierStrategy::Generic,
+        row_calls: row_calls.clone(),
+        batch_calls: batch_calls.clone(),
+        interrupt: Arc::new(Mutex::new(None)),
+    }))?;
+    functions.register_aggregate(Arc::new(SignedBufferedProbe(signed_batch_calls.clone())))?;
+    let database = DatabaseBuilder::new()
+        .functions(functions.clone())
+        .batch_size(2)
+        .physical_planner(Arc::new(
+            NativePhysicalPlanner::default().with_aggregation(Arc::new(HashAggregation)),
+        ))
+        .build()?;
+    let mut connection = database.connect();
+    assert_eq!(
+        connection
+            .query(
+                "SELECT buffered_probe(DISTINCT x ORDER BY x DESC NULLS FIRST) \
+                 FROM (VALUES ('b'),(NULL),('a'),('b')) t(x)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("NULL|b|a".into())]]
+    );
+    assert_eq!(
+        connection
+            .query(
+                "SELECT buffered_probe(x ORDER BY k) \
+                 FROM (VALUES ('a',1),('b',1),('c',0)) t(x,k)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("c|a|b".into())]]
+    );
+    assert_eq!(batch_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(row_calls.load(Ordering::SeqCst), 6);
+    assert_eq!(
+        connection
+            .query(
+                "SELECT signed_buffered_probe(DISTINCT i ORDER BY i DESC) \
+                 FROM (VALUES (2),(1),(2)) t(i)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("2|1".into())]]
+    );
+    assert_eq!(signed_batch_calls.load(Ordering::SeqCst), 0);
+
+    let custom_batch_calls = Arc::new(AtomicUsize::new(0));
+    let mut custom_functions = FunctionRegistry::builtins();
+    custom_functions
+        .register_aggregate(Arc::new(SignedBufferedProbe(custom_batch_calls.clone())))?;
+    let mut custom_types = TypeRegistry::builtins();
+    custom_types.replace(DataType::Integer.family(), Arc::new(ComparisonIntegers))?;
+    let mut custom = DatabaseBuilder::new()
+        .functions(custom_functions)
+        .types(Arc::new(custom_types))
+        .build()?
+        .connect();
+    assert_eq!(
+        custom
+            .query(
+                "SELECT signed_buffered_probe(DISTINCT i ORDER BY i DESC) \
+                 FROM (VALUES (2),(1),(2)) t(i)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("2|1".into())]]
+    );
+    assert_eq!(custom_batch_calls.load(Ordering::SeqCst), 1);
+
+    let before_batches = batch_calls.load(Ordering::SeqCst);
+    assert_eq!(
+        connection
+            .query(
+                "SELECT effectful_probe(x ORDER BY k) \
+                 FROM (VALUES ('a',1),('b',1),('c',0)) t(x,k)",
+            )?
+            .rows,
+        vec![vec![Value::Varchar("c|a|b".into())]]
+    );
+    assert_eq!(batch_calls.load(Ordering::SeqCst), before_batches);
+
+    let mut limited = DatabaseBuilder::new()
+        .functions(functions.clone())
+        .batch_size(2)
+        .max_intermediate_rows(5)
+        .build()?
+        .connect();
+    assert!(matches!(
+        limited.query("SELECT buffered_probe(x ORDER BY x) FROM (VALUES ('a'),('b')) t(x)"),
+        Err(Error::Resource(_))
+    ));
+
+    let mut cancelled = DatabaseBuilder::new()
+        .functions(functions)
+        .batch_size(2)
+        .build()?
+        .connect();
+    *interrupt.lock().unwrap() = Some(cancelled.interrupt_handle());
+    assert!(matches!(
+        cancelled.query("SELECT buffered_probe(x ORDER BY x) FROM (VALUES ('a'),('b')) t(x)"),
+        Err(Error::Interrupted)
+    ));
     Ok(())
 }
 

@@ -1,6 +1,12 @@
 use crate::{
-    common::{DataType, Error, Result, Value},
-    function::{AggregateBinding, AggregateFunction, AggregateState},
+    common::{
+        DataType, Error, Result, Value,
+        vector::{DataChunk, Vector},
+    },
+    function::{
+        AggregateBinding, AggregateFunction, AggregateModifierStrategy, AggregateState,
+        grouped::{GroupSelection, GroupedAggregateState},
+    },
     parallel::QueryContext,
 };
 
@@ -81,29 +87,46 @@ impl AggregateFunction for StringAgg {
         self.return_type(arguments, types)?;
         Ok(Box::new(StringAggState {
             separator: self.1.clone().unwrap_or_else(|| Some(",".to_owned())),
-            ..Default::default()
+            buffer: StringBuffer::default(),
         }))
+    }
+
+    fn batch_update_is_total(&self, arguments: &[DataType]) -> bool {
+        arguments == [DataType::Varchar]
+    }
+
+    fn modifier_strategy(&self, arguments: &[DataType]) -> AggregateModifierStrategy {
+        if self.1.is_some() && arguments == [DataType::Varchar] {
+            AggregateModifierStrategy::BufferedTotal
+        } else {
+            AggregateModifierStrategy::Generic
+        }
+    }
+
+    fn create_grouped_state(
+        &self,
+        arguments: &[DataType],
+        _: &crate::common::type_registry::TypeRegistry,
+    ) -> Result<Option<Box<dyn GroupedAggregateState>>> {
+        if arguments != [DataType::Varchar] {
+            return Ok(None);
+        }
+        Ok(Some(Box::new(StringAggGroups {
+            separator: self.1.clone().unwrap_or_else(|| Some(",".to_owned())),
+            buffers: Vec::new(),
+        })))
     }
 }
 
 #[derive(Default)]
-struct StringAggState {
+struct StringBuffer {
     value: String,
     seen: bool,
-    separator: Option<String>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-impl AggregateState for StringAggState {
-    fn update(&mut self, arguments: &[Value], query: &QueryContext) -> Result<()> {
-        let [input] = arguments else {
-            return Err(Error::Internal(
-                "string_agg arguments differ from binding".into(),
-            ));
-        };
-        let Some(separator) = self.separator.as_deref() else {
-            return Ok(());
-        };
+impl StringBuffer {
+    fn append(&mut self, input: &Value, separator: &str) -> Result<()> {
         let Value::Varchar(input) = input else {
             if input.is_null() {
                 return Ok(());
@@ -112,14 +135,11 @@ impl AggregateState for StringAggState {
                 "string_agg input differs from binding".into(),
             ));
         };
-        let additional = separator
-            .len()
-            .checked_add(input.len())
-            .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
-        self.value
-            .len()
-            .checked_add(additional)
-            .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
+        let additional = additional_bytes(
+            self.value.len(),
+            if self.seen { separator.len() } else { 0 },
+            input.len(),
+        )?;
         self.value
             .try_reserve(additional)
             .map_err(|_| Error::Resource("string_agg allocation failed".into()))?;
@@ -128,15 +148,187 @@ impl AggregateState for StringAggState {
         }
         self.value.push_str(input);
         self.seen = true;
-        query.check()?;
         Ok(())
     }
 
-    fn finish(self: Box<Self>) -> Result<Value> {
-        Ok(if self.seen {
+    fn finish(self) -> Value {
+        if self.seen {
             Value::Varchar(self.value)
         } else {
             Value::Null
-        })
+        }
     }
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn additional_bytes(current: usize, separator: usize, input: usize) -> Result<usize> {
+    let additional = separator
+        .checked_add(input)
+        .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
+    current
+        .checked_add(additional)
+        .ok_or_else(|| Error::Resource("string_agg output size overflow".into()))?;
+    Ok(additional)
+}
+
+struct StringAggState {
+    buffer: StringBuffer,
+    separator: Option<String>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregateState for StringAggState {
+    fn update(&mut self, arguments: &[Value], query: &QueryContext) -> Result<()> {
+        query.check()?;
+        let [input] = arguments else {
+            return Err(Error::Internal(
+                "string_agg arguments differ from binding".into(),
+            ));
+        };
+        if let Some(separator) = &self.separator {
+            self.buffer.append(input, separator)?;
+        }
+        Ok(())
+    }
+
+    fn update_batch(&mut self, arguments: &DataChunk, query: &QueryContext) -> Result<()> {
+        let [column] = arguments.columns() else {
+            return Err(Error::Internal(
+                "string_agg arguments differ from binding".into(),
+            ));
+        };
+        self.update_column(column, query)
+    }
+
+    fn update_column(&mut self, column: &Vector, query: &QueryContext) -> Result<()> {
+        validate_column(column, query)?;
+        if let Some(separator) = &self.separator {
+            visit_column(column, query, |_, value| {
+                self.buffer.append(value, separator)
+            })?;
+        }
+        query.check()
+    }
+
+    fn finish(self: Box<Self>) -> Result<Value> {
+        Ok(self.buffer.finish())
+    }
+}
+
+struct StringAggGroups {
+    separator: Option<String>,
+    buffers: Vec<StringBuffer>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl GroupedAggregateState for StringAggGroups {
+    fn group_count(&self) -> usize {
+        self.buffers.len()
+    }
+
+    fn resize(&mut self, groups: usize, query: &QueryContext) -> Result<()> {
+        query.check_rows(groups)?;
+        let additional = groups
+            .checked_sub(self.buffers.len())
+            .ok_or_else(|| Error::Internal("cannot shrink aggregate groups".into()))?;
+        self.buffers
+            .try_reserve(additional)
+            .map_err(|_| Error::Resource("string_agg group allocation failed".into()))?;
+        self.buffers.resize_with(groups, StringBuffer::default);
+        query.check()
+    }
+
+    fn update_batch(
+        &mut self,
+        groups: &GroupSelection<'_>,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<()> {
+        groups.validate(arguments, self.group_count())?;
+        let [column] = arguments.columns() else {
+            return Err(Error::Internal(
+                "string_agg arguments differ from binding".into(),
+            ));
+        };
+        validate_column(column, query)?;
+        if let Some(separator) = &self.separator {
+            visit_column(column, query, |row, value| {
+                self.buffers[groups.indices()[row]].append(value, separator)
+            })?;
+        }
+        query.check()
+    }
+
+    fn finish(self: Box<Self>, query: &QueryContext) -> Result<Vec<Value>> {
+        query.check()?;
+        let mut values = Vec::new();
+        values
+            .try_reserve(self.buffers.len())
+            .map_err(|_| Error::Resource("string_agg result allocation failed".into()))?;
+        for (index, buffer) in self.buffers.into_iter().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            values.push(buffer.finish());
+        }
+        query.check()?;
+        Ok(values)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn validate_column(column: &Vector, query: &QueryContext) -> Result<()> {
+    query.check()?;
+    if column.data_type() != &DataType::Varchar {
+        return Err(Error::Internal(
+            "string_agg column differs from binding".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Borrow validated string values whenever their physical encoding permits it.
+/// Offsets and dictionary selections come from the vector's checked views;
+/// other encodings retain the ordinary owned-value fallback.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn visit_column(
+    column: &Vector,
+    query: &QueryContext,
+    mut visit: impl FnMut(usize, &Value) -> Result<()>,
+) -> Result<()> {
+    if let Some(values) = column.flat_values() {
+        for (block, values) in values.chunks(1024).enumerate() {
+            query.check()?;
+            for (offset, value) in values.iter().enumerate() {
+                visit(block * 1024 + offset, value)?;
+            }
+        }
+    } else if let Some(value) = column.constant_value() {
+        for start in (0..column.len()).step_by(1024) {
+            query.check()?;
+            for row in start..column.len().min(start.saturating_add(1024)) {
+                visit(row, value)?;
+            }
+        }
+    } else if let Some((parent, indices)) = column.dictionary()
+        && let Some(values) = parent.flat_values()
+    {
+        for (block, indices) in indices.chunks(1024).enumerate() {
+            query.check()?;
+            for (offset, &index) in indices.iter().enumerate() {
+                visit(block * 1024 + offset, &values[index])?;
+            }
+        }
+    } else {
+        for (row, value) in column.values().enumerate() {
+            if row % 1024 == 0 {
+                query.check()?;
+            }
+            visit(row, &value)?;
+        }
+    }
+    query.check()
+}
+
+#[cfg(test)]
+mod tests;

@@ -478,6 +478,11 @@ pub enum OrderedAggregateStrategy {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AggregateModifierStrategy {
     Generic,
+    /// Valid typed updates have no externally observable effects or
+    /// data-dependent errors and may therefore be buffered, modifier-ordered,
+    /// and delivered through `AggregateState::update_batch`. Cancellation and
+    /// resource failures remain observable and invalidate the state.
+    BufferedTotal,
     FilteredSum,
     DistinctCount,
     DistinctList,

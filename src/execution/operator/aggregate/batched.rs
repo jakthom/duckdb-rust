@@ -1,9 +1,10 @@
 //! Column grouping for total expressions and opt-in aggregate states.
 mod index;
+mod modifiers;
 use super::*;
 use crate::{
     DataType, Value,
-    common::type_registry::BoundType,
+    common::type_registry::{BoundType, KeyRepresentation, OrderingRepresentation},
     common::vector::{NullableBigIntView, SignedI64At, Vector},
     execution::subquery::PreparedExpression,
     function::{
@@ -56,6 +57,9 @@ pub(super) fn try_run(
         return Ok(Some(rows));
     }
     if let Some(rows) = try_ordered_candidates(input, aggregation, context)? {
+        return Ok(Some(rows));
+    }
+    if let Some(rows) = modifiers::try_run(input, aggregation, context)? {
         return Ok(Some(rows));
     }
     if let Some(rows) = try_ungrouped(input, aggregation, context)? {
@@ -779,6 +783,22 @@ fn try_distinct_modifiers(
         let strategy = function
             .function
             .modifier_strategy(std::slice::from_ref(&argument.data_type));
+        // BufferedTotal is a stronger capability than this narrow signed LIST
+        // adapter requires. Reuse the selected state through the established
+        // stable signed path when DISTINCT and ORDER BY name the same column;
+        // broader typed shapes remain with the generic buffered route.
+        let strategy = if strategy == AggregateModifierStrategy::BufferedTotal {
+            let selected = context.query.types().bind(&argument.data_type)?;
+            if selected.key_representation() != KeyRepresentation::Integer
+                || selected.ordering_representation() != OrderingRepresentation::SignedInteger
+                || selected.requires_logical_validation()
+            {
+                return Ok(None);
+            }
+            AggregateModifierStrategy::DistinctList
+        } else {
+            strategy
+        };
         let order = match strategy {
             AggregateModifierStrategy::DistinctCount if function.order_by.is_empty() => None,
             AggregateModifierStrategy::DistinctList
@@ -1000,6 +1020,7 @@ fn try_distinct_modifiers(
                             }
                         }
                         AggregateModifierStrategy::Generic
+                        | AggregateModifierStrategy::BufferedTotal
                         | AggregateModifierStrategy::FilteredSum => {
                             unreachable!("admission rejected")
                         }

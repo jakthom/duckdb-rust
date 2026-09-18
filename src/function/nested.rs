@@ -414,13 +414,8 @@ impl AggregateFunction for CollectList {
         }))
     }
     fn modifier_strategy(&self, arguments: &[DataType]) -> super::AggregateModifierStrategy {
-        if arguments.len() == 1
-            && matches!(
-                arguments[0],
-                DataType::TinyInt | DataType::SmallInt | DataType::Integer | DataType::BigInt
-            )
-        {
-            super::AggregateModifierStrategy::DistinctList
+        if arguments.len() == 1 {
+            super::AggregateModifierStrategy::BufferedTotal
         } else {
             super::AggregateModifierStrategy::Generic
         }
