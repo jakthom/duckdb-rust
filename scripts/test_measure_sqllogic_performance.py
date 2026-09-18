@@ -25,7 +25,9 @@ class PerformanceGateTests(unittest.TestCase):
                       "shared_test_dir": "/shared",
                       "shared_workload_path": "/shared/a.test",
                       "shared_workload_sha256": "x", "shared_workload_bytes": 1}]
-        entry = {**workloads[0], "cpp": [sample() for _ in range(9)], "rust": [sample(wall_ns=90, cpu_ns=90, max_rss_bytes=90) for _ in range(9)], "cpp_records": 2, "rust_records": 2}
+        cpp_command = ["runner", "--test-dir", "/shared", "a.test", "--use-colour", "no", "--durations", "no", "--single-threaded"]
+        rust_command = ["runner", "/shared", "a.test"]
+        entry = {**workloads[0], "cpp": [sample(command=cpp_command) for _ in range(9)], "rust": [sample(command=rust_command, wall_ns=90, cpu_ns=90, max_rss_bytes=90) for _ in range(9)], "cpp_records": 2, "rust_records": 2}
         return workloads, {"workloads": [copy.deepcopy(entry)]}, {"workloads": [copy.deepcopy(entry)]}
 
     def test_selects_faster_reference_and_passes_every_metric(self):
@@ -58,14 +60,11 @@ class PerformanceGateTests(unittest.TestCase):
 
     def test_serialized_raw_evidence_recomputes_gate(self):
         workloads, release, development = self.reports()
-        report = {"samples": 9, "execution_configuration": measure.SERIAL_CONFIGURATION, "workloads": [{**workloads[0], "observations": {
+        report = {"samples": 9, "test_root": "/shared", "execution_configuration": measure.SERIAL_CONFIGURATION, "workloads": [{**workloads[0], "observations": {
             "release": release["workloads"][0]["cpp"],
             "development": development["workloads"][0]["cpp"],
             "rust": release["workloads"][0]["rust"],
         }}]}
-        for target in ("release", "development"):
-            for observation in report["workloads"][0]["observations"][target]:
-                observation["command"].append("--single-threaded")
         serialized = json.loads(json.dumps(report))
         result = measure.gate_report(serialized, workloads)
         self.assertTrue(result["passed"])
@@ -74,7 +73,7 @@ class PerformanceGateTests(unittest.TestCase):
 
     def test_raw_summary_or_partial_observation_fails_closed(self):
         workloads, release, development = self.reports()
-        report = {"samples": 9, "execution_configuration": measure.SERIAL_CONFIGURATION, "workloads": [{**workloads[0], "observations": {
+        report = {"samples": 9, "test_root": "/shared", "execution_configuration": measure.SERIAL_CONFIGURATION, "workloads": [{**workloads[0], "observations": {
             "release": release["workloads"][0]["cpp"],
             "development": development["workloads"][0]["cpp"],
             "rust": release["workloads"][0]["rust"],
@@ -124,18 +123,15 @@ class PerformanceGateTests(unittest.TestCase):
 
     def test_serial_cpp_flag_and_metadata_fail_closed(self):
         workloads, release, development = self.reports()
-        report = {"samples": 9, "execution_configuration": measure.SERIAL_CONFIGURATION,
+        report = {"samples": 9, "test_root": "/shared", "execution_configuration": measure.SERIAL_CONFIGURATION,
                   "workloads": [{**workloads[0], "observations": {
                       "release": release["workloads"][0]["cpp"],
                       "development": development["workloads"][0]["cpp"],
                       "rust": release["workloads"][0]["rust"],
                   }}]}
-        for target in ("release", "development"):
-            for observation in report["workloads"][0]["observations"][target]:
-                observation["command"].append("--single-threaded")
         self.assertTrue(measure.gate_report(report, workloads)["passed"])
         report["workloads"][0]["observations"]["release"][0]["command"].remove("--single-threaded")
-        with self.assertRaisesRegex(ValueError, "thread controls"):
+        with self.assertRaisesRegex(ValueError, "command arguments"):
             measure.gate_report(report, workloads)
         report.pop("execution_configuration")
         with self.assertRaisesRegex(ValueError, "serial execution"):
@@ -144,23 +140,21 @@ class PerformanceGateTests(unittest.TestCase):
     def test_serial_replay_rejects_extra_and_equals_thread_controls(self):
         workloads, release, development = self.reports()
         def report():
-            result = {"samples": 9, "execution_configuration": measure.SERIAL_CONFIGURATION,
+            result = {"samples": 9, "test_root": "/shared", "execution_configuration": measure.SERIAL_CONFIGURATION,
                       "workloads": [{**workloads[0], "observations": {
                           "release": copy.deepcopy(release["workloads"][0]["cpp"]),
                           "development": copy.deepcopy(development["workloads"][0]["cpp"]),
                           "rust": copy.deepcopy(release["workloads"][0]["rust"]),
                       }}]}
-            for target in ("release", "development"):
-                for observation in result["workloads"][0]["observations"][target]:
-                    observation["command"].append("--single-threaded")
             return result
         for target, flag in (("release", "--threads"), ("development", "--threads=4"),
-                             ("rust", "--threads"), ("rust", "--single-threaded")):
+                             ("release", "--single-threaded=false"), ("rust", "--threads"),
+                             ("rust", "--single-threaded"), ("rust", "--single-threaded=false")):
             with self.subTest(target=target, flag=flag):
                 value = report()
                 observation = value["workloads"][0]["observations"][target][0]
                 observation["command"].extend([flag, "4"] if flag == "--threads" else [flag])
-                with self.assertRaisesRegex(ValueError, "thread controls"):
+                with self.assertRaisesRegex(ValueError, "command arguments"):
                     measure.gate_report(value, workloads)
 
     def test_manifest_rejects_bad_and_duplicate_paths(self):

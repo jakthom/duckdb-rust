@@ -260,17 +260,24 @@ def validate_observation(sample):
         raise ValueError("raw observation has incomplete timing metrics")
 
 
-def validate_serial_configuration(report, target, sample):
+def validate_serial_configuration(report, entry, target, sample):
     configuration = report.get("execution_configuration")
     if configuration != SERIAL_CONFIGURATION:
         raise ValueError("raw report has missing or nonmatching serial execution configuration")
     command = sample["command"]
-    thread_controls = [part for part in command if part == "--single-threaded" or part.startswith("--threads")]
+    root = report.get("test_root")
+    relative = entry.get("path")
+    if not isinstance(root, str) or not isinstance(relative, str):
+        raise ValueError("raw report lacks command identity metadata")
     if target in ("release", "development"):
-        if thread_controls != ["--single-threaded"]:
-            raise ValueError("C++ observation has missing, duplicate, or unsupported thread controls")
-    elif target == "rust" and thread_controls:
-        raise ValueError("Rust observation has unsupported thread controls for its inline scheduler")
+        expected = [command[0], "--test-dir", root, relative,
+                    "--use-colour", "no", "--durations", "no", "--single-threaded"]
+        if command != expected:
+            raise ValueError("C++ observation has unsupported command arguments")
+    elif target == "rust":
+        expected = [command[0], root, relative]
+        if command != expected:
+            raise ValueError("Rust observation has unsupported command arguments")
 
 
 def gate_report(report, workloads):
@@ -297,7 +304,7 @@ def gate_report(report, workloads):
                 raise ValueError("raw workload has incomplete samples: " + identifier + "/" + target)
             for sample in samples:
                 validate_observation(sample)
-                validate_serial_configuration(report, target, sample)
+                validate_serial_configuration(report, entry, target, sample)
             if len({sample["records"] for sample in samples}) != 1:
                 raise ValueError("inconsistent SQLLogic PASS count: " + identifier + "/" + target)
         raw[identifier] = observations
