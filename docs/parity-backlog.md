@@ -23,6 +23,25 @@ is from September 15, before subsequent runner and engine improvements.
 | Full performance population | Open: A1/A5 | Historical 9/34 baseline was partially superseded by the cost repairs above. Remaining workload/configuration coverage needs a fresh accounted campaign. |
 | External formats, resource/parallel engine, ABI and ecosystem | Major capability gaps | Tracks D–H implement these incrementally; passing local tests does not close them. |
 
+**Delivery priority (2026-09-18): engine first; foreign compatibility last.**
+Track G (C ABI, foreign APIs, Arrow/ADBC and clients), ABI-dependent binary
+extension loading and foreign-library/client packaging are **deferred — blocked
+on core-engine completion**. They are not candidates for current agent batches,
+including preparatory design, inventory or benchmark-adapter work. Follow the
+durable [delivery-order rule](../AGENTS.md#delivery-order--engine-first-foreign-compatibility-last).
+Alphabetical tracks and Gxx reference sections are inventories, not execution order.
+
+**Core-engine exit gate:** accepted in-scope SQL/type/function/query behavior,
+catalog/mutations, transactions/native persistence/recovery/indexes, optimizer,
+memory/buffers/spill/parallel execution, table sources/formats and required
+filesystem/security/built-in capabilities. Refresh applicable engine population
+accounting and correctness/performance evidence through A1/A5; open required
+engine gaps or missing acceptance evidence keep this gate open. Existing safe
+Rust interfaces and engine/shell validation stay active. Foreign compatibility
+requirements remain recorded, but neither block this gate nor count as passed.
+Only after this gate is met does the final foreign-compatibility phase become
+eligible; overall DuckDB replacement still requires that later phase.
+
 Use four independent fields in every active chunk: **implementation**, **functional
 acceptance**, **performance**, and **sweep/Kani**. Implementation states are queued,
 active, ready, accepted, or blocked (with an exact dependency). Acceptance fields
@@ -463,7 +482,7 @@ catalog identities, `DatabaseBuilder`, workspace metadata and wire-format
 integration. Workers own their leaf modules and tests. For an executable first
 slice, the lead either lands the minimal shared seams before the worktree forks
 or explicitly grants provisional edits to named shared files in that worker's
-worktree. The first-round cards below grant such proposals to F1 and G1; only
+worktree. The first-round cards below grant such proposals to F1 and C2.1; only
 the lead integrates them into the shared branch. Workers must preserve others'
 changes. A frozen manifest without compiling integration seams is not readiness.
 
@@ -497,18 +516,48 @@ running a long test command.
 
 ### Dispatch order and acceptance queue
 
+#### Active three-batch run — 2026-09-18
+
+User authorization: execute batches 1, 2 and 3 sequentially, with parallel
+tracks inside each batch; checkpoint here between batches and continue without
+asking for another dispatch. Do not start batch 2 until batch 1 is accepted,
+or batch 3 until batch 2 is accepted. Record genuine blockers instead of silently
+dropping a gate or marking unfinished work complete. Foreign compatibility stays
+deferred under the engine-first rule.
+
+| Batch | Tracks | State / restart point |
+| --- | --- | --- |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: freeze worker manifests and case/workload selections, then implement/evaluate in isolated worktrees. |
+| 2 | A2.1 first measured unblocked harness gap (A3/A4 fallback); F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance; choose exact A2.1 gap from A1 evidence. |
+| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
+
+Checkpoint contract: update this table and each affected entry in place with
+implementation/functional/performance/scoped-sweep outcomes; integrated commit,
+worker branch/worktree, exact commands/case IDs and reports under `target/`;
+accepted work, open failures, next command and prerequisites. Commit each batch
+checkpoint so interruption or exhausted credits leaves an unambiguous restart.
+Never use a status-only commit as a trigger to rerun engine validation.
+
+Initial classification: this dispatch/policy edit is documentation-only; validate
+diff/links/consistency only. Worker manifests must be recorded before executable
+changes. Each implementation track uses scoped checks and both-pin affected
+functional/performance acceptance. A1 is read-only evaluation, including its
+explicitly assigned broad census, not a full-engine regression gate on F1/C2.1.
+Reserve quiet host windows for all final performance measurements.
+
 The first round starts from the latest accepted integrated revision, after the
-lead freezes the two new interface manifests. Planned modules/targets below are
+lead freezes the F1 and C2.1 scope/consumer manifests. Planned modules/targets below are
 deliverables, not claims that those files or commands already exist.
 
 | Round | Slot 1 | Slot 2 | Slot 3 | Integration condition |
 | --- | --- | --- | --- | --- |
-| 1 | A1: current full census, T | F1: table-function lifecycle with existing range as consumer, S | G1: minimal real C ABI and foreign-owner lifecycle, S; A review | F1 and G1 share only lead-owned registration/build seams. A1 reads its own frozen checkout. This starts two major missing capabilities immediately. |
+| 1 | A1: current full census, T | F1: table-function lifecycle with existing range as consumer, S | C2.1: STRING_AGG, T | Separate table-source and aggregate ownership; lead integrates shared registry/build seams. A1 reads its own frozen checkout and does not gate these bounded chunks. |
 | 2 | A2.1: highest-impact unblocked runner gap from A1, T/S | F2.1: explicit-schema local CSV reader, T with S review | B1: views and catalog dependency lifecycle, S | F2.1 needs F1; B1 and F2.1 binder changes integrate serially. If A2 has no unblocked high-impact gap, choose A3/A4 or an A1-ranked leaf instead. |
-| 3 | E1: byte reservations and failure contracts, S | G2.1: C configuration and prepared scalar handles, S | C1.1: named-group STRUCT extraction, T | G2.1 needs G1. C chunks/vectors/appender wait for E1. Table-valued splitting is a separate later leaf. |
+| 3 | E1: byte reservations and failure contracts, S | A4: incremental regression accounting, T | C1.1: named-group STRUCT extraction, T | A4 needs A1. Table-valued splitting remains a later leaf after its engine prerequisites. |
 | 4 | D1: row/catalog conflict semantics, A | H1.1: filesystem contract on an existing native consumer, S | F2.2: local COPY CSV writer, S | D1 is the only transaction/publication owner; H1.1 proposes I/O seams for lead integration. F2.2 uses the existing local adapter until H1 integration. |
-| 5 | E2: buffer ownership, S | G2.2: C values/chunks/vectors, S | B2.1: persistent scalar macros, S | E2 and G2.2 require accepted E1; B2.1 follows D1/B1. F3 pushdown is eligible after F2.1; multi-file/glob work waits for H1.2. |
-| Later | Highest unlocked B/C/D step | Highest unlocked E/F step | Highest unlocked G/H/A step | A1 results can reorder independent work; record the reason and keep a capability lane active. Dependencies below are binding. |
+| 5 | E2: buffer ownership, S | F3.1: scan pushdown/residuals, S | B2.1: persistent scalar macros, S | E2 needs E1; F3.1 needs F2.1; B2.1 follows D1/B1. Multi-file/glob work waits for H1.2. |
+| Remaining engine work | Highest unlocked B/C/D step | Highest unlocked E/F step | Highest unlocked engine-only H/A step | A1 results can reorder independent engine work; do not pull deferred foreign compatibility into an idle slot. |
+| Absolute final phase — blocked until core-engine exit gate | G1, then dependent G2/G3 leaves | G4/G5 after their foreign-API prerequisites | ABI-dependent H4/H5 and client acceptance | No ABI/client preparation or implementation before engine completion. This is last, not a concurrent capability lane. |
 
 Do not wait for all three workers before integrating a ready chunk. Finish and
 review one coherent contract at a time, then queue its acceptance. Stop adding
@@ -625,7 +674,9 @@ All rows start **queued** unless their dependency is missing, in which case
 they are **blocked on that dependency**. The Gxx sections below retain detailed
 requirements and accepted-slice evidence. Existing Cargo targets named here are
 fast feedback targets; new targets must be added to Cargo before they can count.
-Each implementation leaf requires the common loop, full delegated sweep and
+Deferred foreign-compatibility packages remain blocked regardless of whether
+their narrower technical dependencies are already available.
+Each implementation leaf requires the common loop, impact-scoped delegated sweep and
 gate P above. A row cannot be dispatched for implementation or declared ready
 until it has a concrete leaf ID, owned paths, actual named targets/filters,
 pin-specific case lists and per-leaf workload/adapters. Terms such as “new CSV
@@ -647,7 +698,7 @@ deliver reports and status recommendations.
 | --- | --- | --- | --- | --- |
 | A1 / G01.4 | Run both complete SQL populations at one frozen current revision; reconcile retries and old-pass losses; rank first blockers by exact IDs and affected capability. Refresh all 34 original workloads separately. No predecessor. | T | Existing summarizer/runner unit tests when touched; full commands below, every candidate accounted, fixture exclusion explicit, unchanged assertions. | Serial original native/numeric/relational/grouping/ordering manifests against both pins; report resource coverage separately. |
 | A2 / G01.2 | Close remaining runner gaps one at a time: max-thread routing, load-version selection, variable-dependent loops and proxy sibling-stop semantics. Select first from A1. Engine variable functions require B4. | T; S for concurrent/session semantics | `sqllogic_runner`, affected Python tests; exact directive/concurrency files, wrong-result and skipped/unknown controls. | Matched runner loops, sessions, restart and failed-assertion consumers; warm/cold cache costs explicit. |
-| A3 / G01.1/G01.3 | Map native/API assertions and runtime-generated/configuration instances to executed Rust contracts. Start with G1 symbols; extend with every new public feature. | L mapping; T review | Unique source assertion IDs, unmapped counts, actual Rust artifact identity, wrong-symbol/ownership negative controls. | New adapters need paired launch/mapping workloads; inventory alone does not prove engine parity. |
+| A3 / G01.1/G01.3 | Map native engine/safe Rust assertions and runtime-generated/configuration instances to executed Rust contracts. Foreign symbol/client mapping is deferred with G. | L mapping; T review | Unique source assertion IDs, unmapped counts, actual Rust artifact identity and engine ownership negative controls. | New engine adapters need paired launch/mapping workloads; inventory alone does not prove engine parity. |
 | A4 / G01.4/G24.4 | Add an incremental regression view keyed by case + pin + configuration; include fresh failures, lost passes, stale results and elapsed stages. Depends on A1. | T | Runner/summarizer mutation tests; zero/duplicate/omitted selections fail. Validate snapshot refresh without summing overlapping campaigns. | Large/small report inputs and selected-feedback consumers; gate tool runtime/resources. |
 | A5 / G24.4/G24.5 | At each capability round, refresh whole SQL accounting and performance coverage; expand faults/fuzz/slow/platform populations as dependencies arrive. | T | Both pins, current revision, all source IDs and dispositions; prior-pass regression diff, reproducible failures. | Add cold/warm storage, durable commit/recovery, API and concurrent workloads as those capabilities land. |
 
@@ -711,7 +762,7 @@ worker may change transaction/publication state machines at a time.
 | Step / goals | Action and dependency | Model | Continuous and final functional evidence | Performance workload |
 | --- | --- | --- | --- | --- |
 | D1 / G14.1 | Replace blanket intervening-writer conflicts with pinned row/catalog visibility and conflict domains; preserve old snapshots and version reclamation. | A | `contracts`, `execution`, `logging`; deterministic disjoint/overlapping writer histories, DDL conflicts and wrong-history negatives. | One/many readers, disjoint/contended writes, retained snapshots; conflict outcomes validated before timing. |
-| D2 / G14.2/G14.3 | Close statement error, cancellation, autocommit/preparation, repeated-open and connection/result ownership lifecycles. Depends on D1 where visibility changes; coordinate G1/G2. | S; A for ambiguous state transitions | `contracts`, `settings`, recovery tests and foreign callers; destroy owners with live results, failed bind/commit, reopen/locks. | Connection/preparation churn, failure cleanup and transaction start/commit. |
+| D2 / G14.2/G14.3 | Close statement error, cancellation, autocommit/preparation, repeated-open and connection/result ownership lifecycles. Depends on D1 where visibility changes; no G1/G2 prerequisite. | S; A for ambiguous state transitions | `contracts`, `settings`, relevant recovery tests and safe Rust callers; destroy owners with live results, failed bind/commit, reopen/locks. Foreign-caller validation is deferred with G. | Connection/preparation churn, failure cleanup and transaction start/commit. |
 | D3 / G15 | Add SQL index DDL/dependencies, incremental maintenance, then range/gather access as separate leaves. Needs D1/B1 identity contracts. | S | `indexes`, `optimizer`, `logging`; NULL/NaN/nested uniqueness, rollback, old readers, C++ ART read/use/mutate. | Write amplification, point/range selectivity, actual read blocks and existing equality lookups. |
 | D4 / G12.1/G12.2 | Inventory missing codec/type/version edges; implement one reader/encoder/metadata family at a time, including catalog objects from B. | S metadata; T isolated codec | `compression`, `compatibility`, nested/native targets; independent compressed fixtures, corrupt boundaries, rejected writes unchanged. | Cold/warm scan and compressed write for that codec/type; size, CPU, RSS and bytes read/written. |
 | D5 / G12.3 | Add partial block/row-group reads, large-value/file handling, reclamation/vacuum and incremental publication. Needs E2 buffer ownership. | S | `compatibility`, `checkpointing`; selected rows vs actual I/O, holes, low budgets and old snapshots. | Selective/wide scans, checkpoint/reclamation cost, large files beyond memory. |
@@ -729,7 +780,7 @@ pipeline designs must exercise an existing consumer before acceptance.
 | E3 / G17.3/G17.4 | Implement external sort first, then hash join/group/window spilling as separate leaves. Needs E1/E2 and local temp-file contract. | S | `execution`, `grouping`, `adversarial`; exact in-memory/spill equivalence, disk-full, early stop, restart cleanup. | Datasets larger than budget, spill partitions/skew, temp bytes and current in-memory consumers. |
 | E4 / G16 | Add ANALYZE/statistics lifecycle; then measured transformations, join ordering and cost-based physical selection as separate leaves. Algorithms need relevant C/D/E capabilities. | T statistics/output; S transformations/cost | `optimizer`, SQL/execution; optimizer on/off differential cases, volatile/lazy-error counterexamples and invalidation. | Selectivity/join distributions, planning latency, existing 34-case baseline and actual plan metrics. |
 | E5 / G18.1/G18.2 | Add task/pipeline state machine, then parallel scans/joins/aggregation/sort as separate leaves. Needs E1 and D1 ownership/visibility contracts. | A scheduler; S operators | Deterministic scheduler target plus execution; exactly-once/barriers, 1 vs many threads, cancellation and mutation atomicity. | Scaling at fixed thread counts, contention, skew and memory pressure; single-thread consumers must also pass. |
-| E6 / G18.3/G18.4 | Add pending readiness/backpressure and real wait/step/cancel progress; integrate G3 public handles. Needs E5. | A state contract; S adapters | Blocked source, WAITING/CHUNK/FINISHED/CANCELLED, concurrent close and owner destruction. | Time to first chunk, throughput, blocked CPU and cancellation latency. |
+| E6 / G18.3/G18.4 | Add pending readiness/backpressure and real wait/step/cancel progress through safe Rust engine interfaces. Needs E5; G3 foreign-handle integration is deferred, not a prerequisite. | A state contract; S adapters | Blocked source, WAITING/CHUNK/FINISHED/CANCELLED, concurrent close and owner destruction. | Time to first chunk, throughput, blocked CPU and cancellation latency. |
 
 #### Track F — table sources and external formats
 
@@ -748,6 +799,11 @@ consumers, while preserving future resource ownership.
 
 #### Track G — public ABI, interchange and clients
 
+**Deferred to the absolute final phase; blocked on core-engine completion.**
+The following rows preserve future obligations only, not dispatchable tasks.
+Do not start ABI design, symbol inventories, scaffolding or measurement adapters
+while engine work remains. Technical prerequisites alone do not unblock this track.
+
 Owner area: new foreign-interface adapters and client tests. Keep unsafe foreign
 pointer handling in a reviewed separate FFI crate; the existing safe engine's
 `unsafe_code = "forbid"` remains in force. The lead owns workspace registration.
@@ -764,6 +820,12 @@ pointer handling in a reviewed separate FFI crate; the existing safe engine's
 
 Owner area: I/O/security/loader/client packaging. Configured extension coverage
 is finite and pinned; unsupported ABI classes remain explicit.
+
+H1–H3 and engine-required built-in capabilities remain engine work. H4 foreign
+ABI inventory/binary loading and H5 foreign-library/client packaging are deferred
+with G until the absolute final phase. Implement required built-in behavior
+through native engine interfaces without making C ABI scaffolding a prerequisite.
+Engine CLI/platform work can proceed independently.
 
 | Step / goals | Action and dependency | Model | Continuous and final functional evidence | Performance workload |
 | --- | --- | --- | --- | --- |
@@ -842,20 +904,21 @@ case are the first tasks, not optional future validation.
   Fast targets:
   new table-function target, `execution`, `from_first`, `contracts`.
   Final: full assigned range/table-function cases, mixed query consumers,
-  coverage/trace check, native and process range workloads plus mandatory sweep.
-- **G1 (S, A review):** own proposed separate `capi/` crate and foreign
-  tests/scripts; lead owns workspace/library build integration. G1 may propose
-  the required Cargo workspace registration in its own worktree so the real
-  library/consumer builds; the lead alone merges it into the integration tree.
-  Inspect development `test/api/capi/v1/test_capi.cpp` and release
-  `test/api/capi/test_capi.cpp` and their pinned headers/API declarations.
-  Select exact basic connection/query/result/error/free assertions without
-  claiming their entire files. Add the minimal real C consumer first, then
-  boundary/lifetime cases; do not link the installed C++ library as candidate.
-  Fast: crate check/unit tests and focused compiled C test; final: all selected
-  unchanged/mapped native assertions, symbol/layout/provenance checks, existing
-  Rust connection contracts, comparable C latency/resource adapter and sweep.
-  Missing native measurement adapter is an implementation task before readiness.
+  affected coverage/trace check, native and process range workloads plus scoped sweep.
+- **C2.1 (T):** own STRING_AGG implementation and focused tests in
+  `src/function/aggregate.rs`, its leaf modules and `test/grouping.rs`;
+  lead integrates any required registry/binder/operator seams. Provisional edits
+  to those named seams may be proposed in the worker's own worktree, with lead
+  review before integration. First inspect both pinned STRING_AGG populations,
+  freeze exact case IDs and establish an end-to-end failing case. Implement
+  grouped/ungrouped aggregation and pinned separator, NULL, empty-input and
+  result-type behavior; include ORDER BY/DISTINCT/FILTER and relevant window
+  consumers. Start with focused `grouping` filters, then all affected aggregate
+  consumer targets and the selected unchanged upstream cases. Preserve existing
+  SUM/LIST behavior. Final performance covers few/many groups, ordered/distinct
+  inputs, variable string lengths and affected existing aggregate consumers,
+  including memory costs, against both pins. Add missing comparable workloads
+  before readiness. Completion uses an impact-scoped sweep, not a full engine run.
 
 After A1, choose later leaves by (1) enabling another blocked capability,
 (2) measured source cases unblocked, (3) correctness risk and shared-interface
@@ -2532,6 +2595,10 @@ Sources: `src/storage/filesystem/`, upstream `src/common/file_system.cpp`,
 
 ## G22 — Embedding APIs, Arrow and ADBC
 
+**Scheduling: deferred to the absolute final phase after core-engine completion.**
+All G22 children and dependent foreign clients remain blocked; the requirements
+below are retained for that future phase, not current design or implementation.
+
 **Current:** the Rust library is usable, but Cargo does not expose DuckDB's C ABI
 or a complete DuckDB-compatible client/interchange surface.
 
@@ -2569,7 +2636,7 @@ tables, the C++ wrapper over C v2 and internal-C++ coupling are separate ABI cla
 G23.1 remains open: this is inventory-only evidence with no comparable Rust candidate,
 so **at-parity or better performance: open**.
 
-- **G23.1 Freeze the compatibility population early.** Inventory configured in-tree
+- **G23.1 Freeze the compatibility population in the final foreign phase.** Inventory configured in-tree
   and external extension pins/builds/tests. Separate stable C tables, unstable C
   tables, the C++ wrapper over C v2 and extensions coupled to internal C++ classes.
 - **G23.2 Implement loader lifecycle.** Add INSTALL/LOAD/update, repository metadata,
@@ -2583,6 +2650,11 @@ so **at-parity or better performance: open**.
   inventoried extensions, each with pinned tests and dependencies. Their full remote
   implementations were not audited here and remain explicitly unassessed obligations.
 
+**Scheduling:** foreign binary/ABI inventory and loader work is deferred with
+G22. Required engine capabilities (for example JSON, Parquet and ICU behavior)
+continue through their owning engine groups without waiting for a foreign ABI.
+Their loadable-binary compatibility is a distinct final-phase obligation.
+
 **Exit:** the selected extension population works through documented compatible
 interfaces. A Rust trait cannot load an arbitrary internal-C++ binary. For those
 extensions, either reimplement/port the capability or explicitly resolve a different
@@ -2594,6 +2666,11 @@ Sources: upstream `src/main/extension/`, `.github/config/`, `api_spec/VERSIONING
 
 **Current:** a small SQL CLI and local Rust tests exist. Full client/tooling,
 platform and performance parity have not been demonstrated.
+
+**Scheduling:** G24.1 clients and the foreign-library/client portions of
+G24.3–G24.5 are deferred with G22 until core-engine completion. Engine/shell
+platform checks and engine correctness/performance acceptance remain active;
+do not let the future client population create a circular engine exit gate.
 
 - **G24.1 Client behavior.** Port/adapt pinned Python, Swift, C/C++ and inventoried
   external clients (for example JDBC/R/Node/Wasm integrations where selected).

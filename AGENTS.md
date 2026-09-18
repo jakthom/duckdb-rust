@@ -9,6 +9,23 @@ reports. The specs describe requirements and the pinned C++ source, not a claim
 that the Rust counterpart exists. Update the backlog in place when behavior
 changes; do not create another progress/checkpoint summary document.
 
+## Delivery order — engine first, foreign compatibility last
+
+Accepted user direction, 2026-09-18: defer the C ABI and its dependent foreign
+API/Arrow/ADBC/client integration work to the absolute final phase, after the
+core/engine is complete. Do not dispatch implementation, ABI design/inventory,
+adapter benchmarks or preparatory scaffolding for that phase while engine work
+remains. Do not repeatedly propose it as the next batch. This ordering survives
+plan/status changes; only explicit user reprioritization changes it.
+
+The backlog's core-engine exit gate covers SQL/types/functions, catalog/mutation,
+transactions/native storage/recovery/indexes, optimizer, memory/spill/parallel
+execution, table sources/formats and required engine I/O/security capabilities,
+with applicable correctness and performance acceptance. Safe Rust APIs, native
+engine contracts and engine-required built-in capabilities remain in scope.
+Foreign ABI/client/binary-extension compatibility is a separate final acceptance
+phase, not a circular prerequisite for declaring the core engine complete.
+
 ## Validation scope — durable policy
 
 Accepted user clarification, 2026-09-18: **impact-scoped validation is the default
