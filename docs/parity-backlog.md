@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 4 is integrated through `70ee5ff`; focused correctness passes, but four native latency cases, process wall/CPU and three affected grouping consumers still fail. Candidate 5 addresses measured key/index/SUM costs; acceptance remains open. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with final integrated performance at `90d63ab`. C2.1 candidate 5 is integrated through `ea430e2`, grouping resource fixture at `db71451`; focused correctness passes. ROLLUP now passes diagnostic latency, but four C2 native cases, grouped SUM/CUBE and process wall/CPU remain below acceptance. Fresh profiles precede candidate 6. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -788,13 +788,28 @@ Batch 1 evidence/restart details:
   publication routing 1/1, owned-row/deferred controls 1/1 each, modifier 1/1
   and grouping 75/75 pass. Two test-only compilation mistakes were corrected
   before these passing runs; no failed/zero-test invocation counts as evidence.
-  Release build and fresh quiet diagnostics are next. The narrowed publication
+  Fresh release process fixtures pass C2 257/257 and grouping 385/385.
+  The narrowed publication
   route restores the original deferred path for numeric schemas; ungrouped F1
   SUM/range implementation inputs remain unchanged, so its accepted evidence
   is reusable. Grouped SUM and all three grouping workloads remain affected.
-  Missing grouped process-resource coverage is being added with the same
+  Grouped process-resource coverage was added at root `db71451` with the same
   50,000-row setup and grouped/ROLLUP/CUBE shapes, 128 iterations and forced
-  SUM/COUNT/GROUPING checksums; both-pin oracle validation precedes timing.
+  SUM/COUNT/GROUPING checksums; both-pin oracle validation passed before timing.
+  Evidence is root `target/batch1/grouping-resource-cli-validation.md`; an
+  initial development shared-checkout citation was corrected by actual CLI
+  source ID `99063af2bd`, supported reference validation and matching private
+  pinned checkout, without rerunning the unchanged fixture or rewriting history.
+  Candidate 5 quiet 9-sample diagnostics: ungrouped 0.658–0.668x passes;
+  few groups 1.316–1.331x, many 1.379–1.420x, ordered DISTINCT 1.378–1.402x,
+  mixed 1.464–1.493x fail. C2 process wall/CPU fail 1.405x/1.413x;
+  RSS passes 0.638x, I/O zero. G08 native all pass. Existing grouping latency:
+  grouped SUM fails 1.258–1.279x, ROLLUP passes 0.815–0.865x, CUBE fails
+  1.381–1.413x. Grouping process wall/CPU fail 1.010x/1.024x, RSS passes
+  0.245x, I/O zero. Preserve worker `target/c2-1/*candidate5*.json`, including
+  all failures. Fresh sampled profiles of these unchanged workloads precede
+  further correction; a grouped-only checked 2x string growth hypothesis is
+  assigned to S `batch1_f1_performance` after the profiling freeze is released.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
