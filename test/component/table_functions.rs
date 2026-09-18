@@ -41,6 +41,12 @@ fn integer_range_uses_registered_lifecycle_and_development_boundaries() -> Resul
     );
     assert_eq!(
         connection
+            .query("SELECT count(*),sum(i) FROM range(-4,15,6)t(i)")?
+            .rows,
+        vec![vec![Value::Integer(4), Value::Integer(20)]]
+    );
+    assert_eq!(
+        connection
             .query("SELECT * FROM generate_series(5,1,-1) LIMIT 4")?
             .rows,
         ints(&[5, 4, 3, 2])
@@ -108,6 +114,60 @@ fn integer_range_uses_registered_lifecycle_and_development_boundaries() -> Resul
             .query("SELECT * FROM range(1)t(i), range(i)")
             .is_err()
     );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn range_chunk(name: &str, values: &[i64], query: &QueryContext) -> Result<DataChunk> {
+    let function = FunctionRegistry::builtins().table(name)?;
+    let arguments = values
+        .iter()
+        .map(|value| TableFunctionArgument {
+            name: None,
+            data_type: DataType::BigInt,
+            value: Value::Integer(i128::from(*value)),
+        })
+        .collect::<Vec<_>>();
+    let bind = function.bind(&arguments, &TableFunctionBindContext { query })?;
+    let source = BoundTableFunction::new(function, bind);
+    let mut scan = TableFunctionScan::open(&source, query)?;
+    let chunk = scan
+        .next(8)?
+        .ok_or_else(|| Error::Internal("expected range output".into()))?;
+    assert!(scan.next(8)?.is_none());
+    Ok(chunk)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn integer_range_prevalidates_extreme_steps_and_actual_batch_order() -> Result<()> {
+    let query = QueryContext::background();
+
+    let ascending = range_chunk("range", &[i64::MIN, i64::MAX, i64::MAX], &query)?;
+    assert_eq!(
+        ascending.rows().collect::<Vec<_>>(),
+        ints(&[i64::MIN as i128, -1, i64::MAX as i128 - 1])
+    );
+    assert!(ascending.columns()[0].all_valid());
+    assert!(ascending.columns()[0].numeric_ascending());
+
+    let descending = range_chunk("generate_series", &[0, i64::MIN, i64::MIN], &query)?;
+    assert_eq!(
+        descending.rows().collect::<Vec<_>>(),
+        ints(&[0, i64::MIN as i128])
+    );
+    assert!(descending.columns()[0].all_valid());
+    assert!(!descending.columns()[0].numeric_ascending());
+
+    for (start, end, step) in [
+        (i64::MAX, i64::MAX, i64::MAX),
+        (i64::MIN, i64::MIN, i64::MIN),
+    ] {
+        let singleton = range_chunk("generate_series", &[start, end, step], &query)?;
+        assert_eq!(singleton.rows().collect::<Vec<_>>(), ints(&[start as i128]));
+        assert!(singleton.columns()[0].all_valid());
+        assert!(singleton.columns()[0].numeric_ascending());
+    }
     Ok(())
 }
 
@@ -281,7 +341,10 @@ impl TableFunction for Probe {
     ) -> Result<Option<DataChunk>> {
         context.check()?;
         self.counts.scans.fetch_add(1, Ordering::SeqCst);
-        if matches!(self.mode, ProbeMode::Failure | ProbeMode::FailureCleanupFailure) {
+        if matches!(
+            self.mode,
+            ProbeMode::Failure | ProbeMode::FailureCleanupFailure
+        ) {
             return Err(Error::Execution("custom source failed".into()));
         }
         let bind = bind
@@ -427,10 +490,7 @@ fn cleanup_is_once_only_on_eof_limit_failure_and_invalid_output() -> Result<()> 
             .query("SELECT * FROM custom_source(1)"),
         Err(Error::Execution(message)) if message == "custom cleanup failed"
     ));
-    assert_eq!(
-        cleanup_failure.counts.cleanups.load(Ordering::SeqCst),
-        1
-    );
+    assert_eq!(cleanup_failure.counts.cleanups.load(Ordering::SeqCst), 1);
 
     let dual_failure = Probe::new("custom_source", ProbeMode::FailureCleanupFailure);
     assert!(matches!(

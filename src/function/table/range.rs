@@ -160,28 +160,46 @@ impl TableFunction for IntegerRange {
         }
         let end = i128::from(data.end);
         let step = i128::from(data.step);
-        let within = |value: i128| {
-            if step > 0 {
-                value < end || (self.inclusive && value == end)
-            } else {
-                value > end || (self.inclusive && value == end)
+        let distance = if step > 0 {
+            if state.current > end || (!self.inclusive && state.current == end) {
+                return Ok(None);
             }
+            end - state.current
+        } else {
+            if state.current < end || (!self.inclusive && state.current == end) {
+                return Ok(None);
+            }
+            state.current - end
         };
-        let mut values = Vec::with_capacity(max_rows);
-        while values.len() < max_rows && within(state.current) {
-            if values.len() % 1024 == 0 {
-                context.check()?;
-            }
-            let value = i64::try_from(state.current)
-                .map_err(|_| Error::Internal("range state exceeded BIGINT".into()))?;
-            values.push(value);
-            state.current += step;
-        }
-        if values.is_empty() {
+        let magnitude = step.abs();
+        let available = if self.inclusive {
+            distance / magnitude + 1
+        } else {
+            // The exclusive endpoint is known to be at least one unit away.
+            (distance - 1) / magnitude + 1
+        };
+        let count = max_rows.min(usize::try_from(available).unwrap_or(usize::MAX));
+        if count == 0 {
             return Ok(None);
         }
-        let count = values.len();
-        let values = Vector::try_bigints(values.into_iter().map(|value| Ok(Some(value))))?;
+        let mut values = Vec::with_capacity(count);
+        let mut value = state.current as i64;
+        for start in (0..count).step_by(1024) {
+            context.check()?;
+            for _ in start..count.min(start + 1024) {
+                values.push(value);
+                // Cardinality was proved in i128. Wrapping is observable only
+                // after the final emitted endpoint and is not retained as
+                // authoritative state.
+                value = value.wrapping_add(data.step);
+            }
+        }
+        state.current += step * count as i128;
+        let numeric_ascending = count < 2 || step > 0;
+        // Range owns an all-valid native BIGINT lane and proved its ordering
+        // while producing it. Avoid rebuilding a validity bitmap and rescanning
+        // every value at the generic checked-constructor boundary.
+        let values = Vector::bigints_prevalidated_with_order(values, numeric_ascending);
         DataChunk::new(vec![values], count).map(Some)
     }
 }
