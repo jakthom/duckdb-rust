@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with performance at `90d63ab`. C2.1 candidate 9 is integrated at `8e27760` (worker `94dc0f2`); focused checks and grouping81 pass. Dense HUGEINT growth-bound correction is in validation. Last measured candidate8 still fails many-groups/mixed native latency; candidate9 final performance is not yet measured. Next: freeze boundary correction, independent partial verifier, then six affected workload families on integrated root. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at baseline `44538fb`; F1 accepted through `324878c`, with performance at `90d63ab`. C2.1 candidate9 is integrated at `8e27760` (worker `94dc0f2`), dense correction `b72ea46`, lint/format follow-ups through `cee3281`. Focused checks/grouping81/index14 pass; independent partial verification is running against implementation `cee3281`. Dense-offset Kani passes at unchanged proof inputs `b72ea46`. Candidate9 final performance is unmeasured; last measured candidate8 still fails two C2 native cases. Next: finish partial verifier, then six-family final21 campaign on integrated root. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
@@ -909,13 +909,28 @@ Batch 1 evidence/restart details:
   `target/batch1/c2-final/regex-{native,process}-workloads.json` is structurally
   identical to those maintained source entries/configuration; unrelated text
   cases are excluded. Final manifest is
-  `target/batch1/c2-final/scoped-verification.md` (not yet dispatched).
+  `target/batch1/c2-final/scoped-verification.md` (configured partial verifier
+  dispatched; current implementation freeze `cee3281`).
   Boundary review reproduced geometric dense growth beyond i128::MAX with
   HUGEINT dictionaries, violating the maintained nonwrapping interval invariant.
   Narrow correction uses the required observed width when spare geometric
   capacity would overflow; the regression first failed before the fix. This
   makes the one maintained dense-offset Kani harness applicable, not full Kani
   or recovery. Root `target/batch1/c2-final/dense-bound-*` retains evidence.
+  Correction `b72ea46` passes all 14 index tests. The configured verifier's first
+  pass stopped at a Clippy arithmetic-style violation; `7cb998a` uses equivalent
+  saturating arithmetic. Two test-only lint suggestions were fixed at `d4e17fa`
+  and formatted at `cee3281`. A failed direct-rustfmt invocation omitted the
+  project edition and is retained as an invocation error, not an engine failure;
+  all resumed sweeps use the original exact Cargo formatting command. Logs stay
+  under `target/batch1/c2-final/verifier*`; unexecuted stages are not green.
+  The single dense-offset proof passed with pinned Kani0.67.0 at `b72ea46`
+  (232 properties, zero failures, two unreachable); unsupported-construct
+  warnings remain in the log. This proves the selected offset contract under
+  its stated interval assumption, not the entire grouping implementation.
+  Later unrelated style/test/doc edits reuse that proof. Final ordinary checks
+  and performance remain open. Exact six-family timing commands are in
+  `target/batch1/c2-final/performance-manifest.md`.
   One validator (`batch1_f1`) coalesces checks, then freezes before quiet
   diagnostics. Final measurements follow only after corrections pass;
   do not start batch 2 yet.
