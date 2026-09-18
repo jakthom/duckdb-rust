@@ -1367,6 +1367,13 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true when `E'...'` literals may contain an escaped NUL byte.
+    ///
+    /// PostgreSQL rejects these, while DuckDB preserves them in VARCHAR data.
+    fn supports_escaped_string_literal_nul(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports the table hints in the `FROM` clause.
     fn supports_table_hints(&self) -> bool {
         false

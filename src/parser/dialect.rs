@@ -32,6 +32,12 @@ impl Dialect for RewriteDialect {
     fn supports_window_function_null_treatment_arg(&self) -> bool {
         true
     }
+    fn supports_string_escape_constant(&self) -> bool {
+        true
+    }
+    fn supports_escaped_string_literal_nul(&self) -> bool {
+        true
+    }
     delegate_flags!(
         supports_trailing_commas,
         supports_filter_during_aggregation,
@@ -92,6 +98,12 @@ impl Dialect for RewriteDialect {
         DuckDbDialect.parse_infix(parser, expr, precedence)
     }
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
+        if let Token::EscapedStringLiteral(value) = parser.peek_token().token {
+            parser.next_token();
+            return Some(Ok(Expr::Value(
+                sqlparser::ast::Value::EscapedStringLiteral(value).into(),
+            )));
+        }
         if let Some(expression) = super::nullif_call::parse(parser) {
             return Some(expression);
         }
@@ -209,7 +221,10 @@ fn grouping_items(parser: &mut Parser) -> Result<Vec<Vec<Expr>>, ParserError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{DuckDbParser, Parser, Statement};
+    use crate::{
+        Value,
+        parser::{DuckDbParser, Parser, Statement},
+    };
     use sqlparser::ast::{self, Expr, FunctionArguments, SelectItem, SetExpr};
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -245,6 +260,55 @@ mod tests {
                 .parse("SELECT floor(TIMESTAMP '2024-01-01' TO DAY)")
                 .is_err()
         );
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn escaped_string_literals_decode_duckdb_escapes_and_bind_as_varchar() {
+        let expressions = [
+            ("E'line\\nnext'", "line\nnext"),
+            ("e'quote\\' slash\\\\'", "quote' slash\\"),
+            ("E'\\u03bb\\U0001F986'", "λ🦆"),
+            ("E'a\\0b'", "a\0b"),
+        ];
+        let mut connection = crate::DatabaseBuilder::new().build().unwrap().connect();
+        for (literal, expected) in expressions {
+            let statements = DuckDbParser.parse(&format!("SELECT {literal}")).unwrap();
+            let Statement::Sql(statement) = &statements[0] else {
+                panic!("expected SQL statement")
+            };
+            let ast::Statement::Query(query) = statement.as_ref() else {
+                panic!("expected query")
+            };
+            let SetExpr::Select(select) = query.body.as_ref() else {
+                panic!("expected select")
+            };
+            let SelectItem::UnnamedExpr(Expr::Value(value)) = &select.projection[0] else {
+                panic!("expected escaped literal")
+            };
+            assert_eq!(
+                value.value,
+                ast::Value::EscapedStringLiteral(expected.to_owned()),
+                "{literal}"
+            );
+            assert_eq!(
+                connection.query(&format!("SELECT {literal}")).unwrap().rows,
+                vec![vec![Value::Varchar(expected.to_owned())]],
+                "{literal}"
+            );
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn escaped_string_literals_reject_unterminated_and_invalid_unicode_escapes() {
+        for sql in [
+            "SELECT E'unterminated",
+            "SELECT E'\\u123'",
+            "SELECT E'\\U00110000'",
+        ] {
+            assert!(DuckDbParser.parse(sql).is_err(), "{sql}");
+        }
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

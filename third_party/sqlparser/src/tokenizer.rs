@@ -1195,8 +1195,11 @@ impl<'a> Tokenizer<'a> {
                     chars.next(); // consume, to check the next char
                     match chars.peek() {
                         Some('\'') => {
-                            let s =
-                                self.tokenize_escaped_single_quoted_string(starting_loc, chars)?;
+                            let s = self.tokenize_escaped_single_quoted_string(
+                                starting_loc,
+                                chars,
+                                self.dialect.supports_escaped_string_literal_nul(),
+                            )?;
                             Ok(Some(Token::EscapedStringLiteral(s)))
                         }
                         _ => {
@@ -2086,8 +2089,9 @@ impl<'a> Tokenizer<'a> {
         &self,
         starting_loc: Location,
         chars: &mut State,
+        allow_nul: bool,
     ) -> Result<String, TokenizerError> {
-        if let Some(s) = unescape_single_quoted_string(chars) {
+        if let Some(s) = unescape_single_quoted_string(chars, allow_nul) {
             return Ok(s);
         }
 
@@ -2436,17 +2440,18 @@ fn peeking_next_take_while(
     s
 }
 
-fn unescape_single_quoted_string(chars: &mut State<'_>) -> Option<String> {
-    Unescape::new(chars).unescape()
+fn unescape_single_quoted_string(chars: &mut State<'_>, allow_nul: bool) -> Option<String> {
+    Unescape::new(chars, allow_nul).unescape()
 }
 
 struct Unescape<'a: 'b, 'b> {
     chars: &'b mut State<'a>,
+    allow_nul: bool,
 }
 
 impl<'a: 'b, 'b> Unescape<'a, 'b> {
-    fn new(chars: &'b mut State<'a>) -> Self {
-        Self { chars }
+    fn new(chars: &'b mut State<'a>, allow_nul: bool) -> Self {
+        Self { chars, allow_nul }
     }
     fn unescape(mut self) -> Option<String> {
         let mut unescaped = String::new();
@@ -2482,19 +2487,13 @@ impl<'a: 'b, 'b> Unescape<'a, 'b> {
                 c => c,
             };
 
-            unescaped.push(Self::check_null(c)?);
+            if c == '\0' && !self.allow_nul {
+                return None;
+            }
+            unescaped.push(c);
         }
 
         None
-    }
-
-    #[inline]
-    fn check_null(c: char) -> Option<char> {
-        if c == '\0' {
-            None
-        } else {
-            Some(c)
-        }
     }
 
     #[inline]
@@ -3762,7 +3761,7 @@ mod tests {
         };
 
         assert_eq!(
-            unescape_single_quoted_string(&mut state),
+            unescape_single_quoted_string(&mut state, false),
             expected.map(|s| s.to_string())
         );
     }
