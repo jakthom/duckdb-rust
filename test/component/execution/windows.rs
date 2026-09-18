@@ -64,6 +64,39 @@ fn window_input_views_validate_bounds_and_borrow_partition_rows() -> Result<()> 
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn string_agg_window_keeps_the_bound_separator_across_frames() -> Result<()> {
+    for algorithm in algorithms() {
+        let db = DatabaseBuilder::new()
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_windows(algorithm),
+            ))
+            .build()?;
+        let mut connection = db.connect();
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT i, string_agg(i::VARCHAR, '|') OVER (ORDER BY i) \
+                 FROM range(1,4) t(i) ORDER BY i",
+                )?
+                .rows,
+            vec![
+                vec![Value::Integer(1), Value::Varchar("1".into())],
+                vec![Value::Integer(2), Value::Varchar("1|2".into())],
+                vec![Value::Integer(3), Value::Varchar("1|2|3".into())],
+            ]
+        );
+        assert!(matches!(
+            connection.query(
+                "SELECT string_agg(i::VARCHAR, i::VARCHAR) OVER () FROM range(2) t(i)"
+            ),
+            Err(Error::Bind(message)) if message == "string_agg argument 2 must be a constant expression"
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct InvalidPermutation(bool);
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

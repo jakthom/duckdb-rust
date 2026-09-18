@@ -485,6 +485,15 @@ pub enum AggregateModifierStrategy {
     DistinctLast,
 }
 
+/// Function-owned aggregate binding data. The planner evaluates constants and
+/// rewrites expressions; adapters only name retained positions and values.
+#[derive(Debug)]
+pub struct AggregateBinding {
+    pub function: Arc<dyn AggregateFunction>,
+    pub retain_arguments: Vec<usize>,
+    pub replacements: Vec<(usize, Value)>,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn update_aggregate_rows<S: AggregateState + ?Sized>(
     state: &mut S,
@@ -503,6 +512,24 @@ pub(crate) fn update_aggregate_rows<S: AggregateState + ?Sized>(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub trait AggregateFunction: Debug + Send + Sync {
     fn name(&self) -> &str;
+    /// Aggregate overloads may request the same implicit argument coercions as
+    /// scalar and window functions. The default preserves the existing exact
+    /// aggregate signatures.
+    fn argument_types(&self, arguments: &[DataType]) -> Result<Vec<DataType>> {
+        Ok(arguments.to_vec())
+    }
+    /// Some aggregate bind data is captured from a SQL constant rather than
+    /// evaluated per input row. The binder owns the constant-expression check;
+    /// functions only advertise the relevant argument positions.
+    fn constant_arguments(&self, _arity: usize) -> &[usize] {
+        &[]
+    }
+    /// Capture binding-time aggregate data and optionally remove constant-only
+    /// expressions from the execution argument row. The default retains both
+    /// the registered implementation and every bound argument.
+    fn bind(&self, _constants: &[Option<Value>]) -> Result<Option<AggregateBinding>> {
+        Ok(None)
+    }
     fn return_type(
         &self,
         arguments: &[DataType],

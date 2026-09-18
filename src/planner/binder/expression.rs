@@ -759,6 +759,71 @@ impl State<'_, '_> {
                         .iter()
                         .map(|e| self.expr(e, fields, None))
                         .collect::<Result<Vec<_>>>()?;
+                    let argument_types = aggregate.argument_types(
+                        &arguments
+                            .iter()
+                            .map(|e| e.data_type.clone())
+                            .collect::<Vec<_>>(),
+                    )?;
+                    if argument_types.len() != arguments.len() {
+                        return Err(Error::Internal(
+                            "aggregate function changed argument cardinality".into(),
+                        ));
+                    }
+                    let arguments = arguments
+                        .into_iter()
+                        .zip(&argument_types)
+                        .map(|(argument, target)| {
+                            argument.cast(
+                                target.clone(),
+                                CastMode::Implicit,
+                                self.context.casts,
+                                self.context.query.types(),
+                            )
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let mut constants = vec![None; arguments.len()];
+                    for &index in aggregate.constant_arguments(arguments.len()) {
+                        let Some(argument) = arguments.get(index) else {
+                            return Err(Error::Internal("aggregate constant argument outside signature".into()));
+                        };
+                        if !arguments.get(index).is_some_and(super::constant_expression) {
+                            return Err(Error::Bind(format!(
+                                "{} argument {} must be a constant expression",
+                                aggregate.name(),
+                                index + 1
+                            )));
+                        }
+                        constants[index] = Some(
+                            self.context
+                                .expressions
+                                .evaluate(argument, &Vec::new(), self.context.query)?,
+                        );
+                    }
+                    let (aggregate, arguments) = if let Some(binding) = aggregate.bind(&constants)? {
+                        let mut arguments = arguments;
+                        for (index, value) in binding.replacements {
+                            let data_type = arguments
+                                .get(index)
+                                .ok_or_else(|| Error::Internal("aggregate replacement outside signature".into()))?
+                                .data_type
+                                .clone();
+                            arguments[index] = BoundExpr {
+                                kind: ExprKind::Literal(value),
+                                data_type,
+                            };
+                        }
+                        let mut retained = Vec::with_capacity(binding.retain_arguments.len());
+                        for index in binding.retain_arguments {
+                            let argument = arguments.get(index).ok_or_else(|| {
+                                Error::Internal("aggregate retained argument outside signature".into())
+                            })?;
+                            retained.push(argument.clone());
+                        }
+                        (binding.function, retained)
+                    } else {
+                        (aggregate, arguments)
+                    };
                     let mut order_by = order_syntax
                         .iter()
                         .map(|order| self.aggregate_order(order, fields))

@@ -33,6 +33,14 @@ pub trait WindowFunction: Debug + Send + Sync {
     fn argument_types(&self, arguments: &[DataType]) -> Result<Vec<DataType>> {
         Ok(arguments.to_vec())
     }
+    /// Constant positions and rewrites are supplied by the selected adapter,
+    /// rather than a same-name catalog lookup.
+    fn constant_arguments(&self, _arity: usize) -> &[usize] {
+        &[]
+    }
+    fn bind(&self, _constants: &[Option<Value>]) -> Result<Option<WindowBinding>> {
+        Ok(None)
+    }
     fn return_type(
         &self,
         arguments: &[DataType],
@@ -57,11 +65,34 @@ mod builtin;
 pub(super) use builtin::register;
 
 #[derive(Debug)]
+pub struct WindowBinding {
+    pub function: Arc<dyn WindowFunction>,
+    pub retain_arguments: Vec<usize>,
+    pub replacements: Vec<(usize, Value)>,
+}
+
+#[derive(Debug)]
 pub(super) struct AggregateWindow(pub Arc<dyn AggregateFunction>);
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl WindowFunction for AggregateWindow {
     fn name(&self) -> &str {
         self.0.name()
+    }
+    fn argument_types(&self, arguments: &[DataType]) -> Result<Vec<DataType>> {
+        self.0.argument_types(arguments)
+    }
+    fn constant_arguments(&self, arity: usize) -> &[usize] {
+        self.0.constant_arguments(arity)
+    }
+    fn bind(&self, constants: &[Option<Value>]) -> Result<Option<WindowBinding>> {
+        let Some(aggregate) = self.0.bind(constants)? else {
+            return Ok(None);
+        };
+        Ok(Some(WindowBinding {
+            function: Arc::new(AggregateWindow(aggregate.function)),
+            retain_arguments: aggregate.retain_arguments,
+            replacements: aggregate.replacements,
+        }))
     }
     fn return_type(
         &self,

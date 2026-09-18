@@ -906,3 +906,60 @@ fn grouping_prepared_queries_keep_snapshot_visibility_and_atomic_mutations() -> 
     }
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn string_agg_binds_constant_separators_and_composes_with_grouping_modifiers() -> Result<()> {
+    for algorithm in algorithms() {
+        let db = DatabaseBuilder::new()
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(algorithm),
+            ))
+            .batch_size(2)
+            .build()?;
+        let mut connection = db.connect();
+        connection.execute(
+            "CREATE TABLE strings(g INTEGER, x VARCHAR, keep BOOLEAN, k INTEGER); \
+             INSERT INTO strings VALUES \
+             (1,'b',true,2),(1,'a',true,1),(1,'a',false,3), \
+             (2,'z',true,1),(2,NULL,true,2),(3,NULL,true,1)",
+        )?;
+        let result = connection.query(
+            "SELECT g, string_agg(DISTINCT x, '|' ORDER BY x) FILTER (WHERE keep), \
+                    group_concat(x ORDER BY k) \
+             FROM strings GROUP BY g ORDER BY g",
+        )?;
+        assert_eq!(result.columns[1].data_type, DataType::Varchar);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![
+                    Value::Integer(1),
+                    Value::Varchar("a|b".into()),
+                    Value::Varchar("a,b,a".into()),
+                ],
+                vec![
+                    Value::Integer(2),
+                    Value::Varchar("z".into()),
+                    Value::Varchar("z".into()),
+                ],
+                vec![Value::Integer(3), Value::Null, Value::Null],
+            ]
+        );
+        assert_eq!(
+            connection
+                .query("SELECT string_agg(x),string_agg(x, NULL) FROM strings WHERE g>9")?
+                .rows,
+            vec![vec![Value::Null, Value::Null]]
+        );
+        assert!(matches!(
+            connection.query("SELECT string_agg(x, CAST(g AS VARCHAR)) FROM strings"),
+            Err(Error::Bind(message)) if message == "string_agg argument 2 must be a constant expression"
+        ));
+        assert!(matches!(
+            connection.query("SELECT string_agg(1, ',')"),
+            Err(Error::Bind(message)) if message.contains("no overload")
+        ));
+    }
+    Ok(())
+}

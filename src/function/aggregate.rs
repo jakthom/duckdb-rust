@@ -8,8 +8,10 @@ use crate::common::{DataType, Error, Result, Value};
 
 mod exact;
 mod groups;
+mod string;
 mod window;
 use exact::SumKernel;
+use string::StringAgg;
 
 #[derive(Debug)]
 struct Builtin(&'static str);
@@ -22,6 +24,11 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
         registry
             .register_aggregate(Arc::new(Builtin(name)))
             .expect("unique builtin name");
+    }
+    for name in ["string_agg", "group_concat"] {
+        registry
+            .register_aggregate(Arc::new(StringAgg(name, None)))
+            .expect("unique string aggregate name");
     }
 }
 

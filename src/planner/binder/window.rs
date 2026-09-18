@@ -268,6 +268,65 @@ impl State<'_, '_> {
                 )
             })
             .collect::<Result<_>>()?;
+        let mut constants = vec![None; arguments.len()];
+        for &index in implementation.constant_arguments(arguments.len()) {
+            let Some(argument) = arguments.get(index) else {
+                return Err(Error::Internal(
+                    "window constant argument outside signature".into(),
+                ));
+            };
+            if !super::constant_expression(argument) {
+                return Err(Error::Bind(format!(
+                    "{} argument {} must be a constant expression",
+                    implementation.name(),
+                    index + 1
+                )));
+            }
+            constants[index] = Some(self.context.expressions.evaluate(
+                argument,
+                &Vec::new(),
+                self.context.query,
+            )?);
+        }
+        let (implementation, arguments) = if let Some(binding) = implementation.bind(&constants)? {
+            let mut arguments = arguments;
+            for (index, value) in binding.replacements {
+                let data_type = arguments
+                    .get(index)
+                    .ok_or_else(|| Error::Internal("window replacement outside signature".into()))?
+                    .data_type
+                    .clone();
+                arguments[index] = BoundExpr {
+                    kind: ExprKind::Literal(value),
+                    data_type,
+                };
+            }
+            let mut retained = Vec::with_capacity(binding.retain_arguments.len());
+            for index in binding.retain_arguments {
+                retained.push(
+                    arguments
+                        .get(index)
+                        .ok_or_else(|| {
+                            Error::Internal("window retained argument outside signature".into())
+                        })?
+                        .clone(),
+                );
+            }
+            (binding.function, retained)
+        } else {
+            (implementation, arguments)
+        };
+        let types = implementation.argument_types(
+            &arguments
+                .iter()
+                .map(|expr| expr.data_type.clone())
+                .collect::<Vec<_>>(),
+        )?;
+        if types.len() != arguments.len() {
+            return Err(Error::Internal(
+                "bound window function changed argument cardinality".into(),
+            ));
+        }
         let data_type = implementation.return_type(&types, options, self.context.query.types())?;
         let partition = spec
             .partition_by
