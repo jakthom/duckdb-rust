@@ -528,7 +528,7 @@ deferred under the engine-first rule.
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active at baseline `44538fb`: workers `batch1_a1`, `batch1_f1`, `batch1_c2_1` own sibling worktrees `../duckdb-rust-batch1-{a1,f1,c2-1}` on matching `codex/batch1-*` branches. Both census first passes finished, exact timeout retries active; F1 implementation/tests active; C2.1 draft committed with acceptance still open. |
-| 2 | A2.1 first measured unblocked harness gap (A3/A4 fallback); F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance; choose exact A2.1 gap from A1 evidence. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
 Checkpoint contract: update this table and each affected entry in place with
@@ -554,13 +554,25 @@ Batch 1 evidence/restart details:
   21-sample measurements are held until a quiet-host grant. Evaluation failures
   remain visible, not a claim of engine acceptance.
   Exact commands/restart details: worker `target/a1-20260918/manifest.md`.
-  Provisional first-pass raw counts: development 584 pass / 5,049 fail / 5
-  incomplete across 5,638 candidates; release 550 / 4,280 / 5 across 4,835.
-  Each pin has 13 timeouts under retry. The binary fixture
+  Functional evaluation is complete at `44538fb`: after exact retries of 13
+  timeout IDs per pin, development passes 587/5,637 executable files and release
+  passes 553/4,834; 7/6 timeouts remain respectively. The binary fixture
   `data/parquet-testing/orders_small_parquet.test` is accounted separately,
-  yielding executable populations 5,637 / 4,834; final retry outcomes and
-  historical pass-loss comparisons are not yet recorded. Do not quote these
-  provisional counts as final current parity.
+  explains raw denominators 5,638 / 4,835. Compared with historical effective
+  counts, development gains 64 and loses 5 prior passes; release gains 334 and
+  loses 2. See worker `target/a1-20260918/census-report.md` and `summary.json`
+  for exact populations/provenance. This is the pre-batch engine, not acceptance
+  of F1/C2.1. Performance refresh remains open.
+  Six lost pin/file passes reach the same comma-substitution runner bug:
+  `list/aggregates/incorrect.test` and `numeric/test_trunc.test` on both pins,
+  plus development `numeric/test_trunc_precision.test` and `float/nan_cast.test`.
+  `scripts/sqllogic.py::bind_loop` and `test/runner/schedule.rs::replace_loops`
+  split values unconditionally, unlike development
+  `test/sqlite/sqllogic_test_runner.cpp::ReplaceLoopIterator`, which splits only
+  tuple iterator names. Queue A2.1, preserving actual source paths from the
+  report. The remaining development loss `test/issues/rigger/rowid_conjunction.test`
+  exposes unsupported `NOT SIMILAR TO`; it remains an engine follow-up, not a
+  silently waived passing case.
 - F1 owns table-function modules/tests and provisional shared table-plan seams
   on its branch. Reviewed scope includes registry/bind/schema/per-open scan and
   exactly-once cleanup, integer range extremes/NULLs, prepared reuse and affected
