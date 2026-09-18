@@ -2,7 +2,7 @@
   "schema_version": 1,
   "rows": 50000,
   "threads": 1,
-  "setup": "CREATE TABLE c2_string_agg AS SELECT i, i%8192 AS many_group, i%64 AS few_group, CASE WHEN i%17=16 THEN NULL WHEN i%7=0 THEN repeat('x', 96) ELSE 'v' || (i%31)::VARCHAR END AS value, i%97 AS order_key FROM range(50000) t(i)",
+  "setup": "CREATE TABLE c2_string_agg AS SELECT i, i%8192 AS many_group, i%64 AS few_group, CASE WHEN i%17=16 THEN NULL WHEN i%7=0 THEN 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' ELSE 'v' || (i%31)::VARCHAR END AS value, i%97 AS order_key FROM range(50000) t(i)",
   "workloads": [
     {"name":"string_agg_ungrouped_variable_width","sql":"SELECT length(string_agg(value, '|')) FROM c2_string_agg","rows":1,"sum":"800463"},
     {"name":"string_agg_few_groups","sql":"SELECT sum(length(aggregate_value)) FROM (SELECT string_agg(value, '|') AS aggregate_value FROM c2_string_agg GROUP BY few_group)","rows":1,"sum":"800400"},
