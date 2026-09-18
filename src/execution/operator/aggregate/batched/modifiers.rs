@@ -1235,10 +1235,24 @@ mod tests {
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn physical_distinct_memo_declines_optional_resource_pressure() -> Result<()> {
-        let column = Vector::constant(DataType::Varchar, Value::Varchar("same".into()), 2)?;
+        let parent = Arc::new(Vector::flat(
+            DataType::Varchar,
+            (0..20)
+                .map(|index| Value::Varchar(format!("value-{index}")))
+                .collect(),
+        )?);
+        let column = parent.select((0..20).collect())?;
         let values = BorrowedVarcharValues::new(&column);
-        let limited = QueryContext::new(InterruptHandle::default(), None, 2, 2)?;
-        assert!(PhysicalDistinctMemo::new(&values, 3, 2, &limited)?.is_none());
+        let limited = QueryContext::new(InterruptHandle::default(), None, 20, 20)?;
+        assert!(PhysicalDistinctMemo::new(&values, 2, 20, &limited)?.is_none());
+
+        let interrupt = InterruptHandle::default();
+        let cancelled = QueryContext::new(interrupt.clone(), None, 20, 20)?;
+        interrupt.interrupt();
+        assert!(matches!(
+            PhysicalDistinctMemo::new(&values, 2, 20, &cancelled),
+            Err(Error::Interrupted)
+        ));
         Ok(())
     }
 }
