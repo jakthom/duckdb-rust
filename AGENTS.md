@@ -37,10 +37,14 @@ file write or tool call:
   Kani and acceptance benchmarks out of the routine loop. Focused timing may be
   used to diagnose a performance change; it is not completion evidence.
 
-The upstream runner's debug-worker/cached-suite fast path is planned, not yet
-implemented. Until then, use its exact `--path-list`/`--path-prefix` selections
-and account for its release build. Never pretend an unchecked existing worker
-or modified cached suite is current. See [testing cadence](specs/testing/parity.md#continuous-feedback-and-completion).
+The upstream runner supports `--debug-worker`, hash-validated selected caching,
+`--compare-release` and debounced `--watch` for continuous feedback. Use exact
+`--path-list` selections; the narrow selected cache does not stage external
+fixtures/includes, so those cases use the ordinary runner. Debug runs are
+feedback, not release acceptance. A prebuilt worker needs matching current
+source/binary/profile provenance. Stop a watcher before another validation
+process starts in the worktree. Never treat stale workers or modified cached
+inputs as current. See [testing cadence](specs/testing/parity.md#continuous-feedback-and-completion).
 
 ## Chunk completion sweep
 

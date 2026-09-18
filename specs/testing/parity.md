@@ -52,12 +52,34 @@ No zero-test selection, unchecked old binary, changed fixture or stale cached
 source may be reported green. Tracing and full Clippy/recovery/Kani/performance
 campaigns stay out of the edit loop; focused performance diagnosis is allowed.
 
-Current targeted Cargo/Python checks and upstream file selection are available.
-A debug-worker path, hash-validated extracted-suite cache and automatic watcher
-are follow-up tooling, not capabilities already delivered. A future fast upstream
-mode must retain unchanged oracles, pin/source/binary/fixture provenance and test
-counts, reject stale/modified cache entries, and label debug results as feedback
-only. Debug timings never satisfy the performance gate.
+Targeted Cargo/Python checks and the upstream debug/cache/watch path are
+available. Use `scripts/run_upstream.py --target both --debug-worker --path-list
+target/<chunk>-paths.txt --report target/<chunk>-debug-<state>.json` after a
+logical behavior batch. Add `--watch --debounce-seconds 0.25` for continuous
+settled-edit feedback; stop it before another validation process starts. The
+watcher's lock coordinates upstream campaigns, not arbitrary Cargo commands.
+Its source fingerprint invalidates an in-flight result when inputs change.
+The `--target both` list must exist on both pins; use separate per-pin lists
+and reports when paths differ. Preserve each pin's unchanged cases.
+
+The selected cache validates exact pinned source bytes and metadata; it does
+not stage external fixture/include dependencies. Such selections use the
+ordinary runner. Prebuilt workers require current source/binary/profile
+provenance. `--debug-worker --compare-release` checks normalized outcomes
+against a freshly built release worker. Final selected acceptance also runs
+the ordinary `--path-list` campaign without debug/prebuilt flags. These modes
+retain unchanged oracles, pin/source/binary identities and test counts, reject
+stale/modified inputs, and label debug results as feedback only. Debug timings
+never satisfy the performance gate; a selected run is not a full census.
+
+At assignment, start with one end-to-end case, its negative/boundary counterpart
+and an existing shared consumer. Repeat affected tests and exact upstream cases
+after each behavior batch. Expand consumer coverage whenever an interface
+changes. Diagnose representative performance early, before the whole family is
+built, using separate quiet-host runs; final measurements remain mandatory.
+An independent review checks semantics, ownership, missing coverage and workload
+comparability before the integrated source freezes. The maintained backlog
+records the dispatch tracks and exact per-chunk selections.
 
 At readiness, stop edits to the integrated tree. The configured Terra/low verifier
 runs exactly `python3 scripts/verify_chunk.py` for the common progressive regression

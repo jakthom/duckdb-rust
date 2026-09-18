@@ -1,6 +1,7 @@
 # Rust implementation map
 
-Source-checked 2026-09-11 at `6380c5f`. This is a navigation map, not a parity
+Navigation/status corrections checked 2026-09-18 at `8f2ef3f`; the original broad
+source map was checked at `6380c5f`. This is a navigation map, not a parity
 claim. Current work and dependencies live in the [parity backlog](parity-backlog.md);
 the [rewrite principles](../specs/rewrite-principles.md) define required replaceability.
 
@@ -22,7 +23,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 | Boundary | Existing implementations / location | Important limit |
 | --- | --- | --- |
 | Catalog | [schemas/tables/named types and alterations](../src/catalog/mod.rs), [runtime registry](../src/catalog/registry.rs), [runtime identity](../src/catalog/identity.rs), [dependency graph](../src/catalog/dependency.rs), [search path](../src/catalog/search_path.rs) | Snapshots, transaction-local DDL and table plans consume stable identities; named ENUM has a transactional SQL/native lifecycle and current-catalog session search paths resolve tables, while general objects and multiple catalogs remain open |
-| Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs), [transaction clock](../src/main/clock.rs) | Every intervening writer conflicts, even disjoint writes; preparation is still syntax-only rather than a native prepare transaction |
+| Transactions | [copy-on-write optimistic snapshots](../src/transaction/mod.rs), [transaction clock](../src/main/clock.rs) | Every intervening writer conflicts, even disjoint writes; preparation does not own a native prepare transaction, although eligible zero-parameter SELECTs now cache immutable physical plans |
 | Values/types | [type/value definitions](../src/common/types.rs), [registry](../src/common/type_registry.rs) | Broad scalar/temporal/nested foundation; function and consumer coverage incomplete |
 | Vectors | [flat/constant/dictionary vectors and chunks](../src/common/vector.rs) | Immutable owned/shared data; not complete native or Arrow vector parity |
 | Expressions | [scalar/batched evaluators](../src/execution/expression_executor.rs), [registered functions](../src/function/mod.rs) | Full overload/effect/default semantics remain open |
@@ -36,7 +37,7 @@ results through the connection, preserving cancellation and statement lifecycle.
 | Formats | [private snapshot](../src/storage/format.rs), [DuckDB native](../src/storage/duckdb/mod.rs) | Versioned values/codecs/identity; general external formats absent |
 | Native codecs | [decoder registry](../src/storage/duckdb/compression/mod.rs), [catalog codecs](../src/storage/duckdb/catalog.rs), [retained type-expression resolver](../src/storage/duckdb/catalog/unbound.rs) | Thirteen readers, bounded built-in UNBOUND literal resolution and catalog-named ENUM checkpoint/WAL paths exist; compressed writing and remaining catalog-bound types stay open |
 | Filesystem | [local publication and locks](../src/storage/filesystem.rs) | No general remote routing, secret manager or encrypted storage |
-| Settings | [registry/providers](../src/main/settings/mod.rs), [connection snapshots](../src/main/connection.rs), [built-ins](../src/main/settings/builtin.rs) | Four built-in definitions: ordering, NULL ordering, IEEE floating operations and session search path; validated global/session snapshots restore the SQLLogic main connection across restart |
+| Settings | [registry/providers](../src/main/settings/mod.rs), [connection snapshots](../src/main/connection.rs), [built-ins](../src/main/settings/builtin.rs) | Ordering, NULL ordering, IEEE operations, search path and verification/profiling controls exist; forced external execution remains unavailable. Validated global/session snapshots restore the SQLLogic main connection across restart |
 | Scheduling/resources | [InlineScheduler/QueryContext](../src/parallel/mod.rs) | Synchronous task execution and row limits; no byte allocator/buffer pool/spill |
 | SQLLogic parity harness | [integrated runner](../test/runner/mod.rs), [loop scheduler](../test/runner/schedule.rs), [session lifecycle](../test/runner/session.rs), [byte parser/accounting](../test/runner/parser.rs), [fixtures/directives](../test/runner/fixtures.rs), [typed oracle](../test/runner/oracle.rs), [upstream proxy](../scripts/sqllogic.py) | Source-rooted loops/foreach, execution-time variable expansion, `std::stoll` conditions, named sessions, concurrent join/stop behavior and configuration-preserving restart now exist; engine variable functions, test-config max-thread routing, load-version selection and proxy result-mismatch short-circuiting remain explicit G01.2c limits |
 | Public consumers | [Rust connection/result](../src/main/connection.rs), [small CLI](../tools/shell/main.rs) | DuckDB C APIs, language clients, Arrow/ADBC and binary extensions incomplete |
@@ -44,8 +45,11 @@ results through the connection, preserving cancellation and statement lifecycle.
 ## State and failure boundaries
 
 Connections retain transaction snapshots. Results and chunks own their data and
-can outlive a connection/database. Prepared statements retain syntax and rebind
-on execution; reference-compatible setting/dependency retention still needs work.
+can outlive a connection/database. Prepared statements retain syntax. Eligible
+zero-parameter SELECTs cache an immutable physical plan keyed by exact catalog
+identity and built-in settings generation, opening fresh transaction/operator
+state per execution. Other paths rebind; full reference-compatible preparation
+and dependency retention remain open.
 Reader snapshots remain alive across publication. Definite commit failure and
 unknown/recovery-required outcomes are distinguished by the transaction manager.
 
