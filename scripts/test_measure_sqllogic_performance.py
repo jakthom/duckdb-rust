@@ -135,11 +135,33 @@ class PerformanceGateTests(unittest.TestCase):
                 observation["command"].append("--single-threaded")
         self.assertTrue(measure.gate_report(report, workloads)["passed"])
         report["workloads"][0]["observations"]["release"][0]["command"].remove("--single-threaded")
-        with self.assertRaisesRegex(ValueError, "single-threaded"):
+        with self.assertRaisesRegex(ValueError, "thread controls"):
             measure.gate_report(report, workloads)
         report.pop("execution_configuration")
         with self.assertRaisesRegex(ValueError, "serial execution"):
             measure.gate_report(report, workloads)
+
+    def test_serial_replay_rejects_extra_and_equals_thread_controls(self):
+        workloads, release, development = self.reports()
+        def report():
+            result = {"samples": 9, "execution_configuration": measure.SERIAL_CONFIGURATION,
+                      "workloads": [{**workloads[0], "observations": {
+                          "release": copy.deepcopy(release["workloads"][0]["cpp"]),
+                          "development": copy.deepcopy(development["workloads"][0]["cpp"]),
+                          "rust": copy.deepcopy(release["workloads"][0]["rust"]),
+                      }}]}
+            for target in ("release", "development"):
+                for observation in result["workloads"][0]["observations"][target]:
+                    observation["command"].append("--single-threaded")
+            return result
+        for target, flag in (("release", "--threads"), ("development", "--threads=4"),
+                             ("rust", "--threads"), ("rust", "--single-threaded")):
+            with self.subTest(target=target, flag=flag):
+                value = report()
+                observation = value["workloads"][0]["observations"][target][0]
+                observation["command"].extend([flag, "4"] if flag == "--threads" else [flag])
+                with self.assertRaisesRegex(ValueError, "thread controls"):
+                    measure.gate_report(value, workloads)
 
     def test_manifest_rejects_bad_and_duplicate_paths(self):
         with tempfile.TemporaryDirectory() as directory:

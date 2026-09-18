@@ -265,11 +265,12 @@ def validate_serial_configuration(report, target, sample):
     if configuration != SERIAL_CONFIGURATION:
         raise ValueError("raw report has missing or nonmatching serial execution configuration")
     command = sample["command"]
+    thread_controls = [part for part in command if part == "--single-threaded" or part.startswith("--threads")]
     if target in ("release", "development"):
-        if command.count("--single-threaded") != 1:
-            raise ValueError("C++ observation is missing or duplicates --single-threaded")
-    elif target == "rust" and "--single-threaded" in command:
-        raise ValueError("Rust observation must use its recorded inline scheduler configuration")
+        if thread_controls != ["--single-threaded"]:
+            raise ValueError("C++ observation has missing, duplicate, or unsupported thread controls")
+    elif target == "rust" and thread_controls:
+        raise ValueError("Rust observation has unsupported thread controls for its inline scheduler")
 
 
 def gate_report(report, workloads):
