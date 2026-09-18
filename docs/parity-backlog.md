@@ -654,8 +654,13 @@ Batch 1 evidence/restart details:
   source file passes 4/4 records. Original aggregate/distinct files remain
   blocked by external/parallel verification configurations; do not remove those
   directives or relabel entire files as passing. Release window diagnostics
-  now include the capitalized `Separator` required by its unchanged regex,
-  pending rerun. Additional selected-
+  now include the capitalized `Separator` required by its unchanged regex.
+  The unchanged original window selection passes at integrated `e94a022`:
+  development 4/4 and release 5/5, one file per pin, no unreached records and a
+  freshly built release worker. Evidence is root
+  `target/batch1/c2-window-upstream/{original-window.json,validation-manifest.md}`;
+  subsequent grouped/key/publication edits leave these inputs unchanged.
+  Additional selected-
   adapter/invalid-bind contract tests, unchanged upstream feedback, valid native
   checksum workloads, final lint/trace/scoped verification and performance were
   the remaining integration obligations. All five native workload queries produce the exact expected numeric
@@ -744,10 +749,17 @@ Batch 1 evidence/restart details:
   custom canonical-key fallback; S `batch1_f1_performance` removes duplicate
   aggregate-result copies using owned row-to-column construction and an opt-in
   aggregation-only deferred stream, leaving other stream consumers unchanged.
-  Manifest additions are worker `target/c2-1/borrowed-key-manifest.md` and its
-  publication handoff. Root's original window-file acceptance refresh runs
-  separately against the unchanged integrated window/binder inputs under
-  `target/batch1/c2-window-upstream/`. Final measurements follow only after
+  Candidate 3 is worker `2e46214`, integrated as `6f16ce5`; its focused type-key
+  tests pass 2/2, STRING_AGG leaf 4/4, two owned-publication unit filters 1/1
+  each, grouping 74/74 and untimed process fixture 257/257. Fresh release
+  binaries are undergoing diagnostic timing; no performance pass is implied.
+  Manifest additions are worker `target/c2-1/borrowed-key-manifest.md` and
+  `publication-correction-manifest.md`. The latter uses
+  `src/execution/physical_plan.rs` to opt only Aggregate nodes into owned
+  publication. This later change affects F1 aggregate consumers, so C2's final
+  integrated performance selection includes F1 native/process workloads again;
+  it does not invalidate F1's earlier accepted revision or require a whole F1
+  functional sweep. Final measurements follow only after
   corrections pass; do not start batch 2 yet.
   C2.1 remains incomplete pending measured batch/group/modifier
   performance corrections, final affected verification and final performance
