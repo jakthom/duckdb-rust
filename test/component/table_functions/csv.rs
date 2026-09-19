@@ -5,6 +5,8 @@ use std::io::Write;
 #[derive(Debug)]
 struct CsvSelectedInteger;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for CsvSelectedInteger {
     fn name(&self) -> &'static str {
         "csv-selected-integer"
@@ -100,6 +102,8 @@ fn explicit_schema_csv_reports_open_parse_and_shape_failures() -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn explicit_schema_csv_handles_empty_blank_header_and_duplicate_options() -> Result<()> {
     let mut blank = tempfile::NamedTempFile::new()?;
@@ -143,6 +147,8 @@ fn explicit_schema_csv_handles_empty_blank_header_and_duplicate_options() -> Res
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn explicit_schema_csv_uses_the_selected_varchar_cast() -> Result<()> {
     let mut file = tempfile::NamedTempFile::new()?;

@@ -464,7 +464,7 @@ impl TableFunction for ReadCsv {
             }
             values.push(converted);
         }
-        DataChunk::from_rows(&data.types, &values).map(Some)
+        DataChunk::from_owned_rows(&data.types, values).map(Some)
     }
 }
 
