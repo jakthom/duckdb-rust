@@ -830,13 +830,13 @@ Batch 2 evidence/restart details:
   no timing before review and quiet-host authorization.
 
 - Current restart constraint: the session agent-thread limit prevents resuming
-  the configured Terra/low verifier or creating a replacement. No alternate
-  verifier has been authorized and no independent integrated pass is claimed.
+  the configured Terra/low verifier or creating a replacement. The user chose
+  to checkpoint for a fresh session, not authorize a Terra/medium substitute.
+  No independent integrated pass is claimed. Do not resume work in this session.
   Frozen engine is `51b690a`; reviewed partial command manifest:
-  `target/batch2/integrated-b1-f2-partial.md`. Existing Terra/medium preparation
-  may build fresh release binaries and collect untimed original-source/fixture
-  evidence; it must not substitute for the verifier. The B1 Sol/high owner is
-  correcting the separate durable adapter after two failed tooling review
+  `target/batch2/integrated-b1-f2-partial.md`. Completed Terra/medium preparation
+  evidence is recorded below; it does not substitute for the verifier. The B1
+  Sol/high owner's separate durable adapter correction is paused after two failed tooling review
   cycles; commits through worker `c0413c0` are prototypes, not accepted or
   integrated. Batch 3 remains queued until Batch 2 is actually accepted.
   Workers are now paused; no validation/timing remains active. The durable
@@ -860,8 +860,7 @@ Batch 2 evidence/restart details:
   `target/batch2/final-acceptance-manifest.md`, followed by the other pin/CSV
   fixtures and final integrated B1 native exchanges. No C++ fixture replay,
   final timing or integrated independent sweep was run in this preparation.
-  Resume the configured verifier in a fresh session, or obtain explicit user
-  approval before using a different existing verifier model/effort; then finish
+  Resume the configured Terra/low verifier in a fresh session; then finish
   Batch 2's open gates, checkpoint acceptance, and dispatch Batch 3.
   Both pins allow DROP TABLE/VIEW despite dependent views, so do not invent
   blocking dependencies; root observations are
