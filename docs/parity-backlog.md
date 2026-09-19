@@ -967,6 +967,28 @@ accepted B1 view-if-not-exists/alias/stacked cases, alongside unchanged cast cas
 and a new14-record witness; unrelated introspection/deferred-binding settings
 remain unimplemented, not passed. Frozen commands, source/input hashes and
 scope rationale remain under `target/batch2/native-repairs-*`.
+At baseline `207a221`, the next repair specializes checked BIGINT operations once
+per column, accesses selected/chunked physical values directly, and derives one
+CREATE VIEW catalog successor for the proven-equal transaction/basis pair. The
+new non-journal UPDATE/DELETE → CREATE VIEW → ALTER NOT NULL case checks that
+committed-row constraint semantics survive. Configured partial verification passes317 tests, including the whole numeric
+ target's existing batch consumers. An initial unit incorrectly demanded known
+ ordering from BIGINT chunks; it now verifies the preserved unknown metadata.
+ Scoped Clippy then rejected four needless closure borrows. The correction
+ passes10 refreshed arithmetic tests plus scoped Clippy, coverage with no missing
+ instrumentation, and trace checking with no incomplete/error returns. Compose
+ `native-followup2-verifier2/` with `native-followup2-verifier3/` at their recorded
+ inputs; both earlier failures remain preserved. Release/performance is pending.
+A separate Python-only repair preserves every SHA-256 input using the standard
+CPython constructor with public fallback, and calculates SQLLogic MD5 only for
+hash/label oracles. Diagnostic fresh-process import savings are about3ms;
+`a2-proxy-sha-implementation-manifest.md` requires actual strict-entry replay and
+ the unchanged five-workload performance gate. Its configured151-test Python
+ sweep first passed150 and exposed an outdated source-identity fixture omitting
+ eight existing utf8proc inputs. The corrected fixture passes its exact test,
+ checks the full dependency set and fingerprint sensitivity to every file;
+ production input selection stays unchanged. Compose `a2-sha-verifier1/` and
+ `a2-sha-verifier2/` at their recorded inputs. The three short proxy failures remain open until new measurements pass.
 
 
 | Batch | Tracks | State / restart point |
@@ -977,15 +999,17 @@ scope rationale remain under `target/batch2/native-repairs-*`.
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** complete release startup replay under
-`target/batch2/a2-startup-integration-manifest.md`, then measure all five actual
-Python proxy workloads with unchanged fixtures/pins/resource gates under
-`target/batch2/a2-startup-performance-candidate1-manifest.json`. Configured partial
-verification has passed. Retain accepted compiled A2 and process consumer gates;
-finish pending B1 and COUNT acceptance after the proxy passes. Native WAL/recovery publication remains unchanged; retain its
-prior scoped evidence with source identities. User paused activity; keep final
-timing serial on a quiet host and leave apps running. Batch 3 implementation
-follows Batch 2 acceptance.
+**Immediate carryover, before Batch 3:** repair the remaining B1 arithmetic,
+view-creation and checkpoint gaps and the three short Python proxy workloads.
+Release startup replay is complete at its recorded inputs; COUNT acceptance
+passes at `207a221`'s tested implementation. The next bounded B1 arithmetic and
+paired CREATE VIEW successor changes own disjoint operator and storage/journal
+paths; their manifests are `target/batch2/b1-arithmetic-followup-manifest.md` and
+`target/batch2/b1-ddl-followup-design.md`. Retain only unaffected evidence and
+finish affected B1, durable and string/regex gates against both pins. User paused
+activity; final timing stays serial on a quiet host with apps left running.
+Batch 3 implementation follows Batch 2 acceptance pending the user's response
+on changing that order.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 

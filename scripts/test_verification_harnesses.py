@@ -2,6 +2,7 @@
 import unittest
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
 
 from compare_native import compare
 from run_upstream import REQUIRED_SCOPES, summarize
@@ -20,6 +21,19 @@ class RecordingEngine:
 
 
 class LogicTests(unittest.TestCase):
+    def test_literal_queries_do_not_hash_but_hashes_and_labels_do(self):
+        response = {"columns": ["INTEGER"], "rows": [["1"]]}
+        with patch("sqllogic.hash_values", side_effect=AssertionError("literal query hashed")):
+            check_query(Record(1, ("query", "I"), expected=("1",)), response, {})
+        expected = hash_values(["1"])
+        record = Record(2, ("query", "I", "nosort", "label"), expected=(expected,))
+        with patch("sqllogic.hash_values", return_value=expected) as hashed:
+            check_query(record, response, {})
+        hashed.assert_called_once_with(["1"])
+        with patch("sqllogic.hash_values", return_value="wrong"):
+            with self.assertRaises(AssertionError):
+                check_query(record, response, {})
+
     def test_parse_comments_conditions_errors_and_literal_hash_marks(self):
         records = parse("# comment\n\nskipif mysql\nstatement error c1\nSELECT bad\n----\n<REGEX>:.*bad.*\n\nquery T\nSELECT '#text'\n----\n#text\n")
         self.assertEqual([r.words[0] for r in records], ["skipif", "statement", "query"])

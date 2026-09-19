@@ -1,5 +1,6 @@
 import copy
 from contextlib import redirect_stderr, redirect_stdout
+import hashlib
 import io
 import json
 import runpy
@@ -44,6 +45,45 @@ def observation(command, target, relative, records, metric=100):
 
 
 class ProxyEvidenceTests(unittest.TestCase):
+    def test_core_digest_uses_full_sha256_stream_and_public_fallback(self):
+        payloads = [b"", b"x", b"x" * (proxy.once_core._DIGEST_BLOCK_SIZE - 1),
+                    b"x" * proxy.once_core._DIGEST_BLOCK_SIZE,
+                    b"x" * (proxy.once_core._DIGEST_BLOCK_SIZE + 1)]
+        with tempfile.TemporaryDirectory() as directory:
+            for index, payload in enumerate(payloads):
+                path = Path(directory) / str(index)
+                path.write_bytes(payload)
+                self.assertEqual(proxy.once_core.digest(path), hashlib.sha256(payload).hexdigest())
+            with self.assertRaises(FileNotFoundError):
+                proxy.once_core.digest(Path(directory) / "missing")
+
+        def fallback(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "_sha256":
+                raise ImportError("forced fallback")
+            return __import__(name, globals, locals, fromlist, level)
+
+        fallback_sha256 = proxy.once_core.sha256_constructor(fallback)
+        self.assertIs(fallback_sha256, hashlib.sha256)
+        for payload in payloads:
+            result = fallback_sha256()
+            for offset in range(0, len(payload), proxy.once_core._DIGEST_BLOCK_SIZE):
+                result.update(payload[offset:offset + proxy.once_core._DIGEST_BLOCK_SIZE])
+            self.assertEqual(result.hexdigest(), hashlib.sha256(payload).hexdigest())
+
+        class BrokenRead:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *unused):
+                return False
+
+            def read(self, size):
+                raise OSError("forced read failure")
+
+        with patch("builtins.open", return_value=BrokenRead()):
+            with self.assertRaisesRegex(OSError, "forced read failure"):
+                proxy.once_core.digest("unreadable")
+
     def context(self):
         root = "/frozen/root"
         workloads = []

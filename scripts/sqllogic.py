@@ -1,5 +1,4 @@
 """DuckDB SQLLogicTest records, oracles and execution, independent of transport."""
-import hashlib
 import re
 
 
@@ -194,6 +193,7 @@ def boolean_matches(actual, expected):
 
 
 def hash_values(values):
+    import hashlib
     digest = hashlib.md5(usedforsecurity=False)
     for value in values:
         digest.update(value.encode() + b"\n")
@@ -214,9 +214,11 @@ def check_query(record, response, labels):
     actual = [value for row in rows for value in row]
     if mode == "valuesort":
         actual.sort()
-    digest = hash_values(actual)
     expected = record.expected
-    if len(expected) == 1 and re.fullmatch(r"\d+ values hashing to [0-9a-f]{32}", expected[0]):
+    expected_hash = len(expected) == 1 and re.fullmatch(r"\d+ values hashing to [0-9a-f]{32}", expected[0])
+    digest = None
+    if expected_hash:
+        digest = hash_values(actual)
         if digest != expected[0]:
             raise AssertionError(f"expected {expected[0]}, got {digest}")
     elif expected:
@@ -238,6 +240,8 @@ def check_query(record, response, labels):
     elif len(words) < 4 and actual:
         raise AssertionError(f"expected an empty result, got {actual[:12]}")
     if len(words) == 4:
+        if digest is None:
+            digest = hash_values(actual)
         previous = labels.setdefault(words[3], digest)
         if previous != digest:
             raise AssertionError(f"label {words[3]} changed: {previous} != {digest}")

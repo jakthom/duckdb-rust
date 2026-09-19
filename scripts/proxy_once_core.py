@@ -1,5 +1,4 @@
 """Minimal, fail-closed execution path for one Python SQLLogic proxy workload."""
-import hashlib
 import json
 import os
 import time
@@ -23,6 +22,18 @@ EXPECTED_WORKLOADS = (
 )
 _ATTESTATION_KEYS = frozenset(("worker_sha256", "source_sha256", "provenance_sha256"))
 _JOB_KEYS = frozenset(("schema", "worker", "worker_provenance", "test_root", "path", "timeout", "attestation"))
+_DIGEST_BLOCK_SIZE = 256 * 1024
+
+
+def sha256_constructor(import_module=__import__):
+    """Prefer CPython's builtin SHA-256, with the public API as a fallback."""
+    try:
+        return import_module("_sha256", fromlist=("sha256",)).sha256
+    except ImportError:
+        return import_module("hashlib", fromlist=("sha256",)).sha256
+
+
+_SHA256 = sha256_constructor()
 
 
 def _resolve(path):
@@ -32,8 +43,11 @@ def _resolve(path):
 
 
 def digest(path):
+    result = _SHA256()
     with open(path, "rb") as file:
-        return hashlib.file_digest(file, "sha256").hexdigest()
+        while block := file.read(_DIGEST_BLOCK_SIZE):
+            result.update(block)
+    return result.hexdigest()
 
 
 def workload_specs(root):
