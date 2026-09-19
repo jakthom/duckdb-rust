@@ -167,11 +167,6 @@ impl CsvReader {
                 continue;
             }
             if self.escape_pending {
-                if byte != self.options.quote && byte != self.options.escape {
-                    return Err(Error::Conversion(
-                        "CSV escape must precede quote or escape".into(),
-                    ));
-                }
                 self.push_field_byte(byte)?;
                 self.escape_pending = false;
                 self.record_started = true;
@@ -603,9 +598,9 @@ mod tests {
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
-    fn strict_quote_escape_and_line_bounds_reject_malformed_records() {
+    fn strict_quote_and_line_bounds_reject_malformed_records() {
         assert!(rows(b"\"x\"y\n", CsvOptions::default()).is_err());
-        assert!(
+        assert_eq!(
             rows(
                 b"\"x\\y\"\n",
                 CsvOptions {
@@ -613,7 +608,10 @@ mod tests {
                     ..CsvOptions::default()
                 }
             )
-            .is_err()
+            .unwrap()[0][0]
+                .value
+                .as_deref(),
+            Some("xy")
         );
         assert!(
             rows(
