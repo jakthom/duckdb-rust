@@ -529,7 +529,7 @@ deferred under the engine-first rule.
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Engine integrated through `51b690a`, not accepted. Independent engine partial14 and Python adapter partial6 pass. Native view exchange and selected source/CSV fixture correctness pass. CSV native performance FAILS: narrow up to3.99× and wide4.51× faster-pin latency; optimize before rerunning affected gates. Sol/high owns durable untimed feasibility/oracle correction; Terra/medium owns bounded CSV optimization (source edits wait for the durable freeze). Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Engine integrated through `7fe9087`, not accepted. Scoped CSV/owned-cast/COUNT/Python and COUNT diagnostic verification and fresh release preparation pass; previous view/native/source evidence retained. Pre-optimization CSV native performance FAILS (narrow3.99×, wide4.51×); optimized performance not yet measured. Durable Rust feasibility and remaining F1/A2/B1/COUNT performance gates are open. Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
 Checkpoint contract: update this table and each affected entry in place with
@@ -813,6 +813,40 @@ Batch 2 evidence/restart details:
   constant evaluator was needed. Root manifest:
   `target/batch2/f2-bind-services-manifest.md`; refresh affected F1 lifecycle
   and range performance alongside CSV, not unrelated engine families.
+  Optimization is frozen for verification, not accepted: baseline stack sample
+  `target/batch2/f2-performance/profile-baseline/stacks.txt` identifies parsing,
+  field/row allocations, identity-cast cloning and nullable COUNT cloning.
+  CSV `7239914` adds64KiB/bulk unquoted parsing, observed-width row allocation
+  and direct column construction; root `b10bedb` adds selected opt-in owned
+  identity casts without bypassing custom callbacks or logical validation;
+  Sol/high `c0536f1` adds borrowed nullable flat COUNT with overflow/cancellation
+  checks. Manifests: `csv-optimization-manifest.md`,
+  `csv-owned-conversion-manifest.md`, `count-flat-values-manifest.md` under
+  `target/batch2/`. Configured Terra/low completed the16-command integrated
+  manifest `csv-count-final-partial.md` plus its scoped resume on `72a53ed`:
+  CSV9, table-functions13, casts16, four COUNT tests1 each, durable Python32,
+  formatting, scoped Clippy, coverage missing=[] and tracing compatibility pass.
+  Original sweep stopped at Clippy's nonminimal boolean warning; the equivalent
+  guard normalization `72a53ed` refreshed CSV9 and remaining stages, retaining
+  unaffected cast/COUNT test evidence rather than repeating it. Reports:
+  `csv-count-verifier/` and `csv-count-verifier-resume/`. An earlier routine attempt lost
+  final output and is explicitly unverified, not reused as a passing result.
+  Release preparation `prep-csv-count-candidate3/report.json` built four binaries,
+  checked provenance/inputs and passed CSV source3/2, then correctly stopped on
+  the original COUNT file's `COUNT(DISTINCT *)` error-text mismatch. Narrow
+  diagnostic fix `7fe9087` matches both pins; configured Terra/low passed all
+  five stages in `count-star-verifier/` (grouping regression1, scoped Clippy,
+  format/diff, coverage missing=[]). Unaffected checks are retained.
+  Release preparation `python3 target/batch2/prepare_optimized_csv.py --after-count-diagnostic`
+  passes all seven stages in `prep-csv-count-candidate4/`: four fresh binaries,
+  matching provenance/inputs, COUNT source release7/dev6 and CSV fixtures16/16,
+  reusing unchanged CSV source3/2 evidence. Worker source digest is
+  `f10e030268e97017361efb0a903d2573f7ffe0e8bf65d184dfa9a56556c3c0ef`.
+  Additional COUNT acceptance covers the fixed100k nullable VARCHAR population
+  and64 explicit rejected-star records under `count-flat-values-performance/`;
+  these require untimed three-engine replay and separate performance gates.
+  Then refresh the fixed quiet-host workloads; previous view/native evidence is
+  unchanged, not an excuse to rerun it.
 - B1: worker `codex/batch2-b1` owns persistent views/catalog/binding/native
   lifecycle. Manifest: worker `target/b1/validation-manifest.md`. Shared
   `binder/table.rs` ownership is split by method: root's table-function context
@@ -859,6 +893,18 @@ Batch 2 evidence/restart details:
   drift and nonempty WAL evidence are now corrected. Historical Git HEAD is
   metadata, not a docs-only invalidation trigger. Durable real-CLI feasibility
   and final timing remain open.
+  Subsequent real-CLI feasibility preserved three reports under
+  `target/batch2/b1-durable-feasibility-final{1,2,3}/`: final3 passes all eight
+  C++ configurations, then stops because Rust does not implement SQL
+  `SET threads=1`. This is corrected at the measurement configuration boundary,
+  not by adding an engine setting: C++ explicitly sets one thread; Rust uses
+  its existing InlineScheduler, whose selected implementation paths are hashed.
+  Adapter fixes `bf5cbad`, `eaa3d03`, `b13cd82` also accept the pins' exact
+  HUGEINT decimal-string JSON and empty setup-result arrays; strict negative
+  tests pass32/32, including the independent Python delta check in the scoped
+  optimization sweep. Rust's four feasibility cases remain open after the
+  CSV source/release freeze. No durable
+  performance measurement has run.
 
 - Fresh release preparation on engine `51b690a` passes: four binary builds;
   canonical worker provenance (source hash
