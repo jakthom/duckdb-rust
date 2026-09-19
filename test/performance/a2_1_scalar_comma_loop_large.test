@@ -1,0 +1,29 @@
+# A2.1 repeated substitution workload: 1000 x five checked replacements.
+loop outer 0 1000
+
+foreach datatype DECIMAL(4,1)
+query T
+SELECT '{datatype}'
+----
+DECIMAL(4,1)
+query T
+SELECT '{datatype}'
+----
+DECIMAL(4,1)
+query T
+SELECT '{datatype}'
+----
+DECIMAL(4,1)
+endloop
+
+foreach left,right first,
+query T
+SELECT '{left}:{right}'
+----
+first:
+query T
+SELECT '{left}:{right}'
+----
+first:
+endloop
+endloop
