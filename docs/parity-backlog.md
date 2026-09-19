@@ -539,8 +539,8 @@ transaction publication pass scoped verification and both-pin native oracles at
 `d5d19ac`; empty-WAL read elision passes114 affected tests at `36a0293`.
 Compiled A2 now passes all five workload gates at `9e5418f`, including lifecycle
 at0.953 of the faster pin. CSV and all six other affected compiled process
-families also pass. The independent Python proxy still fails four of five
-workload gates; Batch 2 acceptance remains open. The next startup repair passes
+families also pass. The independent Python proxy now passes both large workloads and all memory
+gates, but three short workloads still fail latency; Batch 2 acceptance remains open. The next startup repair passes
 configured partial verification (150 Python, six worker and one temporal test,
 plus lint/coverage/tracing); release replay and fresh proxy performance follow.
 Unchanged compiled/native evidence is retained under the impact-scope policy.
@@ -879,11 +879,39 @@ helper, driver and fixture hashes stay stable; performance remains open pending
 the fresh startup proxy campaign. The compiled runner, shell and native engine are unchanged, so their
 recorded acceptance evidence is retained rather than rerun for an aggregate
 worker source hash change. No workload, assertion or resource gate is reduced.
+Startup candidate1 at `28df69a` passes both large workloads and every peak-memory
+gate, but short scalar/lifecycle/read-only latency ratios remain1.343/1.664/1.640.
+Small scalar is34.048ms versus25.344ms; lifecycle64.244ms versus38.600ms;
+read-only58.346ms versus35.570ms. Small and lifecycle CPU also fail. Preserve
+`a2-startup-proxy-candidate1.json` and its stage exit1; B1/COUNT remain pending.
+Focused exact-job import/request profiles (`a2-startup-profile1/`,
+`a2-operation-profile1/`) identify interpreter/import overhead plus durable
+load/commit latency. Alternate installed pyenv/Homebrew/uv runtimes do not
+materially improve diagnostics. Native source review rejects lazy empty-open,
+weaker staged-file flushes and combining the two implicit transactions in
+`CREATE; INSERT`: both pins require the relevant independent acknowledgments.
+These reviews are not new correctness or performance passes.
+
+A tiny strict-job executable avoids compiling the full campaign source in each
+child. It delegates the unchanged core/Runner, preserves the public entry, and
+adds the new helper to identity snapshots. Manifest `a2-tiny-entry-manifest.md`
+at baseline `28df69a` owns only `scripts/measure_sqllogic_proxy.py`,
+`scripts/sqllogic_proxy_once.py` and `scripts/test_measure_sqllogic_proxy.py`.
+Configured `a2-tiny-entry-verifier1/` passes64/64 affected Python tests, syntax
+and diff checks with stable `a2-tiny-entry-inputs.json`. Actual replay passes
+all16 stages in `a2-tiny-entry-preparation1/report.json`: ten fixed workload
+invocations across spawn/Popen plus six malformed/argument/stale-attestation
+negatives. Existing public/upstream and Rust evidence remains at its unchanged
+inputs. Diagnostic entry savings are roughly3–4ms, not acceptance. A target-only
+standard static CPython3.11.4 build is being investigated as a separate runtime
+configuration; no installed interpreter is replaced and no prior failed runtime
+gate is converted to a pass. Final five-workload proxy performance stays open.
+
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: compiled A2 all five and all seven affected compiled process commands pass at `9e5418f`; native WAL/recovery evidence remains valid. Python proxy fails four of five workload gates. New startup repair passes configured150 Python,6 worker,1 temporal tests plus scoped static checks; release replay and fresh proxy gate follow, then pending B1/COUNT. Keep failed runs and unaffected evidence. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: compiled A2 all five and all seven affected compiled process commands pass at `9e5418f`; native WAL/recovery evidence remains valid. Python proxy startup candidate1 passes both large workloads and all memory gates, but short scalar/lifecycle/read-only latency still fail. Startup repair passes150 Python,6 worker,1 temporal tests and all41 release replay stages. Tiny entry then passes64 affected Python tests and16 actual replay stages; fresh proxy gate remains open, then pending B1/COUNT. Keep failed runs and unaffected evidence. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |

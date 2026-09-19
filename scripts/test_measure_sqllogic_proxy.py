@@ -2,6 +2,9 @@ import copy
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
+import runpy
+import sys
+import types
 from pathlib import Path
 import tempfile
 import unittest
@@ -253,6 +256,30 @@ class ProxyEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "canonical"):
                 proxy.checked_campaign_attestation(worker, other, attestation)
 
+    def test_tiny_entry_delegates_exact_job_and_rejects_other_argv(self):
+        entry = Path(proxy.__file__).with_name("sqllogic_proxy_once.py")
+        received = []
+
+        def bootstrap(job):
+            received.append(job)
+            return 0
+
+        with patch.dict(sys.modules, {"proxy_once_core": types.SimpleNamespace(bootstrap=bootstrap)}), patch.object(
+            sys, "argv", [str(entry), "--once-job={\"schema\":\"sqllogic-proxy-once-v1\"}"]
+        ), self.assertRaises(SystemExit) as valid:
+            runpy.run_path(str(entry), run_name="__main__")
+        self.assertEqual(valid.exception.code, 0)
+        self.assertEqual(received, ['{"schema":"sqllogic-proxy-once-v1"}'])
+
+        # The actual core rejects malformed JSON before it can construct a worker.
+        with patch.object(sys, "argv", [str(entry), "--once-job={"]), self.assertRaises(ValueError):
+            runpy.run_path(str(entry), run_name="__main__")
+
+        for arguments in ([], ["--once-job"], ["--once-job={}", "extra"]):
+            with self.subTest(arguments=arguments), patch.object(sys, "argv", [str(entry), *arguments]), self.assertRaises(SystemExit) as rejected:
+                runpy.run_path(str(entry), run_name="__main__")
+            self.assertEqual(rejected.exception.code, "sqllogic_proxy_once requires exactly one --once-job=<JSON> argument")
+
     def test_standalone_once_retains_full_worker_attestation(self):
         with patch.object(proxy, "validate_workload_population", return_value=[]), patch.object(
             proxy, "checked_worker_provenance"
@@ -427,6 +454,7 @@ class ProxyEvidenceTests(unittest.TestCase):
             set(proxy.HELPERS),
             {
                 "measure_sqllogic_proxy.py",
+                "sqllogic_proxy_once.py",
                 "proxy_once_core.py",
                 "secure_scratch.py",
                 "measure_sqllogic_performance.py",

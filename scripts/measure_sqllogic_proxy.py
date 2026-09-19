@@ -43,7 +43,7 @@ EXPECTED_MANIFEST = once_core.EXPECTED_MANIFEST
 EXPECTED_MANIFEST_SHA256 = once_core.EXPECTED_MANIFEST_SHA256
 EXPECTED_WORKLOADS = once_core.EXPECTED_WORKLOADS
 HELPERS = (
-    "measure_sqllogic_proxy.py", "proxy_once_core.py", "secure_scratch.py",
+    "measure_sqllogic_proxy.py", "sqllogic_proxy_once.py", "proxy_once_core.py", "secure_scratch.py",
     "measure_sqllogic_performance.py", "run_upstream.py", "sqllogic.py",
     "source_identity.py", "reference_version.py", "upstream_suite.py", "worker_protocol.py",
 )
@@ -267,7 +267,7 @@ def proxy_command(context, relative):
         PROXY_CONFIGURATION["timeout_seconds"], campaign_attestation(context),
     )
     return [
-        context["python"]["executable"], context["python"]["proxy"],
+        context["python"]["executable"], str(ROOT / "scripts/sqllogic_proxy_once.py"),
         "--once-job=" + once_core.encode_job(job),
     ]
 
