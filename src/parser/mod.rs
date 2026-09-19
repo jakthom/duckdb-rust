@@ -49,6 +49,22 @@ pub trait Parser: Send + Sync {
 #[derive(Default)]
 pub struct DuckDbParser;
 
+/// Parse one SQL type, without accepting a trailing statement or expression.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn parse_type_name(text: &str) -> Result<ast::DataType> {
+    let mut parser = sqlparser::parser::Parser::new(&dialect::RewriteDialect)
+        .with_recursion_limit(128)
+        .try_with_sql(text)
+        .map_err(|error| Error::Parse(error.to_string()))?;
+    let data_type = parser
+        .parse_data_type()
+        .map_err(|error| Error::Parse(error.to_string()))?;
+    if parser.peek_token().token != sqlparser::tokenizer::Token::EOF {
+        return Err(Error::Parse("expected exactly one type name".into()));
+    }
+    Ok(data_type)
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Parser for DuckDbParser {
     fn name(&self) -> &'static str {

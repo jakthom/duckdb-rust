@@ -18,6 +18,9 @@ use duckdb_rust::{
     storage::table_function::TableFunctionScan,
 };
 
+#[path = "table_functions/bind_services.rs"]
+mod bind_services;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn ints(values: &[i128]) -> Vec<Vec<Value>> {
     values
@@ -128,7 +131,16 @@ fn range_chunk(name: &str, values: &[i64], query: &QueryContext) -> Result<DataC
             value: Value::Integer(i128::from(*value)),
         })
         .collect::<Vec<_>>();
-    let bind = function.bind(&arguments, &TableFunctionBindContext { query })?;
+    let casts = duckdb_rust::common::cast::CastRegistry::builtins();
+    let resolve_type = |_: &str| Err(Error::Unsupported("unused test type resolver".into()));
+    let bind = function.bind(
+        &arguments,
+        &TableFunctionBindContext {
+            query,
+            casts: &casts,
+            resolve_type: &resolve_type,
+        },
+    )?;
     let source = BoundTableFunction::new(function, bind);
     let mut scan = TableFunctionScan::open(&source, query)?;
     let chunk = scan
@@ -282,7 +294,11 @@ impl Probe {
                 data_type: DataType::BigInt,
                 value: Value::Integer(rows),
             }],
-            &TableFunctionBindContext { query },
+            &TableFunctionBindContext {
+                query,
+                casts: &duckdb_rust::common::cast::CastRegistry::builtins(),
+                resolve_type: &|_| Err(Error::Unsupported("unused test type resolver".into())),
+            },
         )?;
         Ok(BoundTableFunction::new(function, bind))
     }

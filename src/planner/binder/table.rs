@@ -35,6 +35,11 @@ impl State<'_, '_> {
             &arguments,
             &crate::function::table::TableFunctionBindContext {
                 query: self.context.query,
+                casts: self.context.casts,
+                resolve_type: &|text| {
+                    self.context.query.check()?;
+                    self.data_type(&crate::parser::parse_type_name(text)?)
+                },
             },
         )?;
         if bind.schema().is_empty() {

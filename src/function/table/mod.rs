@@ -31,6 +31,10 @@ pub struct TableFunctionArgument {
 /// Capabilities available while an adapter binds immutable source metadata.
 pub struct TableFunctionBindContext<'a> {
     pub query: &'a QueryContext,
+    /// Selected conversions; adapters may retain bound casts in immutable data.
+    pub casts: &'a crate::common::cast::CastRegistry,
+    /// The active binder owns type syntax and catalog/search-path resolution.
+    pub resolve_type: &'a dyn Fn(&str) -> Result<crate::common::DataType>,
 }
 
 /// Type-erased immutable adapter data retained by logical and prepared plans.
