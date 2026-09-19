@@ -305,9 +305,9 @@ fn encode_checkpoint(
         } else {
             snapshot.implicit_append_bigints(&table, &context)?
         };
-        let (pointer, row_count, rows) = if let Some(values) = packed {
+        let (pointer, row_count, rows) = if let Some(values) = packed.as_ref() {
             (
-                table_data_packed_bigint(&mut arena, &table, values, &context)?,
+                table_data_packed_bigint_segments(&mut arena, &table, values.segments(), &context)?,
                 values.len(),
                 None,
             )
@@ -405,6 +405,172 @@ fn table_data(
 /// Native equivalent of `table_data` for the single borrowed lane admitted by
 /// `Snapshot::implicit_append_bigints`. Keep this intentionally narrow: the
 /// generic row path remains the format reference for every other table.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn table_data_packed_bigint_segments(
+    arena: &mut Arena,
+    table: &TableDefinition,
+    segments: &[&[i64]],
+    context: &QueryContext,
+) -> Result<u64> {
+    let count = segments.iter().map(|segment| segment.len()).sum::<usize>();
+    if let [values] = segments {
+        return table_data_packed_bigint(arena, table, values, context);
+    }
+    context.check_rows(count)?;
+    let mut output = Encoder::default();
+    output.property(100, 1);
+    output.boolean(true);
+    output.field(100);
+    packed_bigint_statistics_segments(&mut output, segments, true, context)?;
+    output.end();
+    output.end();
+    output
+        .0
+        .extend((count.div_ceil(122880) as u64).to_le_bytes());
+    let mut lane = PackedBigIntReader::new(segments);
+    let mut start = 0;
+    while start < count {
+        let group = (count - start).min(122880);
+        output.property(100, start as u64);
+        output.property(101, group as u64);
+        output.property(102, 1);
+        output.pointer(packed_bigint_column_reader(
+            arena, &mut lane, group, start, context,
+        )?);
+        output.property(103, 0);
+        output.end();
+        start += group;
+    }
+    arena.metadata(&output.0)
+}
+
+struct PackedBigIntReader<'a> {
+    segments: &'a [&'a [i64]],
+    segment: usize,
+    offset: usize,
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl<'a> PackedBigIntReader<'a> {
+    fn new(segments: &'a [&'a [i64]]) -> Self {
+        Self {
+            segments,
+            segment: 0,
+            offset: 0,
+        }
+    }
+    fn take(&mut self, count: usize) -> Option<std::borrow::Cow<'a, [i64]>> {
+        debug_assert!(count <= 2048);
+        let values = *self.segments.get(self.segment)?;
+        let available = values.get(self.offset..)?;
+        if available.len() >= count {
+            let output = &available[..count];
+            self.offset += count;
+            if self.offset == values.len() {
+                self.segment += 1;
+                self.offset = 0;
+            }
+            return Some(std::borrow::Cow::Borrowed(output));
+        }
+        let mut output = Vec::with_capacity(count);
+        while output.len() < count {
+            let values = *self.segments.get(self.segment)?;
+            let available = values.get(self.offset..)?;
+            let take = (count - output.len()).min(available.len());
+            output.extend_from_slice(&available[..take]);
+            self.offset += take;
+            if self.offset == values.len() {
+                self.segment += 1;
+                self.offset = 0;
+            }
+        }
+        Some(std::borrow::Cow::Owned(output))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_bigint_column_reader(
+    arena: &mut Arena,
+    lane: &mut PackedBigIntReader<'_>,
+    count: usize,
+    row_start: usize,
+    context: &QueryContext,
+) -> Result<u64> {
+    let mut segments = Vec::new();
+    for offset in (0..count).step_by(2048) {
+        context.check()?;
+        let values = lane
+            .take((count - offset).min(2048))
+            .ok_or_else(|| corrupt("packed BIGINT lane truncated"))?;
+        segments.push(packed_bigint_segment(
+            arena,
+            &values,
+            row_start + offset,
+            context,
+        )?);
+    }
+    let mut output = Encoder::default();
+    output.property(100, segments.len() as u64);
+    for segment in segments {
+        output.0.extend(segment);
+    }
+    output.field(101);
+    output
+        .0
+        .extend(packed_bigint_validity_count(count, row_start, context)?);
+    output.end();
+    arena.metadata(&output.0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_bigint_validity_count(
+    count: usize,
+    row_start: usize,
+    context: &QueryContext,
+) -> Result<Vec<u8>> {
+    if count == 0 {
+        return packed_bigint_validity(&[], row_start, context);
+    }
+    let mut output = Encoder::default();
+    context.check()?;
+    output.property(100, 1);
+    output.property(100, row_start as u64);
+    output.property(101, count as u64);
+    output.field(102);
+    output.field(100);
+    output.signed(-1);
+    output.end();
+    output.property(103, 2);
+    output.field(104);
+    packed_bigint_statistics_bounds(&mut output, count, None, false, context)?;
+    output.end();
+    output.end();
+    Ok(output.0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_bigint_statistics_segments(
+    output: &mut Encoder,
+    segments: &[&[i64]],
+    typed: bool,
+    context: &QueryContext,
+) -> Result<()> {
+    let mut count = 0usize;
+    let mut bounds: Option<(i64, i64)> = None;
+    for segment in segments {
+        for values in segment.chunks(2048) {
+            context.check()?;
+            count += values.len();
+            for value in values {
+                bounds = Some(match bounds {
+                    Some((minimum, maximum)) => (minimum.min(*value), maximum.max(*value)),
+                    None => (*value, *value),
+                });
+            }
+        }
+    }
+    packed_bigint_statistics_bounds(output, count, bounds, typed, context)
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn table_data_packed_bigint(
     arena: &mut Arena,
@@ -534,24 +700,38 @@ fn packed_bigint_statistics(
     typed: bool,
     context: &QueryContext,
 ) -> Result<()> {
+    if !typed {
+        return packed_bigint_statistics_bounds(output, values.len(), None, false, context);
+    }
+    let mut bounds: Option<(i64, i64)> = None;
+    for values in values.chunks(2048) {
+        context.check()?;
+        for value in values {
+            bounds = Some(match bounds {
+                Some((minimum, maximum)) => (minimum.min(*value), maximum.max(*value)),
+                None => (*value, *value),
+            });
+        }
+    }
+    packed_bigint_statistics_bounds(output, values.len(), bounds, typed, context)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_bigint_statistics_bounds(
+    output: &mut Encoder,
+    count: usize,
+    bounds: Option<(i64, i64)>,
+    typed: bool,
+    context: &QueryContext,
+) -> Result<()> {
     context.check()?;
     output.field(100);
     output.boolean(false);
     output.field(101);
-    output.boolean(!values.is_empty());
+    output.boolean(count != 0);
     output.property(102, 0);
     output.field(103);
     if typed {
-        let mut bounds: Option<(i64, i64)> = None;
-        for values in values.chunks(2048) {
-            context.check()?;
-            for value in values {
-                bounds = Some(match bounds {
-                    Some((minimum, maximum)) => (minimum.min(*value), maximum.max(*value)),
-                    None => (*value, *value),
-                });
-            }
-        }
         for (field, value) in [
             (200, bounds.map(|(minimum, _)| minimum)),
             (201, bounds.map(|(_, maximum)| maximum)),
@@ -931,6 +1111,7 @@ mod packed_bigint_tests {
     use crate::{
         catalog::{Catalog, CatalogMut, ColumnDefinition, TableName, UniqueKey},
         common::type_registry::{KeyWriter, PrimitiveTypes, TypeAdapter, TypeRegistry},
+        common::vector::{DataChunk, Vector},
         parallel::InterruptHandle,
         storage::{TableStorageMut, format::SnapshotFormat},
     };
@@ -1198,6 +1379,55 @@ mod packed_bigint_tests {
                 )?
                 .is_none()
         );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn packed_bigint_checkpoint_matches_generic_ctas_chunks_and_crosses_native_boundaries()
+    -> Result<()> {
+        for widths in [
+            vec![17usize, 2_031, 2_049, 5_903],
+            vec![17, 2_031, 2_049, 5_903, 112_881, 2_048],
+        ] {
+            let name = TableName::main("ctas_chunks");
+            let mut snapshot = Snapshot::default();
+            snapshot.create_table(
+                TableDefinition {
+                    name: name.clone(),
+                    columns: vec![ColumnDefinition::new("v", DataType::BigInt)],
+                    unique_keys: vec![],
+                },
+                false,
+            )?;
+            let mut next = 0i64;
+            let mut chunks = Vec::new();
+            for width in widths {
+                let values =
+                    Vector::try_bigints((next..next + width as i64).map(|value| Ok(Some(value))))?;
+                next += width as i64;
+                chunks.push(DataChunk::new(vec![values], width)?);
+            }
+            snapshot.insert_chunks(&name, chunks, &QueryContext::background())?;
+            let table = Catalog::tables(&snapshot)?.pop().expect("table exists");
+            assert!(matches!(
+                snapshot.implicit_append_bigints(&table, &QueryContext::background())?,
+                Some(crate::storage::table::PackedBigInts::Chunks(_))
+            ));
+            for version in [64, 68] {
+                let bytes = encode_version(&snapshot, version)?;
+                assert_eq!(bytes, encode_version_generic(&snapshot, version)?);
+                let previous = super::super::CheckpointIdentity::read(&bytes)?;
+                let successor = encode_successor(&snapshot, previous)?;
+                assert_eq!(successor, encode_successor_generic(&snapshot, previous)?);
+                let restored = super::super::DuckDbFormat::default()
+                    .decode(successor, snapshot.type_registry())?;
+                assert_eq!(
+                    restored.scan_physical(&name, &QueryContext::background())?,
+                    snapshot.scan_physical(&name, &QueryContext::background())?
+                );
+            }
+        }
         Ok(())
     }
 }

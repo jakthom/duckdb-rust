@@ -1100,6 +1100,34 @@ impl Vector {
             _ => None,
         }
     }
+    /// Borrow all all-valid BIGINT segments of this exact chunked view. This
+    /// remains crate-private because callers must retain the generic path for
+    /// selections, dictionaries, constants, nullable lanes, and mixed widths.
+    pub(crate) fn flat_bigint_segments(&self) -> Option<Vec<&[i64]>> {
+        let Encoding::Chunks(chunks, offsets) = &self.encoding else {
+            return None;
+        };
+        if self.data_type != DataType::BigInt || !self.all_valid || self.count == 0 {
+            return None;
+        }
+        let start = self.offset;
+        let end = start.checked_add(self.count)?;
+        let mut result = Vec::new();
+        for (index, chunk) in chunks.iter().enumerate() {
+            let chunk_start = *offsets.get(index)?;
+            let chunk_end = *offsets.get(index + 1)?;
+            let from = start.max(chunk_start);
+            let to = end.min(chunk_end);
+            if from >= to {
+                continue;
+            }
+            let child = chunk.flat_bigints()?;
+            result.push(child.get(from - chunk_start..to - chunk_start)?);
+        }
+        (!result.is_empty()
+            && result.iter().map(|segment| segment.len()).sum::<usize>() == self.count)
+            .then_some(result)
+    }
     /// Borrow a nullable native BIGINT lane and its aligned validity view.
     /// All-valid BIGINT columns intentionally remain available only through
     /// `flat_bigints`, preserving that accessor's established contract.
@@ -2111,6 +2139,60 @@ mod physical_tests {
         assert_eq!(
             chunks.slice(1, 2)?.values().collect::<Vec<_>>(),
             vec![Value::Integer(11), Value::Integer(12)]
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn chunked_bigint_segments_honor_outer_and_child_slices_and_reject_other_encodings()
+    -> Result<()> {
+        let first = Vector::try_bigints((0..5).map(|v| Ok(Some(v))))?.slice(1, 3)?;
+        let second = Vector::try_bigints((5..10).map(|v| Ok(Some(v))))?.slice(1, 3)?;
+        let chunks = Vector::chunked(DataType::BigInt, vec![first, second])?.slice(1, 4)?;
+        assert_eq!(
+            chunks.flat_bigint_segments().unwrap().concat(),
+            vec![2, 3, 6, 7]
+        );
+        assert!(
+            Vector::chunked(
+                DataType::BigInt,
+                vec![Vector::try_bigints([Ok(Some(1)), Ok(None)])?]
+            )?
+            .flat_bigint_segments()
+            .is_none()
+        );
+        let flat = Arc::new(Vector::try_bigints([Ok(Some(1)), Ok(Some(2))])?);
+        let selected = flat.select(vec![1, 0])?;
+        assert!(selected.flat_bigint_segments().is_none());
+        assert!(
+            Vector::chunked(DataType::BigInt, vec![selected])?
+                .flat_bigint_segments()
+                .is_none()
+        );
+        assert!(
+            Vector::chunked(
+                DataType::BigInt,
+                vec![Vector::constant(DataType::BigInt, Value::Integer(1), 2)?]
+            )?
+            .flat_bigint_segments()
+            .is_none()
+        );
+        let nested = Vector::chunked(DataType::BigInt, vec![flat.as_ref().clone()])?;
+        assert!(
+            Vector::chunked(DataType::BigInt, vec![nested])?
+                .flat_bigint_segments()
+                .is_none()
+        );
+        assert!(
+            Vector::constant(DataType::BigInt, Value::Integer(1), 2)?
+                .flat_bigint_segments()
+                .is_none()
+        );
+        assert!(
+            Vector::chunked(DataType::BigInt, vec![Vector::try_bigints([])?])?
+                .flat_bigint_segments()
+                .is_none()
         );
         Ok(())
     }

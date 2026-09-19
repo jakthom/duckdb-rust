@@ -30,6 +30,24 @@ pub(super) enum Rows {
     },
 }
 
+pub(crate) enum PackedBigInts<'a> {
+    Flat(&'a [i64]),
+    Chunks(Vec<&'a [i64]>),
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl PackedBigInts<'_> {
+    pub(crate) fn len(&self) -> usize {
+        self.segments().iter().map(|values| values.len()).sum()
+    }
+    pub(crate) fn segments(&self) -> &[&[i64]] {
+        match self {
+            Self::Flat(values) => std::slice::from_ref(values),
+            Self::Chunks(values) => values,
+        }
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for Rows {
     fn default() -> Self {
@@ -84,7 +102,7 @@ impl Rows {
         &self,
         next_id: RowId,
         context: &QueryContext,
-    ) -> Result<Option<&[i64]>> {
+    ) -> Result<Option<PackedBigInts<'_>>> {
         let Self::Published { ids, data, types } = self else {
             return Ok(None);
         };
@@ -108,7 +126,14 @@ impl Rows {
             return Ok(None);
         }
         context.check()?;
-        Ok(data.columns()[0].flat_bigints())
+        Ok(data.columns()[0]
+            .flat_bigints()
+            .map(PackedBigInts::Flat)
+            .or_else(|| {
+                data.columns()[0]
+                    .flat_bigint_segments()
+                    .map(PackedBigInts::Chunks)
+            }))
     }
     pub fn from_chunks(
         ids: Vec<RowId>,

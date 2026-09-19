@@ -149,6 +149,7 @@ impl SumKernel {
     pub(super) fn column_sum_signed_i64(
         self,
         values: &[i64],
+        ordered: bool,
         query: &crate::parallel::QueryContext,
     ) -> Result<i128> {
         let Self::Signed(64) = self else {
@@ -156,18 +157,13 @@ impl SumKernel {
                 "BIGINT physical coefficients used by another SUM domain".into(),
             ));
         };
-        let narrow = self
-            .maximum_magnitude()
-            .checked_mul(values.len().min(1024) as i128)
-            .is_some_and(|bound| bound <= i64::MAX as i128);
+        if ordered && ordered_signed_i64_sum_fits(values) {
+            return sum_ordered_signed_i64_wrapping(values, query);
+        }
         let mut sum = 0_i128;
         for block in values.chunks(1024) {
             query.check()?;
-            sum += if narrow {
-                sum_proven_i64(block)
-            } else {
-                sum_i64_wide(block)
-            };
+            sum += sum_i64_wide(block);
         }
         query.check()?;
         Ok(sum)
@@ -274,6 +270,47 @@ impl SumKernel {
     }
 }
 
+/// A monotone all-valid BIGINT vector with these endpoint bounds has every
+/// logical prefix inside i64.  The zero bound covers positive-only and
+/// negative-only prefixes, which need not lie between the two full sums.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline]
+fn ordered_signed_i64_sum_fits(values: &[i64]) -> bool {
+    let Some((&first, &last)) = values.first().zip(values.last()) else {
+        return false;
+    };
+    if first > last {
+        return false;
+    }
+    let Some(count) = i128::try_from(values.len()).ok() else {
+        return false;
+    };
+    let Some(lower) = count.checked_mul(i128::from(first)) else {
+        return false;
+    };
+    let Some(upper) = count.checked_mul(i128::from(last)) else {
+        return false;
+    };
+    i64::try_from(lower.min(0)).is_ok() && i64::try_from(upper.max(0)).is_ok()
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline]
+fn sum_ordered_signed_i64_wrapping(
+    values: &[i64],
+    query: &crate::parallel::QueryContext,
+) -> Result<i128> {
+    let mut sum = 0_i64;
+    for block in values.chunks(1024) {
+        query.check()?;
+        for &value in block {
+            sum = sum.wrapping_add(value);
+        }
+    }
+    query.check()?;
+    Ok(i128::from(sum))
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn proven_column(
     values: &[Value],
@@ -327,11 +364,71 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{
-        common::{DataType, Value, vector::Vector},
+        common::{DataType, Error, Value, vector::Vector},
         parallel::{InterruptHandle, QueryContext},
     };
 
-    use super::SumKernel;
+    use super::{SumKernel, ordered_signed_i64_sum_fits};
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn ordered_flat_bigint_sum_proves_prefixes_and_declines_extrema() -> crate::Result<()> {
+        let query = QueryContext::background();
+        let kernel = SumKernel::Signed(64);
+        for (values, expected) in [
+            (&[-4, -2, -1][..], -7_i128),
+            (&[2, 3, 7][..], 12_i128),
+            (&[-4, -1, 2, 8][..], 5_i128),
+        ] {
+            assert!(ordered_signed_i64_sum_fits(values));
+            assert_eq!(
+                kernel.column_sum_signed_i64(values, true, &query)?,
+                expected
+            );
+            assert_eq!(
+                kernel.column_sum_signed_i64(values, false, &query)?,
+                expected
+            );
+        }
+        assert!(!ordered_signed_i64_sum_fits(&[]));
+        assert_eq!(kernel.column_sum_signed_i64(&[], true, &query)?, 0);
+        let extremes = [i64::MAX, i64::MAX];
+        assert!(!ordered_signed_i64_sum_fits(&extremes));
+        assert_eq!(
+            kernel.column_sum_signed_i64(&extremes, true, &query)?,
+            i128::from(i64::MAX) * 2
+        );
+        let minimums = [i64::MIN, i64::MIN];
+        assert!(!ordered_signed_i64_sum_fits(&minimums));
+        assert_eq!(
+            kernel.column_sum_signed_i64(&minimums, true, &query)?,
+            i128::from(i64::MIN) * 2
+        );
+        assert_eq!(
+            kernel.column_sum_signed_i64(&[i64::MIN, i64::MAX], true, &query)?,
+            -1
+        );
+        let unknown_order = [0, i64::MAX, i64::MAX, 0];
+        assert_eq!(
+            kernel.column_sum_signed_i64(&unknown_order, false, &query)?,
+            i128::from(i64::MAX) * 2
+        );
+        assert!(!ordered_signed_i64_sum_fits(&[3, 2]));
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn ordered_flat_bigint_sum_honors_preexisting_interruption() {
+        let interrupt = InterruptHandle::default();
+        interrupt.interrupt();
+        let query = QueryContext::new(interrupt, None, 2048, usize::MAX).expect("query context");
+        let values = vec![1_i64; 1025];
+        assert!(matches!(
+            SumKernel::Signed(64).column_sum_signed_i64(&values, true, &query),
+            Err(Error::Interrupted)
+        ));
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]

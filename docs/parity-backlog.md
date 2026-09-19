@@ -1026,33 +1026,64 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
  passes coverage (missing[]) and trace (completed1, no errors/incomplete/panics)
  through `native-followup3-verifier4/`. The configured partial sweep is passed.
  Source539, baseline-matching fixture155 and vendored dependency8 identities
- are recorded in the corrected freeze and its input addenda. Release/upstream/performance acceptance
- remains pending; this is not a completed Batch2 or measured parity claim.
+ are recorded in the corrected freeze and its input addenda. Committed as
+ `241e68a`; all10 release-preparation stages and16 strict proxy replays pass.
+ Final21 performance remains failed: B1 release filtered view/direct406.167/
+ 256.542us, stacked views213.750us and CREATE VIEW35us pass release only;
+ stacked direct88.250us versus72.792us fails1.212359. Development/joint/process
+ did not run after that failure. Fixed10000-row checkpoint view/direct44.562/
+ 50.560ms fail1.040919/1.151845 against the faster pin; WAL view/direct35.869/
+ 41.476ms pass0.850804/0.975163. All durable CPU/RSS/I/O gates pass.
+ A2 proxy short scalar/lifecycle/read-only27.950/56.656/51.235ms fail1.117378/
+ 1.504314/1.460568; both large cases and all resource gates pass. Preserve
+ `native-followup3-performance-stage-logs1/` and linked raw samples. Other
+ now-affected process/native acceptance remains open, not inherited as passing.
+
+ Followup4 at `241e68a` changes six files: `src/function/aggregate.rs`,
+ `aggregate/exact.rs`, `src/common/vector.rs`, `src/storage/table.rs`,
+ `table/rows.rs` and `src/storage/duckdb/writer.rs`. The ordered BIGINT SUM
+ proof bounds every partial sum before choosing narrow reduction; unknown
+ order/full-width cases retain i128 fallback. Checkpoint encoding now borrows
+ eligible sliced BIGINT Chunks, using bounded scratch only across child
+ boundaries, with exact native byte/successor/row witnesses at both versions.
+ Scoped verifier passes493 selected cases plus lint/coverage/trace with stable
+ source539/fixture155/dependency8 identities before and after. Coverage reports
+ missing[]; trace completed1 with no errors, incomplete spans or panics.
+ Evidence: `target/batch2/native-followup4-verifier1/`. Release acceptance
+ remains pending; this ordinary pass does not close any performance gap. Reviewed ownership,
+ commands/counts, unchanged upstream cases, consumers, performance obligations,
+ exclusions and input identities are in `target/batch2/native-followup4-integrated-manifest.md`,
+ `native-followup4-ordinary-commands.json`, `native-followup4-frozen-inputs.json`
+ and `native-followup4-performance-manifest.json`. Follow AGENTS.md validation
+ scope; full-engine/exhaustive framing/Kani/Python suites are not applicable
+ for the bounded unchanged contracts described in that manifest.
+ Additional unchanged BIGINT SUM upstream records are selected byte-for-byte
+ from both pins; full upstream SUM remains blocked on unrelated DOUBLE ordered
+ SUM. Expanded native/process SUM consumer gates are owed on the final tree.
+ Diagnostic profiles identify signed SUM reduction and generic Chunks copying;
+ the no-site Python experiment saved too little and was not adopted. Both C++
+ pins commit each statement separately, as Rust does; no transaction merging
+ or weaker sync is supported. Batch2 remains incomplete.
 
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: compiled A2 all five and all seven affected compiled process commands pass at their `9e5418f` inputs. Tiny-entry Python proxy at `d608b5a` passes both large workloads and memory gates; three short latency gates remain failed. Native repairs pass365 scoped functional tests plus lint/coverage/tracing and scoped release replay. COUNT now passes native/process/resource gates; B1 stacked views pass release latency, but four B1 native cases and earlier checkpoint gates fail. Durable and string/regex consumer acceptance remains pending; the pre-existing hexadecimal cast gap stays explicit. Preserve failed runs and only unaffected evidence. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: `241e68a` passes560 scoped functional cases, release replay and16 strict proxy entries. B1 release now passes four of five native cases; stacked direct and both checkpoint latency cases fail. WAL cases, both large A2 proxy cases and their resource gates pass; three short proxy latency cases fail. Followup4 SUM/Chunks repair passes493 scoped tests with expanded consumer acceptance still pending. Affected startup/process refreshes remain owed; only unchanged evidence retains its original identity. The hexadecimal cast and unrelated DOUBLE ordered SUM gaps stay explicit. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** finish the integrated `a93563f`
-follow-up: endpoint-proven BIGINT arithmetic, one dependency-graph validation
-per catalog check, and guarded packed BIGINT checkpoint encoding. The reviewed
-manifests are `target/batch2/b1-arithmetic-followup-manifest.md`,
-`b1-catalog-validation-manifest.md`, `b1-checkpoint-column-manifest.md`, and the
-integrated `native-followup3-*` command/input manifests. Checkpoint review adds
-actual fast-path assertions, generic byte equivalence, native successor/reopen,
-and negative eligibility/cancellation witnesses before source freeze.
-The catalog change requires fresh startup/process gates for COUNT, compiled A2,
-CSV and six other existing families, alongside all B1 and A2 proxy gates.
-Retain only unaffected native query evidence at its recorded inputs. The three
-short proxy latency failures and B1 native/checkpoint failures remain open;
-none is waived. User paused activity; timing stays serial on a quiet host with
-apps left running. Batch 3 implementation follows Batch 2 acceptance pending
-the user's response on changing that order.
+**Immediate carryover, before Batch 3:** finish the frozen `241e68a` followup4
+SUM and chunked BIGINT checkpoint repair using its reviewed partial manifest.
+Ordinary verification passed; build release artifacts, replay scoped upstream and
+native/proxy witnesses, then run quiet serial short performance gates before
+long consumer campaigns. Catalog startup changes still require all affected
+process refreshes; the SUM repair additionally requires its named consumers.
+Retain only unaffected evidence at its original inputs. Short A2 proxy and B1
+native/checkpoint failures remain open. User paused activity; leave apps running.
+Batch 3 implementation follows Batch 2 acceptance pending the user's response
+on changing that order.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 

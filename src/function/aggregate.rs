@@ -626,7 +626,7 @@ impl State {
         if let Some(values) = column.flat_decimal_i64() {
             sum += kernel.column_sum_decimal_i64(values, context)?;
         } else if let Some(values) = column.flat_bigints() {
-            sum += kernel.column_sum_signed_i64(values, context)?;
+            sum += kernel.column_sum_signed_i64(values, column.numeric_ascending(), context)?;
         } else if let Some(values) = column.flat_values() {
             sum += kernel.column_sum(values, context)?;
         } else {

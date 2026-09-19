@@ -8,6 +8,7 @@ mod layout;
 mod recovery;
 pub(crate) use recovery::RestoredSlot;
 mod rows;
+pub(crate) use rows::PackedBigInts;
 use rows::Rows;
 
 use serde::{Deserialize, Serialize};
@@ -472,7 +473,7 @@ impl Snapshot {
         &self,
         table: &TableDefinition,
         context: &QueryContext,
-    ) -> Result<Option<&[i64]>> {
+    ) -> Result<Option<PackedBigInts<'_>>> {
         if table.columns.len() != 1
             || table.columns[0].data_type != DataType::BigInt
             || !table.unique_keys.is_empty()
