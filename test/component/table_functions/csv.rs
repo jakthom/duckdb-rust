@@ -352,3 +352,103 @@ fn csv_borrowed_integer_conversion_preserves_bounds_nulls_and_scalar_errors() ->
     }
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn csv_batch_outputs_survive_later_batches_and_reader_drop() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    file.write_all(
+        "first,\u{03b1}\nNULL,\"quoted, \u{03b2}\"\nthird,\"\"\nfourth,\u{1f986}\n".as_bytes(),
+    )?;
+    let sql = format!(
+        "SELECT * FROM read_csv('{}', columns={{'left':'VARCHAR','right':'VARCHAR'}}, auto_detect=false, nullstr='NULL')",
+        sql_path(file.path()),
+    );
+
+    let retained = {
+        let mut connection = DatabaseBuilder::new().batch_size(1).build()?.connect();
+        let mut retained = None;
+        let mut delivered = 0;
+        let expected = [
+            vec![
+                Value::Varchar("first".into()),
+                Value::Varchar("\u{03b1}".into()),
+            ],
+            vec![Value::Null, Value::Varchar("quoted, \u{03b2}".into())],
+            vec![Value::Varchar("third".into()), Value::Varchar("".into())],
+            vec![
+                Value::Varchar("fourth".into()),
+                Value::Varchar("\u{1f986}".into()),
+            ],
+        ];
+        let summary = connection.query_batches(&sql, |_, batch| {
+            assert_eq!(
+                batch.rows().collect::<Vec<_>>(),
+                vec![expected[delivered].clone()]
+            );
+            delivered += 1;
+            if delivered == 1 {
+                retained = Some(batch.project(&[1])?.slice(0, 1)?);
+            }
+            Ok(duckdb_rust::execution::StreamControl::Continue)
+        })?;
+        assert_eq!(delivered, 4);
+        assert_eq!(summary.execution.rows_delivered, 4);
+        retained.expect("first projected batch")
+    };
+    file.close()?;
+    assert_eq!(
+        retained.rows().collect::<Vec<_>>(),
+        vec![vec![Value::Varchar("\u{03b1}".into())]]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn csv_batch_stop_and_late_cast_error_leave_fresh_reopens_usable() -> Result<()> {
+    let mut valid = tempfile::NamedTempFile::new()?;
+    valid.write_all(b"1,one\n2,\"two, quoted\"\n3,NULL\n")?;
+    let valid_sql = format!(
+        "SELECT * FROM read_csv('{}', columns={{'id':'INTEGER','label':'VARCHAR'}}, auto_detect=false, nullstr='NULL')",
+        sql_path(valid.path()),
+    );
+    let mut invalid = tempfile::NamedTempFile::new()?;
+    invalid.write_all(b"1,one\n2,two\nbad,broken\n")?;
+    let invalid_sql = format!(
+        "SELECT * FROM read_csv('{}', columns={{'id':'INTEGER','label':'VARCHAR'}}, auto_detect=false)",
+        sql_path(invalid.path()),
+    );
+
+    let mut connection = DatabaseBuilder::new().batch_size(1).build()?.connect();
+    let mut stopped_after = 0;
+    let summary = connection.query_batches(&valid_sql, |_, _| {
+        stopped_after += 1;
+        Ok(if stopped_after == 2 {
+            duckdb_rust::execution::StreamControl::Stop
+        } else {
+            duckdb_rust::execution::StreamControl::Continue
+        })
+    })?;
+    assert_eq!(stopped_after, 2);
+    assert!(summary.execution.stopped_early);
+
+    let mut delivered_before_error = 0;
+    assert!(matches!(
+        connection.query_batches(&invalid_sql, |_, _| {
+            delivered_before_error += 1;
+            Ok(duckdb_rust::execution::StreamControl::Continue)
+        }),
+        Err(Error::Conversion(_))
+    ));
+    assert_eq!(delivered_before_error, 2);
+    assert_eq!(
+        connection.query(&valid_sql)?.rows,
+        vec![
+            vec![Value::Integer(1), Value::Varchar("one".into())],
+            vec![Value::Integer(2), Value::Varchar("two, quoted".into())],
+            vec![Value::Integer(3), Value::Null],
+        ]
+    );
+    Ok(())
+}

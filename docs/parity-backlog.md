@@ -534,8 +534,8 @@ User follow-up authorizes execution of all three batches with parallel tracks,
 continuing through their acceptance without another dispatch request. Parallel
 read-only scope preparation is active while Batch 2's acceptance is repaired;
 implementation of Batch 3 still follows Batch 2 acceptance.
-Batch 1 stays accepted. Batch 2's last verified implementation is `21ab348`;
-candidate7's bounded CSV change has passed independent scoped verification.
+Batch 1 stays accepted. Batch 2's latest verified implementation is `e94507d`;
+candidate9 scratch reuse has passed independent scoped verification.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -567,22 +567,36 @@ Performance/source acceptance remains open; next command is
 `python3 target/batch2/prepare_byte_search_candidate8.py`, then quiet-host
 `python3 target/batch2/run_csv_native_candidate8.py --authorized` and serial
 stages from `target/batch2/remaining-performance-candidate8.json`.
+Candidate8 production8/8 passed at `e94507d`. Native wide53.337ms versus
+release58.668ms passes; narrow10.724ms versus10.240ms fails (1.0473×).
+No CSV process timing followed the failure. Candidate9 adds per-open scratch
+reuse guarded by exclusive Arc ownership; new streaming retained-output and
+stop/late-error/reopen regressions pass in the CSV10/10 routine selection.
+Six-command partial verifier passes under `csv-recycle-manifest.md`; lexer
+and parser tests are byte-identical to `e94507d`, so parser18 evidence is reused.
+Frozen inputs: `recycle-frozen-inputs.json`; final logs/times/hashes are in
+`recycle-verifier-corrected/` (table_functions18, coverage missing=[], trace pass).
+The first sweep's test-only Clippy useless_vec failure remains in `recycle-verifier/`;
+ROOT corrected the expected-value container and reran the affected selection.
+Next production command is `python3 target/batch2/prepare_recycled_csv_candidate9.py`, followed
+by `run_csv_native_candidate9.py --authorized` and the serial
+`remaining-performance-candidate9.json` stages, with all fixed obligations retained.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: candidate8 boundary searches/quoted spans pass all7 configured partial-verifier stages (parser18, table_functions16, coverage missing=[], tracing); implementation inputs are frozen. Scanner worker owns CsvReader/tests, ROOT owns direct already-locked memchr2.8.1 dependency/integration. Candidate7 shared arena passes scoped verification and production preparation, but native performance FAILS narrow1.189×/wide1.042× the faster pin (stable21-sample runs). Candidate6 diagnostic and earlier failures remain preserved. Next: run `prepare_byte_search_candidate8.py` for production/source preparation, then fixed CSV native/process and remaining F1/A2/B1/COUNT gates. Manifest `target/batch2/csv-byte-search-manifest.md`; unchanged vector/cast/COUNT/source and durable feasibility evidence is retained where applicable. Existing sibling worktrees/branches remain retained. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: candidate9 reclaims one prior CSV arena only after output owners release it, and reuses drained metadata storage. Routine CSV10/10 and configured six-stage partial verifier pass (table_functions18, coverage missing=[], tracing). Candidate8 `e94507d` passes scoped/source preparation; native wide0.909× passes, narrow1.0473× fails. Prior failures are preserved. Next: `prepare_recycled_csv_candidate9.py`, fixed CSV native/process, then F1/A2/B1/COUNT gates from `remaining-performance-candidate9.json`. Manifest `target/batch2/csv-recycle-manifest.md`; unchanged lexer18/vector/cast/COUNT/source and durable feasibility evidence reused with scope rationale. Existing sibling worktrees/branches remain retained. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** candidate8 implementation/scoped
-verification is ready; finish production/source preparation, then the CSV native gate and
-remaining process/F1/A2/B1/COUNT gates with fresh candidate8 paths/provenance.
+**Immediate carryover, before Batch 3:** candidate9 scoped verification passes;
+finish production/source preparation, then the fixed CSV native gate and
+remaining process/F1/A2/B1/COUNT gates with fresh candidate9 paths/provenance.
 The candidate7 commands in `target/batch2/shared-arena-completion-inputs.md`
 are the template; candidate7's measured failure is preserved. Preserve the prior
 candidate5 failure (narrow 1.81×, wide 1.44× the faster reference) and report
-candidate6 diagnostic independently. If candidate8 fails, repair the measured path
+candidate6 diagnostic independently. If candidate9 fails, repair the measured path
 and rerun only affected evidence. Reuse unchanged scoped verification, source
 selections and durable feasibility evidence. User has paused activity; the host
 must still be checked after production preparation. No applications were stopped.

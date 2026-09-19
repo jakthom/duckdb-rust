@@ -478,6 +478,7 @@ struct CsvBindData {
 #[derive(Debug)]
 struct CsvState {
     reader: CsvReader,
+    reusable_arena: Option<std::sync::Arc<String>>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -599,6 +600,7 @@ impl TableFunction for ReadCsv {
             .ok_or_else(|| Error::Internal("read_csv bind data type mismatch".into()))?;
         Ok(Box::new(CsvState {
             reader: CsvReader::open(&data.path, data.options.clone())?,
+            reusable_arena: None,
         }))
     }
 
@@ -619,9 +621,18 @@ impl TableFunction for ReadCsv {
         let state = state
             .downcast_mut::<CsvState>()
             .ok_or_else(|| Error::Internal("read_csv state type mismatch".into()))?;
+        // A completed batch leaves the reader at a record boundary. Reclaim
+        // its allocation only after every output owner has released the arena.
+        if let Some(arena) = state.reusable_arena.take()
+            && let Ok(arena) = std::sync::Arc::try_unwrap(arena)
+        {
+            debug_assert!(state.reader.arena.is_empty());
+            state.reader.arena = arena.into_bytes();
+            state.reader.arena.clear();
+        }
         let Some(CsvBatch {
             arena,
-            fields,
+            mut fields,
             row_ends,
         }) = state.reader.next_rows(max_rows, context)?
         else {
@@ -658,27 +669,30 @@ impl TableFunction for ReadCsv {
             })
             .collect::<Vec<_>>();
         let arena = std::sync::Arc::new(arena);
-        let mut fields = fields.into_iter();
-        let mut previous_end = 0;
-        for (row_number, end) in row_ends.into_iter().enumerate() {
-            context.check()?;
-            let width = end - previous_end;
-            previous_end = end;
-            if width != data.casts.len() {
-                return Err(Error::Conversion(format!(
-                    "CSV record {} has {} columns; expected {}",
-                    row_number + 1,
-                    width,
-                    data.casts.len()
-                )));
-            }
-            for (column, (field, cast)) in fields.by_ref().take(width).zip(&data.casts).enumerate()
-            {
-                if preserve[column] {
-                    ranges[column].push(field.value);
-                } else {
-                    let input = field.value.map(|range| &arena[range]);
-                    values[column].push(cast.apply_borrowed_varchar(input, context)?);
+        {
+            let mut drained = fields.drain(..);
+            let mut previous_end = 0;
+            for (row_number, end) in row_ends.into_iter().enumerate() {
+                context.check()?;
+                let width = end - previous_end;
+                previous_end = end;
+                if width != data.casts.len() {
+                    return Err(Error::Conversion(format!(
+                        "CSV record {} has {} columns; expected {}",
+                        row_number + 1,
+                        width,
+                        data.casts.len()
+                    )));
+                }
+                for (column, (field, cast)) in
+                    drained.by_ref().take(width).zip(&data.casts).enumerate()
+                {
+                    if preserve[column] {
+                        ranges[column].push(field.value);
+                    } else {
+                        let input = field.value.map(|range| &arena[range]);
+                        values[column].push(cast.apply_borrowed_varchar(input, context)?);
+                    }
                 }
             }
         }
@@ -695,7 +709,10 @@ impl TableFunction for ReadCsv {
                 }
             })
             .collect::<Result<_>>()?;
-        DataChunk::new(columns, count).map(Some)
+        let chunk = DataChunk::new(columns, count)?;
+        state.reader.fields = fields;
+        state.reusable_arena = Some(arena);
+        Ok(Some(chunk))
     }
 }
 
