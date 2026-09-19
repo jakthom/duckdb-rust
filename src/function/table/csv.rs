@@ -135,11 +135,11 @@ impl CsvReader {
                     return Ok((!rows.is_empty()).then_some(rows));
                 }
             }
-            if !self.in_quotes
-                && !self.quote_pending
-                && !self.escape_pending
-                && !self.carriage_return
-                && !(self.field_start && self.buffer[self.start] == self.options.quote)
+            if !(self.in_quotes
+                || self.quote_pending
+                || self.escape_pending
+                || self.carriage_return
+                || self.field_start && self.buffer[self.start] == self.options.quote)
             {
                 let ordinary = {
                     let input = &self.buffer[self.start..self.end];
