@@ -531,9 +531,11 @@ Batch 2 acceptance boundary, then take **Batches 3, 4 and 5** as the next three
 substantial batches. Batch 3 carries forward the existing assignment; Batches 4
 and 5 promote the dependency-ordered rounds below into the concrete queue.
 User follow-up authorizes execution of all three batches with parallel tracks,
-continuing through their acceptance without another dispatch request. Parallel
-read-only scope preparation is active while Batch 2's acceptance is repaired;
-implementation of Batch 3 still follows Batch 2 acceptance.
+continuing through their acceptance without another dispatch request. Latest
+explicit user direction authorizes starting the next implementation batches
+while retaining every open Batch2 gate. Batch3 E1/A4/C1 implementations now run
+in separate `../duckdb-rust-batch3-{e1,a4,c1}` worktrees at `ebe5cfb`; host
+build/test/timing slots remain serialized. Batches4/5 advance by dependencies.
 Batch 1 stays accepted. Batch 2's native WAL continuation and atomic first-
 transaction publication pass scoped verification and both-pin native oracles at
 `d5d19ac`; empty-WAL read elision passes114 affected tests at `36a0293`.
@@ -1081,15 +1083,19 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
  No Rust durability change has been made. Per AGENTS.md's equivalent-settings
  rule, prepare separate same-pin/same-profile HAVE_FULLFSYNC reference builds;
  keep original fsync binaries/results as a distinct speed comparison. The user
- was offered retaining the original speed target as an additional gate; no reply
- has been received, so equivalent full-sync is the stated working assumption.
+ explicitly selected equivalent full-sync references for durable acceptance;
+ original weaker-sync speed comparisons remain preserved separately.
  The C++ error fallback remains distinct and documented; no failed result is
  relabeled. The guarded JSON/re startup change is integrated in Python only;
  its199-case configured partial sweep passes with103 stable Python inputs.
  The actual16 strict spawn/Popen/negative/attestation entries and bothpins
  four-file upstream selection also pass on the unchanged31a878c release worker.
  Evidence: `a2-startup-json-verifier1/`, `a2-startup-json-preparation1/` and
- `a2-startup-json-functional1/`. Final five-workload performance is still open. Three reviewed diagnostics
+ `a2-startup-json-functional1/`. Committed Python repair `ebe5cfb` now passes
+ allfive final21/3 proxy latency/throughput/CPU/RSS/I/O gates. Rust small/large
+ scalar22.980/223.650ms versus faster25.346/430.360ms, lifecycle56.252 versus
+ 98.140ms, readonly49.476 versus77.342ms and large readonly122.397 versus
+ 256.477ms. Evidence: `a2-proxy-fullsync-native-followup4.json`. Three reviewed diagnostics
  preserve all five workloads; the current candidate measures21.53 versus25.77ms
  for the small scalar job and222.38 versus222.08ms for the large job. These are
  diagnostics, not acceptance. Source ownership, consumers, exact commands and
@@ -1099,8 +1105,15 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
  adapter failed CLI attestation through a shadowed variable. Preserve failed
  `a2-fullsync-reference-build1/` and the missing-library guard failure in build2.
  The corrected explicit shared-library target and guarded attestation/build
- continuation are recorded in `a2-fullsync-reference-build3/`; functional and
- performance acceptance still remain required. See target-only
+ continuation pass in `a2-fullsync-reference-build3/`. Both new references pass
+ allfive functional workloads (5/5000/20/4/2002 assertions), with stable
+ before/after identities in `a2-fullsync-functional-replay1/`. Fullsync host
+ probe succeeds; idle88.66%, no active swapping. Four fixed10000-row B1 durable
+ cases pass all final21/3 latency/throughput/CPU/RSS/I/O gates: checkpoint
+ view/direct ratios0.541697/0.580713, WAL view/direct0.686956/0.769155. Evidence:
+ `b1-durable-performance-fullsync-native-followup4/`. CompiledA2 also passes allfive equivalent-fullsync final21/3 gates in
+ `a2-compiled-fullsync-native-followup4.json`. Standalone regex process is the
+ remaining open Batch2 performance stage; no existing failure is discarded. See target-only
  `a2-runner-durability-audit.md` and measured `a2-phase-diagnostic1/`.
  Additional unchanged BIGINT SUM upstream records are selected byte-for-byte
  from both pins; full upstream SUM remains blocked on unrelated DOUBLE ordered
@@ -1114,19 +1127,20 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: `31a878c` passes493 scoped cases,14 release-preparation stages,16 strict proxy entries and19 native/process performance stages. Original fsync-reference checkpoint and three short proxy latency comparisons fail; equivalent full-sync C++ builds and the Python startup repair are in progress. B1 durable, A2 proxy/compiled and standalone regex process acceptance remain open. The hexadecimal cast and unrelated DOUBLE ordered SUM gaps stay explicit. |
-| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
-| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
-| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Accepted at Rust `31a878c` / Python `ebe5cfb`: scoped verification, unchanged functional cases and all 23 performance stages pass. Durable B1/A2 use explicitly accepted equivalent full-sync references. Combined receipt `target/batch2/native-followup4-equivalent-fullsync-acceptance.json` retains exact stage-report hashes. Original weaker-sync failures and unrelated hexadecimal/DOUBLE ordered SUM gaps stay explicit. |
+| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Implementing three isolated parallel tracks from `ebe5cfb` under explicit user direction to retain Batch2 open gates without blocking new implementation. Manifests in `target/batch3/{e1,a4,c1}-preparation/`; source-only work during ROOT timing, then serialized scoped feedback/verification and acceptance. |
+| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1/H1 source is under review in isolated worktrees at `ebe5cfb`; F2 COPY implementation has started. All functional/performance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
+| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1 source implementation started in isolation; integration depends on D1 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. E2/F3 remain queued. No earlier acceptance gate is waived. |
 
-**Immediate carryover, before Batch 3:** finish the Python startup repair's
-configured partial verification and scoped functional replay; complete separate
-exact-pin full-sync reference attestation and replay. Run the remaining quiet
-serial B1 durable, A2 proxy/compiled and standalone regex process gates with fixed
-populations and independent resource requirements. Retain unchanged Rust31a878c
-and nineteen passing performance stage identities; the reference configuration
-change does not relabel original failures. User paused activity; leave apps running.
-Batch 3 implementation follows Batch 2 acceptance.
+**Immediate work across Batches 3/4/5:** Batch2 acceptance is complete. Its final
+regex process gate passes at 0.022917 of the faster reference latency, with CPU,
+RSS, I/O and throughput passing; compiled A2's five latency ratios are
+0.305071/0.146988/0.344807/0.370962/0.486271. Both use 21 samples/3 warmups.
+Retain ordinary Rust493/Python199 verification and functional evidence at their
+tested identities; no full sweep is justified by this documentation update.
+Keep new implementations isolated until reviewed integration, then invalidate
+only affected evidence. User paused activity; leave apps running. No new batch
+label waives an outstanding acceptance obligation.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 
