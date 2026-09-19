@@ -552,7 +552,7 @@ impl TableFunction for ReadCsv {
                 if preserve[column] {
                     let range = field
                         .value
-                        .map(|source| {
+                        .map(|source| -> Result<Range<usize>> {
                             let start = arenas[column].len();
                             let bytes = &arena[source];
                             arenas[column].try_reserve(bytes.len()).map_err(|_| {
