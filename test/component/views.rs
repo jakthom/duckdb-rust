@@ -128,6 +128,33 @@ fn view_ddl_is_transactional_and_prepared_queries_rebind() -> Result<()> {
 
 #[test]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn create_view_retains_catalog_basis_for_not_null_after_uncommitted_row_changes() -> Result<()> {
+    for change in ["UPDATE t SET v=20 WHERE i=2", "DELETE FROM t WHERE i=2"] {
+        let db = Database::memory()?;
+        let mut connection = db.connect();
+        connection.execute(
+            "CREATE TABLE t(i INTEGER, v INTEGER); INSERT INTO t VALUES (1,10),(2,NULL)",
+        )?;
+        connection.execute(&format!(
+            "BEGIN; {change}; CREATE VIEW transaction_view AS SELECT * FROM t"
+        ))?;
+        assert!(
+            connection
+                .execute("ALTER TABLE t ALTER COLUMN v SET NOT NULL")
+                .is_err()
+        );
+        connection.execute("ROLLBACK")?;
+        assert!(connection.query("SELECT * FROM transaction_view").is_err());
+        assert_eq!(
+            connection.query("SELECT v FROM t ORDER BY i")?.rows,
+            vec![vec![Value::Integer(10)], vec![Value::Null]]
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn view_uses_creation_schema_for_unqualified_relations() -> Result<()> {
     let mut connection = Database::memory()?.connect();
     connection.execute(

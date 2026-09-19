@@ -153,6 +153,47 @@ impl OperatorFunction for NumericArithmetic {
             && let Some(Value::Integer(right)) = arguments.columns()[1].constant_value()
             && let Ok(right) = i64::try_from(*right)
         {
+            let column = &arguments.columns()[0];
+            if signature.result == DataType::BigInt {
+                return match signature.operator {
+                    Add => map_checked_bigint_constant(
+                        column,
+                        right,
+                        query,
+                        i64::checked_add,
+                        BigIntOrder::Preserves,
+                    ),
+                    Subtract => map_checked_bigint_constant(
+                        column,
+                        right,
+                        query,
+                        i64::checked_sub,
+                        BigIntOrder::Preserves,
+                    ),
+                    Multiply if right == 0 => map_checked_bigint_constant(
+                        column,
+                        right,
+                        query,
+                        i64::checked_mul,
+                        BigIntOrder::AlwaysAscending,
+                    ),
+                    Multiply if right > 0 => map_checked_bigint_constant(
+                        column,
+                        right,
+                        query,
+                        i64::checked_mul,
+                        BigIntOrder::Preserves,
+                    ),
+                    Multiply => map_checked_bigint_constant(
+                        column,
+                        right,
+                        query,
+                        i64::checked_mul,
+                        BigIntOrder::Unknown,
+                    ),
+                    _ => unreachable!("checked arithmetic operation"),
+                };
+            }
             let minimum = -(1_i128 << (bits - 1));
             let maximum = (1_i128 << (bits - 1)) - 1;
             let operation = |left: i64| {
@@ -168,12 +209,7 @@ impl OperatorFunction for NumericArithmetic {
                 }
                 Ok(result)
             };
-            return map_checked_integer_column(
-                &arguments.columns()[0],
-                &signature.result,
-                query,
-                operation,
-            );
+            return map_checked_integer_column(column, &signature.result, query, operation);
         }
         // Fixed-width division uses the declared physical range. The -1 case
         // keeps scalar overflow checks, including narrower integer minima.
@@ -458,6 +494,96 @@ fn map_integer_column(
     }
 }
 
+#[derive(Clone, Copy)]
+enum BigIntOrder {
+    Preserves,
+    AlwaysAscending,
+    Unknown,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline]
+fn map_checked_bigint_constant<F>(
+    column: &crate::common::vector::Vector,
+    right: i64,
+    query: &QueryContext,
+    operation: F,
+    order: BigIntOrder,
+) -> Result<crate::common::vector::Vector>
+where
+    F: Fn(i64, i64) -> Option<i64>,
+{
+    use crate::common::vector::{SignedI64At, Vector};
+
+    let ordered = match order {
+        BigIntOrder::Preserves => column.numeric_ascending(),
+        BigIntOrder::AlwaysAscending => true,
+        BigIntOrder::Unknown => false,
+    };
+    let apply = |value| operation(value, right).ok_or_else(overflow);
+    if column.all_valid()
+        && let Some(values) = column.flat_bigints()
+    {
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(values.len())
+            .map_err(|_| Error::Resource("cannot allocate BIGINT column".into()))?;
+        for (index, &value) in values.iter().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            output.push(apply(value)?);
+        }
+        query.check()?;
+        return Ok(Vector::bigints_prevalidated_with_order(output, ordered));
+    }
+    if let Some(value) = column.constant_value() {
+        let value = match value {
+            Value::Null => Value::Null,
+            Value::Integer(value) => Value::Integer(apply(*value as i64)? as i128),
+            _ => unreachable!("validated integer vector"),
+        };
+        return Vector::constant(DataType::BigInt, value, column.len());
+    }
+    if let Some((parent, _)) = column.dictionary()
+        && parent.len() <= column.len() / 4
+    {
+        return map_checked_integer_column(column, &DataType::BigInt, query, apply);
+    }
+    if !column.all_valid() {
+        return map_checked_integer_column(column, &DataType::BigInt, query, apply);
+    }
+    if column.flat_values().is_some() {
+        return map_checked_integer_column(column, &DataType::BigInt, query, apply);
+    }
+    // Preflight the exact logical order before doing arithmetic. A selected or
+    // chunked physical BIGINT view can then avoid Value reconstruction; any
+    // unsupported view retains the ordinary mapper without partial output.
+    for index in 0..column.len() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        if !matches!(column.signed_i64_at(index), SignedI64At::Value(_)) {
+            return map_checked_integer_column(column, &DataType::BigInt, query, apply);
+        }
+    }
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(column.len())
+        .map_err(|_| Error::Resource("cannot allocate BIGINT column".into()))?;
+    for index in 0..column.len() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        let SignedI64At::Value(value) = column.signed_i64_at(index) else {
+            unreachable!("preflighted BIGINT physical view");
+        };
+        output.push(apply(value)?);
+    }
+    query.check()?;
+    Ok(Vector::bigints_prevalidated_with_order(output, ordered))
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
 fn map_checked_integer_column(
@@ -574,6 +700,124 @@ fn checked_integer_vector(
                 })
                 .collect::<Result<_>>()?,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn checked_bigint_constant_uses_selected_and_chunked_physical_lanes() -> Result<()> {
+        use crate::common::vector::Vector;
+        let query = QueryContext::background();
+        let parent = Vector::try_bigints([Ok(Some(10)), Ok(Some(20)), Ok(Some(30))])?;
+        let selected = Arc::new(parent).select(vec![2, 0, 1, 2])?;
+        let output = map_checked_bigint_constant(
+            &selected,
+            1,
+            &query,
+            i64::checked_add,
+            BigIntOrder::Preserves,
+        )?;
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(31),
+                Value::Integer(11),
+                Value::Integer(21),
+                Value::Integer(31)
+            ]
+        );
+        assert!(!output.numeric_ascending());
+
+        let chunks = Vector::chunked(
+            DataType::BigInt,
+            vec![
+                Vector::try_bigints([Ok(Some(-2)), Ok(Some(-1))])?,
+                Vector::try_bigints([Ok(Some(0)), Ok(Some(1))])?,
+            ],
+        )?;
+        let output = map_checked_bigint_constant(
+            &chunks,
+            2,
+            &query,
+            i64::checked_add,
+            BigIntOrder::Preserves,
+        )?;
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(0),
+                Value::Integer(1),
+                Value::Integer(2),
+                Value::Integer(3)
+            ]
+        );
+        // BIGINT chunk collections carry unknown ordering even when their
+        // values happen to ascend; addition must preserve that conservative
+        // metadata rather than infer a stronger guarantee from this example.
+        assert!(!chunks.numeric_ascending());
+        assert!(!output.numeric_ascending());
+
+        let overflow = Vector::chunked(
+            DataType::BigInt,
+            vec![
+                Vector::try_bigints([Ok(Some(-1))])?,
+                Vector::try_bigints([Ok(Some(i64::MAX))])?,
+            ],
+        )?;
+        assert!(matches!(
+            map_checked_bigint_constant(
+                &overflow,
+                1,
+                &query,
+                i64::checked_add,
+                BigIntOrder::Preserves,
+            ),
+            Err(Error::Execution(message)) if message == "integer overflow"
+        ));
+
+        let output = map_checked_bigint_constant(
+            &chunks,
+            -2,
+            &query,
+            i64::checked_mul,
+            BigIntOrder::Unknown,
+        )?;
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(4),
+                Value::Integer(2),
+                Value::Integer(0),
+                Value::Integer(-2)
+            ]
+        );
+        assert!(!output.numeric_ascending());
+
+        let long = Vector::chunked(
+            DataType::BigInt,
+            vec![
+                Vector::try_bigints((0..1024).map(|value| Ok(Some(value))))?,
+                Vector::try_bigints([Ok(Some(1024))])?,
+            ],
+        )?;
+        let interrupt = crate::parallel::InterruptHandle::default();
+        let cancelled = QueryContext::new(interrupt.clone(), None, 2048, usize::MAX)?;
+        interrupt.interrupt();
+        assert!(matches!(
+            map_checked_bigint_constant(
+                &long,
+                1,
+                &cancelled,
+                i64::checked_add,
+                BigIntOrder::Preserves,
+            ),
+            Err(Error::Interrupted)
+        ));
+        Ok(())
     }
 }
 

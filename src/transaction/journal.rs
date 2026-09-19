@@ -218,13 +218,12 @@ impl CatalogMut for SnapshotTransaction {
         let definition = std::sync::Arc::new(definition);
         let mut snapshot = self.snapshot.clone();
         let mut basis = self.catalog_basis.clone();
-        let changed = snapshot.apply_view_creation(definition.clone(), &prepared)?;
-        let basis_changed = basis.apply_view_creation(definition.clone(), &prepared)?;
-        if changed != basis_changed {
-            return Err(Error::Internal(
-                "transaction catalog views disagree about view creation".into(),
-            ));
-        }
+        let changed = Snapshot::apply_view_creation_pair(
+            &mut snapshot,
+            &mut basis,
+            definition.clone(),
+            &prepared,
+        )?;
         if changed {
             ensure_catalog_views_match(&snapshot, &basis)?;
             self.snapshot = snapshot;

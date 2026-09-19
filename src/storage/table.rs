@@ -1116,6 +1116,29 @@ impl Snapshot {
         Ok(true)
     }
 
+    /// Publish one prepared CREATE VIEW successor into the transaction's two
+    /// independent catalog payloads. Equal runtime registries make the
+    /// prepared successor deterministic, so deriving it once avoids repeating
+    /// registry validation and dependency-graph construction for the basis.
+    pub(crate) fn apply_view_creation_pair(
+        snapshot: &mut Self,
+        basis: &mut Self,
+        definition: Arc<ViewDefinition>,
+        prepared: &PreparedCatalogCreate,
+    ) -> Result<bool> {
+        if !snapshot.has_same_runtime_catalog(basis) {
+            return Err(Error::Internal(
+                "transaction catalog views have different runtime identities".into(),
+            ));
+        }
+        let changed = snapshot.apply_view_creation(definition.clone(), prepared)?;
+        if changed {
+            basis.views.insert(definition.name.key(), definition);
+            basis.registry = snapshot.registry.clone();
+        }
+        Ok(changed)
+    }
+
     pub(crate) fn prepare_type_creation(
         &self,
         definition: &TypeDefinition,
@@ -1668,5 +1691,176 @@ impl TableStorageMut for Snapshot {
         )?;
         self.tables.insert(table.key(), Arc::new(next));
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod paired_view_creation_tests {
+    use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn definition(name: &str, query: &str) -> ViewDefinition {
+        ViewDefinition {
+            name: TableName::new("main", name),
+            query: query.into(),
+            aliases: vec![],
+            names: vec![],
+            types: vec![],
+            query_shape: None,
+            dependencies: vec![],
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn apply_pair(
+        snapshot: &mut Snapshot,
+        basis: &mut Snapshot,
+        definition: Arc<ViewDefinition>,
+        conflict: CreateConflictPolicy,
+    ) -> Result<bool> {
+        let prepared = snapshot.prepare_view_creation(&definition, conflict)?;
+        Snapshot::apply_view_creation_pair(snapshot, basis, definition, &prepared)
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn paired_view_creation_shares_one_successor_and_replacement_identity() -> Result<()> {
+        let mut snapshot = Snapshot::default();
+        let mut basis = snapshot.clone();
+        let first = Arc::new(definition("v", "SELECT 1"));
+        assert!(apply_pair(
+            &mut snapshot,
+            &mut basis,
+            first.clone(),
+            CreateConflictPolicy::Error,
+        )?);
+        let name = TableName::new("main", "v");
+        let first_identity = snapshot.registry.lookup_view(&name)?.unwrap();
+        assert_eq!(Some(first_identity), basis.registry.lookup_view(&name)?);
+        assert!(Arc::ptr_eq(
+            snapshot.views.get(&name.key()).unwrap(),
+            basis.views.get(&name.key()).unwrap(),
+        ));
+
+        let replacement = Arc::new(definition("v", "SELECT 2"));
+        assert!(apply_pair(
+            &mut snapshot,
+            &mut basis,
+            replacement.clone(),
+            CreateConflictPolicy::Replace,
+        )?);
+        let replacement_identity = snapshot.registry.lookup_view(&name)?.unwrap();
+        assert_ne!(first_identity, replacement_identity);
+        assert_eq!(
+            Some(replacement_identity),
+            basis.registry.lookup_view(&name)?
+        );
+        assert!(Arc::ptr_eq(
+            snapshot.views.get(&name.key()).unwrap(),
+            basis.views.get(&name.key()).unwrap(),
+        ));
+        assert_eq!(snapshot.registry, basis.registry);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn paired_view_creation_ignore_and_failed_preparations_leave_candidates_unchanged() -> Result<()>
+    {
+        let mut snapshot = Snapshot::default();
+        let mut basis = snapshot.clone();
+        let initial = Arc::new(definition("v", "SELECT 1"));
+        assert!(apply_pair(
+            &mut snapshot,
+            &mut basis,
+            initial,
+            CreateConflictPolicy::Error,
+        )?);
+        let before_snapshot = snapshot.clone();
+        let before_basis = basis.clone();
+        assert!(!apply_pair(
+            &mut snapshot,
+            &mut basis,
+            Arc::new(definition("v", "SELECT 2")),
+            CreateConflictPolicy::Ignore,
+        )?);
+        assert_eq!(snapshot.registry, before_snapshot.registry);
+        assert_eq!(basis.registry, before_basis.registry);
+        assert_eq!(snapshot.views, before_snapshot.views);
+        assert_eq!(basis.views, before_basis.views);
+
+        let stale = snapshot.prepare_view_creation(
+            &definition("stale", "SELECT 3"),
+            CreateConflictPolicy::Error,
+        )?;
+        assert!(apply_pair(
+            &mut snapshot,
+            &mut basis,
+            Arc::new(definition("next", "SELECT 4")),
+            CreateConflictPolicy::Error,
+        )?);
+        let after_success_snapshot = snapshot.clone();
+        let after_success_basis = basis.clone();
+        assert!(
+            Snapshot::apply_view_creation_pair(
+                &mut snapshot,
+                &mut basis,
+                Arc::new(definition("stale", "SELECT 3")),
+                &stale,
+            )
+            .is_err()
+        );
+        assert_eq!(snapshot.registry, after_success_snapshot.registry);
+        assert_eq!(basis.registry, after_success_basis.registry);
+        assert_eq!(snapshot.views, after_success_snapshot.views);
+        assert_eq!(basis.views, after_success_basis.views);
+
+        let foreign = Snapshot::default();
+        let foreign_definition = definition("foreign", "SELECT 5");
+        let foreign_prepared =
+            foreign.prepare_view_creation(&foreign_definition, CreateConflictPolicy::Error)?;
+        assert!(
+            Snapshot::apply_view_creation_pair(
+                &mut snapshot,
+                &mut basis,
+                Arc::new(foreign_definition),
+                &foreign_prepared,
+            )
+            .is_err()
+        );
+        assert_eq!(snapshot.registry, after_success_snapshot.registry);
+        assert_eq!(basis.registry, after_success_basis.registry);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn paired_view_creation_rejects_unequal_runtime_catalogs_before_mutation() -> Result<()> {
+        let mut snapshot = Snapshot::default();
+        let mut basis = snapshot.clone();
+        let isolated = definition("only_snapshot", "SELECT 1");
+        let isolated_prepared =
+            snapshot.prepare_view_creation(&isolated, CreateConflictPolicy::Error)?;
+        assert!(snapshot.apply_view_creation(Arc::new(isolated), &isolated_prepared)?);
+        let prepared = snapshot.prepare_view_creation(
+            &definition("should_not_publish", "SELECT 2"),
+            CreateConflictPolicy::Error,
+        )?;
+        let before_snapshot = snapshot.clone();
+        let before_basis = basis.clone();
+        assert!(
+            Snapshot::apply_view_creation_pair(
+                &mut snapshot,
+                &mut basis,
+                Arc::new(definition("should_not_publish", "SELECT 2")),
+                &prepared,
+            )
+            .is_err()
+        );
+        assert_eq!(snapshot.registry, before_snapshot.registry);
+        assert_eq!(basis.registry, before_basis.registry);
+        assert_eq!(snapshot.views, before_snapshot.views);
+        assert_eq!(basis.views, before_basis.views);
+        Ok(())
     }
 }

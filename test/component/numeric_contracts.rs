@@ -22,6 +22,10 @@ fn packed_checked_bigint_arithmetic_preserves_scalar_errors_and_selection() -> R
     let extrema = Vector::try_bigints([i64::MIN, 0, i64::MAX].map(|value| Ok(Some(value))))?;
     let nullable = Vector::try_bigints([Some(-4), None, Some(8)].map(Ok))?;
     let dictionary = Arc::new(flat.clone()).select(vec![4, 1, 3, 0])?;
+    let selected_high = Arc::new(Vector::try_bigints(
+        [-11, -3, 0, 4, 9, 17, 31, 64].map(|value| Ok(Some(value))),
+    )?)
+    .select(vec![7, 5, 3, 1, 0, 2, 4, 6])?;
     let slice = flat.slice(1, 3)?;
     let constant = Vector::constant(DataType::BigInt, Value::Integer(11), 5)?;
     for operator in [Operator::Add, Operator::Subtract, Operator::Multiply] {
@@ -31,7 +35,15 @@ fn packed_checked_bigint_arithmetic_preserves_scalar_errors_and_selection() -> R
             query.types(),
         )?;
         for rhs in [i64::MIN, -7, -1, 0, 1, 8, i64::MAX] {
-            for input in [&flat, &extrema, &nullable, &dictionary, &slice, &constant] {
+            for input in [
+                &flat,
+                &extrema,
+                &nullable,
+                &dictionary,
+                &selected_high,
+                &slice,
+                &constant,
+            ] {
                 let right =
                     Vector::constant(DataType::BigInt, Value::Integer(rhs.into()), input.len())?;
                 let arguments = DataChunk::new(vec![input.clone(), right], input.len())?;
