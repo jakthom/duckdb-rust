@@ -1,5 +1,5 @@
 import copy
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
@@ -173,10 +173,123 @@ class ProxyEvidenceTests(unittest.TestCase):
             proxy.validate_report(report, context)
         context, report = self.report()
         command = report["workloads"][0]["observations"]["proxy"][0]["command"]
+        self.assertEqual(
+            command[command.index("--campaign-worker-sha256") + 1],
+            context["worker"]["sha256"],
+        )
+        self.assertEqual(
+            command[command.index("--campaign-source-sha256") + 1],
+            context["worker"]["provenance"]["source_sha256"],
+        )
+        self.assertEqual(
+            command[command.index("--campaign-provenance-sha256") + 1],
+            context["worker"]["provenance_sha256"],
+        )
         index = command.index("--worker-provenance")
         command[index:index + 2] = []
         with self.assertRaisesRegex(ValueError, "independently derived"):
             proxy.validate_report(report, context)
+
+        context, report = self.report()
+        command = report["workloads"][0]["observations"]["proxy"][0]["command"]
+        index = command.index("--campaign-source-sha256") + 1
+        command[index] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "independently derived"):
+            proxy.validate_report(report, context)
+
+    def test_campaign_attestation_checks_only_canonical_sidecar_and_exact_triple(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Path(directory) / "worker"
+            worker.write_bytes(b"worker bytes are prechecked outside timing")
+            provenance_path = Path(str(worker) + ".provenance.json")
+            attestation = {
+                "worker_sha256": "1" * 64,
+                "source_sha256": "2" * 64,
+                "provenance_sha256": "",
+            }
+            provenance = {
+                "profile": "release",
+                "source_sha256": attestation["source_sha256"],
+                "binary_sha256": attestation["worker_sha256"],
+            }
+            provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
+            attestation["provenance_sha256"] = proxy.digest(provenance_path)
+            with patch.object(
+                proxy.run_upstream,
+                "checked_worker_provenance",
+                side_effect=AssertionError("full source/binary hashing entered timed child"),
+            ):
+                checked_path, checked = proxy.checked_campaign_attestation(
+                    worker, provenance_path, attestation
+                )
+            self.assertEqual(checked_path, provenance_path.resolve())
+            self.assertEqual(checked, provenance)
+
+            mutations = (
+                {**attestation, "worker_sha256": "0" * 64},
+                {**attestation, "source_sha256": "0" * 64},
+                {**attestation, "provenance_sha256": "0" * 64},
+                {"worker_sha256": attestation["worker_sha256"]},
+                {**attestation, "worker_sha256": "not-a-sha"},
+            )
+            for mutated in mutations:
+                with self.subTest(mutated=mutated), self.assertRaises(ValueError):
+                    proxy.checked_campaign_attestation(
+                        worker, provenance_path, mutated
+                    )
+
+            other = Path(directory) / "other.json"
+            other.write_bytes(provenance_path.read_bytes())
+            with self.assertRaisesRegex(ValueError, "canonical"):
+                proxy.checked_campaign_attestation(worker, other, attestation)
+
+    def test_standalone_once_retains_full_worker_attestation(self):
+        with patch.object(proxy, "validate_workload_population", return_value=[]), patch.object(
+            proxy.run_upstream, "checked_worker_provenance"
+        ) as checked:
+            with self.assertRaisesRegex(ValueError, "population"):
+                proxy.once(
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker",
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker.provenance.json",
+                    proxy.ROOT,
+                    "not-present.test",
+                )
+            checked.assert_not_called()
+
+        workload = proxy.EXPECTED_WORKLOADS[0]
+        specs = [{"path": workload["path"], "proxy_records_expected": workload["proxy_records"]}]
+        with patch.object(proxy, "validate_workload_population", return_value=specs), patch.object(
+            proxy.run_upstream,
+            "checked_worker_provenance",
+            side_effect=RuntimeError("full attestation reached"),
+        ) as checked:
+            with self.assertRaisesRegex(RuntimeError, "full attestation reached"):
+                proxy.once(
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker",
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker.provenance.json",
+                    proxy.ROOT,
+                    workload["path"],
+                )
+            checked.assert_called_once()
+
+    def test_once_rejects_partial_campaign_attestation_before_execution(self):
+        arguments = [
+            "--once",
+            "--worker",
+            str(proxy.ROOT / "target/release/duckdb-rust-test-worker"),
+            "--worker-provenance",
+            str(proxy.ROOT / "target/release/duckdb-rust-test-worker.provenance.json"),
+            "--test-root",
+            str(proxy.ROOT),
+            "--path",
+            proxy.EXPECTED_WORKLOADS[0]["path"],
+            "--campaign-worker-sha256",
+            "1" * 64,
+        ]
+        with self.assertRaises(SystemExit), redirect_stdout(
+            io.StringIO()
+        ), redirect_stderr(io.StringIO()):
+            proxy.main(arguments)
 
     def test_missing_duplicate_reordered_and_changed_workloads_fail(self):
         for mutate in (
@@ -394,7 +507,9 @@ class ProxyEvidenceTests(unittest.TestCase):
 
             with patch.object(proxy.measure, "active_peers", return_value=[]), patch.object(
                 proxy, "build_context", side_effect=[context, context]
-            ), patch.object(proxy.measure, "run_timed", side_effect=timed):
+            ) as context_builder, patch.object(
+                proxy.measure, "run_timed", side_effect=timed
+            ):
                 result = proxy.campaign(args)
             disk = json.loads(path.read_text())
             self.assertTrue(result["passed"], result.get("error"))
@@ -407,7 +522,46 @@ class ProxyEvidenceTests(unittest.TestCase):
                 len(disk["workloads"][0]["observations"]["proxy"]),
                 proxy.ACCEPTANCE_SAMPLES,
             )
+            self.assertEqual(context_builder.call_count, 2)
             self.assertTrue(proxy.validate_report(disk, context)["passed"])
+
+    def test_changed_or_missing_post_campaign_attestation_cannot_pass(self):
+        context = self.context()
+        changed = copy.deepcopy(context)
+        changed["worker"]["sha256"] = "0" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "changed.json"
+            args = self.campaign_args(path)
+
+            def timed(command, label):
+                relative = (
+                    command[command.index("--path") + 1]
+                    if "--once" in command
+                    else command[command.index("--test-dir") + 2]
+                )
+                workload = next(
+                    item for item in context["workloads"] if item["path"] == relative
+                )
+                target = "proxy" if "--once" in command else "release"
+                records = (
+                    workload["proxy_records_expected"] if target == "proxy" else 100
+                )
+                return observation(command, target, relative, records)
+
+            with patch.object(
+                proxy.measure, "active_peers", return_value=[]
+            ), patch.object(
+                proxy, "build_context", side_effect=[context, changed]
+            ) as context_builder, patch.object(
+                proxy.measure, "run_timed", side_effect=timed
+            ):
+                result = proxy.campaign(args)
+            self.assertEqual(context_builder.call_count, 2)
+            self.assertFalse(result["passed"])
+            self.assertEqual(result["failure_phase"], "input-revalidation")
+            self.assertIn("changed during measurement", result["error"])
+            with self.assertRaisesRegex(ValueError, "failed or partial"):
+                proxy.validate_report(result, context)
 
     def test_partial_invocation_and_setup_failures_are_persisted(self):
         context = self.context()

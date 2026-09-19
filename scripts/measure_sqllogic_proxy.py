@@ -302,7 +302,16 @@ def context_from_report(report):
     return build_context(campaign)
 
 
+def campaign_attestation(context):
+    return {
+        "worker_sha256": context["worker"]["sha256"],
+        "source_sha256": context["worker"]["provenance"]["source_sha256"],
+        "provenance_sha256": context["worker"]["provenance_sha256"],
+    }
+
+
 def proxy_command(context, relative):
+    attestation = campaign_attestation(context)
     return [
         context["python"]["executable"],
         context["python"]["proxy"],
@@ -317,6 +326,12 @@ def proxy_command(context, relative):
         relative,
         "--timeout",
         str(PROXY_CONFIGURATION["timeout_seconds"]),
+        "--campaign-worker-sha256",
+        attestation["worker_sha256"],
+        "--campaign-source-sha256",
+        attestation["source_sha256"],
+        "--campaign-provenance-sha256",
+        attestation["provenance_sha256"],
     ]
 
 
@@ -473,7 +488,39 @@ def validate_report(report, context=None):
     return gate
 
 
-def once(worker, worker_provenance, root, relative, timeout=60):
+def checked_campaign_attestation(worker, worker_provenance, attestation):
+    expected_keys = {"worker_sha256", "source_sha256", "provenance_sha256"}
+    if not isinstance(attestation, dict) or set(attestation) != expected_keys:
+        raise ValueError("campaign worker attestation is incomplete")
+    if any(
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+        for value in attestation.values()
+    ):
+        raise ValueError("campaign worker attestation has a malformed SHA-256")
+    worker = Path(worker).resolve(strict=True)
+    provenance_path = Path(worker_provenance).resolve(strict=True)
+    canonical_path = run_upstream.worker_provenance_path(worker).resolve(strict=True)
+    if provenance_path != canonical_path:
+        raise ValueError("--once requires the canonical worker provenance sidecar")
+    if digest(provenance_path) != attestation["provenance_sha256"]:
+        raise ValueError("campaign worker provenance sidecar changed")
+    try:
+        provenance = json.loads(provenance_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("campaign worker provenance sidecar is unreadable") from error
+    expected = {
+        "profile": "release",
+        "source_sha256": attestation["source_sha256"],
+        "binary_sha256": attestation["worker_sha256"],
+    }
+    if provenance != expected:
+        raise ValueError("campaign worker provenance sidecar is stale or tampered")
+    return provenance_path, provenance
+
+
+def once(worker, worker_provenance, root, relative, timeout=60, attestation=None):
     if timeout != PROXY_CONFIGURATION["timeout_seconds"]:
         raise ValueError("--once requires the frozen 60-second timeout")
     root = Path(root).resolve(strict=True)
@@ -487,7 +534,14 @@ def once(worker, worker_provenance, root, relative, timeout=60):
     expected_worker = (ROOT / "target/release/duckdb-rust-test-worker").resolve(strict=True)
     if worker != expected_worker:
         raise ValueError("--once requires the worktree release feedback worker")
-    provenance_path, _ = run_upstream.checked_worker_provenance(worker, worker_provenance)
+    if attestation is None:
+        provenance_path, _ = run_upstream.checked_worker_provenance(
+            worker, worker_provenance
+        )
+    else:
+        provenance_path, _ = checked_campaign_attestation(
+            worker, worker_provenance, attestation
+        )
     if provenance_path.resolve(strict=True) != run_upstream.worker_provenance_path(worker).resolve(strict=True):
         raise ValueError("--once requires the canonical worker provenance sidecar")
     path = (root / relative).resolve(strict=True)
@@ -642,6 +696,9 @@ def parser():
     result.add_argument("--test-root", type=Path)
     result.add_argument("--path")
     result.add_argument("--timeout", type=int, default=PROXY_CONFIGURATION["timeout_seconds"])
+    result.add_argument("--campaign-worker-sha256")
+    result.add_argument("--campaign-source-sha256")
+    result.add_argument("--campaign-provenance-sha256")
     result.add_argument("--workloads", type=Path)
     result.add_argument("--release-cpp", type=Path)
     result.add_argument("--development-cpp", type=Path)
@@ -673,7 +730,22 @@ def main(argv=None):
         required = ("worker", "worker_provenance", "test_root", "path")
         if any(getattr(args, name) is None for name in required):
             argument_parser.error("--once requires --worker, --worker-provenance, --test-root, and --path")
-        count = once(args.worker, args.worker_provenance, args.test_root, args.path, args.timeout)
+        attestation_values = {
+            "worker_sha256": args.campaign_worker_sha256,
+            "source_sha256": args.campaign_source_sha256,
+            "provenance_sha256": args.campaign_provenance_sha256,
+        }
+        present = [value is not None for value in attestation_values.values()]
+        if any(present) and not all(present):
+            argument_parser.error("campaign worker attestation must be supplied in full")
+        count = once(
+            args.worker,
+            args.worker_provenance,
+            args.test_root,
+            args.path,
+            args.timeout,
+            attestation_values if all(present) else None,
+        )
         print(f"PASS {args.path} ({count} records)\n{count} records passed; 0 skipped")
         return 0
     required = (*CAMPAIGN_ARGUMENTS, "report")
