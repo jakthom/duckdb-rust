@@ -250,8 +250,10 @@ pub(super) fn read_query(
     if reader.optional_unsigned(202, 0)? != 0 {
         return Err(Error::Unsupported("native view column aliases".into()));
     }
-    if reader.optional(203)? {
-        reader.string()?;
+    if reader.optional(203)? && !reader.string()?.is_empty() {
+        return Err(Error::Unsupported(
+            "native cross-catalog view source".into(),
+        ));
     }
     if reader.optional(204)? {
         return Err(Error::Unsupported("native view AS OF".into()));
@@ -269,9 +271,14 @@ pub(super) fn read_query(
             [name] => {
                 table = name.clone();
             }
-            [scope, name] | [_, scope, name] => {
+            [scope, name] => {
                 schema = scope.clone();
                 table = name.clone();
+            }
+            [_, _, _] => {
+                return Err(Error::Unsupported(
+                    "native cross-catalog view source".into(),
+                ));
             }
             [] => {}
             _ => {
@@ -440,4 +447,75 @@ fn expression_sql(expression: &StoredExpression) -> Result<String> {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parallel::QueryContext;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn star_query(catalog_field: Option<&str>, path: Option<&[&str]>) -> Result<Vec<u8>> {
+        let mut output = Encoder::default();
+        output.boolean(true);
+        output.field(100);
+        output.boolean(true);
+        output.property(100, 1);
+        output.property(101, 0);
+        output.field(102);
+        output.property(100, 0);
+        output.end();
+        output.property(200, 1);
+        output.boolean(true);
+        output.property(100, 11);
+        output.property(101, 200);
+        output.property(201, 0);
+        output.end();
+        output.field(201);
+        output.boolean(true);
+        output.property(100, 1);
+        output.field(200);
+        output.string("main")?;
+        output.field(201);
+        output.string("local_name")?;
+        if let Some(catalog) = catalog_field {
+            output.field(203);
+            output.string(catalog)?;
+        }
+        if let Some(path) = path {
+            output.field(205);
+            output.field(100);
+            output.unsigned(path.len() as u64);
+            for part in path {
+                output.string(part)?;
+            }
+            output.end();
+        }
+        output.end();
+        output.property(203, 0);
+        output.property(204, 0);
+        output.property(205, 0);
+        output.end();
+        output.end();
+        Ok(output.0)
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn native_view_reader_rejects_both_cross_catalog_source_encodings() -> Result<()> {
+        let query = QueryContext::background();
+        for (version, bytes) in [
+            (64, star_query(Some("attached"), None)?),
+            (
+                69,
+                star_query(None, Some(&["attached", "main", "remote_name"]))?,
+            ),
+        ] {
+            assert!(matches!(
+                read_query(&mut Reader::new(bytes), version, &query),
+                Err(Error::Unsupported(message)) if message == "native cross-catalog view source"
+            ));
+        }
+        Ok(())
+    }
 }

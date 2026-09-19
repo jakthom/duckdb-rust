@@ -1,7 +1,7 @@
 use duckdb_rust::storage::{
     checkpoint::FileCheckpoint, filesystem::OpenMode, format::JsonSnapshotFormat,
 };
-use duckdb_rust::{Database, DatabaseBuilder, Result, Value};
+use duckdb_rust::{Database, DatabaseBuilder, Error, Result, Value};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -342,6 +342,91 @@ fn native_view_wal_create_replace_drop_and_reopen() -> Result<()> {
             .connect()
             .query("SELECT * FROM v")
             .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn torn_or_corrupt_native_view_wal_never_half_publishes() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let source = directory.path().join("source.duckdb");
+    {
+        let mut connection = Database::open_logged(&source)?.connect();
+        connection.execute(
+            "CREATE TABLE base(i INTEGER); INSERT INTO base VALUES (5); CHECKPOINT; \
+             CREATE VIEW v AS SELECT i + 1 AS x FROM base",
+        )?;
+    }
+    let checkpoint = std::fs::read(&source)?;
+    let wal = std::fs::read(source.with_extension("duckdb.wal"))?;
+    let frame_start = |end: usize| {
+        (0..end.saturating_sub(16))
+            .rev()
+            .find(|start| {
+                let Some(length) = wal
+                    .get(*start..*start + 8)
+                    .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
+                    .map(u64::from_le_bytes)
+                    .and_then(|length| usize::try_from(length).ok())
+                else {
+                    return false;
+                };
+                start
+                    .checked_add(16)
+                    .and_then(|start| start.checked_add(length))
+                    == Some(end)
+            })
+            .expect("native WAL frame ending at selected offset")
+    };
+    let commit_start = frame_start(wal.len());
+    let view_start = frame_start(commit_start);
+    assert_eq!(
+        wal.get(commit_start + 16..commit_start + 19),
+        Some(&[100, 0, 100][..])
+    );
+    assert_eq!(
+        wal.get(view_start + 16..view_start + 19),
+        Some(&[100, 0, 5][..])
+    );
+
+    let view_payload_start = view_start + 16;
+    let view_midpoint = view_payload_start + (commit_start - view_payload_start) / 2;
+    let commit_payload_start = commit_start + 16;
+    let commit_midpoint = commit_payload_start + (wal.len() - commit_payload_start) / 2;
+    for (name, end) in [
+        ("torn-view", view_midpoint),
+        ("torn-commit", commit_midpoint),
+    ] {
+        let case = directory.path().join(format!("{name}.duckdb"));
+        std::fs::write(&case, &checkpoint)?;
+        std::fs::write(case.with_extension("duckdb.wal"), &wal[..end])?;
+        let before_checkpoint = std::fs::read(&case)?;
+        let before_wal = std::fs::read(case.with_extension("duckdb.wal"))?;
+        let mut reopened = Database::open_read_only(&case)?.connect();
+        assert_eq!(reopened.query("SELECT sum(i) FROM base")?.rows, ints(&[5]));
+        assert!(reopened.query("SELECT * FROM v").is_err());
+        drop(reopened);
+        assert_eq!(std::fs::read(&case)?, before_checkpoint);
+        assert_eq!(
+            std::fs::read(case.with_extension("duckdb.wal"))?,
+            before_wal
+        );
+    }
+
+    let corrupt = directory.path().join("corrupt-view.duckdb");
+    std::fs::write(&corrupt, &checkpoint)?;
+    let mut corrupt_wal = wal.clone();
+    corrupt_wal[view_midpoint] ^= 1;
+    std::fs::write(corrupt.with_extension("duckdb.wal"), &corrupt_wal)?;
+    assert!(matches!(
+        Database::open_read_only(&corrupt),
+        Err(Error::Corrupt(message)) if message.contains("checksum")
+    ));
+    assert_eq!(std::fs::read(&corrupt)?, checkpoint);
+    assert_eq!(
+        std::fs::read(corrupt.with_extension("duckdb.wal"))?,
+        corrupt_wal
     );
     Ok(())
 }
