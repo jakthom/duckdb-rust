@@ -1,13 +1,17 @@
 """Fail-closed Python SQLLogic proxy gate against both pinned C++ runners."""
+# Keep the timed child on the core import path.  Campaign imports below are not
+# evaluated for the strict one-job envelope.
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) == 2 and sys.argv[1].startswith("--once-job="):
+        from proxy_once_core import bootstrap
+        raise SystemExit(bootstrap(sys.argv[1].split("=", 1)[1]))
+
 import argparse
-import hashlib
 import json
 from pathlib import Path
-import tempfile
-import time
 
-import sqllogic
-from worker_protocol import RustEngine, worker_provenance_path
+import proxy_once_core as once_core
 
 
 class _LazyMeasure:
@@ -35,55 +39,44 @@ PROXY_CONFIGURATION = {
     "mode": "python-proxy",
     "timeout_seconds": 60,
 }
-EXPECTED_MANIFEST = "benchmark/a2_1_sqllogic_workloads.json"
-EXPECTED_MANIFEST_SHA256 = "dbb7c05065fe5a40513b538c8200aef9f280e7bdcd8ee0a535c5d193eac05242"
-EXPECTED_WORKLOADS = (
-    {
-        "id": "a2_1_scalar_comma_loop",
-        "path": "test/performance/a2_1_scalar_comma_loop.test",
-        "sha256": "e4e9ebe9c15dcab0ae9ce74d2fc4411e94fb6f4e70d8174a9341f7cd6f0f2adb",
-        "bytes": 368,
-        "proxy_records": 5,
-    },
-    {
-        "id": "a2_1_scalar_comma_loop_large",
-        "path": "test/performance/a2_1_scalar_comma_loop_large.test",
-        "sha256": "bfc43aff382c8c0ab2f74d067df8a16f9a3ee0ac93579d797ff944d6725288db",
-        "bytes": 420,
-        "proxy_records": 5000,
-    },
-    {
-        "id": "g01_2c_loop_conditions_concurrent_sessions_lifecycle",
-        "path": "test/performance/g01_2c_loop_sessions.test",
-        "sha256": "790954ce9e77bb67e7bb5b6e2fe06fcb1ed10a41e4d915d1c2265388e20ea974",
-        "bytes": 862,
-        "proxy_records": 16,
-    },
-    {
-        "id": "a2_1_readonly_rejections",
-        "path": "test/performance/a2_1_readonly_rejections.test",
-        "sha256": "e6d07907d8d8d88cfd1ec0ebbf653d1bb9dece1012e2464dbc1154789c7bbd6b",
-        "bytes": 400,
-        "proxy_records": 4,
-    },
-    {
-        "id": "a2_1_readonly_rejections_large",
-        "path": "test/performance/a2_1_readonly_rejections_large.test",
-        "sha256": "439bbb9a3bda14709f2af3026b0ea8d26066e817dc68c2f50dba032ce46a248e",
-        "bytes": 415,
-        "proxy_records": 2002,
-    },
-)
+EXPECTED_MANIFEST = once_core.EXPECTED_MANIFEST
+EXPECTED_MANIFEST_SHA256 = once_core.EXPECTED_MANIFEST_SHA256
+EXPECTED_WORKLOADS = once_core.EXPECTED_WORKLOADS
 HELPERS = (
-    "measure_sqllogic_proxy.py",
-    "measure_sqllogic_performance.py",
-    "run_upstream.py",
-    "sqllogic.py",
-    "source_identity.py",
-    "reference_version.py",
-    "upstream_suite.py",
-    "worker_protocol.py",
+    "measure_sqllogic_proxy.py", "proxy_once_core.py", "secure_scratch.py",
+    "measure_sqllogic_performance.py", "run_upstream.py", "sqllogic.py",
+    "source_identity.py", "reference_version.py", "upstream_suite.py", "worker_protocol.py",
 )
+def file_identity(path):
+    path = Path(path).resolve(strict=True)
+    if not path.is_file():
+        raise ValueError(f"input is not a regular file: {path}")
+    return {"path": str(path), "sha256": digest(path), "bytes": path.stat().st_size}
+
+
+def save(report, path):
+    Path(path).write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
+
+
+def json_safe(value):
+    import math
+    if isinstance(value, float) and not math.isfinite(value):
+        return "Infinity" if value > 0 else "-Infinity"
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    return value
+
+
+def reserve_report(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x") as file:
+        json.dump({"schema": SCHEMA, "passed": False, "status": "reserved"}, file)
+        file.write("\n")
+
+
 CAMPAIGN_ARGUMENTS = {
     "test_root",
     "workloads",
@@ -123,91 +116,15 @@ SUCCESS_REPORT_KEYS = {
 
 
 def digest(path):
-    with Path(path).open("rb") as file:
-        return hashlib.file_digest(file, "sha256").hexdigest()
-
-
-def file_identity(path):
-    path = Path(path).resolve(strict=True)
-    if not path.is_file():
-        raise ValueError(f"input is not a regular file: {path}")
-    return {"path": str(path), "sha256": digest(path), "bytes": path.stat().st_size}
-
-
-def save(report, path):
-    Path(path).write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
-
-
-def json_safe(value):
-    import math
-    if isinstance(value, float) and not math.isfinite(value):
-        return "Infinity" if value > 0 else "-Infinity"
-    if isinstance(value, dict):
-        return {key: json_safe(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [json_safe(item) for item in value]
-    return value
-
-
-def reserve_report(path):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x") as file:
-        json.dump({"schema": SCHEMA, "passed": False, "status": "reserved"}, file)
-        file.write("\n")
+    return once_core.digest(path)
 
 
 def workload_specs(root):
-    root = Path(root).resolve(strict=True)
-    result = []
-    for expected in EXPECTED_WORKLOADS:
-        path = (root / expected["path"]).resolve(strict=True)
-        result.append(
-            {
-                "id": expected["id"],
-                "path": expected["path"],
-                "kind": "custom_comparable",
-                "shared_test_dir": str(root),
-                "shared_workload_path": str(path),
-                "shared_workload_sha256": expected["sha256"],
-                "shared_workload_bytes": expected["bytes"],
-                "proxy_records_expected": expected["proxy_records"],
-            }
-        )
-    return result
+    return once_core.workload_specs(str(Path(root).resolve(strict=True)))
 
 
 def validate_workload_population(manifest, test_root):
-    root = Path(test_root).resolve(strict=True)
-    if root != ROOT:
-        raise ValueError(f"proxy acceptance test root must be {ROOT}")
-    manifest = Path(manifest).resolve(strict=True)
-    expected_manifest = (root / EXPECTED_MANIFEST).resolve(strict=True)
-    if manifest != expected_manifest or digest(manifest) != EXPECTED_MANIFEST_SHA256:
-        raise ValueError("proxy acceptance requires the frozen five-workload manifest")
-    try:
-        data = json.loads(manifest.read_text())
-    except json.JSONDecodeError as error:
-        raise ValueError("proxy workload manifest is not valid JSON") from error
-    if set(data) != {"workloads"} or not isinstance(data["workloads"], list):
-        raise ValueError("proxy manifest must contain only its workload population")
-    declared = data["workloads"]
-    expected = workload_specs(root)
-    expected_declarations = [
-        {"id": workload["id"], "path": workload["path"]}
-        for workload in expected
-    ]
-    if declared != expected_declarations:
-        raise ValueError("proxy manifest has missing, extra, or duplicate workloads")
-    for workload in expected:
-        path = Path(workload["shared_workload_path"])
-        if (
-            not path.is_file()
-            or digest(path) != workload["shared_workload_sha256"]
-            or path.stat().st_size != workload["shared_workload_bytes"]
-        ):
-            raise ValueError("proxy workload identity changed: " + workload["id"])
-    return expected
+    return once_core.validate_workload_population(manifest, test_root)
 
 
 def normalized_campaign(root, manifest, worker, provenance_path, references):
@@ -344,27 +261,14 @@ def campaign_attestation(context):
 
 
 def proxy_command(context, relative):
-    attestation = campaign_attestation(context)
+    job = once_core.make_job(
+        context["worker"]["path"], context["worker"]["provenance_path"],
+        context["campaign"]["test_root"], relative,
+        PROXY_CONFIGURATION["timeout_seconds"], campaign_attestation(context),
+    )
     return [
-        context["python"]["executable"],
-        context["python"]["proxy"],
-        "--once",
-        "--worker",
-        context["worker"]["path"],
-        "--worker-provenance",
-        context["worker"]["provenance_path"],
-        "--test-root",
-        context["campaign"]["test_root"],
-        "--path",
-        relative,
-        "--timeout",
-        str(PROXY_CONFIGURATION["timeout_seconds"]),
-        "--campaign-worker-sha256",
-        attestation["worker_sha256"],
-        "--campaign-source-sha256",
-        attestation["source_sha256"],
-        "--campaign-provenance-sha256",
-        attestation["provenance_sha256"],
+        context["python"]["executable"], context["python"]["proxy"],
+        "--once-job=" + once_core.encode_job(job),
     ]
 
 
@@ -522,87 +426,32 @@ def validate_report(report, context=None):
     return gate
 
 
+def worker_provenance_path(binary):
+    # Preserve the Path-facing public API without importing protocol in the bootstrap.
+    from worker_protocol import worker_provenance_path as provenance_path
+    return provenance_path(binary)
+
+
 def checked_campaign_attestation(worker, worker_provenance, attestation):
-    expected_keys = {"worker_sha256", "source_sha256", "provenance_sha256"}
-    if not isinstance(attestation, dict) or set(attestation) != expected_keys:
-        raise ValueError("campaign worker attestation is incomplete")
-    if any(
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(character not in "0123456789abcdef" for character in value)
-        for value in attestation.values()
-    ):
-        raise ValueError("campaign worker attestation has a malformed SHA-256")
-    worker = Path(worker).resolve(strict=True)
-    provenance_path = Path(worker_provenance).resolve(strict=True)
-    canonical_path = worker_provenance_path(worker).resolve(strict=True)
-    if provenance_path != canonical_path:
-        raise ValueError("--once requires the canonical worker provenance sidecar")
-    if digest(provenance_path) != attestation["provenance_sha256"]:
-        raise ValueError("campaign worker provenance sidecar changed")
-    try:
-        provenance = json.loads(provenance_path.read_text())
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError("campaign worker provenance sidecar is unreadable") from error
-    expected = {
-        "profile": "release",
-        "source_sha256": attestation["source_sha256"],
-        "binary_sha256": attestation["worker_sha256"],
-    }
-    if provenance != expected:
-        raise ValueError("campaign worker provenance sidecar is stale or tampered")
-    return provenance_path, provenance
+    path, provenance = once_core.checked_campaign_attestation(
+        str(worker), str(worker_provenance), attestation
+    )
+    return Path(path), provenance
+
+
+def standalone_worker_provenance(worker, provenance_path):
+    """Adapt core path strings to the public upstream provenance API."""
+    return checked_worker_provenance(Path(worker), Path(provenance_path))
 
 
 def once(worker, worker_provenance, root, relative, timeout=60, attestation=None):
-    if timeout != PROXY_CONFIGURATION["timeout_seconds"]:
-        raise ValueError("--once requires the frozen 60-second timeout")
-    root = Path(root).resolve(strict=True)
-    workloads = {
-        workload["path"]: workload
-        for workload in validate_workload_population(root / EXPECTED_MANIFEST, root)
-    }
-    if relative not in workloads:
-        raise ValueError("--once path is not in the frozen proxy workload population")
-    worker = Path(worker).resolve(strict=True)
-    expected_worker = (ROOT / "target/release/duckdb-rust-test-worker").resolve(strict=True)
-    if worker != expected_worker:
-        raise ValueError("--once requires the worktree release feedback worker")
-    if attestation is None:
-        provenance_path, _ = checked_worker_provenance(
-            worker, worker_provenance
-        )
-    else:
-        provenance_path, _ = checked_campaign_attestation(
-            worker, worker_provenance, attestation
-        )
-    if provenance_path.resolve(strict=True) != worker_provenance_path(worker).resolve(strict=True):
-        raise ValueError("--once requires the canonical worker provenance sidecar")
-    path = (root / relative).resolve(strict=True)
-    records = sqllogic.parse(path.read_text())
-    deadline = time.monotonic() + timeout
-    with tempfile.TemporaryDirectory(prefix="ddb-proxy-measure-") as scratch:
-        engine = RustEngine(worker, scratch, deadline)
-        try:
-            runner = sqllogic.Runner(
-                engine,
-                {
-                    "{TEST_DIR}": scratch,
-                    "__TEST_DIR__": scratch,
-                    "{WORKING_DIRECTORY}": scratch,
-                    "__WORKING_DIRECTORY__": scratch,
-                    "{TEST_NAME}": relative,
-                    "{BASE_TEST_NAME}": relative.replace("/", "_"),
-                    "__SOURCE_DIR__": str(root),
-                },
-            )
-            runner.run(records)
-            expected = workloads[relative]["proxy_records_expected"]
-            if runner.passed != expected or runner.skipped:
-                raise ValueError("proxy workload PASS count differs from frozen untimed expectation")
-            return runner.passed
-        finally:
-            engine.close()
+    job = once_core.make_job(worker, worker_provenance, root, relative, timeout, attestation)
+    return once_core.run(
+        job,
+        standalone_provenance=standalone_worker_provenance,
+        campaign_provenance=checked_campaign_attestation,
+        workload_validator=validate_workload_population,
+    )
 
 
 def requested_arguments(args):

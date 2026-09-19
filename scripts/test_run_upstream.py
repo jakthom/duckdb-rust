@@ -6,6 +6,7 @@ import stat
 import tarfile
 from unittest.mock import patch
 import subprocess
+import sys
 
 import sqllogic
 from run_upstream import (cached_files, cached_manifest_matches_source, cached_population, comparable_outcome, extract_source_archive, failure_class, main,
@@ -13,7 +14,52 @@ from run_upstream import (cached_files, cached_manifest_matches_source, cached_p
                           watch_feedback, checked_worker_provenance, record_release_worker_provenance, worker_provenance_path, worker_source_digest)
 
 
+def worker_script(body):
+    return ("#!" + sys.executable + "\nimport json,os,sys\n"
+            "assert sys.argv[1] == '--working-directory'\n"
+            "os.chdir(sys.argv[2])\nprint(json.dumps({'ready':True}),flush=True)\n" + body)
+
+
 class RunUpstreamTests(unittest.TestCase):
+    def test_worker_cleanup_failure_preserves_sql_failure_and_prevents_a_pass(self):
+        class Engine:
+            engine_unsupported_seen = False
+            def __init__(self, sql_ok):
+                self.sql_ok = sql_ok
+                self.sql_requests = self.worker_requests = 0
+            def request(self, request):
+                self.sql_requests += 1
+                self.worker_requests += 1
+                return {"ok": self.sql_ok, "message": "SQL failure"}
+            def close(self):
+                raise OSError("cleanup failure")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "case.test").write_text("statement ok\nSELECT 1\n")
+            for sql_ok in (True, False):
+                with self.subTest(sql_ok=sql_ok), patch("run_upstream.RustEngine", return_value=Engine(sql_ok)):
+                    outcome = run_case("worker", root, {"id": "case", "path": "case.test"}, 2)
+                self.assertEqual(outcome["status"], "failed")
+                self.assertEqual(outcome["cleanup_error"], "cleanup failure")
+                self.assertEqual(outcome["attempted_records"], 1)
+                self.assertEqual(outcome["failure_class"], "setup" if sql_ok else "assertion_or_error_mismatch")
+                self.assertIn("cleanup failure" if sql_ok else "SQL failure", outcome["reason"])
+
+    def test_worker_cleanup_cannot_replace_cancellation(self):
+        class Engine:
+            engine_unsupported_seen = False
+            sql_requests = worker_requests = 0
+            def request(self, request):
+                raise KeyboardInterrupt("cancel")
+            def close(self):
+                raise OSError("cleanup failure")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "case.test").write_text("statement ok\nSELECT 1\n")
+            with patch("run_upstream.RustEngine", return_value=Engine()):
+                with self.assertRaises(KeyboardInterrupt) as caught:
+                    run_case("worker", root, {"id": "case", "path": "case.test"}, 2)
+            self.assertIsInstance(caught.exception.__cause__, OSError)
     def test_failure_classes_do_not_turn_oracle_or_engine_blocks_into_passes(self):
         self.assertEqual(failure_class(sqllogic.Unsupported("test directive require: parquet")), "harness_directive_or_oracle")
         self.assertEqual(failure_class(sqllogic.Unsupported("unimplemented SQL function"), True), "engine_unsupported")
@@ -109,17 +155,19 @@ class RunUpstreamTests(unittest.TestCase):
                 source, manifest, _ = selected_feedback_population("release", ["case.test"], root)
             self.assertFalse((source / "fixture.csv").exists())
             worker = root / "worker"
-            worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin:\n r=json.loads(line); print(json.dumps({'ok': 'fixture.csv' not in r.get('sql',''), 'message': 'missing fixture'}), flush=True)\n")
+            worker.write_text(worker_script("for line in sys.stdin:\n r=json.loads(line); print(json.dumps({'ok': 'fixture.csv' not in r.get('sql',''), 'message': 'missing fixture'}), flush=True)\n"))
             worker.chmod(worker.stat().st_mode | stat.S_IXUSR)
             outcome = run_case(worker, source, manifest["tests"][0], 2)
             self.assertEqual(outcome["status"], "failed")
+            self.assertEqual(outcome["attempted_records"], 1)
+            self.assertIn("missing fixture", outcome["reason"])
 
     def test_prebuilt_path_list_uses_selected_feedback_not_full_population(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); source = root / "source"; source.mkdir()
             (source / "case.test").write_text("statement ok\nSELECT 1\n")
             worker, paths, report = root / "worker", root / "paths", root / "report.json"
-            worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin: print(json.dumps({'ok':True}),flush=True)\n")
+            worker.write_text(worker_script("for line in sys.stdin: print(json.dumps({'ok':True}),flush=True)\n"))
             worker.chmod(worker.stat().st_mode | stat.S_IXUSR); paths.write_text("case.test\n")
             worker_provenance_path(worker).write_text(__import__("json").dumps({"profile": "release", "source_sha256": worker_source_digest(), "binary_sha256": __import__("hashlib").sha256(worker.read_bytes()).hexdigest()}))
             manifest = {"files": cached_files(source), "tests": [{"id":"case.test", "kind":"sqllogictest", "path":"case.test", "line":1}], "counts":{"sqllogictest":1}}
@@ -136,7 +184,7 @@ class RunUpstreamTests(unittest.TestCase):
             root = Path(directory); source = root / "source"; source.mkdir()
             (source / "case.test").write_text("statement ok\nSELECT 1\n")
             worker, paths, report = root / "worker", root / "paths", root / "failed.json"
-            worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin: print(json.dumps({'ok':False,'message':'wrong'}),flush=True)\n")
+            worker.write_text(worker_script("for line in sys.stdin: print(json.dumps({'ok':False,'message':'wrong'}),flush=True)\n"))
             worker.chmod(worker.stat().st_mode | stat.S_IXUSR); paths.write_text("case.test\n")
             worker_provenance_path(worker).write_text(__import__("json").dumps({"profile":"release", "source_sha256":worker_source_digest(), "binary_sha256":__import__("hashlib").sha256(worker.read_bytes()).hexdigest()}))
             manifest = {"files": cached_files(source), "tests": [{"id":"case.test", "kind":"sqllogictest", "path":"case.test", "line":1}], "counts":{"sqllogictest":1}}
@@ -179,7 +227,7 @@ class RunUpstreamTests(unittest.TestCase):
             (source / "concurrent.test").write_text("concurrentloop x 0 2\nstatement ok\nOK {x}\n\nendloop\n")
             (source / "restart.test").write_text("restart\nstatement ok\nOK\n")
             (source / "empty.test").write_text("# only a comment\n")
-            worker.write_text("#!/usr/bin/env python3\nimport json,sys\nfor line in sys.stdin:\n r=json.loads(line)\n if r['operation']=='concurrent': out={'ok':True,'streams':[[{'ok':True} for item in stream] for stream in r['streams']]}\n else:\n  ok='FAIL' not in r.get('sql',''); out={'ok':ok,'message':'failure'}\n print(json.dumps(out),flush=True)\n")
+            worker.write_text(worker_script("for line in sys.stdin:\n r=json.loads(line)\n if r['operation']=='concurrent': out={'ok':True,'streams':[[{'ok':True} for item in stream] for stream in r['streams']]}\n else:\n  ok='FAIL' not in r.get('sql',''); out={'ok':ok,'message':'failure'}\n print(json.dumps(out),flush=True)\n"))
             worker.chmod(worker.stat().st_mode | stat.S_IXUSR)
             failed = run_case(worker, source, {"id":"f","path":"fail.test"}, 2)
             self.assertEqual((failed["attempted_records"], failed["worker_requests"], failed["unreached_source_records"]), (1, 1, 1))

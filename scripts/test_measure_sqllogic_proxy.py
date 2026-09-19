@@ -10,6 +10,17 @@ from unittest.mock import patch
 import measure_sqllogic_proxy as proxy
 
 
+def command_relative(command):
+    for argument in command:
+        if argument.startswith("--once-job="):
+            return proxy.once_core.decode_job(argument.split("=", 1)[1])["path"]
+    return command[command.index("--test-dir") + 2]
+
+
+def is_proxy_command(command):
+    return any(argument.startswith("--once-job=") for argument in command)
+
+
 def observation(command, target, relative, records, metric=100):
     if target == "proxy":
         stdout = f"PASS {relative} ({records} records)\n{records} records passed; 0 skipped\n"
@@ -173,27 +184,26 @@ class ProxyEvidenceTests(unittest.TestCase):
             proxy.validate_report(report, context)
         context, report = self.report()
         command = report["workloads"][0]["observations"]["proxy"][0]["command"]
+        self.assertEqual(len(command), 3)
+        self.assertTrue(command[2].startswith("--once-job="))
+        job = json.loads(command[2].split("=", 1)[1])
         self.assertEqual(
-            command[command.index("--campaign-worker-sha256") + 1],
-            context["worker"]["sha256"],
+            job["attestation"],
+            {"worker_sha256": context["worker"]["sha256"],
+             "source_sha256": context["worker"]["provenance"]["source_sha256"],
+             "provenance_sha256": context["worker"]["provenance_sha256"]},
         )
-        self.assertEqual(
-            command[command.index("--campaign-source-sha256") + 1],
-            context["worker"]["provenance"]["source_sha256"],
-        )
-        self.assertEqual(
-            command[command.index("--campaign-provenance-sha256") + 1],
-            context["worker"]["provenance_sha256"],
-        )
-        index = command.index("--worker-provenance")
-        command[index:index + 2] = []
+        self.assertEqual(job["worker_provenance"], context["worker"]["provenance_path"])
+        del job["worker_provenance"]
+        command[2] = "--once-job=" + json.dumps(job)
         with self.assertRaisesRegex(ValueError, "independently derived"):
             proxy.validate_report(report, context)
 
         context, report = self.report()
         command = report["workloads"][0]["observations"]["proxy"][0]["command"]
-        index = command.index("--campaign-source-sha256") + 1
-        command[index] = "0" * 64
+        job = json.loads(command[2].split("=", 1)[1])
+        job["attestation"]["source_sha256"] = "0" * 64
+        command[2] = "--once-job=" + json.dumps(job)
         with self.assertRaisesRegex(ValueError, "independently derived"):
             proxy.validate_report(report, context)
 
@@ -272,6 +282,26 @@ class ProxyEvidenceTests(unittest.TestCase):
                 )
             checked.assert_called_once()
 
+    def test_standalone_once_adapts_core_strings_to_path_checker(self):
+        workload = proxy.EXPECTED_WORKLOADS[0]
+        specs = [{"path": workload["path"], "proxy_records_expected": workload["proxy_records"]}]
+
+        def checker(worker, provenance):
+            self.assertIsInstance(worker, Path)
+            self.assertIsInstance(provenance, Path)
+            raise RuntimeError("path checker reached")
+
+        with patch.object(proxy, "validate_workload_population", return_value=specs), patch.object(
+            proxy, "checked_worker_provenance", side_effect=checker
+        ):
+            with self.assertRaisesRegex(RuntimeError, "path checker reached"):
+                proxy.once(
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker",
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker.provenance.json",
+                    proxy.ROOT,
+                    workload["path"],
+                )
+
     def test_once_rejects_partial_campaign_attestation_before_execution(self):
         arguments = [
             "--once",
@@ -291,6 +321,95 @@ class ProxyEvidenceTests(unittest.TestCase):
         ), redirect_stderr(io.StringIO()):
             proxy.main(arguments)
 
+    def test_core_preserves_runner_failure_when_close_also_fails(self):
+        workload = proxy.EXPECTED_WORKLOADS[0]
+
+        class Scratch:
+            def __enter__(self):
+                return self
+            def __exit__(self, *unused):
+                return False
+            def validate_path(self):
+                pass
+            def __fspath__(self):
+                return "/scratch"
+
+        class Engine:
+            def close(self):
+                raise RuntimeError("cleanup failed")
+
+        class Runner:
+            def __init__(self, *unused):
+                pass
+            def run(self, records):
+                raise ValueError("runner failed")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worker = root / "target/release/duckdb-rust-test-worker"
+            worker.parent.mkdir(parents=True)
+            worker.write_bytes(b"worker")
+            provenance = Path(str(worker) + ".provenance.json")
+            provenance.write_text("{}")
+            path = root / workload["path"]
+            path.parent.mkdir(parents=True)
+            path.write_text("statement ok\nSELECT 1;\n")
+            job = proxy.once_core.make_job(worker, provenance, root, workload["path"])
+            specs = [{"path": workload["path"], "proxy_records_expected": workload["proxy_records"]}]
+            with patch.object(proxy.once_core, "ROOT", str(root)), patch.object(
+                proxy.once_core, "ScratchDirectory", return_value=Scratch()
+            ), patch.object(proxy.once_core, "RustEngine", return_value=Engine()), patch.object(
+                proxy.once_core.sqllogic, "parse", return_value=[]
+            ), patch.object(proxy.once_core.sqllogic, "Runner", Runner), self.assertRaisesRegex(
+                ValueError, "runner failed"
+            ) as raised:
+                proxy.once_core.run(
+                    job,
+                    standalone_provenance=lambda worker, provenance: (provenance, {}),
+                    workload_validator=lambda manifest, root: specs,
+                )
+        self.assertIsInstance(raised.exception.__cause__, RuntimeError)
+        self.assertEqual(str(raised.exception.__cause__), "cleanup failed")
+
+
+    def test_once_job_envelope_rejects_before_worker(self):
+        job = {
+            "schema": proxy.once_core.JOB_SCHEMA,
+            "worker": "worker", "worker_provenance": "worker.provenance.json",
+            "test_root": "root", "path": proxy.EXPECTED_WORKLOADS[0]["path"],
+            "timeout": 60, "attestation": None,
+        }
+        encoded = proxy.once_core.encode_job(job)
+        self.assertEqual(proxy.once_core.decode_job(encoded), job)
+        invalid_utf8 = {**job, "path": "\ud800"}
+        for encoded in (
+            '{"schema":"sqllogic-proxy-once-v1","schema":"sqllogic-proxy-once-v1"}',
+            json.dumps({**job, "unknown": "field"}),
+            json.dumps({**job, "schema": "other"}),
+            json.dumps({**job, "attestation": {"worker_sha256": "1" * 64}}),
+            json.dumps({**job, "timeout": "60"}),
+            json.dumps(invalid_utf8),
+        ):
+            with self.subTest(encoded=encoded), self.assertRaises(ValueError):
+                proxy.once_core.decode_job(encoded)
+
+    def test_public_once_delegates_to_shared_core(self):
+        workload = proxy.EXPECTED_WORKLOADS[0]
+        with patch.object(proxy.once_core, "run", return_value=workload["proxy_records"]) as run:
+            count = proxy.once("worker", "worker.provenance.json", "root", workload["path"])
+        self.assertEqual(count, workload["proxy_records"])
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0]["path"], workload["path"])
+
+    def test_proxy_command_uses_strict_internal_job(self):
+        context = self.context()
+        command = proxy.proxy_command(context, context["workloads"][0]["path"])
+        self.assertEqual(len(command), 3)
+        self.assertTrue(command[-1].startswith("--once-job="))
+        job = proxy.once_core.decode_job(command[-1].split("=", 1)[1])
+        self.assertEqual(job["path"], context["workloads"][0]["path"])
+        self.assertEqual(job["attestation"], proxy.campaign_attestation(context))
+
     def test_missing_duplicate_reordered_and_changed_workloads_fail(self):
         for mutate in (
             lambda workloads: workloads.pop(),
@@ -308,6 +427,8 @@ class ProxyEvidenceTests(unittest.TestCase):
             set(proxy.HELPERS),
             {
                 "measure_sqllogic_proxy.py",
+                "proxy_once_core.py",
+                "secure_scratch.py",
                 "measure_sqllogic_performance.py",
                 "run_upstream.py",
                 "sqllogic.py",
@@ -321,7 +442,7 @@ class ProxyEvidenceTests(unittest.TestCase):
             proxy.ROOT / proxy.EXPECTED_MANIFEST, proxy.ROOT
         )
         self.assertEqual([item["proxy_records_expected"] for item in workloads], [5, 5000, 16, 4, 2002])
-        with patch.object(proxy, "digest", return_value="0" * 64):
+        with patch.object(proxy.once_core, "digest", return_value="0" * 64):
             with self.assertRaisesRegex(ValueError, "frozen five-workload"):
                 proxy.validate_workload_population(proxy.ROOT / proxy.EXPECTED_MANIFEST, proxy.ROOT)
         with tempfile.TemporaryDirectory() as directory:
@@ -505,13 +626,9 @@ class ProxyEvidenceTests(unittest.TestCase):
 
             def timed(command, label):
                 command = list(command)
-                relative = (
-                    command[command.index("--path") + 1]
-                    if "--once" in command
-                    else command[command.index("--test-dir") + 2]
-                )
+                relative = command_relative(command)
                 workload = next(item for item in context["workloads"] if item["path"] == relative)
-                target = "proxy" if "--once" in command else (
+                target = "proxy" if is_proxy_command(command) else (
                     "release" if command[0] == context["references"]["release"]["unittest"] else "development"
                 )
                 records = workload["proxy_records_expected"] if target == "proxy" else (100 if target == "release" else 200)
@@ -547,15 +664,11 @@ class ProxyEvidenceTests(unittest.TestCase):
             args = self.campaign_args(path)
 
             def timed(command, label):
-                relative = (
-                    command[command.index("--path") + 1]
-                    if "--once" in command
-                    else command[command.index("--test-dir") + 2]
-                )
+                relative = command_relative(command)
                 workload = next(
                     item for item in context["workloads"] if item["path"] == relative
                 )
-                target = "proxy" if "--once" in command else "release"
+                target = "proxy" if is_proxy_command(command) else "release"
                 records = (
                     workload["proxy_records_expected"] if target == "proxy" else 100
                 )
@@ -589,7 +702,7 @@ class ProxyEvidenceTests(unittest.TestCase):
                 calls += 1
                 if calls == 5:
                     raise proxy.measure.SampleFailure("boom", {"command": list(command), "returncode": 2})
-                target = "proxy" if "--once" in command else (
+                target = "proxy" if is_proxy_command(command) else (
                     "release" if command[0] == commands["release"][0] else "development"
                 )
                 records = 5 if target == "proxy" else 100

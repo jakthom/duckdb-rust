@@ -65,6 +65,7 @@ def evidence(records, line):
 
 def run_case(binary, source, entry, timeout):
     start = time.monotonic(); runner = engine = None; records = []; phase = "parse"
+    pending_error = None
     result = {"id": entry["id"], "path": entry["path"], "passed_records": 0, "skipped_records": 0,
               "attempted_records": 0, "unreached_source_records": None}
     with tempfile.TemporaryDirectory(prefix="ddb-upstream-case-") as scratch:
@@ -83,11 +84,23 @@ def run_case(binary, source, entry, timeout):
                 result.update(status="incomplete", failure_class="conditional_skip")
         except Exception as error:
             result.update(status="failed", failure_class=failure_class(error, engine and engine.engine_unsupported_seen, phase), reason=str(error)[:2000])
+        except BaseException as error:
+            pending_error = error
+            raise
         finally:
             if runner:
                 result.update(evidence(records, runner.line), passed_records=runner.passed, skipped_records=runner.skipped,
                               attempted_records=engine.sql_requests, worker_requests=engine.worker_requests)
-            if engine: engine.close()
+            if engine:
+                try:
+                    engine.close()
+                except Exception as cleanup_error:
+                    if pending_error is not None:
+                        raise pending_error from cleanup_error
+                    result["cleanup_error"] = str(cleanup_error)[:2000]
+                    if result.get("status") != "failed":
+                        result.update(status="failed", failure_class="setup",
+                                      reason="worker cleanup failed: " + str(cleanup_error)[:2000])
     if "source_sql_records" in result:
         repeated = any(r.words[0] in ("loop", "foreach", "concurrentloop", "concurrentforeach") for r in records)
         if repeated:
@@ -599,7 +612,7 @@ def main():
         rust_build, binary = worker_build(args.debug_worker)
     source_hash = worker_source_digest()
     targets = ("development", "release") if args.target == "both" else (args.target,)
-    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "worker_provenance": provenance if args.worker else None, "rust_source_sha256": source_hash, "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "worker_protocol.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "campaign_kind": "selected-feedback" if feedback_paths else "suite-campaign", "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign." + (" Selected-feedback is deliberately not full-suite acceptance." if feedback_paths else "")}
+    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "worker_provenance": provenance if args.worker else None, "rust_source_sha256": source_hash, "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "worker_protocol.py", "secure_scratch.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "campaign_kind": "selected-feedback" if feedback_paths else "suite-campaign", "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign." + (" Selected-feedback is deliberately not full-suite acceptance." if feedback_paths else "")}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with journal.open("x") as progress:
         progress.write(json.dumps({"event": "started", "metadata": report}) + "\n"); progress.flush()

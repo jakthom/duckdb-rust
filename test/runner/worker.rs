@@ -4,11 +4,57 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{
     collections::BTreeMap,
+    ffi::OsString,
     hash::{BuildHasher, Hasher},
     io::{self, BufRead, Write},
     path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
 };
+
+/// Test-worker-only startup configuration.  The parent transport supplies this
+/// before it opens its JSON-lines protocol, so the worker's cwd is fixed before
+/// any database or thread can observe it.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn working_directory_from_values(
+    values: impl IntoIterator<Item = OsString>,
+) -> Result<Option<PathBuf>> {
+    let mut values = values.into_iter();
+    let Some(flag) = values.next() else {
+        return Ok(None);
+    };
+    if flag != "--working-directory" {
+        return Err(Error::Execution(
+            "unknown test worker startup argument".into(),
+        ));
+    }
+    let Some(path) = values.next() else {
+        return Err(Error::Execution(
+            "--working-directory requires an absolute directory".into(),
+        ));
+    };
+    if values.next().is_some() {
+        return Err(Error::Execution(
+            "duplicate or unknown test worker startup argument".into(),
+        ));
+    }
+    let path = PathBuf::from(path);
+    if !path.is_absolute() {
+        return Err(Error::Execution(
+            "--working-directory requires an absolute directory".into(),
+        ));
+    }
+    if !path.is_dir() {
+        return Err(Error::Execution(
+            "--working-directory requires an existing directory".into(),
+        ));
+    }
+    Ok(Some(path))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn working_directory_from_args() -> Result<Option<PathBuf>> {
+    working_directory_from_values(std::env::args_os().skip(1))
+}
 
 #[derive(Deserialize)]
 struct Request {
@@ -350,6 +396,10 @@ fn error_response(error: Error) -> serde_json::Value {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn main() -> Result<()> {
+    let flagged_startup = working_directory_from_args()?;
+    if let Some(path) = flagged_startup.as_ref() {
+        std::env::set_current_dir(path)?;
+    }
     let mut session = Session {
         database: Some(Database::memory()?),
         named_databases: BTreeMap::new(),
@@ -357,6 +407,10 @@ fn main() -> Result<()> {
         read_only: false,
         connections: BTreeMap::new(),
     };
+    if flagged_startup.is_some() {
+        println!("{{\"ready\":true}}");
+        io::stdout().flush()?;
+    }
     for line in io::stdin().lock().lines() {
         let result = serde_json::from_str::<Request>(&line?)
             .map_err(|error| Error::Parse(error.to_string()))
@@ -378,6 +432,42 @@ mod tests {
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn request(value: serde_json::Value) -> Request {
         serde_json::from_value(value).unwrap()
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn working_directory_flag_is_strict_and_unflagged_protocol_remains_available() {
+        assert_eq!(
+            working_directory_from_values(Vec::<OsString>::new()).unwrap(),
+            None
+        );
+        for values in [
+            vec![OsString::from("--unknown")],
+            vec![OsString::from("--working-directory")],
+            vec![
+                OsString::from("--working-directory"),
+                OsString::from("relative"),
+            ],
+            vec![
+                OsString::from("--working-directory"),
+                OsString::from("/does-not-exist"),
+            ],
+            vec![
+                OsString::from("--working-directory"),
+                std::env::temp_dir().into_os_string(),
+                OsString::from("extra"),
+            ],
+        ] {
+            assert!(working_directory_from_values(values).is_err());
+        }
+        assert_eq!(
+            working_directory_from_values(vec![
+                OsString::from("--working-directory"),
+                std::env::temp_dir().into_os_string()
+            ])
+            .unwrap(),
+            Some(std::env::temp_dir())
+        );
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

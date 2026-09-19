@@ -537,13 +537,13 @@ implementation of Batch 3 still follows Batch 2 acceptance.
 Batch 1 stays accepted. Batch 2's native WAL continuation and atomic first-
 transaction publication pass scoped verification and both-pin native oracles at
 `d5d19ac`; empty-WAL read elision passes114 affected tests at `36a0293`.
-CSV candidate10 and F1 performance are accepted at their tested inputs. Compiled
-lifecycle still misses1.25%; the independent proxy gate exposes startup/memory
-failures. Python import separation at `b49d0d4` passes53 tests and actual-source
-replay, improves performance, and still fails parity. Cast-registry sharing at
-`d574c2b` passes221 scoped Rust tests; immutable Record startup at `b48d28f`
-passes75 Python tests. Further source replay is repairing typed Python oracle
-gaps before fresh performance measurement; Batch 2 acceptance remains open.
+Compiled A2 now passes all five workload gates at `9e5418f`, including lifecycle
+at0.953 of the faster pin. CSV and all six other affected compiled process
+families also pass. The independent Python proxy still fails four of five
+workload gates; Batch 2 acceptance remains open. The next startup repair passes
+configured partial verification (150 Python, six worker and one temporal test,
+plus lint/coverage/tracing); release replay and fresh proxy performance follow.
+Unchanged compiled/native evidence is retained under the impact-scope policy.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -843,23 +843,57 @@ identities (`a2-proxy-bool-oracle-verifier/`), and continuation3 passes all twel
 affected Python/upstream stages. Combined preparation receipt is
 `a2-cast-record-preparation/final1.json`; the current engine source digest is
 `6df7a5907cc8af009aeb4229b39040fede402bdcb1791e4deb42fd7dd5e09ea7`.
-No fixture is reduced and performance remains open pending the reserved serial
-cast/Record candidate1 campaign.
+The cast/Record candidate1 campaign at `9e5418f` passes compiled A2 five of five
+and all seven affected compiled process commands, including both CSV workloads
+and regex. Compiled A2 latency ratios are0.298/0.148/0.953/0.871/0.583; CPU,
+RSS, I/O and throughput gates pass independently. The actual Python proxy fails
+four of five aggregate gates: small/lifecycle/readonly latency and small/large
+RSS remain over the faster reference. Preserve all samples and final exit1 in
+`remaining-cast-record-candidate1-stage-logs/`; pending B1/COUNT did not run.
+
+The bounded startup repair at baseline `9e5418f` owns
+`scripts/{measure_sqllogic_proxy,proxy_once_core,secure_scratch,worker_protocol,
+run_upstream}.py`, their four affected test files and `test/runner/worker.rs`.
+It adds a strict attested once-job entry, descriptor-relative scratch storage,
+public POSIX spawn with a Popen fallback, bounded request writes, and a flagged
+worker cwd/ready contract. Existing unflagged worker behavior remains covered.
+The reviewed partial manifest is `target/batch2/a2-startup-integration-manifest.md`;
+exact commands, upstream IDs, source/helper hashes, exclusions and unchanged
+five-workload performance obligations are recorded there and in
+`a2-startup-frozen-inputs.json`. Configured `a2-startup-verifier1/` passes148/148
+Python,6/6 worker,1/1 temporal tests, production Clippy, formatting, coverage with
+no missing instrumentation, and trace checks with stable frozen inputs. Full
+engine, recovery and Kani suites are not applicable: native durability and
+maintained proof invariants are unchanged. Release preparation builds the worker successfully, then actual standalone
+replay catches a string-to-Path provenance boundary error. Preserve that failure
+in `a2-startup-preparation/run1/`. The correction and a descriptor double-close
+regression pass150/150 configured Python checks with stable inputs in
+`a2-startup-verifier2/`; unchanged Rust checks/build remain valid. Exact delta
+manifest and identities are `a2-startup-correction-manifest.md` and
+`a2-startup-correction-frozen-inputs.json`. Run2 passes all41 stages:30 actual
+proxy invocations (five workloads across three entry modes and two transports),
+both pinned upstream selections (eight files, zero skips), two stale-attestation
+negatives, five invalid worker-argument cases, flagged zero-query readiness and
+unflagged query42. It retains the validated release build from run1. Source,
+helper, driver and fixture hashes stay stable; performance remains open pending
+the fresh startup proxy campaign. The compiled runner, shell and native engine are unchanged, so their
+recorded acceptance evidence is retained rather than rerun for an aggregate
+worker source hash change. No workload, assertion or resource gate is reduced.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: native WAL and empty-WAL repairs pass scoped checks; CSV candidate10/F1 accepted at tested inputs. At `36a0293`, compiled lifecycle fails1.25%. Proxy import separation at `b49d0d4` passes53 Python tests and actual cases, improves timing/memory, but all five aggregate workload gates still fail. Cast-only registry sharing and further Python startup work are active. Revalidate their affected consumers, measure both independent A2 gates plus affected CSV/F1, then pending B1/COUNT. Keep failed runs and unaffected evidence. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: compiled A2 all five and all seven affected compiled process commands pass at `9e5418f`; native WAL/recovery evidence remains valid. Python proxy fails four of five workload gates. New startup repair passes configured150 Python,6 worker,1 temporal tests plus scoped static checks; release replay and fresh proxy gate follow, then pending B1/COUNT. Keep failed runs and unaffected evidence. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** finish the cast-only registry repair
-under `target/batch2/a2-registry-sharing-manifest.md` and the separately scoped
-Python startup work. The configured verifier owns each applicable partial sweep;
-source replay and release preparation follow. Measure affected lifecycle/proxy
-and CSV/F1 workloads with unchanged fixtures/pins/gates before pending B1 and
-COUNT acceptance. Native WAL/recovery publication remains unchanged; retain its
+**Immediate carryover, before Batch 3:** complete release startup replay under
+`target/batch2/a2-startup-integration-manifest.md`, then measure all five actual
+Python proxy workloads with unchanged fixtures/pins/resource gates under
+`target/batch2/a2-startup-performance-candidate1-manifest.json`. Configured partial
+verification has passed. Retain accepted compiled A2 and process consumer gates;
+finish pending B1 and COUNT acceptance after the proxy passes. Native WAL/recovery publication remains unchanged; retain its
 prior scoped evidence with source identities. User paused activity; keep final
 timing serial on a quiet host and leave apps running. Batch 3 implementation
 follows Batch 2 acceptance.
