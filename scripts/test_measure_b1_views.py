@@ -246,6 +246,10 @@ class DurableViewMeasurementTests(unittest.TestCase):
         self.assertIn("--read-only", rust)
         self.assertNotIn("--durability", rust)
 
+    def test_json_result_accepts_cpp_hugeint_string(self):
+        # Both pinned C++ CLIs serialize SUM(BIGINT), a HUGEINT, as this string.
+        m.json_row('[{"row_count":10000,"checksum":"49995000"}]')
+
     def test_json_result_rejects_shape_type_and_value_changes(self):
         m.json_row(CHECKSUM)
         bad = (
@@ -253,6 +257,11 @@ class DurableViewMeasurementTests(unittest.TestCase):
             '[{"row_count":10000}]',
             '[{"row_count":"10000","checksum":49995000}]',
             '[{"row_count":true,"checksum":49995000}]',
+            '[{"row_count":10000.0,"checksum":49995000}]',
+            '[{"row_count":10000,"checksum":true}]',
+            '[{"row_count":10000,"checksum":49995000.0}]',
+            '[{"row_count":10000,"checksum":"049995000"}]',
+            '[{"row_count":10000,"checksum":"49995000.0"}]',
             '[{"row_count":10000,"checksum":1}]',
         )
         for value in bad:

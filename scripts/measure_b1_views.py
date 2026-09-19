@@ -396,15 +396,17 @@ def json_row(stdout):
         data = json.loads(stdout)
     except json.JSONDecodeError as error:
         raise ValueError("CLI did not emit JSON") from error
-    wanted = {"row_count": 10000, "checksum": 49995000}
+    wanted = {"row_count", "checksum"}
     if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
         raise ValueError("CLI JSON must contain exactly one row")
-    if set(data[0]) != set(wanted):
+    if set(data[0]) != wanted:
         raise ValueError("CLI JSON metadata changed")
-    if any(
-        isinstance(data[0][key], bool) or data[0][key] != value
-        for key, value in wanted.items()
-    ):
+    row_count = data[0]["row_count"]
+    checksum = data[0]["checksum"]
+    checksum_matches = (type(checksum) is int and checksum == 49995000) or (
+        type(checksum) is str and checksum == "49995000"
+    )
+    if type(row_count) is not int or row_count != 10000 or not checksum_matches:
         raise ValueError("unexpected checksum JSON")
 
 
