@@ -818,13 +818,27 @@ Batch 2 evidence/restart details:
   directions on both pins; these are worker feedback, not final integrated
   acceptance. Engine source is integrated as `fc905a8`, including corrected
   schema-qualified recursion, duplicate output names, required DROP errors and
-  wide numeric literals. Focused torn/corrupt view-WAL and cross-catalog native
-  rejection coverage is being added before final verification. The durable
+  wide numeric literals. Native delta `51b690a` adds focused torn/corrupt
+  view-WAL atomicity and rejects legacy/new cross-catalog sources instead of
+  silently rebinding locally; both focused worker tests pass. Both exact pin
+  cross-catalog files are rejected, and standardized private-development
+  selected feedback now passes21 records. The durable
   performance adapter is assigned independently to Terra/medium in
   `../duckdb-rust-batch2-b1-durable` / `codex/batch2-b1-durable`, owning only
   the new durable measurement script/tests/manifest. Fixed 10k-row view and
   direct-table controls cover checkpoint and WAL create/reopen/query/drop;
   no timing before review and quiet-host authorization.
+
+- Current restart constraint: the session agent-thread limit prevents resuming
+  the configured Terra/low verifier or creating a replacement. No alternate
+  verifier has been authorized and no independent integrated pass is claimed.
+  Frozen engine is `51b690a`; reviewed partial command manifest:
+  `target/batch2/integrated-b1-f2-partial.md`. Existing Terra/medium preparation
+  may build fresh release binaries and collect untimed original-source/fixture
+  evidence; it must not substitute for the verifier. The B1 Sol/high owner is
+  correcting the separate durable adapter after two failed tooling review
+  cycles; commits through worker `c0413c0` are prototypes, not accepted or
+  integrated. Batch 3 remains queued until Batch 2 is actually accepted.
   Both pins allow DROP TABLE/VIEW despite dependent views, so do not invent
   blocking dependencies; root observations are
   `target/batch2/b1-reference-observations.md`. Functional/performance acceptance
