@@ -163,6 +163,9 @@ impl ScalarFunction for Builtin {
             )
             .map(Some);
         }
+        if let Some(output) = packed_utf8_lengths(column, query)? {
+            return Ok(Some(output));
+        }
         if let Some(values) = column.flat_values() {
             let values = values.iter().enumerate().map(|(index, value)| {
                 if index % 1024 == 0 {
@@ -176,6 +179,9 @@ impl ScalarFunction for Builtin {
         }
         if column.dictionary().is_some() {
             let output = column.map_dictionary_parent(DataType::BigInt, |parent| {
+                if let Some(output) = packed_utf8_lengths(parent, query)? {
+                    return Ok(output);
+                }
                 let values = parent.values().enumerate().map(|(index, value)| {
                     if index % 1024 == 0 {
                         query.check()?;
@@ -235,15 +241,37 @@ impl ScalarFunction for Builtin {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_utf8_lengths(column: &Vector, query: &QueryContext) -> Result<Option<Vector>> {
+    let Some(values) = column.flat_utf8() else {
+        return Ok(None);
+    };
+    let lengths = values.iter().enumerate().map(|(index, value)| {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        value.map(varchar_length).transpose()
+    });
+    let output = Vector::try_bigints(lengths)?;
+    query.check()?;
+    Ok(Some(output))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn length_value(value: &Value) -> Result<Option<i64>> {
     let length = match value {
         Value::Null => return Ok(None),
         Value::Bit(value) => value.length(),
-        Value::Varchar(value) => value.chars().count(),
+        Value::Varchar(value) => return varchar_length(value).map(Some),
         _ => return Err(Error::Internal("length argument has wrong type".into())),
     };
     i64::try_from(length)
         .map(Some)
+        .map_err(|_| Error::Resource("VARCHAR length exceeds BIGINT".into()))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn varchar_length(value: &str) -> Result<i64> {
+    i64::try_from(value.chars().count())
         .map_err(|_| Error::Resource("VARCHAR length exceeds BIGINT".into()))
 }
 
@@ -368,6 +396,67 @@ mod tests {
             output.values().collect::<Vec<_>>(),
             vec![Value::Integer(3); 2]
         );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn length_batch_borrows_packed_utf8_slices_and_dictionaries() -> Result<()> {
+        let query = QueryContext::background();
+        let length = Builtin("length");
+        let arena = Arc::new(String::from("é|a\0🦆|tail"));
+        let range = |text: &str| {
+            let start = arena.find(text).expect("test substring");
+            start..start + text.len()
+        };
+        let empty = arena.find('|').expect("test delimiter");
+        let packed = Vector::packed_utf8(
+            arena.clone(),
+            vec![
+                Some(range("é")),
+                None,
+                Some(range("a\0🦆")),
+                Some(empty..empty),
+            ],
+        )?;
+        let output = length
+            .evaluate_batch(&DataChunk::new(vec![packed.slice(0, 4)?], 4)?, &query)?
+            .expect("packed length batch callback");
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(1),
+                Value::Null,
+                Value::Integer(3),
+                Value::Integer(0),
+            ]
+        );
+
+        let selected = Arc::new(packed).select(vec![2, 0, 1, 3])?;
+        let output = length
+            .evaluate_batch(&DataChunk::new(vec![selected], 4)?, &query)?
+            .expect("selected packed length callback");
+        assert!(output.dictionary().is_some());
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer(3),
+                Value::Integer(1),
+                Value::Null,
+                Value::Integer(0),
+            ]
+        );
+
+        let cancelled_arena = Arc::new(String::from("x"));
+        let cancelled_input =
+            Vector::packed_utf8(cancelled_arena, (0..2051).map(|_| Some(0..1)).collect())?;
+        let interrupt = crate::parallel::InterruptHandle::default();
+        let cancelled = QueryContext::new(interrupt.clone(), None, 1, 1)?;
+        interrupt.interrupt();
+        assert!(matches!(
+            length.evaluate_batch(&DataChunk::new(vec![cancelled_input], 2051)?, &cancelled),
+            Err(Error::Interrupted)
+        ));
         Ok(())
     }
 }

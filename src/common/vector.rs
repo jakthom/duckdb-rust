@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use super::{DataType, Error, Result, Row, Value};
 
@@ -18,6 +18,9 @@ enum Encoding {
     /// consulting the bitmap.
     FlatNullableSigned(SignedLanes, Arc<Vec<u64>>),
     FlatDecimalI64(Arc<Vec<i64>>),
+    /// VARCHAR payloads share one immutable UTF-8 arena. Row-order ranges may
+    /// overlap or interleave other columns; `None` alone represents SQL NULL.
+    FlatUtf8(Arc<String>, Arc<[Option<Range<usize>>]>),
     Constant(Value),
     Dictionary(Arc<Vector>, Arc<[usize]>),
     /// Immutable table storage retains CTAS batches without first copying all
@@ -59,6 +62,34 @@ pub(crate) struct NullableBigIntView<'a> {
     values: &'a [i64],
     validity: &'a [u64],
     validity_offset: usize,
+}
+
+/// A borrowed logical slice of validated packed VARCHAR storage. The arena is
+/// UTF-8 and every retained range has checked character boundaries, so access
+/// can return `&str` without allocation or unsafe conversion.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FlatUtf8<'a> {
+    arena: &'a str,
+    ranges: &'a [Option<Range<usize>>],
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl<'a> FlatUtf8<'a> {
+    pub(crate) fn len(self) -> usize {
+        self.ranges.len()
+    }
+
+    /// `None` is out of bounds; the boolean is false only for SQL NULL.
+    pub(crate) fn is_valid(self, index: usize) -> Option<bool> {
+        self.ranges.get(index).map(Option::is_some)
+    }
+
+    pub(crate) fn iter(self) -> impl ExactSizeIterator<Item = Option<&'a str>> + 'a {
+        let arena = self.arena;
+        self.ranges
+            .iter()
+            .map(move |range| range.as_ref().map(|range| &arena[range.clone()]))
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -369,6 +400,10 @@ fn same_flat_backing(left: &Encoding, right: &Encoding) -> bool {
         (Encoding::FlatDecimalI64(left), Encoding::FlatDecimalI64(right)) => {
             Arc::ptr_eq(left, right)
         }
+        (
+            Encoding::FlatUtf8(left_arena, left_ranges),
+            Encoding::FlatUtf8(right_arena, right_ranges),
+        ) => Arc::ptr_eq(left_arena, right_arena) && Arc::ptr_eq(left_ranges, right_ranges),
         _ => false,
     }
 }
@@ -446,6 +481,7 @@ impl Vector {
                     | Encoding::FlatSigned(_)
                     | Encoding::FlatNullableSigned(_, _)
                     | Encoding::FlatDecimalI64(_)
+                    | Encoding::FlatUtf8(_, _)
             )
         {
             let mut end = first.offset;
@@ -698,6 +734,36 @@ impl Vector {
             numeric_ascending: false,
         })
     }
+    /// Construct plain VARCHAR storage whose payloads borrow one immutable
+    /// UTF-8 arena. Ranges are in logical row order but need not be monotonic,
+    /// contiguous or disjoint: a row-major producer can share one arena among
+    /// several columns without copying their fields into column arenas.
+    pub(crate) fn packed_utf8(
+        arena: Arc<String>,
+        ranges: Vec<Option<Range<usize>>>,
+    ) -> Result<Self> {
+        for range in ranges.iter().flatten() {
+            if range.start > range.end
+                || range.end > arena.len()
+                || !arena.is_char_boundary(range.start)
+                || !arena.is_char_boundary(range.end)
+            {
+                return Err(Error::Internal(
+                    "packed VARCHAR range is invalid or splits UTF-8".into(),
+                ));
+            }
+        }
+        let all_valid = ranges.iter().all(Option::is_some);
+        let count = ranges.len();
+        Ok(Self {
+            data_type: DataType::Varchar,
+            encoding: Encoding::FlatUtf8(arena, ranges.into()),
+            offset: 0,
+            count,
+            all_valid,
+            numeric_ascending: false,
+        })
+    }
     pub fn flat(data_type: DataType, values: Vec<Value>) -> Result<Self> {
         let mut all_valid = true;
         let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
@@ -910,6 +976,11 @@ impl Vector {
                     _ => unreachable!("decimal physical lane requires decimal type"),
                 })
             }
+            Encoding::FlatUtf8(arena, ranges) => ranges.get(index).map(|range| {
+                range.as_ref().map_or(Value::Null, |range| {
+                    Value::Varchar(arena[range.clone()].to_owned())
+                })
+            }),
             Encoding::Constant(v) => Some(v.clone()),
             Encoding::Dictionary(v, s) => s.get(index).and_then(|&i| v.value(i)),
             Encoding::Chunks(chunks, offsets) => {
@@ -960,6 +1031,15 @@ impl Vector {
                 validity,
                 output,
             ),
+            Encoding::FlatUtf8(arena, ranges) => output.extend(
+                ranges[self.offset..self.offset + self.count]
+                    .iter()
+                    .map(|range| {
+                        range.as_ref().map_or(Value::Null, |range| {
+                            Value::Varchar(arena[range.clone()].to_owned())
+                        })
+                    }),
+            ),
             Encoding::Constant(value) => {
                 output.extend(std::iter::repeat_n(value, self.count).cloned())
             }
@@ -988,6 +1068,18 @@ impl Vector {
     pub fn flat_values(&self) -> Option<&[Value]> {
         match &self.encoding {
             Encoding::FlatValues(values) => Some(&values[self.offset..self.offset + self.count]),
+            _ => None,
+        }
+    }
+    /// Borrow the exact logical range of an ordinary packed VARCHAR view.
+    /// Selected, constant and chunked encodings retain their generic access
+    /// paths; immediate dictionary consumers may map the packed parent once.
+    pub(crate) fn flat_utf8(&self) -> Option<FlatUtf8<'_>> {
+        match &self.encoding {
+            Encoding::FlatUtf8(arena, ranges) => Some(FlatUtf8 {
+                arena,
+                ranges: &ranges[self.offset..self.offset + self.count],
+            }),
             _ => None,
         }
     }
@@ -1082,7 +1174,9 @@ impl Vector {
                         chunk.signed_i64_at(index - offsets[segment])
                     })
             }
-            Encoding::FlatDouble(_) | Encoding::FlatDecimalI64(_) => SignedI64At::Unsupported,
+            Encoding::FlatDouble(_) | Encoding::FlatDecimalI64(_) | Encoding::FlatUtf8(_, _) => {
+                SignedI64At::Unsupported
+            }
         }
     }
     /// Read one logical BOOLEAN without constructing or cloning a `Value`.
@@ -1107,7 +1201,8 @@ impl Vector {
             Encoding::FlatDouble(_)
             | Encoding::FlatSigned(_)
             | Encoding::FlatNullableSigned(_, _)
-            | Encoding::FlatDecimalI64(_) => None,
+            | Encoding::FlatDecimalI64(_)
+            | Encoding::FlatUtf8(_, _) => None,
         }
     }
     /// Borrow the compact physical coefficients for a flat DECIMAL(1..=18)
@@ -1175,6 +1270,119 @@ fn numeric_le(left: &Value, right: &Value) -> bool {
 #[cfg(test)]
 mod physical_tests {
     use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn packed_utf8_validates_ranges_and_preserves_views_materialization_and_shared_ownership()
+    -> Result<()> {
+        let arena = Arc::new(String::from("prefix|é|a\0🦆|suffix"));
+        let range = |text: &str| {
+            let start = arena.find(text).expect("test substring");
+            start..start + text.len()
+        };
+        let empty = arena.find('|').expect("test delimiter");
+        let packed = Vector::packed_utf8(
+            arena.clone(),
+            vec![
+                Some(range("suffix")),
+                None,
+                Some(range("é")),
+                Some(empty..empty),
+                Some(range("a\0🦆")),
+                Some(range("é")),
+            ],
+        )?;
+        assert!(!packed.all_valid());
+        assert_eq!(
+            packed
+                .flat_utf8()
+                .expect("packed flat view")
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![
+                Some("suffix"),
+                None,
+                Some("é"),
+                Some(""),
+                Some("a\0🦆"),
+                Some("é")
+            ]
+        );
+        assert_eq!(
+            packed.values().collect::<Vec<_>>(),
+            vec![
+                Value::Varchar("suffix".into()),
+                Value::Null,
+                Value::Varchar("é".into()),
+                Value::Varchar(String::new()),
+                Value::Varchar("a\0🦆".into()),
+                Value::Varchar("é".into()),
+            ]
+        );
+
+        let sliced = packed.slice(1, 4)?;
+        assert_eq!(
+            sliced
+                .flat_utf8()
+                .expect("sliced packed view")
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![None, Some("é"), Some(""), Some("a\0🦆")]
+        );
+        let selected = Arc::new(packed.clone()).select(vec![4, 0, 1, 2])?;
+        assert!(selected.flat_utf8().is_none());
+        assert_eq!(
+            selected.values().collect::<Vec<_>>(),
+            vec![
+                Value::Varchar("a\0🦆".into()),
+                Value::Varchar("suffix".into()),
+                Value::Null,
+                Value::Varchar("é".into()),
+            ]
+        );
+
+        let contiguous = Vector::concatenate(
+            DataType::Varchar,
+            &[packed.slice(0, 2)?, packed.slice(2, 2)?],
+        )?;
+        assert!(contiguous.flat_utf8().is_some());
+        assert_eq!(
+            contiguous.values().collect::<Vec<_>>(),
+            packed.slice(0, 4)?.values().collect::<Vec<_>>()
+        );
+
+        let chunked = Vector::chunked(
+            DataType::Varchar,
+            vec![packed.slice(0, 3)?, packed.slice(3, 3)?],
+        )?;
+        assert!(chunked.flat_utf8().is_none());
+        assert!(chunked.slice(3, 2)?.flat_utf8().is_some());
+        assert_eq!(
+            chunked.values().collect::<Vec<_>>(),
+            packed.values().collect::<Vec<_>>()
+        );
+
+        let primary = Vector::packed_utf8(
+            arena.clone(),
+            vec![Some(range("prefix")), Some(range("suffix"))],
+        )?;
+        let sibling = Vector::packed_utf8(arena.clone(), vec![Some(range("é")), None])?;
+        let chunk = DataChunk::new(vec![primary, sibling], 2)?;
+        let retained = chunk.project(&[1])?;
+        drop(chunk);
+        drop(arena);
+        assert_eq!(
+            retained.columns()[0].value(0),
+            Some(Value::Varchar("é".into()))
+        );
+        assert_eq!(retained.columns()[0].value(1), Some(Value::Null));
+
+        let utf8 = Arc::new(String::from("é"));
+        assert!(Vector::packed_utf8(utf8.clone(), vec![Some(2..1)]).is_err());
+        assert!(Vector::packed_utf8(utf8.clone(), vec![Some(0..3)]).is_err());
+        assert!(Vector::packed_utf8(utf8, vec![Some(1..2)]).is_err());
+        Ok(())
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn decimal(value: i128, width: u8) -> Value {

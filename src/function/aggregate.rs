@@ -206,6 +206,11 @@ impl AggregateState for State {
         {
             return self.count_flat_values(values, context);
         }
+        if self.name == "count"
+            && let Some(values) = column.flat_utf8()
+        {
+            return self.count_flat_utf8(values, context);
+        }
         if self.name == "sum" && self.sum_repeated(column, context)? {
             return Ok(());
         }
@@ -361,6 +366,27 @@ impl AggregateState for State {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State {
+    /// Packed VARCHAR validity is carried by the row ranges. COUNT does not
+    /// need to decode or materialize their string payloads.
+    fn count_flat_utf8(
+        &mut self,
+        values: crate::common::vector::FlatUtf8<'_>,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<()> {
+        for start in (0..values.len()).step_by(1024) {
+            context.check()?;
+            let end = values.len().min(start.saturating_add(1024));
+            let count = (start..end)
+                .filter(|&index| values.is_valid(index) == Some(true))
+                .count() as i128;
+            self.count = self
+                .count
+                .checked_add(count)
+                .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+        }
+        context.check()
+    }
+
     /// Nullable flat columns already expose their authoritative values in
     /// logical order. COUNT only needs the validity represented by NULL, so it
     /// can borrow those values instead of cloning heap-owning payloads.
@@ -843,6 +869,119 @@ mod reduction_tests {
             Err(Error::Interrupted)
         ));
         assert_eq!(state.count, 0);
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn packed_utf8_count_checks_nulls_slices_overflow_and_cancellation() -> Result<()> {
+        let query = crate::parallel::QueryContext::background();
+        let arena = Arc::new(String::from("é\0x"));
+        let ranges = (0..2051)
+            .map(|index| (index % 5 != 0).then_some(0..2))
+            .collect::<Vec<_>>();
+        let packed = crate::common::vector::Vector::packed_utf8(arena.clone(), ranges)?;
+        let expected = packed
+            .flat_utf8()
+            .expect("packed utf8")
+            .iter()
+            .filter(Option::is_some)
+            .count() as i128;
+        let mut state = State {
+            name: "count",
+            data_type: DataType::BigInt,
+            count: 0,
+            value: Value::Null,
+            seen: false,
+        };
+        state.update_column(&packed, &query)?;
+        assert_eq!(state.count, expected);
+
+        let sliced = packed.slice(17, 2027)?;
+        let expected = sliced
+            .flat_utf8()
+            .expect("sliced packed utf8")
+            .iter()
+            .filter(Option::is_some)
+            .count() as i128;
+        let mut state = State {
+            name: "count",
+            data_type: DataType::BigInt,
+            count: 0,
+            value: Value::Null,
+            seen: false,
+        };
+        state.update_column(&sliced, &query)?;
+        assert_eq!(state.count, expected);
+
+        let selected = Arc::new(packed.clone()).select(vec![4, 0, 1, 2, 4])?;
+        let mut selected_state = State {
+            name: "count",
+            data_type: DataType::BigInt,
+            count: 0,
+            value: Value::Null,
+            seen: false,
+        };
+        selected_state.update_column(&selected, &query)?;
+        assert_eq!(selected_state.count, 4);
+
+        let all_valid = crate::common::vector::Vector::packed_utf8(
+            arena.clone(),
+            vec![Some(0..2), Some(0..2)],
+        )?;
+        let mut all_valid_state = State {
+            name: "count",
+            data_type: DataType::BigInt,
+            count: 0,
+            value: Value::Null,
+            seen: false,
+        };
+        all_valid_state.update_column(&all_valid, &query)?;
+        assert_eq!(all_valid_state.count, 2);
+
+        let all_null =
+            crate::common::vector::Vector::packed_utf8(arena.clone(), vec![None, None, None])?;
+        state.update_column(&all_null, &query)?;
+        assert_eq!(state.count, expected);
+        state.update_column(&all_null.slice(0, 0)?, &query)?;
+        assert_eq!(state.count, expected);
+
+        let nullable_one =
+            crate::common::vector::Vector::packed_utf8(arena, vec![Some(0..2), None])?;
+        let mut overflow = State {
+            name: "count",
+            data_type: DataType::BigInt,
+            count: i128::MAX,
+            value: Value::Null,
+            seen: false,
+        };
+        assert!(matches!(
+            overflow.update_column(&nullable_one, &query),
+            Err(Error::Execution(message)) if message == "aggregate count overflow"
+        ));
+        assert_eq!(overflow.count, i128::MAX);
+
+        let interrupt = crate::parallel::InterruptHandle::default();
+        let cancelled = crate::parallel::QueryContext::new(interrupt.clone(), None, 1, 1)?;
+        interrupt.interrupt();
+        let mut cancelled_state = State {
+            name: "count",
+            data_type: DataType::BigInt,
+            count: 0,
+            value: Value::Null,
+            seen: false,
+        };
+        assert!(matches!(
+            cancelled_state.update_column(&packed, &cancelled),
+            Err(Error::Interrupted)
+        ));
+        assert_eq!(cancelled_state.count, 0);
+        let empty =
+            crate::common::vector::Vector::packed_utf8(Arc::new(String::new()), Vec::new())?;
+        assert!(matches!(
+            cancelled_state.update_column(&empty, &cancelled),
+            Err(Error::Interrupted)
+        ));
         Ok(())
     }
 }
