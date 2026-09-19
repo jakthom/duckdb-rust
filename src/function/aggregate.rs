@@ -201,6 +201,11 @@ impl AggregateState for State {
                 .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
             return Ok(());
         }
+        if self.name == "count"
+            && let Some(values) = column.flat_values()
+        {
+            return self.count_flat_values(values, context);
+        }
         if self.name == "sum" && self.sum_repeated(column, context)? {
             return Ok(());
         }
@@ -356,6 +361,25 @@ impl AggregateState for State {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State {
+    /// Nullable flat columns already expose their authoritative values in
+    /// logical order. COUNT only needs the validity represented by NULL, so it
+    /// can borrow those values instead of cloning heap-owning payloads.
+    fn count_flat_values(
+        &mut self,
+        values: &[Value],
+        context: &crate::parallel::QueryContext,
+    ) -> Result<()> {
+        for block in values.chunks(1024) {
+            context.check()?;
+            let count = block.iter().filter(|value| !value.is_null()).count() as i128;
+            self.count = self
+                .count
+                .checked_add(count)
+                .ok_or_else(|| Error::Execution("aggregate count overflow".into()))?;
+        }
+        context.check()
+    }
+
     /// Dictionary BIGINT selections can retain their parent physical lane.
     /// Declining any unproved shape preserves the scalar update/error order.
     fn sum_selected_bigints(
@@ -785,5 +809,40 @@ mod reduction_tests {
             })
             .is_none()
         );
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn borrowed_flat_count_checks_overflow_empty_input_and_cancellation() -> Result<()> {
+        let query = crate::parallel::QueryContext::background();
+        let mut overflow = State {
+            name: "count",
+            data_type: DataType::BigInt,
+            count: i128::MAX,
+            value: Value::Null,
+            seen: false,
+        };
+        assert!(matches!(
+            overflow.count_flat_values(&[Value::Varchar("x".into())], &query),
+            Err(Error::Execution(message)) if message == "aggregate count overflow"
+        ));
+        assert_eq!(overflow.count, i128::MAX);
+
+        let interrupt = crate::parallel::InterruptHandle::default();
+        let cancelled = crate::parallel::QueryContext::new(interrupt.clone(), None, 1, 1)?;
+        interrupt.interrupt();
+        let mut state = State {
+            name: "count",
+            data_type: DataType::BigInt,
+            count: 0,
+            value: Value::Null,
+            seen: false,
+        };
+        assert!(matches!(
+            state.count_flat_values(&[], &cancelled),
+            Err(Error::Interrupted)
+        ));
+        assert_eq!(state.count, 0);
+        Ok(())
     }
 }

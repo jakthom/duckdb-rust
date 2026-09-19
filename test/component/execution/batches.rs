@@ -358,6 +358,47 @@ fn aggregate_batches_match_scalar_updates_for_nulls_encodings_empty_input_and_ov
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn nullable_flat_value_count_borrows_slices_and_preserves_boundaries() -> Result<()> {
+    let function = FunctionRegistry::builtins().aggregate("count").unwrap();
+    let query = QueryContext::background();
+    let values = (0..2051)
+        .map(|index| {
+            if index % 5 == 0 {
+                Value::Null
+            } else {
+                Value::Varchar(format!("value-{index}"))
+            }
+        })
+        .collect::<Vec<_>>();
+    let flat = Vector::flat(DataType::Varchar, values)?;
+    let all_null = Vector::flat(DataType::Varchar, vec![Value::Null; 2051])?;
+    for column in [
+        flat.clone(),
+        flat.slice(17, 2027)?,
+        all_null,
+        flat.slice(0, 0)?,
+    ] {
+        let expected = column.values().filter(|value| !value.is_null()).count() as i128;
+        let count = column.len();
+        let mut state = function.create_state(&[DataType::Varchar], query.types())?;
+        state.update_batch(&DataChunk::new(vec![column], count)?, &query)?;
+        assert_eq!(state.finish()?, Value::Integer(expected));
+    }
+
+    let interrupt = InterruptHandle::default();
+    let cancelled = QueryContext::new(interrupt.clone(), None, 7, 4096)?;
+    interrupt.interrupt();
+    let count = flat.len();
+    let mut state = function.create_state(&[DataType::Varchar], query.types())?;
+    assert!(matches!(
+        state.update_batch(&DataChunk::new(vec![flat], count)?, &cancelled),
+        Err(Error::Interrupted)
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn integer_sum_batches_preserve_wide_prefixes_and_vector_views() -> Result<()> {
     let functions = FunctionRegistry::builtins();
     let sum = functions.aggregate("sum").unwrap();
