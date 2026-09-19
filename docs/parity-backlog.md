@@ -540,8 +540,10 @@ transaction publication pass scoped verification and both-pin native oracles at
 CSV candidate10 and F1 performance are accepted at their tested inputs. Compiled
 lifecycle still misses1.25%; the independent proxy gate exposes startup/memory
 failures. Python import separation at `b49d0d4` passes53 tests and actual-source
-replay, improves performance, and still fails parity. Cast-registry sharing and
-further bounded Python startup work are active; Batch 2 acceptance remains open.
+replay, improves performance, and still fails parity. Cast-registry sharing at
+`d574c2b` passes221 scoped Rust tests; immutable Record startup at `b48d28f`
+passes75 Python tests. Further source replay is repairing typed Python oracle
+gaps before fresh performance measurement; Batch 2 acceptance remains open.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -821,8 +823,28 @@ expected integer-form values versus worker shortest-FLOAT rendering. Preserve
 Focused diagnosis confirms both pinned C++ cases pass (83/82 assertions), and
 current compiled Rust passes the same39/38 records. This isolates missing Python
 numeric-oracle behavior; production cast results and221 Rust checks remain valid.
-The source-matched Python comparison repair is being scoped before continuing
-source replay. No fixture is reduced and no failed selection is called passed.
+The typed FLOAT/DOUBLE Python comparison now matches both pinned references,
+including f32 rounding, actual-based epsilon, NaN and finite-text overflow to
+infinity. Configured verification passes76 Python tests with frozen source
+identities (`a2-proxy-float-oracle-verifier/`); native boundary and overflow
+witnesses are retained under `a2-float-oracle-boundaries/evidence/`.
+Continuation1 passes all ten actual proxy invocations and reaches the next
+upstream representation gap at record23: BOOLEAN `True`/`False` versus `1`/`0`.
+Its failed report remains at `a2-cast-record-preparation/continue1/`. Typed
+BOOLEAN matching now follows the pinned helper; continuation2 passes all eight
+selected upstream cases, ten proxy invocations and nine compiled fixtures.
+Review then catches a mixed-type `valuesort` ownership bypass in the new Boolean
+fallback. The final guard and negative regression pass78 Python feedback tests
+(`a2-proxy-bool-oracle-feedback2/`) and are delegated for final scoped verification.
+Continuation2 remains evidence only for its recorded inputs; changed Python
+cases replay in continuation3 while unchanged compiled fixture evidence is
+retained. Configured BOOLEAN/FLOAT verification now passes78/78 with stable
+identities (`a2-proxy-bool-oracle-verifier/`), and continuation3 passes all twelve
+affected Python/upstream stages. Combined preparation receipt is
+`a2-cast-record-preparation/final1.json`; the current engine source digest is
+`6df7a5907cc8af009aeb4229b39040fede402bdcb1791e4deb42fd7dd5e09ea7`.
+No fixture is reduced and performance remains open pending the reserved serial
+cast/Record candidate1 campaign.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |

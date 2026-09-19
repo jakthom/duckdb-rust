@@ -50,9 +50,10 @@ class LogicTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             check_query(record, {"columns": ["VARCHAR"], "rows": [["a"], ["b"]]}, {})
 
-    def test_exact_numeric_fallback_uses_returned_type_without_tolerance(self):
+    def test_typed_numeric_fallback_matches_pinned_float_tolerance(self):
         for kind, actual, expected in [
                 ('DOUBLE', '42', '42.000000'), ('FLOAT', '-0.0', '0'),
+                ('DOUBLE', '42.1235', '42.12345'),
                 ('INTEGER', '42', '4.2e1'), ('UTINYINT', '255', '255.000'),
                 ('UHUGEINT', str(2**128-1), str(2**128-1)+'.0'),
                 ('HUGEINT', str(-2**127), str(-2**127)+'.000'),
@@ -64,7 +65,8 @@ class LogicTests(unittest.TestCase):
                         {'columns': [kind], 'rows': [[actual]]}, {})
         for kind, actual, expected in [
                 ('VARCHAR', '42', '42.000000'), ('BOOLEAN', '1', '1.0'),
-                ('BLOB', '42', '42.0'), ('DOUBLE', '42.1235', '42.12345'),
+                ('VARCHAR', '42.1235', '42.12345'), ('BLOB', '42', '42.0'),
+                ('DOUBLE', '42.1235', '43'),
                 ('INTEGER', '42', '43.0'), ('UTINYINT', '256', '256.0'),
                 ('INTEGER', '1.2', '1.20'), ('DOUBLE', 'NULL', '0'),
                 ('UTINYINT', '0', '-0.0'), ('UHUGEINT', '0.00', '-0'),
@@ -77,6 +79,25 @@ class LogicTests(unittest.TestCase):
             with self.assertRaises(AssertionError, msg=(kind, actual, expected)):
                 check_query(Record(1, ('query', 'R'), expected=(expected,)),
                             {'columns': [kind], 'rows': [[actual]]}, {})
+
+    def test_boolean_fallback_remains_narrow_and_typed(self):
+        check_query(Record(1, ('query', 'I'), expected=('True', 'False', 'unknown')),
+                    {'columns': ['BOOLEAN'], 'rows': [['1'], ['FALSE'], ['different']]}, {})
+        for actual, expected in [('1', 'FALSE'), ('0', 'true'), ('true', 'unknown')]:
+            with self.subTest(actual=actual, expected=expected), self.assertRaises(AssertionError):
+                check_query(Record(1, ('query', 'I'), expected=(expected,)),
+                            {'columns': ['BOOLEAN'], 'rows': [[actual]]}, {})
+        with self.assertRaises(AssertionError):
+            check_query(Record(1, ('query', 'I'), expected=('1',)),
+                        {'columns': ['INTEGER'], 'rows': [['true']]}, {})
+        with self.assertRaises(AssertionError):
+            check_query(Record(1, ('query', 'T'), expected=('true',)),
+                        {'columns': ['VARCHAR'], 'rows': [['1']]}, {})
+        with self.assertRaises(AssertionError):
+            check_query(Record(1, ('query', 'IT', 'valuesort'), expected=('bbb', 'true')),
+                        {'columns': ['BOOLEAN', 'VARCHAR'], 'rows': [['true', 'aaa']]}, {})
+        check_query(Record(1, ('query', 'I', 'valuesort'), expected=('false', 'true')),
+                    {'columns': ['BOOLEAN'], 'rows': [['true'], ['false']]}, {})
 
     def test_numeric_fallback_preserves_text_regex_hash_and_column_association(self):
         check_query(Record(1, ('query', 'II'), expected=('42.000\t42',)),

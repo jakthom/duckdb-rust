@@ -2,7 +2,7 @@ import copy
 import pickle
 import unittest
 
-from sqllogic import Record, Runner, Unsupported, parse
+from sqllogic import Record, Runner, Unsupported, boolean_matches, check_query, numeric_matches, parse
 
 
 class ConcurrentEngine:
@@ -30,6 +30,50 @@ class ConcurrentEngine:
 
 
 class SQLLogicSchedulingTests(unittest.TestCase):
+    def test_boolean_oracle_matches_pinned_typed_fallback(self):
+        for actual, expected in (("1", "True"), ("0", "FALSE"),
+                                 ("TrUe", "1"), ("FaLsE", "0"),
+                                 ("unknown", "also-unknown"), ("NULL", "unknown")):
+            with self.subTest(actual=actual, expected=expected):
+                self.assertTrue(boolean_matches(actual, expected))
+        for actual, expected in (("1", "false"), ("0", "true"),
+                                 ("true", "unknown"), ("false", "NULL")):
+            with self.subTest(actual=actual, expected=expected):
+                self.assertFalse(boolean_matches(actual, expected))
+        check_query(
+            Record(130, ("query", "I"), expected=("True", "False", "True")),
+            {"columns": ["BOOLEAN"], "rows": [["1"], ["0"], ["1"]]},
+            {},
+        )
+
+    def test_typed_float_oracle_matches_pinned_approx_equal(self):
+        # The worker's shortest FLOAT rendering re-casts to the fixture value.
+        self.assertTrue(numeric_matches("-2147483600", "-2147483648", "FLOAT"))
+        self.assertTrue(numeric_matches("2147483600", "2147483647", "FLOAT"))
+        self.assertTrue(numeric_matches("100", "101", "FLOAT"))
+        self.assertFalse(numeric_matches("100", "101.01", "FLOAT"))
+        # Pinned epsilon is based on the actual (right-hand C++ value).
+        self.assertTrue(numeric_matches("101.005", "100", "FLOAT"))
+        self.assertFalse(numeric_matches("100", "101.005", "FLOAT"))
+        self.assertTrue(numeric_matches("100", "101", "DOUBLE"))
+        self.assertFalse(numeric_matches("100", "101.01", "DOUBLE"))
+        self.assertTrue(numeric_matches("nan", "-NaN", "FLOAT"))
+        self.assertTrue(numeric_matches("infinity", "inf", "DOUBLE"))
+        self.assertFalse(numeric_matches("inf", "-inf", "FLOAT"))
+        self.assertTrue(numeric_matches("-0", "0", "FLOAT"))
+        self.assertFalse(numeric_matches("not-a-number", "1", "FLOAT"))
+        self.assertTrue(numeric_matches("1e100", "inf", "FLOAT"))
+        self.assertTrue(numeric_matches("1e10000", "infinity", "DOUBLE"))
+        self.assertFalse(numeric_matches("1e100", "1", "FLOAT"))
+        self.assertFalse(numeric_matches("1e10000", "-inf", "DOUBLE"))
+        self.assertFalse(numeric_matches("100", "101", "VARCHAR"))
+        self.assertTrue(numeric_matches("1.0", "1", "INTEGER"))
+        check_query(
+            Record(115, ("query", "I"), expected=("-2147483648", "0", "2147483647")),
+            {"columns": ["FLOAT"], "rows": [["-2147483600"], ["0"], ["2147483600"]]},
+            {},
+        )
+
     def test_record_is_a_frozen_value_with_dataclass_compatible_basics(self):
         record = Record(7, ("query", "I"))
         self.assertEqual((record.line, record.words, record.sql, record.expected),

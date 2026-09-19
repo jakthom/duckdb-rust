@@ -80,12 +80,9 @@ def numeric_matches(actual, expected, kind):
     """Conservative exact subset of upstream CompareValues' typed fallback.
 
     Authority is the returned logical type, not the SQLLogicTest I/R marker.
-    No tolerance, rounding, cast engine, or formatted/hash-value rewriting is
-    introduced here. Approximate FLOAT comparisons and expected values requiring
-    a lossy cast remain explicit oracle limitations.
+    Only FLOAT and DOUBLE reproduce the pinned typed conversion and approximate
+    equality rule. Other types retain exact conservative handling.
     """
-    from decimal import Decimal, InvalidOperation
-
     integer_bits = {'TINYINT': 8, 'SMALLINT': 16, 'INTEGER': 32, 'BIGINT': 64,
                     'HUGEINT': 128, 'UTINYINT': 8, 'USMALLINT': 16,
                     'UINTEGER': 32, 'UBIGINT': 64, 'UHUGEINT': 128}
@@ -99,6 +96,49 @@ def numeric_matches(actual, expected, kind):
            and not (floating and re.fullmatch(special, value, re.IGNORECASE))
            for value in (actual, expected)):
         return False
+    if kind == "FLOAT":
+        # SQLLogicTest's Value::ValuesAreEqual casts both spellings to the
+        # result type. FLOAT performs IEEE single-precision subtraction and
+        # rounds its epsilon back to f32; DOUBLE keeps binary64 arithmetic.
+        import math
+        import struct
+
+        def typed(value):
+            parsed = float(value)
+            try:
+                return struct.unpack("=f", struct.pack("=f", parsed))[0]
+            except OverflowError:
+                # DuckDB's typed cast maps finite text beyond f32 range to
+                # its signed infinity before ValuesAreEqual compares it.
+                return math.copysign(math.inf, parsed)
+
+        try:
+            actual_typed, expected_typed = typed(actual), typed(expected)
+        except (OverflowError, ValueError, struct.error):
+            return False
+        if math.isnan(actual_typed) and math.isnan(expected_typed):
+            return True
+        if not (math.isfinite(actual_typed) and math.isfinite(expected_typed)):
+            return actual_typed == expected_typed
+        try:
+            difference = abs(typed(expected_typed - actual_typed))
+            epsilon = typed(abs(actual_typed) * 0.01 + 0.00000001)
+        except (OverflowError, struct.error):
+            return False
+        return difference <= epsilon
+    if kind == "DOUBLE":
+        import math
+
+        try:
+            actual_typed, expected_typed = float(actual), float(expected)
+        except (OverflowError, ValueError):
+            return False
+        if math.isnan(actual_typed) and math.isnan(expected_typed):
+            return True
+        if not (math.isfinite(actual_typed) and math.isfinite(expected_typed)):
+            return actual_typed == expected_typed
+        return abs(expected_typed - actual_typed) <= abs(actual_typed) * 0.01 + 0.00000001
+    from decimal import Decimal, InvalidOperation
     try:
         left, right = Decimal(actual), Decimal(expected)
     except (InvalidOperation, ValueError):
@@ -138,6 +178,21 @@ def numeric_matches(actual, expected, kind):
     return True
 
 
+def boolean_matches(actual, expected):
+    """Match SQLLogicTest's BOOLEAN fallback after textual comparison fails."""
+    def typed(value):
+        lower = value.lower()
+        if lower == "true" or value == "1":
+            return True
+        if lower == "false" or value == "0":
+            return False
+        # The C++ helper leaves an unrecognized spelling as its default
+        # SQLNULL Value. Two such defaults compare equal there.
+        return None
+
+    return typed(actual) == typed(expected)
+
+
 def hash_values(values):
     digest = hashlib.md5(usedforsecurity=False)
     for value in values:
@@ -175,8 +230,10 @@ def check_query(record, response, labels):
         # the sorted position and accidentally relax VARCHAR comparisons.
         numeric_fallback = mode != 'valuesort' or len(set(response['columns'])) == 1
         if len(actual) != len(values) or not all(
-                matches(a, e) or (numeric_fallback and numeric_matches(a, e, response['columns'][index % columns]))
-                for index, (a, e) in enumerate(zip(actual, values))):
+                matches(a, e) or (numeric_fallback and (
+                    boolean_matches(a, e) if response['columns'][index % columns] == "BOOLEAN"
+                    else numeric_matches(a, e, response['columns'][index % columns])
+                )) for index, (a, e) in enumerate(zip(actual, values))):
             raise AssertionError(f"expected {values[:12]}, got {actual[:12]} ({len(actual)} values)")
     elif len(words) < 4 and actual:
         raise AssertionError(f"expected an empty result, got {actual[:12]}")
