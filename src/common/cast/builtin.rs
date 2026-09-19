@@ -18,10 +18,7 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
             }
             Value::Float(v) => return primitive(&Value::Double(f64::from(*v)), target),
             Value::Boolean(v) => i128::from(*v),
-            Value::Varchar(v) => v
-                .trim()
-                .parse()
-                .map_err(|_| Error::Conversion(format!("cannot cast {v:?} to {target}")))?,
+            Value::Varchar(v) => return varchar_signed_integer(v, target),
             _ => {
                 return Err(Error::Conversion(format!(
                     "cannot cast {value} to {target}"
@@ -107,5 +104,33 @@ pub(super) fn primitive(value: &Value, target: &DataType) -> Result<Value> {
         _ => Err(Error::Conversion(format!(
             "cannot cast {value} to {target}"
         ))),
+    }
+}
+
+/// Shared owned/borrowed VARCHAR parser for the primitive signed-integer
+/// adapter. Keep parse and range diagnostics identical across both entry
+/// points; the selected adapter still owns whether this helper is reachable.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn varchar_signed_integer(value: &str, target: &DataType) -> Result<Value> {
+    let parsed = value
+        .trim()
+        .parse()
+        .map_err(|_| Error::Conversion(format!("cannot cast {value:?} to {target}")))?;
+    let fits = match target {
+        DataType::TinyInt => i8::try_from(parsed).is_ok(),
+        DataType::SmallInt => i16::try_from(parsed).is_ok(),
+        DataType::Integer => i32::try_from(parsed).is_ok(),
+        DataType::BigInt => i64::try_from(parsed).is_ok(),
+        DataType::HugeInt => true,
+        _ => {
+            return Err(Error::Internal(
+                "borrowed VARCHAR parser requires a signed-integer target".into(),
+            ));
+        }
+    };
+    if fits {
+        Ok(Value::Integer(parsed))
+    } else {
+        Err(Error::Conversion(format!("{parsed} overflows {target}")))
     }
 }

@@ -322,3 +322,33 @@ fn csv_packed_projected_ctas_owns_values_after_reader_and_other_columns_drop() -
     );
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn csv_borrowed_integer_conversion_preserves_bounds_nulls_and_scalar_errors() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    file.write_all(b"  -2147483648  ,2147483647\nNULL,0\n")?;
+    let mut connection = DatabaseBuilder::new().batch_size(2).build()?.connect();
+    assert_eq!(
+        connection.query(&format!(
+            "SELECT * FROM read_csv('{}', columns={{'a':'INTEGER','b':'INTEGER'}}, auto_detect=false, nullstr='NULL')",
+            sql_path(file.path()),
+        ))?.rows,
+        vec![vec![Value::Integer(-2147483648), Value::Integer(2147483647)],
+             vec![Value::Null, Value::Integer(0)]],
+    );
+    for invalid in ["2147483648", "-2147483649", "bad", ""] {
+        let mut file = tempfile::NamedTempFile::new()?;
+        writeln!(file, "{invalid}")?;
+        let expected = connection
+            .query(&format!("SELECT CAST('{invalid}' AS INTEGER)"))
+            .unwrap_err();
+        let actual = connection.query(&format!(
+            "SELECT * FROM read_csv('{}', columns={{'a':'INTEGER'}}, auto_detect=false, nullstr='NULL')",
+            sql_path(file.path()),
+        )).unwrap_err();
+        assert!(matches!(actual, Error::Conversion(_)));
+        assert_eq!(actual.to_string(), expected.to_string());
+    }
+    Ok(())
+}

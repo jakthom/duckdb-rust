@@ -107,6 +107,18 @@ pub trait CastFunction: Debug + Send + Sync {
     fn permits_owned_identity(&self, _spec: &CastSpec) -> bool {
         false
     }
+    /// Optionally convert a borrowed physical VARCHAR through this selected
+    /// adapter. None declines the representation-specific entry point and
+    /// retains the ordinary owned scalar callback. BoundCast owns NULL,
+    /// logical validation, output validation and cancellation contracts.
+    fn cast_borrowed_varchar(
+        &self,
+        _value: &str,
+        _spec: &CastSpec,
+        _context: &QueryContext,
+    ) -> Option<Result<Value>> {
+        None
+    }
     /// Convert a validated column in logical row order, retaining the selected
     /// NULL handling. Call adapters receive typed NULLs as scalar inputs too.
     /// Output owns exactly the source cardinality and has the declared target
@@ -409,6 +421,55 @@ impl BoundCast {
     pub fn apply(&self, value: &Value, context: &QueryContext) -> Result<Value> {
         self.attempt(value, CastBehavior::Strict, context)
             .map_err(CastFailure::into_error)
+    }
+    /// Convert an ephemeral physical VARCHAR without allocating when the
+    /// selected adapter opts in. Logical source validation and Call-style NULL
+    /// semantics retain the ordinary owned callback boundary.
+    pub(crate) fn apply_borrowed_varchar(
+        &self,
+        value: Option<&str>,
+        context: &QueryContext,
+    ) -> Result<Value> {
+        context.check()?;
+        if self.spec.source != DataType::Varchar {
+            return Err(Error::Internal(
+                "borrowed VARCHAR cast requires a VARCHAR source".into(),
+            ));
+        }
+        if self.source.requires_logical_validation() || self.null_handling == CastNullHandling::Call
+        {
+            let value = value.map_or(Value::Null, |value| Value::Varchar(value.to_owned()));
+            return self.apply(&value, context);
+        }
+        let Some(value) = value else {
+            return Ok(Value::Null);
+        };
+        let Some(output) = self
+            .function
+            .cast_borrowed_varchar(value, &self.spec, context)
+        else {
+            return self.apply(&Value::Varchar(value.to_owned()), context);
+        };
+        context.check()?;
+        let output = output?;
+        if (output.is_null() && !self.may_return_null) || !output.fits_type(&self.spec.target) {
+            return Err(Error::Internal(format!(
+                "cast adapter {} returned an invalid physical value for {}",
+                self.adapter(),
+                self.spec.target
+            )));
+        }
+        if self.target.requires_logical_validation() {
+            self.target
+                .validate(&output, context)
+                .map_err(|error| match error {
+                    Error::Conversion(_) => {
+                        Error::Internal("cast adapter returned an invalid logical value".into())
+                    }
+                    other => other,
+                })?;
+        }
+        Ok(output)
     }
     /// Permit retaining validated UTF-8 storage without synthesizing scalar
     /// strings. The caller still owns physical validation and bounded query
@@ -805,6 +866,17 @@ impl CastFunction for PrimitiveCast {
     fn permits_owned_identity(&self, spec: &CastSpec) -> bool {
         spec.source == spec.target
     }
+    fn cast_borrowed_varchar(
+        &self,
+        value: &str,
+        spec: &CastSpec,
+        context: &QueryContext,
+    ) -> Option<Result<Value>> {
+        (spec.source == DataType::Varchar && spec.target.is_signed_integer()).then(|| {
+            context.check()?;
+            builtin::varchar_signed_integer(value, &spec.target)
+        })
+    }
     fn supports(&self, spec: &CastSpec) -> bool {
         if matches!(
             spec.source,
@@ -1074,6 +1146,447 @@ mod packed_storage_tests {
             let other = casts.bind(&source, &target, CastMode::Explicit, &types)?;
             assert!(!other.can_preserve_plain_varchar_storage());
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod borrowed_varchar_tests {
+    use super::*;
+    use crate::{
+        common::type_registry::{KeyWriter, PrimitiveTypes, TypeAdapter, TypeRegistry},
+        parallel::InterruptHandle,
+    };
+    use std::{
+        cmp::Ordering,
+        sync::{
+            Mutex,
+            atomic::{AtomicUsize, Ordering as AtomicOrdering},
+        },
+    };
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn assert_same_result(owned: Result<Value>, borrowed: Result<Value>) {
+        match (owned, borrowed) {
+            (Ok(owned), Ok(borrowed)) => assert_eq!(owned, borrowed),
+            (Err(owned), Err(borrowed)) => {
+                assert_eq!(owned.to_string(), borrowed.to_string())
+            }
+            (owned, borrowed) => panic!("owned {owned:?} differs from borrowed {borrowed:?}"),
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn borrowed_varchar_primitive_matches_owned_extrema_whitespace_and_errors() -> Result<()> {
+        let query = QueryContext::background();
+        let casts = CastRegistry::builtins();
+        let cases = [
+            (DataType::TinyInt, &["-128", "127", "-129", "128"][..]),
+            (
+                DataType::SmallInt,
+                &["-32768", "32767", "-32769", "32768"][..],
+            ),
+            (
+                DataType::Integer,
+                &[
+                    "-2147483648",
+                    "2147483647",
+                    "-2147483649",
+                    "2147483648",
+                    "\u{2003}-42\u{2009}",
+                    "",
+                    "+",
+                    "12x",
+                    "１２",
+                ][..],
+            ),
+            (
+                DataType::BigInt,
+                &[
+                    "-9223372036854775808",
+                    "9223372036854775807",
+                    "-9223372036854775809",
+                    "9223372036854775808",
+                ][..],
+            ),
+            (
+                DataType::HugeInt,
+                &[
+                    "-170141183460469231731687303715884105728",
+                    "170141183460469231731687303715884105727",
+                    "-170141183460469231731687303715884105729",
+                    "170141183460469231731687303715884105728",
+                ][..],
+            ),
+        ];
+        for (target, values) in cases {
+            let bound = casts.bind(
+                &DataType::Varchar,
+                &target,
+                CastMode::Explicit,
+                query.types(),
+            )?;
+            for value in values {
+                assert_same_result(
+                    bound.apply(&Value::Varchar((*value).into()), &query),
+                    bound.apply_borrowed_varchar(Some(value), &query),
+                );
+            }
+            assert_eq!(bound.apply_borrowed_varchar(None, &query)?, Value::Null);
+        }
+        Ok(())
+    }
+
+    #[derive(Debug)]
+    struct OwnedProbe {
+        calls: Arc<Mutex<Vec<Value>>>,
+        null_handling: CastNullHandling,
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl CastFunction for OwnedProbe {
+        fn name(&self) -> &'static str {
+            "borrowed-varchar-owned-fallback-probe"
+        }
+        fn supports(&self, spec: &CastSpec) -> bool {
+            spec.source == DataType::Varchar && spec.target == DataType::Integer
+        }
+        fn null_handling(&self, _: &CastSpec) -> CastNullHandling {
+            self.null_handling
+        }
+        fn cast(&self, value: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
+            self.calls.lock().unwrap().push(value.clone());
+            match value {
+                Value::Null => Ok(Value::Integer(7)),
+                Value::Varchar(value) => value
+                    .parse()
+                    .map(Value::Integer)
+                    .map_err(|_| Error::Conversion("owned probe rejected input".into())),
+                _ => unreachable!("bound source is VARCHAR"),
+            }
+        }
+    }
+
+    struct HookProbe {
+        owned_calls: Arc<AtomicUsize>,
+        borrowed_calls: Arc<AtomicUsize>,
+        interrupt_after_hook: Option<InterruptHandle>,
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl Debug for HookProbe {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.debug_struct("HookProbe").finish_non_exhaustive()
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl CastFunction for HookProbe {
+        fn name(&self) -> &'static str {
+            "borrowed-varchar-hook-probe"
+        }
+        fn supports(&self, spec: &CastSpec) -> bool {
+            spec.source == DataType::Varchar && spec.target == DataType::Integer
+        }
+        fn cast_borrowed_varchar(
+            &self,
+            value: &str,
+            _: &CastSpec,
+            _: &QueryContext,
+        ) -> Option<Result<Value>> {
+            self.borrowed_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            if let Some(interrupt) = &self.interrupt_after_hook {
+                interrupt.interrupt();
+            }
+            Some(match value {
+                "null" => Ok(Value::Null),
+                "wrong" => Ok(Value::Varchar(value.into())),
+                _ => value
+                    .parse()
+                    .map(Value::Integer)
+                    .map_err(|_| Error::Conversion("hook probe rejected input".into())),
+            })
+        }
+        fn cast(&self, value: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
+            self.owned_calls.fetch_add(1, AtomicOrdering::SeqCst);
+            let Value::Varchar(value) = value else {
+                return Err(Error::Conversion("owned hook probe requires text".into()));
+            };
+            value
+                .parse()
+                .map(Value::Integer)
+                .map_err(|_| Error::Conversion("owned hook probe rejected input".into()))
+        }
+    }
+
+    struct LogicalProbe {
+        calls: Arc<AtomicUsize>,
+        reject: bool,
+        interrupt_during_validation: Option<InterruptHandle>,
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl Debug for LogicalProbe {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("LogicalProbe")
+                .finish_non_exhaustive()
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl TypeAdapter for LogicalProbe {
+        fn name(&self) -> &'static str {
+            "borrowed-varchar-logical-probe"
+        }
+        fn validate_type(&self, data_type: &DataType) -> Result<()> {
+            PrimitiveTypes.validate_type(data_type)
+        }
+        fn validate_value(
+            &self,
+            data_type: &DataType,
+            value: &Value,
+            context: &QueryContext,
+        ) -> Result<()> {
+            self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+            PrimitiveTypes.validate_value(data_type, value, context)?;
+            if let Some(interrupt) = &self.interrupt_during_validation {
+                interrupt.interrupt();
+            }
+            if self.reject {
+                Err(Error::Conversion("logical probe rejected value".into()))
+            } else {
+                Ok(())
+            }
+        }
+        fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+            PrimitiveTypes.common_type(left, right)
+        }
+        fn compare(
+            &self,
+            data_type: &DataType,
+            left: &Value,
+            right: &Value,
+            context: &QueryContext,
+        ) -> Result<Ordering> {
+            PrimitiveTypes.compare(data_type, left, right, context)
+        }
+        fn write_key(
+            &self,
+            data_type: &DataType,
+            value: &Value,
+            output: &mut KeyWriter<'_>,
+            context: &QueryContext,
+        ) -> Result<()> {
+            PrimitiveTypes.write_key(data_type, value, output, context)
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn replaced_integer_cast(function: Arc<dyn CastFunction>) -> Result<CastRegistry> {
+        let mut casts = CastRegistry::builtins();
+        casts.replace(
+            CastSpec {
+                source: DataType::Varchar,
+                target: DataType::Integer,
+                mode: CastMode::Explicit,
+            },
+            function,
+        )?;
+        Ok(casts)
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn borrowed_varchar_fallback_preserves_callbacks_null_and_source_validation() -> Result<()> {
+        let query = QueryContext::background();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let casts = replaced_integer_cast(Arc::new(OwnedProbe {
+            calls: calls.clone(),
+            null_handling: CastNullHandling::Propagate,
+        }))?;
+        let bound = casts.bind(
+            &DataType::Varchar,
+            &DataType::Integer,
+            CastMode::Explicit,
+            query.types(),
+        )?;
+        assert_eq!(
+            bound.apply_borrowed_varchar(Some("42"), &query)?,
+            Value::Integer(42)
+        );
+        assert_eq!(bound.apply_borrowed_varchar(None, &query)?, Value::Null);
+        assert_eq!(*calls.lock().unwrap(), vec![Value::Varchar("42".into())]);
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let casts = replaced_integer_cast(Arc::new(OwnedProbe {
+            calls: calls.clone(),
+            null_handling: CastNullHandling::Call,
+        }))?;
+        let bound = casts.bind(
+            &DataType::Varchar,
+            &DataType::Integer,
+            CastMode::Explicit,
+            query.types(),
+        )?;
+        assert_eq!(
+            bound.apply_borrowed_varchar(None, &query)?,
+            Value::Integer(7)
+        );
+        assert_eq!(*calls.lock().unwrap(), vec![Value::Null]);
+
+        for reject in [false, true] {
+            let validations = Arc::new(AtomicUsize::new(0));
+            let owned_calls = Arc::new(AtomicUsize::new(0));
+            let borrowed_calls = Arc::new(AtomicUsize::new(0));
+            let mut types = TypeRegistry::builtins();
+            types.replace(
+                DataType::Varchar.family(),
+                Arc::new(LogicalProbe {
+                    calls: validations.clone(),
+                    reject,
+                    interrupt_during_validation: None,
+                }),
+            )?;
+            let query = QueryContext::background().with_types(Arc::new(types));
+            let casts = replaced_integer_cast(Arc::new(HookProbe {
+                owned_calls: owned_calls.clone(),
+                borrowed_calls: borrowed_calls.clone(),
+                interrupt_after_hook: None,
+            }))?;
+            let bound = casts.bind(
+                &DataType::Varchar,
+                &DataType::Integer,
+                CastMode::Explicit,
+                query.types(),
+            )?;
+            let result = bound.apply_borrowed_varchar(Some("5"), &query);
+            if reject {
+                assert!(matches!(result, Err(Error::Conversion(_))));
+                assert_eq!(owned_calls.load(AtomicOrdering::SeqCst), 0);
+            } else {
+                assert_eq!(result?, Value::Integer(5));
+                assert_eq!(owned_calls.load(AtomicOrdering::SeqCst), 1);
+            }
+            assert_eq!(validations.load(AtomicOrdering::SeqCst), 1);
+            assert_eq!(borrowed_calls.load(AtomicOrdering::SeqCst), 0);
+        }
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn borrowed_varchar_hook_checks_target_validation_output_and_cancellation() -> Result<()> {
+        let query = QueryContext::background();
+        let owned_calls = Arc::new(AtomicUsize::new(0));
+        let borrowed_calls = Arc::new(AtomicUsize::new(0));
+        let casts = replaced_integer_cast(Arc::new(HookProbe {
+            owned_calls: owned_calls.clone(),
+            borrowed_calls: borrowed_calls.clone(),
+            interrupt_after_hook: None,
+        }))?;
+        let bound = casts.bind(
+            &DataType::Varchar,
+            &DataType::Integer,
+            CastMode::Explicit,
+            query.types(),
+        )?;
+        for value in ["null", "wrong"] {
+            assert!(matches!(
+                bound.apply_borrowed_varchar(Some(value), &query),
+                Err(Error::Internal(_))
+            ));
+        }
+        assert_eq!(owned_calls.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(borrowed_calls.load(AtomicOrdering::SeqCst), 2);
+
+        let validations = Arc::new(AtomicUsize::new(0));
+        let mut types = TypeRegistry::builtins();
+        types.replace(
+            DataType::Integer.family(),
+            Arc::new(LogicalProbe {
+                calls: validations.clone(),
+                reject: true,
+                interrupt_during_validation: None,
+            }),
+        )?;
+        let query = QueryContext::background().with_types(Arc::new(types));
+        let bound = casts.bind(
+            &DataType::Varchar,
+            &DataType::Integer,
+            CastMode::Explicit,
+            query.types(),
+        )?;
+        assert!(matches!(
+            bound.apply_borrowed_varchar(Some("9"), &query),
+            Err(Error::Internal(message)) if message == "cast adapter returned an invalid logical value"
+        ));
+        assert_eq!(validations.load(AtomicOrdering::SeqCst), 1);
+
+        let interrupt = InterruptHandle::default();
+        let mut types = TypeRegistry::builtins();
+        types.replace(
+            DataType::Integer.family(),
+            Arc::new(LogicalProbe {
+                calls: Arc::new(AtomicUsize::new(0)),
+                reject: false,
+                interrupt_during_validation: Some(interrupt.clone()),
+            }),
+        )?;
+        let interrupted_target =
+            QueryContext::new(interrupt, None, 32, usize::MAX)?.with_types(Arc::new(types));
+        let bound = casts.bind(
+            &DataType::Varchar,
+            &DataType::Integer,
+            CastMode::Explicit,
+            interrupted_target.types(),
+        )?;
+        assert!(matches!(
+            bound.apply_borrowed_varchar(Some("9"), &interrupted_target),
+            Err(Error::Interrupted)
+        ));
+
+        let interrupt = InterruptHandle::default();
+        let interrupted = QueryContext::new(interrupt.clone(), None, 32, usize::MAX)?;
+        interrupt.interrupt();
+        let before = borrowed_calls.load(AtomicOrdering::SeqCst);
+        assert!(matches!(
+            bound.apply_borrowed_varchar(Some("9"), &interrupted),
+            Err(Error::Interrupted)
+        ));
+        assert_eq!(borrowed_calls.load(AtomicOrdering::SeqCst), before);
+
+        let interrupt = InterruptHandle::default();
+        let post_hook_calls = Arc::new(AtomicUsize::new(0));
+        let casts = replaced_integer_cast(Arc::new(HookProbe {
+            owned_calls: Arc::new(AtomicUsize::new(0)),
+            borrowed_calls: post_hook_calls.clone(),
+            interrupt_after_hook: Some(interrupt.clone()),
+        }))?;
+        let post_hook_context = QueryContext::new(interrupt, None, 32, usize::MAX)?;
+        let bound = casts.bind(
+            &DataType::Varchar,
+            &DataType::Integer,
+            CastMode::Explicit,
+            post_hook_context.types(),
+        )?;
+        assert!(matches!(
+            bound.apply_borrowed_varchar(Some("9"), &post_hook_context),
+            Err(Error::Interrupted)
+        ));
+        assert_eq!(post_hook_calls.load(AtomicOrdering::SeqCst), 1);
+
+        let wrong_source = CastRegistry::builtins().bind(
+            &DataType::Integer,
+            &DataType::Integer,
+            CastMode::Explicit,
+            QueryContext::background().types(),
+        )?;
+        assert!(matches!(
+            wrong_source.apply_borrowed_varchar(Some("9"), &QueryContext::background()),
+            Err(Error::Internal(_))
+        ));
         Ok(())
     }
 }
