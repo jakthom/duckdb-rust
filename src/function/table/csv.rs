@@ -11,6 +11,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use memchr::{memchr, memchr_iter, memchr2, memchr3};
+
 use crate::{
     common::{
         DataType, Error, NestedPayload, NestedType, Result, Value,
@@ -157,6 +159,9 @@ impl CsvReader {
                 }
                 continue;
             }
+            if self.copy_quoted_span()? {
+                continue;
+            }
             if !(self.in_quotes
                 || self.quote_pending
                 || self.escape_pending
@@ -165,12 +170,7 @@ impl CsvReader {
             {
                 let ordinary = {
                     let input = &self.buffer[self.start..self.end];
-                    input
-                        .iter()
-                        .position(|byte| {
-                            matches!(*byte, b'\n' | b'\r') || *byte == self.options.delimiter
-                        })
-                        .unwrap_or(input.len())
+                    memchr3(b'\n', b'\r', self.options.delimiter, input).unwrap_or(input.len())
                 };
                 if ordinary != 0 {
                     let start = self.start;
@@ -193,6 +193,35 @@ impl CsvReader {
                 return Ok(Some(self.take_batch(row_ends)));
             }
         }
+    }
+
+    /// Copy a run inside a quoted field in one operation. Quotes and a distinct
+    /// escape byte remain on the state-machine path; embedded newlines and CR
+    /// are ordinary field bytes here.
+    fn copy_quoted_span(&mut self) -> Result<bool> {
+        if !self.in_quotes || self.quote_pending || self.escape_pending {
+            return Ok(false);
+        }
+        let input = &self.buffer[self.start..self.end];
+        let ordinary = if self.options.escape == self.options.quote {
+            memchr(self.options.quote, input)
+        } else {
+            memchr2(self.options.quote, self.options.escape, input)
+        }
+        .unwrap_or(input.len());
+        if ordinary == 0 {
+            return Ok(false);
+        }
+        self.count_record_bytes(ordinary)?;
+        self.arena
+            .try_reserve(ordinary)
+            .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
+        let start = self.start;
+        self.arena
+            .extend_from_slice(&self.buffer[start..start + ordinary]);
+        self.start += ordinary;
+        self.record_started = true;
+        Ok(true)
     }
 
     fn consume(&mut self, byte: u8, row_ends: &mut Vec<usize>) -> Result<()> {
@@ -293,24 +322,18 @@ impl CsvReader {
         }
 
         let input = &self.buffer[self.start..self.end];
-        let Some(record_len) = input.iter().position(|byte| *byte == b'\n') else {
+        let Some(first_special) = memchr3(b'\n', self.options.quote, b'\r', input) else {
             return Ok(false);
         };
-        let record = &input[..record_len];
-        if record.len() > self.options.max_line_bytes
-            || record
-                .iter()
-                .any(|byte| *byte == self.options.quote || *byte == b'\r')
-            || std::str::from_utf8(record).is_err()
-        {
+        if input[first_special] != b'\n' {
+            return Ok(false);
+        }
+        let record = &input[..first_special];
+        if record.len() > self.options.max_line_bytes || std::str::from_utf8(record).is_err() {
             return Ok(false);
         }
 
-        let field_count = record
-            .iter()
-            .filter(|byte| **byte == self.options.delimiter)
-            .count()
-            + 1;
+        let field_count = memchr_iter(self.options.delimiter, record).count() + 1;
         self.arena
             .try_reserve(record.len())
             .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
@@ -321,11 +344,8 @@ impl CsvReader {
         let arena_start = self.arena.len();
         self.arena.extend_from_slice(record);
         let mut field_start = 0;
-        for field_end in record
-            .iter()
-            .enumerate()
-            .filter_map(|(index, byte)| (*byte == self.options.delimiter).then_some(index))
-            .chain(std::iter::once(record.len()))
+        for field_end in
+            memchr_iter(self.options.delimiter, record).chain(std::iter::once(record.len()))
         {
             let range = (arena_start + field_start)..(arena_start + field_end);
             let bytes = &record[field_start..field_end];
@@ -338,7 +358,7 @@ impl CsvReader {
             field_start = field_end + 1;
         }
         self.field_offset = self.arena.len();
-        self.start += record_len + 1;
+        self.start += first_special + 1;
         self.finish_completed_record(row_ends)?;
         Ok(true)
     }
@@ -637,7 +657,7 @@ impl TableFunction for ReadCsv {
                 }
             })
             .collect::<Vec<_>>();
-        let mut arenas = data.types.iter().map(|_| String::new()).collect::<Vec<_>>();
+        let arena = std::sync::Arc::new(arena);
         let mut fields = fields.into_iter();
         let mut previous_end = 0;
         for (row_number, end) in row_ends.into_iter().enumerate() {
@@ -655,19 +675,7 @@ impl TableFunction for ReadCsv {
             for (column, (field, cast)) in fields.by_ref().take(width).zip(&data.casts).enumerate()
             {
                 if preserve[column] {
-                    let range = field
-                        .value
-                        .map(|source| -> Result<Range<usize>> {
-                            let start = arenas[column].len();
-                            let bytes = &arena[source];
-                            arenas[column].try_reserve(bytes.len()).map_err(|_| {
-                                Error::Resource("CSV column allocation failed".into())
-                            })?;
-                            arenas[column].push_str(bytes);
-                            Ok(start..arenas[column].len())
-                        })
-                        .transpose()?;
-                    ranges[column].push(range);
+                    ranges[column].push(field.value);
                 } else {
                     let input = field.value.map(|range| &arena[range]);
                     values[column].push(cast.apply_borrowed_varchar(input, context)?);
@@ -677,11 +685,11 @@ impl TableFunction for ReadCsv {
         let columns = data
             .types
             .iter()
-            .zip(values.into_iter().zip(ranges).zip(arenas))
+            .zip(values.into_iter().zip(ranges))
             .zip(preserve)
-            .map(|((data_type, ((values, ranges), arena)), preserve)| {
+            .map(|((data_type, (values, ranges)), preserve)| {
                 if preserve {
-                    Vector::packed_utf8(std::sync::Arc::new(arena), ranges)
+                    Vector::packed_utf8(arena.clone(), ranges)
                 } else {
                     Vector::flat(data_type.clone(), values)
                 }
@@ -1199,6 +1207,46 @@ mod tests {
             parsed[0][0].value.as_deref(),
             Some(format!("{prefix}\"tail\"").as_str())
         );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn bulk_quoted_spans_preserve_escapes_and_line_bounds_across_buffers() -> Result<()> {
+        let prefix = "x".repeat(BUFFER_BYTES - 3);
+        let doubled = ["\"", &prefix, "\"\"middle\"\"\"", ",tail\n"].concat();
+        let parsed = rows(doubled.as_bytes(), CsvOptions::default())?;
+        assert_eq!(
+            parsed[0][0].value.as_deref(),
+            Some(format!("{prefix}\"middle\"").as_str())
+        );
+        assert_eq!(parsed[0][1].value.as_deref(), Some("tail"));
+
+        let escaped = ["\"", &prefix, "\\\"middle\\\"\",tail\n"].concat();
+        let parsed = rows(
+            escaped.as_bytes(),
+            CsvOptions {
+                escape: b'\\',
+                ..CsvOptions::default()
+            },
+        )?;
+        assert_eq!(
+            parsed[0][0].value.as_deref(),
+            Some(format!("{prefix}\"middle\"").as_str())
+        );
+        assert_eq!(parsed[0][1].value.as_deref(), Some("tail"));
+
+        let over_limit = format!("\"{}\"\n", "y".repeat(BUFFER_BYTES + 1));
+        assert!(matches!(
+            rows(
+                over_limit.as_bytes(),
+                CsvOptions {
+                    max_line_bytes: BUFFER_BYTES,
+                    ..CsvOptions::default()
+                },
+            ),
+            Err(Error::Resource(message)) if message.contains("maximum line size")
+        ));
         Ok(())
     }
 

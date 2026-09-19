@@ -135,6 +135,7 @@ dependencies = [
  "duckdb-dev",
  "flate2",
  "libm",
+ "memchr",
  "regex",
  "regex-automata",
  "regex-syntax",

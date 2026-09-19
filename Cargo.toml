@@ -227,6 +227,7 @@ flate2 = "1.1.9"
 utf8proc = "0.1.2"
 utf8proc-sys = "0.1.2"
 libm = "0.2.16"
+memchr = "2.8.1"
 # Both pinned DuckDB references vendor RE2 2023-02-01 and its Unicode 15.0
 # tables. Keep the complete Rust regex stack on the last Unicode-15 releases so
 # character properties and case folding cannot drift from the parity oracle.

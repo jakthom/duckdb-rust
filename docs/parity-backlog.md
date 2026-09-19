@@ -517,7 +517,7 @@ running a long test command.
 
 ### Dispatch order and acceptance queue
 
-#### Active three-batch run — 2026-09-18
+#### Active run and next three-batch queue — 2026-09-19
 
 User authorization: execute batches 1, 2 and 3 sequentially, with parallel
 tracks inside each batch; checkpoint here between batches and continue without
@@ -526,11 +526,158 @@ or batch 3 until batch 2 is accepted. Record genuine blockers instead of silentl
 dropping a gate or marking unfinished work complete. Foreign compatibility stays
 deferred under the engine-first rule.
 
+September 19 queue refresh at planning baseline `ca57c3c`: resume the open
+Batch 2 acceptance boundary, then take **Batches 3, 4 and 5** as the next three
+substantial batches. Batch 3 carries forward the existing assignment; Batches 4
+and 5 promote the dependency-ordered rounds below into the concrete queue.
+User follow-up authorizes execution of all three batches with parallel tracks,
+continuing through their acceptance without another dispatch request. Parallel
+read-only scope preparation is active while Batch 2's acceptance is repaired;
+implementation of Batch 3 still follows Batch 2 acceptance.
+Batch 1 stays accepted. Batch 2's last verified implementation is `21ab348`;
+candidate7's bounded CSV change has passed independent scoped verification.
+
+September 19 carryover: source digest still matches candidate6 preparation.
+A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
+against release10.61ms/61.30ms, recorded in
+`target/batch2/candidate6-diagnostic-20260919.json`. Candidate7 is assigned to
+remove per-column CSV string copying by retaining the already-supported shared
+UTF-8 arena. ROOT owns only `src/function/table/csv.rs`; partial validation,
+existing retention/custom-cast cases and fixed performance obligations are in
+`target/batch2/csv-shared-arena-manifest.md`. Formal performance remains open;
+user paused activity and quiet-host status will be checked after builds.
+Candidate7 partial verification passes: table-functions16, vector1, formatting,
+Clippy and tracing; the original misspelled vector filter selected zero tests
+and is preserved as invalid evidence. Only that corrected selection was rerun.
+Evidence: `target/batch2/shared-arena-verifier/`. Production preparation passed all8 stages.
+Candidate7 native performance fails: narrow12.255ms vs release10.307ms;
+wide61.321ms vs58.848ms. Development is slower than both, so its passing pair
+does not close the joint gate. Preserve `f2-performance/native-*-candidate7.json`
+and host preflight. Narrow diagnostic sampling validates383 query oracles and
+points to scanner work; candidate8 owns byte-boundary searches/quoted spans with
+unchanged parser semantics and explicit boundary tests under
+`target/batch2/csv-byte-search-manifest.md`. No CSV process timing followed the failure.
+Candidate8 parser18/18 feedback passed after correcting an initially malformed
+test fixture (honest failure note under `byte-search-worker/`). ROOT reviewed
+state/UTF8/error/cancellation preservation; direct memchr2.8.1 uses the existing
+locked version/features. Seven-command scoped verifier passes against hashes
+in `byte-search-frozen-inputs.json`: parser18, table_functions16, coverage missing=[],
+format/Clippy/tracing. Logs/times/hashes: `target/batch2/byte-search-verifier/`.
+Performance/source acceptance remains open; next command is
+`python3 target/batch2/prepare_byte_search_candidate8.py`, then quiet-host
+`python3 target/batch2/run_csv_native_candidate8.py --authorized` and serial
+stages from `target/batch2/remaining-performance-candidate8.json`.
+
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Candidate6 implementation `21ab348` (flat record metadata/unquoted-record fast path and selected borrowed integer casts) passes all9 independent scoped verification stages and all8 production/source preparation stages. Candidate5 performance remains FAIL (narrow1.81×, wide1.44×); candidate6 has not been timed. Paused for a quiet host: active desktop workloads remain, user asked to pause them; no apps stopped. Next: candidate6 CSV native gate, then remaining CSV/F1/A2/B1/COUNT gates. Previous COUNT source/fixtures and durable feasibility12/12 remain valid. Exact restart below; do not rerun accepted checks for this documentation checkpoint. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: candidate8 boundary searches/quoted spans pass all7 configured partial-verifier stages (parser18, table_functions16, coverage missing=[], tracing); implementation inputs are frozen. Scanner worker owns CsvReader/tests, ROOT owns direct already-locked memchr2.8.1 dependency/integration. Candidate7 shared arena passes scoped verification and production preparation, but native performance FAILS narrow1.189×/wide1.042× the faster pin (stable21-sample runs). Candidate6 diagnostic and earlier failures remain preserved. Next: run `prepare_byte_search_candidate8.py` for production/source preparation, then fixed CSV native/process and remaining F1/A2/B1/COUNT gates. Manifest `target/batch2/csv-byte-search-manifest.md`; unchanged vector/cast/COUNT/source and durable feasibility evidence is retained where applicable. Existing sibling worktrees/branches remain retained. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
+| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
+| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
+
+**Immediate carryover, before Batch 3:** candidate8 implementation/scoped
+verification is ready; finish production/source preparation, then the CSV native gate and
+remaining process/F1/A2/B1/COUNT gates with fresh candidate8 paths/provenance.
+The candidate7 commands in `target/batch2/shared-arena-completion-inputs.md`
+are the template; candidate7's measured failure is preserved. Preserve the prior
+candidate5 failure (narrow 1.81×, wide 1.44× the faster reference) and report
+candidate6 diagnostic independently. If candidate8 fails, repair the measured path
+and rerun only affected evidence. Reuse unchanged scoped verification, source
+selections and durable feasibility evidence. User has paused activity; the host
+must still be checked after production preparation. No applications were stopped.
+
+**Batch 3 — memory budgets, regression accounting and structured regex results.**
+
+- E1: introduce fallible byte reservations, ownership/release and memory-setting
+  propagation through vectors and one existing operator. Exercise allocation
+  failure, overflow, cancellation and results retained after connection closure.
+  Proposed ownership: `src/parallel/` and resource tests; lead integrates
+  `src/common/vector.rs`, settings and the chosen operator. This is the first
+  resource-accounting slice, not complete allocator/spill parity.
+- A4: extend report reconciliation into a case/pin/configuration regression view
+  with lost passes, new failures, stale evidence and elapsed stages. Own
+  `scripts/summarize_upstream.py` and related Python tests/adapters. Preserve
+  population identities, reject duplicate/omitted selections and support a pin
+  with no timeout retries. Existing `scripts/upstream_regression.py` is a paired
+  deadline diagnostic, not this incremental accounting feature.
+- C1.1: implement named-group STRUCT regex extraction, including field names and
+  result types, optional/unmatched groups, NULL/error behavior, prepared use and
+  encoded vectors. Include the related named `regexp_extract_all` LIST(STRUCT)
+  overload present in both accepted pins. Named patterns and name lists must be
+  constant; dynamic named arguments are bind-error cases. Own
+  `src/function/scalar/text/regex.rs` and focused regex
+  tests; lead integrates return-type binding. Preserve extract-all/replacement
+  and nested-value consumers; scalar/table splitting remains later work.
+- Acceptance workloads: reservation overhead on existing scan/group/CSV paths
+  and failure cleanup; small/large report reconciliation and selected-feedback
+  consumers; constant-pattern STRUCT/LIST(STRUCT) extraction plus existing
+  dynamic scalar-group regex and nested paths.
+  E1 and C1.1 have separate shared-vector proposals integrated by the lead.
+
+**Batch 4 — concurrent writes, local I/O and CSV export.**
+
+- D1: replace blanket intervening-writer conflicts with the pinned row/catalog
+  conflict and visibility contracts. Own `src/transaction/` and deterministic
+  transaction histories; lead integrates catalog/storage publication seams.
+  Cover disjoint and overlapping writers, DDL races, old snapshots, rollback and
+  durable publication. Only this track owns transaction state-machine changes.
+- H1.1: generalize local sequential/range I/O, cancellation and failure contracts
+  through an existing native-storage consumer. Own `src/storage/filesystem/`
+  and its module/tests; lead integrates native callers and publication overlap
+  with D1. Cover short reads/writes, locking and failed-publication cleanup.
+  Remote storage, globbing and compression remain later leaves.
+- F2.2: implement single-file local `COPY ... TO` CSV with quoting, NULL/newline
+  semantics, bounded output and cleanup after failure/cancellation. Own the CSV
+  writer and its tests; lead integrates parser/binder/execution dispatch. Use
+  the existing local adapter until H1.1 integration, with independent C++ reads
+  of Rust output and Rust reads of reference output.
+- Acceptance workloads: disjoint/contended writes and retained readers; native
+  sequential/random I/O and publication; narrow/wide, quoted/NULL CSV output
+  plus unchanged CSV reads. Validate conflict outcomes and output before timing.
+
+**Batch 5 — native buffers, selective scans and reusable SQL expressions.**
+
+- E2: add buffer pin/unpin, eviction, dirty-state lifetime and I/O attribution
+  through native block scans. Own a dedicated storage-buffer module and tests;
+  lead integrates native readers, E1 reservations and H1.1 I/O. Cover pinned
+  blocks, read/write/eviction failure and transaction/result ownership.
+- F3.1: add projection/filter pushdown with correct residual predicates to the
+  accepted CSV/table-source path. Own table-function scan negotiation and CSV
+  consumers; lead integrates binder/physical-plan seams. Preserve custom
+  adapters, NULL/error behavior, prepared reopen and cancellation. Measure actual
+  parsing/materialization and I/O savings; do not infer skipped bytes from a
+  pushed predicate. Multi-file discovery and sniffing remain separate leaves.
+- B2.1: implement persistent scalar macros with capture, qualification,
+  default/named arguments, dependency/transaction lifecycle and native reopen.
+  Own macro catalog/binder modules and focused tests; lead integrates shared
+  catalog and native codecs. Cover recursion, shadowing, lazy errors, prepared
+  invalidation, rollback and bidirectional checkpoint/WAL exchange. Table macros
+  remain B2.2.
+- Acceptance workloads: below/above-cache sequential/random native scans;
+  selective/wide CSV scans with residuals and unchanged full reads; repeated
+  scalar-macro expansion/query, DDL and durable reopen. Preserve view/default
+  consumers when changing catalog binding or native representations.
+
+**Queue validation and readiness:** all nine leaves are queued, with functional,
+performance and scoped-sweep acceptance open; Kani applicability is determined
+from each frozen impact manifest. Proposed ownership above is a planning boundary,
+not an executable handoff. Before each dispatch, resolve the actual integrated
+baseline, exact owned paths, commands/targets/filters, both-pin unchanged case IDs,
+negative/boundary cases, existing consumers and workload/adapters in the
+[handoff template](#handoff-template). Missing coverage is an obligation to fill,
+not a pass. Default to partial verification under the
+[durable policy](../AGENTS.md#validation-scope--durable-policy); expand recovery
+and maintained proofs only for affected contracts. A4 uses Python checks, without
+an engine build for Python-only edits. Each implementation leaf needs its own
+applicable functional, delegated verification and faster-of-both-pins performance
+acceptance, including CPU/memory/I/O costs. Serialize final timing across all
+worktrees, and stop adding implementation when two chunks await acceptance.
+
+This queue edit owns only `docs/parity-backlog.md`. Its validation is reviewed
+diff, `git diff --check`, local-link/anchor and queue/dependency consistency checks.
+Engine tests, verifier, recovery, Kani and performance are **not applicable:
+documentation-only**; existing engine performance failures remain open.
 
 Checkpoint contract: update this table and each affected entry in place with
 implementation/functional/performance/scoped-sweep outcomes; integrated commit,
