@@ -536,9 +536,12 @@ read-only scope preparation is active while Batch 2's acceptance is repaired;
 implementation of Batch 3 still follows Batch 2 acceptance.
 Batch 1 stays accepted. Batch 2's native WAL continuation and atomic first-
 transaction publication pass scoped verification and both-pin native oracles at
-`d5d19ac`. CSV candidate10 and F1 performance are accepted. Lifecycle still misses
-the strict performance gate by0.16%; the verified empty-WAL read elision has passed
-release preparation and is ready for timing. Batch 2 acceptance remains open.
+`d5d19ac`; empty-WAL read elision passes114 affected tests at `36a0293`.
+CSV candidate10 and F1 performance are accepted at their tested inputs. Compiled
+lifecycle still misses1.25%; the independent proxy gate exposes startup/memory
+failures. Python import separation at `b49d0d4` passes53 tests and actual-source
+replay, improves performance, and still fails parity. Cast-registry sharing and
+further bounded Python startup work are active; Batch 2 acceptance remains open.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -770,27 +773,74 @@ The five-case proxy gate is next under
 unchanged and is not retried. Current native sampling validates3200 records and
 shows repeated cast construction; a separate cast-only optimization is being
 scoped. Function sharing is excluded because regex caches contain mutable state.
+At `b49d0d4`, lean-import proxy candidate1 improves small-loop latency to58.718ms
+from70.897ms, but fails against26.012ms (2.2574x), CPU4x and RSS1.2452x.
+Large-loop and large-read-only latency pass; memory remains1.1389x/1.0177x.
+Lifecycle90.356ms and small-read-only83.225ms still fail latency/CPU; lifecycle
+memory now passes. Preserve `a2-lean-import-proxy-process-candidate1.json` and
+its failed stage receipt. The next actual import diagnostic confirms remaining
+Record/dataclasses, Decimal and tempfile startup costs; it is not acceptance.
+Cast-only sharing is authorized under `a2-registry-sharing-manifest.md`, with
+atomic type registration and custom/stored-expression isolation tests. Its scope
+includes fresh affected CSV/F1, lifecycle and proxy evidence; no durability or
+function-cache sharing changes. Further Python startup work is separately scoped.
+Cast COW implementation adds custom exact/family isolation, late overlapping
+type-registration rollback, invalid metadata and future stored-default tests.
+The worker's claimed final two-filter pass is withdrawn: it inferred success
+from process disappearance without capturing the exit status. Verifier3 passes
+casts17/17 and catches a wrong expected row shape in the new contracts test;
+ROOT corrects two one-column rows and verifier4 resumes affected checks.
+The failed contracts hash and audit are retained in
+`a2-cast-focused-handoff-correction.json`. Two earlier Clippy failures (type
+complexity and redundant test closures) remain preserved, with both corrected. The bounded immutable
+Record/lazy Decimal change passes75 Python consumer tests. Both final partial
+sweeps are delegated to the configured verifier under
+`a2-cast-registry-verifier/` and `a2-proxy-record-verifier/`; no performance pass
+is claimed. Release preparation will build all4 affected runners once, refresh
+provenance, replay current selected cases, then measure affected workloads.
+Configured verification now passes: Python Record75/75 at its frozen inputs;
+cast repair reuses verifier3 casts17/17 and production Clippy, then verifier4
+passes contracts108, operator1, table-functions18, worker5 and runner72, plus
+formatting, affected Clippy, coverage (no missing entries) and trace checks.
+Frozen identities match; the withdrawn worker feedback is not used. Release
+preparation has started via `prepare_a2_cast_record.py` (29 stages).
+Concrete timer review refines acceptance before timing: seven stable prepared
+native query families do not execute changed registry construction/selection in
+their timed interval, so prior native evidence is retained. Every process family
+includes startup and needs fresh evidence. Exact scope and commands are in
+`a2-cast-record-acceptance-scope.md` and
+`remaining-performance-cast-record-candidate1.json`: compiled5, proxy5, CSV2
+plus all six prior process families, then pending B1/COUNT if independent gates
+pass. This broadens affected process coverage; no fixture/gate change or failure
+is waived. Old provisional native CSV/F1 rerun clauses are superseded by the
+explicit timer/consumer analysis, not by a new measured pass.
+Cast/Record release preparation passes stages1–18, then release upstream
+`integer_try_cast.test` stops after20 records at FLOAT output near i32 limits:
+expected integer-form values versus worker shortest-FLOAT rendering. Preserve
+`a2-cast-record-preparation/run1/report.json` and the failed upstream report.
+Focused diagnosis confirms both pinned C++ cases pass (83/82 assertions), and
+current compiled Rust passes the same39/38 records. This isolates missing Python
+numeric-oracle behavior; production cast results and221 Rust checks remain valid.
+The source-matched Python comparison repair is being scoped before continuing
+source replay. No fixture is reduced and no failed selection is called passed.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: CSV candidate10/F1 accepted. At `d5d19ac`, native WAL continuation and atomic initial publication pass scoped checks and both-pin native oracles; lifecycle latency misses by0.16%, both read-only workloads pass. Empty-WAL read elision passes114 affected tests and scoped checks. Next `prepare_a2_empty_wal.py`, then `run_rest_a2_empty_wal_candidate1.py` for compiled lifecycle/read-only and independent proxy gates, followed by B1 and COUNT. Keep failures and unaffected accepted evidence at tested identities. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: native WAL and empty-WAL repairs pass scoped checks; CSV candidate10/F1 accepted at tested inputs. At `36a0293`, compiled lifecycle fails1.25%. Proxy import separation at `b49d0d4` passes53 Python tests and actual cases, improves timing/memory, but all five aggregate workload gates still fail. Cast-only registry sharing and further Python startup work are active. Revalidate their affected consumers, measure both independent A2 gates plus affected CSV/F1, then pending B1/COUNT. Keep failed runs and unaffected evidence. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** native WAL continuation and atomic
-initial publication are verified, including both-pin native oracles. Empty-WAL
-read elision also passes its scoped verifier. `target/batch2/prepare_a2_empty_wal.py`
-builds four release binaries, refreshes worker/durable provenance and replays all
-five Rust/proxy workloads. Then `target/batch2/run_rest_a2_empty_wal_candidate1.py`
-uses `remaining-performance-a2-empty-wal-candidate1.json` to measure compiled
-lifecycle/read-only and the strict five-case proxy independently and serially;
-both must pass before B1/native-process-durable and COUNT acceptance. All three
-compiled file cases rerun because startup changed. Retain accepted CSV/F1 and
-non-file-loop evidence at its actual tested identities. User paused activity;
-check host before timing and leave apps running. Batch 3 implementation follows
-Batch 2 acceptance.
+**Immediate carryover, before Batch 3:** finish the cast-only registry repair
+under `target/batch2/a2-registry-sharing-manifest.md` and the separately scoped
+Python startup work. The configured verifier owns each applicable partial sweep;
+source replay and release preparation follow. Measure affected lifecycle/proxy
+and CSV/F1 workloads with unchanged fixtures/pins/gates before pending B1 and
+COUNT acceptance. Native WAL/recovery publication remains unchanged; retain its
+prior scoped evidence with source identities. User paused activity; keep final
+timing serial on a quiet host and leave apps running. Batch 3 implementation
+follows Batch 2 acceptance.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 

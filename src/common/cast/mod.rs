@@ -594,12 +594,14 @@ impl BoundCast {
     }
 }
 
+type CastFamilies = BTreeMap<String, BTreeMap<String, Arc<dyn CastFunction>>>;
+
 /// Startup composition with exact pair/mode selection. There is no implicit
 /// search order or fallback to a built-in adapter. Missing pairs fail binding.
 #[derive(Clone, Debug, Default)]
 pub struct CastRegistry {
-    functions: BTreeMap<CastSpec, Arc<dyn CastFunction>>,
-    families: BTreeMap<String, BTreeMap<String, Arc<dyn CastFunction>>>,
+    functions: Arc<BTreeMap<CastSpec, Arc<dyn CastFunction>>>,
+    families: Arc<CastFamilies>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -612,25 +614,35 @@ impl CastRegistry {
         types: &super::type_registry::TypeRegistry,
     ) -> Result<()> {
         types.bind(data_type)?;
-        let mut next = self.clone();
-        for source in std::iter::once(DataType::Null)
+        let specs: Vec<_> = std::iter::once(DataType::Null)
             .chain((*data_type != DataType::Null).then(|| data_type.clone()))
-        {
-            for mode in [CastMode::Implicit, CastMode::Assignment, CastMode::Explicit] {
-                next.register(
+            .flat_map(|source| {
+                [CastMode::Implicit, CastMode::Assignment, CastMode::Explicit].map(move |mode| {
                     CastSpec {
                         source: source.clone(),
                         target: data_type.clone(),
                         mode,
-                    },
-                    Arc::new(StructuralCast),
-                )?;
+                    }
+                })
+            })
+            .collect();
+        for spec in &specs {
+            super::type_registry::check_metadata(&spec.source)?;
+            super::type_registry::check_metadata(&spec.target)?;
+            if self.functions.contains_key(spec) {
+                return Err(Error::Bind("cast is already registered".into()));
             }
         }
-        *self = next;
+        let functions = Arc::make_mut(&mut self.functions);
+        for spec in specs {
+            functions.insert(spec, Arc::new(StructuralCast));
+        }
         Ok(())
     }
     pub fn builtins() -> Self {
+        defaults().clone()
+    }
+    fn build_builtins() -> Self {
         use DataType::*;
         let mut registry = Self::default();
         let types = [
@@ -688,10 +700,16 @@ impl CastRegistry {
         target: &str,
         function: Arc<dyn CastFunction>,
     ) -> Result<()> {
-        let targets = self.families.entry(source.to_owned()).or_default();
-        if targets.contains_key(target) {
+        if self
+            .families
+            .get(source)
+            .is_some_and(|targets| targets.contains_key(target))
+        {
             return Err(Error::Bind("cast family is already registered".into()));
         }
+        let targets = Arc::make_mut(&mut self.families)
+            .entry(source.to_owned())
+            .or_default();
         targets.insert(target.to_owned(), function);
         Ok(())
     }
@@ -701,11 +719,18 @@ impl CastRegistry {
         target: &str,
         function: Arc<dyn CastFunction>,
     ) -> Result<()> {
-        let entry = self
+        if self
             .families
+            .get(source)
+            .and_then(|targets| targets.get(target))
+            .is_none()
+        {
+            return Err(Error::Bind("cast family is not registered".into()));
+        }
+        let entry = Arc::make_mut(&mut self.families)
             .get_mut(source)
             .and_then(|targets| targets.get_mut(target))
-            .ok_or_else(|| Error::Bind("cast family is not registered".into()))?;
+            .expect("prevalidated cast family");
         *entry = function;
         Ok(())
     }
@@ -740,7 +765,7 @@ impl CastRegistry {
                 function.name()
             )));
         }
-        self.functions.insert(spec, function);
+        Arc::make_mut(&mut self.functions).insert(spec, function);
         Ok(())
     }
     pub fn bind(
@@ -834,7 +859,7 @@ impl CastRegistry {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn defaults() -> &'static CastRegistry {
     static REGISTRY: OnceLock<CastRegistry> = OnceLock::new();
-    REGISTRY.get_or_init(CastRegistry::builtins)
+    REGISTRY.get_or_init(CastRegistry::build_builtins)
 }
 
 #[derive(Debug)]

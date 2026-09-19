@@ -12,7 +12,7 @@ use duckdb_rust::{
     common::{
         cast::{
             BoundCast, CastFunction, CastMode, CastRegistry, CastSpec, DigitIntegerCast,
-            PrimitiveCast,
+            PrimitiveCast, StructuralCast,
         },
         vector::{DataChunk, Vector},
     },
@@ -541,6 +541,125 @@ fn registry_replacement_ownership_and_try_cast_errors_are_checked() -> Result<()
         old.apply(&Value::Null, &q),
         Err(Error::Interrupted)
     ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn builtin_cast_registry_copy_on_write_isolates_exact_family_and_failed_mutations() -> Result<()> {
+    let types = duckdb_rust::common::type_registry::builtin_types();
+    let mut changed = CastRegistry::builtins();
+    let untouched = CastRegistry::builtins();
+    let exact = spec(DataType::Integer, CastMode::Explicit);
+    changed.replace(exact.clone(), Arc::new(Broken(4)))?;
+    assert!(matches!(
+        changed
+            .bind(&exact.source, &exact.target, exact.mode, &types)?
+            .apply(&Value::Varchar("42".into()), &QueryContext::background()),
+        Err(Error::Conversion(_))
+    ));
+    assert_eq!(
+        untouched
+            .bind(&exact.source, &exact.target, exact.mode, &types)?
+            .apply(&Value::Varchar("42".into()), &QueryContext::background())?,
+        Value::Integer(42)
+    );
+
+    changed.replace_family("builtin.varchar", "builtin.decimal", Arc::new(Broken(4)))?;
+    let decimal = DataType::Decimal {
+        width: 18,
+        scale: 3,
+    };
+    assert!(matches!(
+        changed
+            .bind(&DataType::Varchar, &decimal, CastMode::Explicit, &types)?
+            .apply(&Value::Varchar("1.000".into()), &QueryContext::background()),
+        Err(Error::Conversion(_))
+    ));
+    assert!(
+        untouched
+            .bind(&DataType::Varchar, &decimal, CastMode::Explicit, &types)?
+            .apply(&Value::Varchar("1.000".into()), &QueryContext::background())
+            .is_ok()
+    );
+
+    assert!(
+        changed
+            .register(exact.clone(), Arc::new(PrimitiveCast))
+            .is_err()
+    );
+    assert!(
+        changed
+            .replace_family("missing", "family", Arc::new(PrimitiveCast))
+            .is_err()
+    );
+    assert!(changed.replace(exact.clone(), Arc::new(Broken(0))).is_err());
+    let mut partial = CastRegistry::default();
+    let date_identity = CastSpec {
+        source: DataType::Date,
+        target: DataType::Date,
+        mode: CastMode::Explicit,
+    };
+    partial.register(date_identity.clone(), Arc::new(StructuralCast))?;
+    assert!(partial.register_type(&DataType::Date, &types).is_err());
+    assert!(
+        partial
+            .bind(&DataType::Null, &DataType::Date, CastMode::Explicit, &types)
+            .is_err()
+    );
+    assert!(
+        partial
+            .bind(
+                &date_identity.source,
+                &date_identity.target,
+                date_identity.mode,
+                &types,
+            )
+            .is_ok()
+    );
+    let invalid = DataType::Decimal { width: 0, scale: 0 };
+    assert!(partial.register_type(&invalid, &types).is_err());
+    assert!(
+        partial
+            .bind(&DataType::Null, &invalid, CastMode::Explicit, &types)
+            .is_err()
+    );
+    assert!(matches!(
+        changed
+            .bind(&exact.source, &exact.target, exact.mode, &types)?
+            .apply(&Value::Varchar("42".into()), &QueryContext::background()),
+        Err(Error::Conversion(_))
+    ));
+
+    std::thread::scope(|scope| {
+        let first = scope.spawn(CastRegistry::builtins);
+        let second = scope.spawn(CastRegistry::builtins);
+        let first = first.join().expect("built-in cast initialization thread");
+        let second = second.join().expect("built-in cast initialization thread");
+        assert_eq!(
+            first
+                .bind(
+                    &DataType::Varchar,
+                    &DataType::Integer,
+                    CastMode::Explicit,
+                    &types
+                )?
+                .apply(&Value::Varchar("42".into()), &QueryContext::background())?,
+            Value::Integer(42)
+        );
+        assert_eq!(
+            second
+                .bind(
+                    &DataType::Varchar,
+                    &DataType::Integer,
+                    CastMode::Explicit,
+                    &types
+                )?
+                .apply(&Value::Varchar("42".into()), &QueryContext::background())?,
+            Value::Integer(42)
+        );
+        Ok::<_, Error>(())
+    })?;
     Ok(())
 }
 

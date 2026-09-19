@@ -36,7 +36,10 @@ mod value_binding;
 use duckdb_rust::{
     DataType, Database, DatabaseBuilder, Error, Result, Value,
     catalog::{Catalog, CatalogMut, ColumnDefinition, TableBinding, TableDefinition, TableName},
-    common::vector::{DataChunk, Vector},
+    common::{
+        cast::{CastFunction, CastMode, CastRegistry, CastSpec},
+        vector::{DataChunk, Vector},
+    },
     execution::{
         operator::join::{HashJoin, NestedLoopJoin},
         physical_plan::NativePhysicalPlanner,
@@ -745,6 +748,81 @@ fn ordinary_function_registration_and_capability_rejection() -> Result<()> {
         c.query("SELECT * FROM range(2) a JOIN range(2) b ON a.range < b.range"),
         Err(Error::Unsupported(_))
     ));
+    Ok(())
+}
+
+#[derive(Debug)]
+struct CastToSeven;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for CastToSeven {
+    fn name(&self) -> &'static str {
+        "cast-to-seven"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Varchar
+            && spec.target == DataType::Integer
+            && spec.mode == CastMode::Explicit
+    }
+    fn cast(&self, _: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
+        Ok(Value::Integer(7))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn builder_cast_registry_snapshots_isolate_services_and_stored_expressions() -> Result<()> {
+    let spec = CastSpec {
+        source: DataType::Varchar,
+        target: DataType::Integer,
+        mode: CastMode::Explicit,
+    };
+    let mut selected = CastRegistry::builtins();
+    selected.replace(spec.clone(), Arc::new(CastToSeven))?;
+    let retained = selected.clone();
+    let database = DatabaseBuilder::new().casts(selected).build()?;
+    let mut connection = database.connect();
+    assert_eq!(
+        connection
+            .query("SELECT CAST('not-an-integer' AS INTEGER)")?
+            .rows,
+        vec![integers(&[7])]
+    );
+    connection
+        .execute("CREATE TABLE copied(v INTEGER DEFAULT CAST('not-an-integer' AS INTEGER))")?;
+    connection.execute("INSERT INTO copied DEFAULT VALUES")?;
+    assert_eq!(
+        connection.query("SELECT v FROM copied")?.rows,
+        vec![integers(&[7])]
+    );
+
+    let mut after_build = retained;
+    after_build.replace(spec, Arc::new(duckdb_rust::common::cast::PrimitiveCast))?;
+    assert_eq!(
+        connection
+            .query("SELECT CAST('not-an-integer' AS INTEGER)")?
+            .rows,
+        vec![integers(&[7])]
+    );
+    assert!(
+        after_build
+            .register_type(
+                &DataType::Date,
+                &duckdb_rust::common::type_registry::builtin_types()
+            )
+            .is_err()
+    );
+    connection.execute("INSERT INTO copied DEFAULT VALUES")?;
+    assert_eq!(
+        connection.query("SELECT v FROM copied ORDER BY v")?.rows,
+        vec![integers(&[7]), integers(&[7])]
+    );
+    let mut ordinary = DatabaseBuilder::new().build()?.connect();
+    assert!(
+        ordinary
+            .query("SELECT CAST('not-an-integer' AS INTEGER)")
+            .is_err()
+    );
     Ok(())
 }
 
