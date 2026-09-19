@@ -746,6 +746,31 @@ Batch 1 evidence/restart details:
   three scoped tracks, then checkpoint acceptance and proceed to Batch 3.
   Never shrink workloads, retry unchanged failures to green, or restart
   completed checks merely for documentation/new commit hashes.
+
+Batch 2 evidence/restart details:
+
+- A2.1: worker `codex/batch2-a2` owns Python/Rust loop substitution and scoped
+  regressions/workloads. Manifest: worker `target/a2/manifest.md`; unchanged
+  pin/file selections: `target/a2/{release,development}-paths.txt`. Scalar
+  comma tokens must remain whole; tuple names retain arity checks. Python-proxy
+  performance needs a comparable measurement adapter; this remains explicit
+  acceptance work, not an exemption for tooling.
+- F2.1: worker `codex/batch2-f2` owns single-file explicit-schema CSV. Manifest:
+  worker `target/f2/validation-manifest.md`. Buffered parser's initial three
+  tests pass; adapter/SQL/upstream/performance acceptance remains open. Root
+  seam `a817ede` supplies selected casts and binder-owned type-name resolution
+  to table adapters; 8/8 `table_functions` tests pass, including nested STRUCT
+  arguments, custom cast, DECIMAL and catalog/search-path ENUM. No alternate
+  constant evaluator was needed. Root manifest:
+  `target/batch2/f2-bind-services-manifest.md`; refresh affected F1 lifecycle
+  and range performance alongside CSV, not unrelated engine families.
+- B1: worker `codex/batch2-b1` owns persistent views/catalog/binding/native
+  lifecycle. Manifest: worker `target/b1/validation-manifest.md`. Shared
+  `binder/table.rs` ownership is split by method: root's table-function context
+  versus B1 relation resolution. Stored SQL must preserve pinned qualification,
+  dependencies, old snapshots, replacement and native reopen semantics; an
+  in-memory view is not completion. Functional/performance verification open.
+
 The first round starts from the latest accepted integrated revision, after the
 lead freezes the F1 and C2.1 scope/consumer manifests. Planned modules/targets below are
 deliverables, not claims that those files or commands already exist.
