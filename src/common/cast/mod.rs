@@ -410,6 +410,19 @@ impl BoundCast {
         self.attempt(value, CastBehavior::Strict, context)
             .map_err(CastFailure::into_error)
     }
+    /// Permit retaining validated UTF-8 storage without synthesizing scalar
+    /// strings. The caller still owns physical validation and bounded query
+    /// cancellation; selected logical validators or non-identity callbacks
+    /// must continue through the ordinary scalar conversion boundary.
+    pub(crate) fn can_preserve_plain_varchar_storage(&self) -> bool {
+        self.spec.source == DataType::Varchar
+            && self.spec.target == DataType::Varchar
+            && self.null_handling == CastNullHandling::Propagate
+            && !self.may_return_null
+            && !self.source.requires_logical_validation()
+            && !self.target.requires_logical_validation()
+            && self.function.permits_owned_identity(&self.spec)
+    }
     /// Consume an input whose caller no longer needs its payload. Only an
     /// explicitly opted-in selected identity can avoid the ordinary callback.
     pub fn apply_owned(&self, value: Value, context: &QueryContext) -> Result<Value> {
@@ -953,5 +966,114 @@ fn primitive_numeric_name(data_type: &DataType) -> &'static str {
         DataType::Float => "FLOAT",
         DataType::Double => "DOUBLE",
         _ => unreachable!("primitive cast owns only signed and floating numeric types"),
+    }
+}
+
+#[cfg(test)]
+mod packed_storage_tests {
+    use super::*;
+    use crate::common::type_registry::{KeyWriter, PrimitiveTypes, TypeAdapter, TypeRegistry};
+    use std::cmp::Ordering;
+
+    #[derive(Debug)]
+    struct NoIdentity;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl CastFunction for NoIdentity {
+        fn name(&self) -> &'static str {
+            // A replacement cannot borrow merely by using the built-in name.
+            "primitive"
+        }
+        fn supports(&self, _: &CastSpec) -> bool {
+            true
+        }
+        fn cast(&self, value: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
+            Ok(value.clone())
+        }
+    }
+
+    #[derive(Debug)]
+    struct LogicalVarchar;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl TypeAdapter for LogicalVarchar {
+        fn name(&self) -> &'static str {
+            "logical-varchar-probe"
+        }
+        fn validate_type(&self, data_type: &DataType) -> Result<()> {
+            PrimitiveTypes.validate_type(data_type)
+        }
+        fn validate_value(
+            &self,
+            data_type: &DataType,
+            value: &Value,
+            context: &QueryContext,
+        ) -> Result<()> {
+            PrimitiveTypes.validate_value(data_type, value, context)
+        }
+        fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+            PrimitiveTypes.common_type(left, right)
+        }
+        fn compare(
+            &self,
+            data_type: &DataType,
+            left: &Value,
+            right: &Value,
+            context: &QueryContext,
+        ) -> Result<Ordering> {
+            PrimitiveTypes.compare(data_type, left, right, context)
+        }
+        fn write_key(
+            &self,
+            data_type: &DataType,
+            value: &Value,
+            output: &mut KeyWriter<'_>,
+            context: &QueryContext,
+        ) -> Result<()> {
+            PrimitiveTypes.write_key(data_type, value, output, context)
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn packed_varchar_requires_selected_identity_and_physical_only_validation() -> Result<()> {
+        let types = TypeRegistry::builtins();
+        let casts = CastRegistry::builtins();
+        let bound = casts.bind(
+            &DataType::Varchar,
+            &DataType::Varchar,
+            CastMode::Explicit,
+            &types,
+        )?;
+        assert!(bound.can_preserve_plain_varchar_storage());
+        let mut changed = bound.clone();
+        changed.function = Arc::new(NoIdentity);
+        assert!(!changed.can_preserve_plain_varchar_storage());
+        let mut changed = bound.clone();
+        changed.null_handling = CastNullHandling::Call;
+        assert!(!changed.can_preserve_plain_varchar_storage());
+        let mut changed = bound.clone();
+        changed.may_return_null = true;
+        assert!(!changed.can_preserve_plain_varchar_storage());
+        let mut logical = types.clone();
+        logical.replace(DataType::Varchar.family(), Arc::new(LogicalVarchar))?;
+        for source in [true, false] {
+            let mut changed = bound.clone();
+            if source {
+                changed.source = logical.bind(&DataType::Varchar)?;
+            } else {
+                changed.target = logical.bind(&DataType::Varchar)?;
+            }
+            assert!(!changed.can_preserve_plain_varchar_storage());
+        }
+        for (source, target) in [
+            (DataType::Varchar, DataType::BigInt),
+            (DataType::BigInt, DataType::Varchar),
+            (DataType::BigInt, DataType::BigInt),
+        ] {
+            let other = casts.bind(&source, &target, CastMode::Explicit, &types)?;
+            assert!(!other.can_preserve_plain_varchar_storage());
+        }
+        Ok(())
     }
 }

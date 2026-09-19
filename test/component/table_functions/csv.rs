@@ -227,3 +227,98 @@ fn csv_owned_columns_retain_selected_identity_callbacks_and_nulls() -> Result<()
     assert_eq!(calls.load(Ordering::Relaxed), 4);
     Ok(())
 }
+
+#[derive(Debug)]
+struct CsvOrderedCall(Arc<std::sync::Mutex<Vec<Value>>>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for CsvOrderedCall {
+    fn name(&self) -> &'static str {
+        "csv-ordered-call"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Varchar && spec.target == DataType::Varchar
+    }
+    fn null_handling(&self, _: &CastSpec) -> duckdb_rust::common::cast::CastNullHandling {
+        duckdb_rust::common::cast::CastNullHandling::Call
+    }
+    fn cast(&self, value: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
+        self.0.lock().unwrap().push(value.clone());
+        if value == &Value::Varchar("stop".into()) {
+            return Err(Error::Conversion("ordered CSV stop".into()));
+        }
+        Ok(value.clone())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn csv_arena_preserves_row_major_callbacks_null_calls_and_first_cast_error() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    file.write_all(b"a,NULL\nc,stop\nd,e\n")?;
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut casts = CastRegistry::builtins();
+    casts.replace(
+        CastSpec {
+            source: DataType::Varchar,
+            target: DataType::Varchar,
+            mode: CastMode::Explicit,
+        },
+        Arc::new(CsvOrderedCall(calls.clone())),
+    )?;
+    let mut connection = DatabaseBuilder::new()
+        .casts(casts)
+        .batch_size(8)
+        .build()?
+        .connect();
+    let error = connection.query(&format!(
+        "SELECT * FROM read_csv('{}', columns={{'a':'VARCHAR','b':'VARCHAR'}}, auto_detect=false, nullstr='NULL')",
+        sql_path(file.path()),
+    ));
+    assert!(matches!(error, Err(Error::Conversion(message)) if message == "ordered CSV stop"));
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![
+            Value::Varchar("a".into()),
+            Value::Null,
+            Value::Varchar("c".into()),
+            Value::Varchar("stop".into())
+        ],
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn csv_packed_projected_ctas_owns_values_after_reader_and_other_columns_drop() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    file.write_all("1,α,ignored\n2,NULL,also ignored\n3,\"\",more\n4,🦆,last\n".as_bytes())?;
+    let mut connection = DatabaseBuilder::new().batch_size(2).build()?.connect();
+    connection.execute(&format!(
+        "CREATE TABLE retained AS SELECT label FROM read_csv('{}', columns={{'id':'INTEGER','label':'VARCHAR','unused':'VARCHAR'}}, auto_detect=false, nullstr='NULL')",
+        sql_path(file.path()),
+    ))?;
+    file.close()?;
+    assert_eq!(
+        connection.query("SELECT label FROM retained")?.rows,
+        vec![
+            vec![Value::Varchar("α".into())],
+            vec![Value::Null],
+            vec![Value::Varchar("".into())],
+            vec![Value::Varchar("🦆".into())],
+        ]
+    );
+    assert_eq!(
+        connection
+            .query("SELECT count(label), sum(length(label)) FROM retained")?
+            .rows,
+        vec![vec![Value::Integer(3), Value::Integer(2)]]
+    );
+    assert_eq!(
+        connection
+            .query("SELECT label FROM retained WHERE label = 'α'")?
+            .rows,
+        vec![vec![Value::Varchar("α".into())]]
+    );
+    Ok(())
+}
