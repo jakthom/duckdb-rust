@@ -19,6 +19,7 @@ def digest(path):
 
 
 def once(worker, root, relative, timeout=60):
+    worker = Path(worker).resolve(strict=True)
     root = Path(root).resolve(strict=True)
     path = (root / relative).resolve(strict=True)
     if not path.is_relative_to(root) or not path.is_file():
@@ -26,7 +27,7 @@ def once(worker, root, relative, timeout=60):
     records = sqllogic.parse(path.read_text())
     deadline = time.monotonic() + timeout
     with tempfile.TemporaryDirectory(prefix="ddb-proxy-measure-") as scratch:
-        engine = run_upstream.RustEngine(Path(worker), scratch, deadline)
+        engine = run_upstream.RustEngine(worker, scratch, deadline)
         try:
             runner = sqllogic.Runner(engine, {
                 "{TEST_DIR}": scratch, "__TEST_DIR__": scratch,
