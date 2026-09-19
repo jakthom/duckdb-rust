@@ -145,7 +145,14 @@ impl CsvReader {
     }
 
     fn consume(&mut self, byte: u8, rows: &mut Vec<Vec<CsvField>>) -> Result<()> {
-        if byte != b'\n' {
+        // The record limit includes quoted embedded newlines and quote bytes,
+        // but excludes the terminal LF/CRLF delimiter.
+        // A pending quote is a closing quote unless the next byte is another
+        // quote (the quote-as-escape form). A newline or CR at that point is
+        // therefore a record delimiter too.
+        let terminal_delimiter =
+            matches!(byte, b'\n' | b'\r') && (!self.in_quotes || self.quote_pending);
+        if !terminal_delimiter {
             self.record_bytes = self
                 .record_bytes
                 .checked_add(1)
@@ -157,75 +164,71 @@ impl CsvReader {
                 )));
             }
         }
-        loop {
-            if self.carriage_return {
-                self.carriage_return = false;
+        if self.carriage_return {
+            self.carriage_return = false;
+            if byte == b'\n' {
                 self.finish_record(rows)?;
-                if byte == b'\n' {
-                    return Ok(());
-                }
-                continue;
-            }
-            if self.escape_pending {
-                self.push_field_byte(byte)?;
-                self.escape_pending = false;
-                self.record_started = true;
                 return Ok(());
             }
-            if self.quote_pending {
-                self.quote_pending = false;
-                if byte == self.options.quote {
-                    self.push_field_byte(byte)?;
-                    self.record_started = true;
-                    return Ok(());
-                }
-                self.in_quotes = false;
-                return match byte {
-                    b if b == self.options.delimiter => self.finish_field(),
-                    b'\n' => self.finish_record(rows),
-                    b'\r' => {
-                        self.carriage_return = true;
-                        Ok(())
-                    }
-                    _ => Err(Error::Conversion(
-                        "CSV character after closing quote is not a delimiter or newline".into(),
-                    )),
-                };
-            }
-            if self.in_quotes {
-                if self.options.escape != self.options.quote && byte == self.options.escape {
-                    self.escape_pending = true;
-                } else if byte == self.options.quote {
-                    if self.options.escape == self.options.quote {
-                        self.quote_pending = true;
-                    } else {
-                        self.in_quotes = false;
-                    }
-                } else {
-                    self.push_field_byte(byte)?;
-                }
-                self.record_started = true;
-                return Ok(());
-            }
-            if self.field_start && byte == self.options.quote {
-                self.in_quotes = true;
-                self.field_quoted = true;
-                self.field_start = false;
-                self.record_started = true;
-                return Ok(());
-            }
-            match byte {
-                b if b == self.options.delimiter => self.finish_field()?,
-                b'\n' => self.finish_record(rows)?,
-                b'\r' => self.carriage_return = true,
-                _ => {
-                    self.push_field_byte(byte)?;
-                    self.field_start = false;
-                    self.record_started = true;
-                }
-            }
+            return Err(Error::Conversion(
+                "CSV carriage return must be followed by newline".into(),
+            ));
+        }
+        if self.escape_pending {
+            self.push_field_byte(byte)?;
+            self.escape_pending = false;
+            self.record_started = true;
             return Ok(());
         }
+        if self.quote_pending {
+            self.quote_pending = false;
+            if self.options.escape == self.options.quote && byte == self.options.quote {
+                self.push_field_byte(byte)?;
+                self.record_started = true;
+                return Ok(());
+            }
+            self.in_quotes = false;
+            return match byte {
+                b if b == self.options.delimiter => self.finish_field(),
+                b'\n' => self.finish_record(rows),
+                b'\r' => {
+                    self.carriage_return = true;
+                    Ok(())
+                }
+                _ => Err(Error::Conversion(
+                    "CSV character after closing quote is not a delimiter or newline".into(),
+                )),
+            };
+        }
+        if self.in_quotes {
+            if self.options.escape != self.options.quote && byte == self.options.escape {
+                self.escape_pending = true;
+            } else if byte == self.options.quote {
+                self.quote_pending = true;
+            } else {
+                self.push_field_byte(byte)?;
+            }
+            self.record_started = true;
+            return Ok(());
+        }
+        if self.field_start && byte == self.options.quote {
+            self.in_quotes = true;
+            self.field_quoted = true;
+            self.field_start = false;
+            self.record_started = true;
+            return Ok(());
+        }
+        match byte {
+            b if b == self.options.delimiter => self.finish_field()?,
+            b'\n' => self.finish_record(rows)?,
+            b'\r' => self.carriage_return = true,
+            _ => {
+                self.push_field_byte(byte)?;
+                self.field_start = false;
+                self.record_started = true;
+            }
+        }
+        Ok(())
     }
 
     fn finish_eof(&mut self, rows: &mut Vec<Vec<CsvField>>) -> Result<()> {
@@ -606,8 +609,23 @@ mod tests {
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
-    fn strict_quote_and_line_bounds_reject_malformed_records() {
+    fn strict_quote_and_line_bounds_reject_malformed_records() -> Result<()> {
         assert!(rows(b"\"x\"y\n", CsvOptions::default()).is_err());
+        assert!(
+            rows(
+                b"\"x\"y\n",
+                CsvOptions {
+                    escape: b'\\',
+                    ..CsvOptions::default()
+                }
+            )
+            .is_err()
+        );
+        assert!(rows(b"a\rb\n", CsvOptions::default()).is_err());
+        assert_eq!(
+            rows(b"a\r", CsvOptions::default())?[0][0].value.as_deref(),
+            Some("a")
+        );
         assert_eq!(
             rows(
                 b"\"x\\y\"\n",
@@ -631,6 +649,68 @@ mod tests {
             )
             .is_err()
         );
+        assert!(
+            rows(
+                b"abc\n",
+                CsvOptions {
+                    max_line_bytes: 2,
+                    ..CsvOptions::default()
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(
+            rows(
+                b"abc\r\n",
+                CsvOptions {
+                    max_line_bytes: 3,
+                    ..CsvOptions::default()
+                }
+            )?[0][0]
+                .value
+                .as_deref(),
+            Some("abc")
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn quoted_newlines_count_toward_line_bounds_and_cross_input_buffers() -> Result<()> {
+        let quoted = b"\"a\nb\"\n";
+        let parsed = rows(
+            quoted,
+            CsvOptions {
+                max_line_bytes: 5,
+                ..CsvOptions::default()
+            },
+        )?;
+        assert_eq!(parsed[0][0].value.as_deref(), Some("a\nb"));
+        assert!(
+            rows(
+                quoted,
+                CsvOptions {
+                    max_line_bytes: 4,
+                    ..CsvOptions::default()
+                }
+            )
+            .is_err()
+        );
+
+        let prefix = "x".repeat(BUFFER_BYTES - 2);
+        let input = format!("\"{prefix}\nend\"\n");
+        let parsed = rows(
+            input.as_bytes(),
+            CsvOptions {
+                max_line_bytes: input.len() - 1,
+                ..CsvOptions::default()
+            },
+        )?;
+        assert_eq!(
+            parsed[0][0].value.as_deref(),
+            Some(format!("{prefix}\nend").as_str())
+        );
+        Ok(())
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
