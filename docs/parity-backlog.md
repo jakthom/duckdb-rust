@@ -759,25 +759,35 @@ Batch 2 evidence/restart details:
   previously lost pin/file passes are restored (release records 1211/47;
   development 1211/47/51/195). Development uses the unchanged root-private
   pinned source via a recorded entry wrapper, not the mismatched shared checkout.
-  Adapter hardening worker `d30e6f8` is integrated as `d83f8b9`: 16 proxy and
-  16 shared measurement Python tests pass, with untimed 5/5000/16-record
-  workloads. No timing or independent final sweep yet. After two
-  incomplete review cycles, only the proxy measurement/negative-test files are
-  reassigned to existing Sol/high agent `batch1_f1` in the A2 worktree. The
-  restored loop behavior is unchanged. Current review checks that whole-tree
-  worker attestation remains outside per-file timing, as in the real upstream
-  workflow, while retaining current binary/source identity before and after
-  measurement. Exact commands/evidence remain worker `target/a2/manifest.md`.
+  Adapter hardening is integrated through `f4d3a5a`: whole-tree worker
+  attestation stays outside per-file timing, as in the actual upstream workflow;
+  exact sidecar/source/binary identities remain checked before and after the
+  campaign and during replay. Independent partial verification passed all seven
+  stages: Python 12/20/16 tests, Rust runner70, scoped Clippy and instrumentation
+  compatibility. Formatting/coverage evidence is reused on unchanged Rust inputs.
+  Root manifest/evidence: `target/batch2/a2-scoped-verification.md` and
+  `a2-verifier/`. Untimed worker workloads pass 5/5000/16 records. Final ROOT
+  release/source replay and both Rust/Python performance campaigns remain open;
+  no measured parity claim. Exact proxy commands remain worker
+  `target/a2/manifest.md`; integrated acceptance uses
+  `target/batch2/final-acceptance-manifest.md`.
 - F2.1: worker `codex/batch2-f2` owns single-file explicit-schema CSV. Manifest:
   worker `target/f2/validation-manifest.md`. Reviewed CSV source is integrated
   through `5384532`: bounded retained records, strict post-quote handling,
   pinned custom escapes, UTF-8/read-error/NULL/options and selected-cast tests,
   owned-row output. Seven parser and twelve table-function tests pass in the
-  worker; root independent partial sweep is running under
-  `target/batch2/f2-scoped-verification.md` / `f2-verifier/`. Explicit mode
+  worker; root independent partial sweep passed all nine stages under
+  `target/batch2/f2-scoped-verification.md` / `f2-verifier/` (parser7,
+  table-functions12, owned-row contract1, generator2, scoped Clippy,
+  formatting/diff, coverage and instrumentation compatibility). Explicit mode
   requires `auto_detect=false`; omitted/true inference remains F3.4. Exact
-  source replay of `test_quote_default.test` passes release3/dev2 using pinned
-  CSV files and a recorded DATA_DIR environment; ordinary-runner fixture and
+  source replay of `test_quote_default.test` passes release3/dev2 with a
+  recorded DATA_DIR environment. Provenance review found the worker's development
+  checkout label was wrong: the consumed SQL and both CSV hashes do match the
+  exact private pin, but the shared checkout itself does not. Preserve the
+  original report and reconciliation in
+  `target/batch2/f2-source-provenance-correction.md`; final ROOT replay must
+  check the actual private checkout and fresh worker. Ordinary-runner fixture and
   COPY prerequisites remain preserved failures, not passing whole-file claims.
   Generator correction `951821f` validates fixed100k narrow/wide all-column
   inputs, 16-record process fixtures, source/data/config hashes and before/after
@@ -793,8 +803,14 @@ Batch 2 evidence/restart details:
   `binder/table.rs` ownership is split by method: root's table-function context
   versus B1 relation resolution. Stored SQL must preserve pinned qualification,
   dependencies, old snapshots, replacement and native reopen semantics; an
-  in-memory view is not completion. First engine/private-snapshot slice passes
-  five view tests; native query-AST codec/checkpoint/WAL is still in progress.
+  in-memory view is not completion. Worker feedback passes views10, catalog13,
+  stored-expression15, defaults6, logging1, publication8 and process331 records.
+  Exact selected upstream cases pass21 records per pin. Bounded native
+  projection/filter/alias/stacked checkpoint and WAL exchanges pass in both
+  directions on both pins; these are worker feedback, not final integrated
+  acceptance. Review is checking schema-qualified recursion, duplicate output
+  names and wide numeric literal encoding before integration; the durable
+  performance adapter remains open.
   Both pins allow DROP TABLE/VIEW despite dependent views, so do not invent
   blocking dependencies; root observations are
   `target/batch2/b1-reference-observations.md`. Functional/performance acceptance
