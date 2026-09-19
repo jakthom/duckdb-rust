@@ -744,6 +744,32 @@ No threshold, sample, fixture or acceptance obligation changes.
 Empty-WAL production preparation passes all13 stages with unchanged source
 digests, fresh worker/durable provenance and exact five-case Rust/proxy counts
 5/5000/16/4/2002. Receipt: `a2-empty-wal-preparation/run1/report.json`.
+At `36a0293`, empty-WAL candidate1 compiled lifecycle still fails:38.856ms versus
+38.378ms (1.01246x), while read-only small/large pass0.9074x/0.5957x with all
+resource gates. Independent proxy measurement now exposes failures across all5
+cases: small loop70.897ms versus25.507ms, CPU5x and RSS1.3585x; large loop and
+large read-only latency pass but memory does not. Lifecycle/read-only small also
+fail wall/CPU/RSS. Both raw reports and failed stage receipts are retained under
+`target/batch2/a2-empty-wal-*-process-candidate1.json` and
+`remaining-a2-empty-wal-candidate1-stage-logs/`; B1/COUNT did not run.
+Actual attested proxy import/runtime diagnostics validate5 records and identify
+unused campaign/upstream orchestration imports in worker startup. A bounded
+Python import/protocol separation and an independent native lifecycle cost
+investigation are next; preserve parser/oracle/provenance semantics and every
+performance obligation. Diagnostics are not acceptance evidence.
+Proxy startup separation is implemented: `worker_protocol.py` retains the exact
+JSON-line transport and canonical sidecar name; campaign/report imports load on
+demand. The new helper is included in both campaign and upstream identities.
+Configured Python-only verification passes53 tests and syntax/diff checks, with
+stable inputs under `a2-proxy-startup-verifier/`. Actual preparation passes12
+stages: each fixed workload in attested and standalone modes with exact counts,
+then release2/development4 unchanged upstream files (1211/47 and1211/47/51/195).
+Receipt: `a2-lean-import-preparation/run1/report.json`. No Rust rebuild was needed.
+The five-case proxy gate is next under
+`remaining-performance-a2-lean-import-candidate1.json`; compiled lifecycle is
+unchanged and is not retried. Current native sampling validates3200 records and
+shows repeated cast construction; a separate cast-only optimization is being
+scoped. Function sharing is excluded because regex caches contain mutable state.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |

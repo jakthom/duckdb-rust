@@ -215,7 +215,7 @@ class ProxyEvidenceTests(unittest.TestCase):
             provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
             attestation["provenance_sha256"] = proxy.digest(provenance_path)
             with patch.object(
-                proxy.run_upstream,
+                proxy,
                 "checked_worker_provenance",
                 side_effect=AssertionError("full source/binary hashing entered timed child"),
             ):
@@ -245,7 +245,7 @@ class ProxyEvidenceTests(unittest.TestCase):
 
     def test_standalone_once_retains_full_worker_attestation(self):
         with patch.object(proxy, "validate_workload_population", return_value=[]), patch.object(
-            proxy.run_upstream, "checked_worker_provenance"
+            proxy, "checked_worker_provenance"
         ) as checked:
             with self.assertRaisesRegex(ValueError, "population"):
                 proxy.once(
@@ -259,7 +259,7 @@ class ProxyEvidenceTests(unittest.TestCase):
         workload = proxy.EXPECTED_WORKLOADS[0]
         specs = [{"path": workload["path"], "proxy_records_expected": workload["proxy_records"]}]
         with patch.object(proxy, "validate_workload_population", return_value=specs), patch.object(
-            proxy.run_upstream,
+            proxy,
             "checked_worker_provenance",
             side_effect=RuntimeError("full attestation reached"),
         ) as checked:
@@ -314,6 +314,7 @@ class ProxyEvidenceTests(unittest.TestCase):
                 "source_identity.py",
                 "reference_version.py",
                 "upstream_suite.py",
+                "worker_protocol.py",
             },
         )
         workloads = proxy.validate_workload_population(
@@ -328,6 +329,18 @@ class ProxyEvidenceTests(unittest.TestCase):
             copied.write_bytes((proxy.ROOT / proxy.EXPECTED_MANIFEST).read_bytes())
             with self.assertRaisesRegex(ValueError, "frozen five-workload"):
                 proxy.validate_workload_population(copied, proxy.ROOT)
+
+        def missing_protocol(path):
+            if Path(path).name == "worker_protocol.py":
+                raise ValueError("worker protocol helper is missing")
+            return {"path": str(path), "sha256": "0" * 64, "bytes": 1}
+
+        with patch.object(proxy, "file_identity", side_effect=missing_protocol):
+            with self.assertRaisesRegex(ValueError, "protocol helper"):
+                proxy.snapshot_inputs(
+                    {"workloads": proxy.ROOT / proxy.EXPECTED_MANIFEST},
+                    [], {}, Path("worker"), Path("provenance"), {},
+                )
 
     def test_actual_input_snapshots_and_all_top_level_identities_are_required(self):
         mutations = (

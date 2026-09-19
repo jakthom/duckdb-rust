@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import selectors
 import shutil
 import subprocess
 import sys
@@ -22,6 +21,7 @@ import time
 from pathlib import PurePosixPath
 
 import sqllogic
+from worker_protocol import RustEngine, worker_provenance_path
 from reference_version import ROOT, TARGETS, require_checkout
 from upstream_suite import DESTINATION, REVISION, declarations, digest, verify
 
@@ -44,35 +44,6 @@ def summarize(sql, selected, results, unported, obligations):
             "failure_classes": dict(Counter(r.get("failure_class") for r in results if r.get("failure_class"))),
             "sql_selection_passed": selection_passed, "sql_suite_passed": sql_passed,
             "full_suite_passed": sql_passed and not unported and scopes_passed}
-
-
-class RustEngine:
-    def __init__(self, binary, directory, deadline):
-        self.errors = tempfile.TemporaryFile(mode="w+t")
-        self.process = subprocess.Popen([str(binary)], cwd=directory, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=self.errors, text=True, bufsize=1)
-        self.events = selectors.DefaultSelector(); self.events.register(self.process.stdout, selectors.EVENT_READ)
-        self.deadline = deadline; self.engine_unsupported_seen = False; self.worker_requests = 0; self.sql_requests = 0
-    def request(self, request):
-        remaining = self.deadline - time.monotonic()
-        if remaining <= 0: raise TimeoutError("file deadline exceeded")
-        # Count only requests that are actually handed to the worker. SQL attempts
-        # exclude runner transport controls such as restart and reconnect.
-        nested = [item for stream in request.get("streams", []) for item in stream]
-        self.worker_requests += 1 + len(nested)
-        self.sql_requests += request.get("operation") in ("query", "statement")
-        self.sql_requests += sum(item.get("operation") in ("query", "statement") for item in nested)
-        self.process.stdin.write(json.dumps(request) + "\n"); self.process.stdin.flush()
-        if not self.events.select(timeout=remaining): raise TimeoutError("file deadline exceeded")
-        line = self.process.stdout.readline()
-        if not line:
-            self.errors.seek(0); raise RuntimeError("worker exited: " + self.errors.read()[:2000])
-        response = json.loads(line)
-        self.engine_unsupported_seen = bool(response.get("unsupported"))
-        return response
-    def close(self):
-        if self.process.poll() is None: self.process.kill()
-        self.process.wait(); self.process.stdin.close(); self.process.stdout.close(); self.events.close(); self.errors.close()
 
 
 def failure_class(error, engine_unsupported_seen=False, phase="execution"):
@@ -322,10 +293,6 @@ def worker_source_digest():
                         *(ROOT / "src").rglob("*.rs"), *(ROOT / "test/runner").rglob("*.rs")]):
         digestor.update(str(path.relative_to(ROOT)).encode() + b"\0" + path.read_bytes())
     return digestor.hexdigest()
-
-
-def worker_provenance_path(binary):
-    return Path(str(binary) + ".provenance.json")
 
 
 def write_worker_provenance(binary, profile):
@@ -632,7 +599,7 @@ def main():
         rust_build, binary = worker_build(args.debug_worker)
     source_hash = worker_source_digest()
     targets = ("development", "release") if args.target == "both" else (args.target,)
-    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "worker_provenance": provenance if args.worker else None, "rust_source_sha256": source_hash, "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "campaign_kind": "selected-feedback" if feedback_paths else "suite-campaign", "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign." + (" Selected-feedback is deliberately not full-suite acceptance." if feedback_paths else "")}
+    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "worker_provenance": provenance if args.worker else None, "rust_source_sha256": source_hash, "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "worker_protocol.py", "run_upstream.py", "upstream_suite.py", "reference_version.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "campaign_kind": "selected-feedback" if feedback_paths else "suite-campaign", "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign." + (" Selected-feedback is deliberately not full-suite acceptance." if feedback_paths else "")}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with journal.open("x") as progress:
         progress.write(json.dumps({"event": "started", "metadata": report}) + "\n"); progress.flush()

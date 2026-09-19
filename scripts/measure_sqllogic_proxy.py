@@ -1,19 +1,27 @@
 """Fail-closed Python SQLLogic proxy gate against both pinned C++ runners."""
 import argparse
-import copy
-from datetime import datetime, timezone
 import hashlib
 import json
-import math
 from pathlib import Path
-import platform
-import sys
 import tempfile
 import time
 
-import measure_sqllogic_performance as measure
-import run_upstream
 import sqllogic
+from worker_protocol import RustEngine, worker_provenance_path
+
+
+class _LazyMeasure:
+    def __init__(self):
+        self.module = None
+
+    def __getattr__(self, name):
+        if self.module is None:
+            import measure_sqllogic_performance
+            self.module = measure_sqllogic_performance
+        return getattr(self.module, name)
+
+
+measure = _LazyMeasure()
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +82,7 @@ HELPERS = (
     "source_identity.py",
     "reference_version.py",
     "upstream_suite.py",
+    "worker_protocol.py",
 )
 CAMPAIGN_ARGUMENTS = {
     "test_root",
@@ -130,6 +139,7 @@ def save(report, path):
 
 
 def json_safe(value):
+    import math
     if isinstance(value, float) and not math.isfinite(value):
         return "Infinity" if value > 0 else "-Infinity"
     if isinstance(value, dict):
@@ -218,6 +228,7 @@ def normalized_campaign(root, manifest, worker, provenance_path, references):
 
 
 def snapshot_inputs(campaign, workloads, references, worker, provenance_path, provenance):
+    import sys
     scripts = Path(__file__).resolve().parent
     workload_files = {
         workload["id"]: file_identity(workload["shared_workload_path"])
@@ -245,6 +256,7 @@ def snapshot_inputs(campaign, workloads, references, worker, provenance_path, pr
 
 
 def build_context(values):
+    import sys
     if isinstance(values, dict):
         if set(values) != CAMPAIGN_ARGUMENTS:
             raise ValueError("campaign arguments are missing, extra, or malformed")
@@ -256,11 +268,11 @@ def build_context(values):
     worker = Path(values.worker).resolve(strict=True)
     if worker != expected_worker:
         raise ValueError("proxy acceptance requires the worktree release feedback worker")
-    expected_provenance = run_upstream.worker_provenance_path(worker).resolve()
+    expected_provenance = worker_provenance_path(worker).resolve()
     provenance_path = Path(values.worker_provenance).resolve(strict=True)
     if provenance_path != expected_provenance:
         raise ValueError("proxy acceptance requires the worker's canonical provenance sidecar")
-    checked_path, provenance = run_upstream.checked_worker_provenance(worker, provenance_path)
+    checked_path, provenance = checked_worker_provenance(worker, provenance_path)
     references = {
         "release": measure.identity(
             "release",
@@ -314,6 +326,13 @@ def context_from_report(report):
     if not isinstance(campaign, dict):
         raise ValueError("report has no frozen campaign arguments")
     return build_context(campaign)
+
+
+def checked_worker_provenance(worker, provenance_path):
+    # Full source attestation is needed only for setup or an unattested direct
+    # invocation. Timed campaign children carry the prechecked triple instead.
+    from run_upstream import checked_worker_provenance as checked
+    return checked(worker, provenance_path)
 
 
 def campaign_attestation(context):
@@ -401,6 +420,7 @@ def expected_schedule():
 
 def validate_report(report, context=None):
     """Revalidate identities, raw evidence, and Gate P from serialized bytes."""
+    from datetime import datetime
     if not isinstance(report, dict) or report.get("schema") != SCHEMA:
         raise ValueError("invalid proxy evidence schema")
     if any(key in report for key in ("error", "failed_invocation", "failure_phase")):
@@ -515,7 +535,7 @@ def checked_campaign_attestation(worker, worker_provenance, attestation):
         raise ValueError("campaign worker attestation has a malformed SHA-256")
     worker = Path(worker).resolve(strict=True)
     provenance_path = Path(worker_provenance).resolve(strict=True)
-    canonical_path = run_upstream.worker_provenance_path(worker).resolve(strict=True)
+    canonical_path = worker_provenance_path(worker).resolve(strict=True)
     if provenance_path != canonical_path:
         raise ValueError("--once requires the canonical worker provenance sidecar")
     if digest(provenance_path) != attestation["provenance_sha256"]:
@@ -549,20 +569,20 @@ def once(worker, worker_provenance, root, relative, timeout=60, attestation=None
     if worker != expected_worker:
         raise ValueError("--once requires the worktree release feedback worker")
     if attestation is None:
-        provenance_path, _ = run_upstream.checked_worker_provenance(
+        provenance_path, _ = checked_worker_provenance(
             worker, worker_provenance
         )
     else:
         provenance_path, _ = checked_campaign_attestation(
             worker, worker_provenance, attestation
         )
-    if provenance_path.resolve(strict=True) != run_upstream.worker_provenance_path(worker).resolve(strict=True):
+    if provenance_path.resolve(strict=True) != worker_provenance_path(worker).resolve(strict=True):
         raise ValueError("--once requires the canonical worker provenance sidecar")
     path = (root / relative).resolve(strict=True)
     records = sqllogic.parse(path.read_text())
     deadline = time.monotonic() + timeout
     with tempfile.TemporaryDirectory(prefix="ddb-proxy-measure-") as scratch:
-        engine = run_upstream.RustEngine(worker, scratch, deadline)
+        engine = RustEngine(worker, scratch, deadline)
         try:
             runner = sqllogic.Runner(
                 engine,
@@ -591,6 +611,9 @@ def requested_arguments(args):
 
 
 def campaign(args):
+    import copy
+    from datetime import datetime, timezone
+    import platform
     reserve_report(args.report)
     report = {
         "schema": SCHEMA,
