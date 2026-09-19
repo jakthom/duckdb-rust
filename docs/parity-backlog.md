@@ -588,26 +588,45 @@ worker owns a metadata-growth regression. Manifest:
 Candidate10 seven-stage independent partial verifier passes: parser19/19,
 table_functions18/18, formatting/Clippy, coverage missing=[] and tracing. Frozen
 inputs match before/after; evidence `target/batch2/single-delimiter-verifier/`
-and `single-delimiter-frozen-inputs.json`. Next production/source preparation10.
+and `single-delimiter-frozen-inputs.json`. Production/source preparation10 passed8/8 at `3fb8cfc`. Candidate10 native latency
+passes both fixed workloads against the faster pin: narrow9.851ms/9.917ms versus
+release10.223ms (worst0.9701x), wide50.823ms/50.843ms versus58.827ms (0.8643x).
+Both paired21-sample reports and fastest-reference gate are retained under
+`target/batch2/f2-performance/native-*-candidate10.json`. Host indexing settled
+before timing; final preflight87% idle/no swap. CSV process resource gate also passes: narrow wall0.9017x/CPU0.8824x/RSS0.35x;
+wide wall0.8661x/CPU0.8632x/RSS0.3437x; I/O equal0, throughput passes.
+Evidence `target/batch2/f2-performance/process-candidate10.json`,21samples/3warmups.
+Remaining F1/A2/B1/durable/COUNT gates execute serially via
+`target/batch2/run_rest_candidate10.py`; Batch2 remains open until all pass.
+F1 native/process remaining5 passes. A2 process preflight fails before timing:
+fresh `load {TEST_DIR}/g01_2c_loop_sessions.duckdb` is misclassified as an external
+fixture. Both pinned LoadCommand implementations delete/create nonreadonly loads;
+Rust binds TEST_DIR to owned scratch and removes fresh DB/WAL files. Bounded
+Python-only correction/negative tests assigned under
+`target/batch2/a2-generated-database-manifest.md`; no workload/source/assertion,
+threshold, Rust or pinned input changes. Preserve failed remaining5 A2 stage.
+CSV/F1 measured execution paths and tested inputs remain unchanged; their accepted
+evidence is retained at candidate10 rather than rerun for unrelated tooling branch.
+Generated-output adapter correction passes independent Python-only verifier:
+38/38 tests, py_compile and diff checks; hashes stable. Evidence:
+`target/batch2/a2-generated-database-verifier/`; actual A2 both-pin gates remain open.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: candidate9 `08f81f8` passes scoped/source preparation; native wide0.903× passes, narrow1.0144× fails. Candidate10 removes redundant delimiter counting with fallible metadata growth and boundary regression under `target/batch2/csv-single-delimiter-manifest.md`. Prior failures preserved; fixed CSV native/process then F1/A2/B1/COUNT gates remain. Unchanged vector/cast/COUNT/source and durable feasibility evidence reused with scope rationale. Existing sibling worktrees/branches retained. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active at `3fb8cfc`: candidate10 scoped verifier/source preparation/CSV native and process gates all pass; F1 native/process remaining5 also pass. A2 process preflight rejects fresh scratch-database load as an external fixture; Python-only adapter correction and boundary tests are under `target/batch2/a2-generated-database-manifest.md`. No A2 timing occurred in that failed stage. Next configured Python verifier, then `target/batch2/run_rest_candidate10_harness1.py` for A2/process-proxy, B1/native-process-durable and COUNT gates. CSV/F1 unchanged evidence retained; prior failures preserved. Engine source/binaries, fixed workloads and both pins unchanged by harness correction. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** candidate10 seven-command scoped verifier passes;
-finish production/source preparation, fixed
-CSV native gate and remaining process/F1/A2/B1/COUNT gates with fresh candidate10
-paths/provenance. Manifest `target/batch2/csv-single-delimiter-manifest.md`;
-production command `prepare_single_delimiter_candidate10.py`, then
-`run_csv_native_candidate10.py --authorized` and serial stages from
-`remaining-performance-candidate10.json`. All are under `target/batch2/`.
-Preserve candidates5/7/8/9 failures and candidate6 diagnostic independently.
-Reuse unchanged scoped verification, source selections and durable feasibility.
-User paused activity; check host after production preparation. Apps stay running.
+**Immediate carryover, before Batch 3:** candidate10 scoped/source/CSV latency and
+resource gates pass, as does F1. Complete the Python-only generated-database
+adapter correction and delegated scoped checks, then run
+`target/batch2/run_rest_candidate10_harness1.py` with fresh A2 outputs and unchanged
+B1/COUNT obligations. It uses `remaining-performance-candidate10-harness1.json`
+and preserves the failed original A2 preflight. Reuse source/binary attestations
+while their actual Rust inputs stay unchanged. User paused activity; check host
+before timing. Apps stay running. Batch3 implementation follows Batch2 acceptance.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 

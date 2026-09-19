@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import statistics
 import subprocess
 import time
@@ -152,9 +153,15 @@ def validate_manifest(path, test_root):
             raise ValueError("invalid SQLLogic workload path: " + item["path"])
         contents = candidate.read_text(errors="replace")
         fixture_directives = []
+        generated_outputs = []
         for line_number, line in enumerate(contents.splitlines(), 1):
-            directive = line.strip().lower()
-            if (directive.startswith(("include ", "load ", "unzip "))
+            stripped = line.strip()
+            directive = stripped.lower()
+            directive_name = stripped.split(None, 1)[0].lower() if stripped else ""
+            generated_output = generated_load_output(stripped)
+            if generated_output is not None:
+                generated_outputs.append(generated_output)
+            elif (directive_name in {"include", "load", "unzip"}
                     or "<file>:" in directive or "{test_dir}" in directive):
                 fixture_directives.append(line_number)
         if fixture_directives:
@@ -163,15 +170,47 @@ def validate_manifest(path, test_root):
                 f"custom SQLLogic workload {item['id']} has external fixture directives "
                 f"on lines {lines}; individually hashed resolved dependencies are required"
             )
-        prepared.append({
+        entry = {
             **item,
             "kind": "custom_comparable",
             "shared_test_dir": str(root),
             "shared_workload_path": str(candidate),
             "shared_workload_sha256": digest(candidate),
             "shared_workload_bytes": candidate.stat().st_size,
-        })
+        }
+        # This is intentionally absent for ordinary workloads: existing consumers
+        # use their exact prepared identity.  Fresh loads are runtime outputs, and
+        # the declared relative path is retained for replay attestation.
+        if generated_outputs:
+            entry["generated_database_outputs"] = generated_outputs
+        prepared.append(entry)
     return prepared
+
+
+def generated_load_output(line):
+    """Return a safe fresh ``load {TEST_DIR}/...`` output identity, if present.
+
+    SQLLogic load defaults to read-write.  That lifecycle deletes and recreates
+    its database under each runner's scratch directory, so it has no external
+    input to hash.  Keep this grammar deliberately narrower than the runners:
+    readonly, compatibility versions, substitutions, and unsafe paths stay in
+    the external-fixture rejection path above.
+    """
+    parts = line.split()
+    if len(parts) not in (2, 3) or not parts or parts[0] != "load":
+        return None
+    if len(parts) == 3 and parts[2] != "readwrite":
+        return None
+    declared = parts[1]
+    prefix = "{TEST_DIR}/"
+    if not declared.startswith(prefix):
+        return None
+    relative = declared[len(prefix):]
+    components = relative.split("/")
+    if (not relative or "\\" in relative
+            or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", part) for part in components)):
+        return None
+    return {"declared_path": declared, "test_dir_relative_path": relative}
 
 
 def active_peers(check_output=subprocess.check_output):

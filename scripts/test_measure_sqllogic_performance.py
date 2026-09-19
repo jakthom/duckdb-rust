@@ -86,7 +86,7 @@ class PerformanceGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             workload = root / "a.test"
-            workload.write_text("query I\nSELECT 1\n----\n1\n")
+            workload.write_text("load {TEST_DIR}/generated/session.duckdb\nquery I\nSELECT 1\n----\n1\n")
             manifest = root / "workloads.json"
             manifest.write_text(json.dumps({"workloads": [{"id": "a", "path": "a.test"}]}))
             for name in ("release", "development", "rust"):
@@ -112,6 +112,14 @@ class PerformanceGateTests(unittest.TestCase):
             self.assertTrue(report["passed"])
             self.assertEqual(report["gate"], measure.gate_report(disk, measure.validate_manifest(manifest, root)))
             self.assertEqual(set(disk["workloads"][0]["observations"]), {"release", "development", "rust"})
+            self.assertEqual(
+                disk["workloads"][0]["generated_database_outputs"],
+                [{"declared_path": "{TEST_DIR}/generated/session.duckdb",
+                  "test_dir_relative_path": "generated/session.duckdb"}],
+            )
+            disk["workloads"][0]["generated_database_outputs"][0]["test_dir_relative_path"] = "mutated.duckdb"
+            with self.assertRaisesRegex(ValueError, "identity changed"):
+                measure.gate_report(disk, measure.validate_manifest(manifest, root))
             self.assertNotEqual(disk["workloads"], disk["gate"]["workloads"])
             observations = disk["workloads"][0]["observations"]
             shared_root = str(root.resolve())
@@ -174,11 +182,70 @@ class PerformanceGateTests(unittest.TestCase):
             root = Path(directory)
             manifest = root / "workloads.json"
             manifest.write_text(json.dumps({"workloads": [{"id": "a", "path": "a.test"}]}))
-            for directive in ("include another.test", "load {TEST_DIR}/db.duckdb",
-                              "unzip test/data/archive.gz", "<FILE>:expected.csv"):
+            for directive in ("include another.test", "include\tanother.test",
+                              "load {TEST_DIR}/db.duckdb readonly", "load\t{TEST_DIR}/db.duckdb readonly",
+                              "unzip test/data/archive.gz", "unzip\ttest/data/archive.gz", "<FILE>:expected.csv"):
                 (root / "a.test").write_text(directive + "\n")
                 with self.subTest(directive=directive), self.assertRaises(ValueError):
                     measure.validate_manifest(manifest, root)
+
+    def test_manifest_records_only_safe_fresh_generated_load_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "workloads.json"
+            manifest.write_text(json.dumps({"workloads": [{"id": "a", "path": "a.test"}]}))
+            (root / "a.test").write_text(
+                "load {TEST_DIR}/runtime/session.duckdb readwrite\nstatement ok\nSELECT 1\n"
+            )
+            prepared = measure.validate_manifest(manifest, root)
+            self.assertEqual(
+                prepared[0]["generated_database_outputs"],
+                [{"declared_path": "{TEST_DIR}/runtime/session.duckdb",
+                  "test_dir_relative_path": "runtime/session.duckdb"}],
+            )
+
+            for directive in (
+                "load {TEST_DIR}/input.duckdb readonly",
+                "load {TEST_DIR}/input.duckdb 1.0.0",
+                "load {TEST_DIR}/input.duckdb READWRITE",
+                "LOAD {TEST_DIR}/input.duckdb",
+                "load {TEST_DIR}/input.duckdb readwrite ignored",
+                "load {TEST_DIR}/input.duckdb # comment",
+                "load {TEST_DIR}/../input.duckdb",
+                "load {TEST_DIR}/./input.duckdb",
+                "load {TEST_DIR}/dir//input.duckdb",
+                "load {TEST_DIR}\\input.duckdb",
+                "load {TEST_DIR}/{unsafe}/input.duckdb",
+                "load {TEST_DIR}/__TEST_DIR__/input.duckdb",
+                "load {OTHER_DIR}/input.duckdb",
+                "load /tmp/input.duckdb",
+                "include another.test",
+                "unzip test/data/archive.gz",
+                "<FILE>:expected.csv",
+            ):
+                (root / "a.test").write_text(directive + "\n")
+                with self.subTest(directive=directive), self.assertRaises(ValueError):
+                    measure.validate_manifest(manifest, root)
+
+    def test_generated_output_identity_is_replayed_and_legacy_metadata_is_stable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "workloads.json"
+            manifest.write_text(json.dumps({"workloads": [{"id": "a", "path": "a.test"}]}))
+            (root / "a.test").write_text("load {TEST_DIR}/session.duckdb\n")
+            workloads = measure.validate_manifest(manifest, root)
+            _, release, development = self.reports()
+            for report in (release, development):
+                report["workloads"][0] = {**copy.deepcopy(workloads[0]), "cpp": report["workloads"][0]["cpp"],
+                                          "rust": report["workloads"][0]["rust"]}
+            self.assertTrue(measure.gate(release, development, workloads)["passed"])
+            release["workloads"][0]["generated_database_outputs"][0]["test_dir_relative_path"] = "mutated.duckdb"
+            with self.assertRaisesRegex(ValueError, "identity changed"):
+                measure.gate(release, development, workloads)
+
+            (root / "a.test").write_text("statement ok\nSELECT 1\n")
+            legacy = measure.validate_manifest(manifest, root)[0]
+            self.assertNotIn("generated_database_outputs", legacy)
 
     def test_wrong_marker_nonzero_and_zero_record_fail(self):
         with self.assertRaises(ValueError):
