@@ -1,5 +1,23 @@
 use super::*;
+use duckdb_rust::common::cast::{CastFunction, CastMode, CastRegistry, CastSpec};
 use std::io::Write;
+
+#[derive(Debug)]
+struct CsvSelectedInteger;
+
+impl CastFunction for CsvSelectedInteger {
+    fn name(&self) -> &'static str {
+        "csv-selected-integer"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Varchar
+            && spec.target == DataType::Integer
+            && spec.mode == CastMode::Explicit
+    }
+    fn cast(&self, _: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
+        Ok(Value::Integer(77))
+    }
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sql_path(path: &std::path::Path) -> String {
@@ -114,6 +132,32 @@ fn explicit_schema_csv_handles_empty_blank_header_and_duplicate_options() -> Res
             ))?
             .rows
             .is_empty()
+    );
+    Ok(())
+}
+
+#[test]
+fn explicit_schema_csv_uses_the_selected_varchar_cast() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    file.write_all(b"not an integer\n")?;
+    let mut casts = CastRegistry::builtins();
+    casts.replace(
+        CastSpec {
+            source: DataType::Varchar,
+            target: DataType::Integer,
+            mode: CastMode::Explicit,
+        },
+        Arc::new(CsvSelectedInteger),
+    )?;
+    let mut connection = DatabaseBuilder::new().casts(casts).build()?.connect();
+    assert_eq!(
+        connection
+            .query(&format!(
+                "SELECT * FROM read_csv('{}', columns={{'v':'INTEGER'}})",
+                sql_path(file.path())
+            ))?
+            .rows,
+        vec![vec![Value::Integer(77)]]
     );
     Ok(())
 }
