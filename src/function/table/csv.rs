@@ -522,9 +522,11 @@ impl TableFunction for ReadCsv {
             .iter()
             .zip(&preserve)
             .map(|(_, preserve)| {
-                (!*preserve)
-                    .then(|| Vec::with_capacity(count))
-                    .unwrap_or_default()
+                if !*preserve {
+                    Vec::with_capacity(count)
+                } else {
+                    Vec::new()
+                }
             })
             .collect::<Vec<_>>();
         let mut ranges = data
@@ -532,9 +534,11 @@ impl TableFunction for ReadCsv {
             .iter()
             .zip(&preserve)
             .map(|(_, preserve)| {
-                (*preserve)
-                    .then(|| Vec::with_capacity(count))
-                    .unwrap_or_default()
+                if *preserve {
+                    Vec::with_capacity(count)
+                } else {
+                    Vec::new()
+                }
             })
             .collect::<Vec<_>>();
         let mut arenas = data.types.iter().map(|_| String::new()).collect::<Vec<_>>();
