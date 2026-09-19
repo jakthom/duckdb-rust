@@ -781,9 +781,13 @@ Batch 2 evidence/restart details:
   table-functions12, owned-row contract1, generator2, scoped Clippy,
   formatting/diff, coverage and instrumentation compatibility).
   Final review subsequently found quoted newlines escaping the record-size
-  accounting and custom-escape closing-quote handling; CSV-only correction is
-  active under `target/batch2/csv-correction-delta.md`. The earlier sweep remains
-  evidence for its tested inputs, not acceptance of the pending correction.
+  accounting and custom-escape closing-quote handling; correction `42b6e04`
+  passes eight CSV tests and twelve table-function tests on the integrated B1
+  tree. Exact-pin probes cover embedded LF, LF/CRLF limits, lone/trailing CR
+  and custom escaping. Commands/logs: `target/batch2/csv-correction-delta.md`
+  and `csv-correction-{leaf,table-functions}-test.log`. Test-list artifacts
+  are inventories only. Independent integrated partial verification remains
+  pending; the earlier sweep is evidence for its actual tested inputs.
   Explicit mode requires `auto_detect=false`; omitted/true inference remains F3.4. Exact
   source replay of `test_quote_default.test` passes release3/dev2 with a
   recorded DATA_DIR environment. Provenance review found the worker's development
@@ -812,8 +816,10 @@ Batch 2 evidence/restart details:
   Exact selected upstream cases pass21 records per pin. Bounded native
   projection/filter/alias/stacked checkpoint and WAL exchanges pass in both
   directions on both pins; these are worker feedback, not final integrated
-  acceptance. Review is checking schema-qualified recursion, duplicate output
-  names and wide numeric literal encoding before integration; the durable
+  acceptance. Engine source is integrated as `fc905a8`, including corrected
+  schema-qualified recursion, duplicate output names, required DROP errors and
+  wide numeric literals. Focused torn/corrupt view-WAL and cross-catalog native
+  rejection coverage is being added before final verification. The durable
   performance adapter is assigned independently to Terra/medium in
   `../duckdb-rust-batch2-b1-durable` / `codex/batch2-b1-durable`, owning only
   the new durable measurement script/tests/manifest. Fixed 10k-row view and
