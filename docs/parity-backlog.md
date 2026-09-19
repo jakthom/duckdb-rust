@@ -528,8 +528,8 @@ deferred under the engine-first rule.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
-| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Active: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`. C2.1 independent partial verification is green through `5c10878`; dense-offset proof passed at unchanged inputs `b72ea46`. Final campaign at `5c10878`: 22/23 native cases and all six process families pass. C2 few-groups fails at 1.002387x: development-campaign Rust versus the faster C++ release median. Profile-informed grouped separator correction `6d221b8` passes 8 leaf/81 grouping tests; independent delta verification is running. Next: finish that partial check, measure only C2 native/process workloads, then accept Batch 1 if all gates pass. Do not start Batch 2 yet. Worker branches/worktrees are `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Queued after batch 1 acceptance. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
+| 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active dispatch from accepted Batch 1 implementation `6d221b8`. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}`. A2.1 and F2.1 use Terra medium; B1 uses Sol high. Worker manifests precede edits; root integrates shared seams and schedules quiet measurement windows. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
 Checkpoint contract: update this table and each affected entry in place with
@@ -646,8 +646,8 @@ Batch 1 evidence/restart details:
   **F1's declared lifecycle/integer-range slice is accepted.** Reuse unaffected
   scoped correctness and upstream evidence; temporal/correlated sources and
   whole-engine parity remain open. Do not remove/redefine failing workloads.
-- C2.1 implementation and functional verification are complete through root
-  `5c10878`; **performance acceptance remains open**. Functional chain:
+- C2.1 is accepted through root `6d221b8`, with implementation, independent
+  partial functional verification and affected performance gates passed. Functional chain:
   worker `1413b21` → root `6258294`; candidate9 worker `94dc0f2` → root
   `8e27760`; dense-index boundary correction `b72ea46`; lint/format/tracing
   attribution corrections through `5c10878`. Worker branch/worktree remains
@@ -716,10 +716,21 @@ Batch 1 evidence/restart details:
   without proving separator copying dominates. Candidate10 `6d221b8` changes
   only grouped Heap append: safe `String::push` for one-byte ASCII separators,
   existing `push_str` otherwise. Scalar/inline/promotion/capacity paths stay
-  unchanged. Leaf 8/8 and grouping 81/81 pass; independent partial delta is
-  running under `target/batch1/c2-final/candidate10-verification.md`.
-  After it passes, refresh C2 five-case native and 257-record process acceptance
-  only; retain unchanged five-family results and the earlier unaffected proof.
+  unchanged. Independent partial delta passed at `6d221b8`: leaf 8/8,
+  grouping 81/81, formatting, scoped Clippy and tracing compatibility. Exact
+  commands and provenance: `target/batch1/c2-final/candidate10-verification.md`
+  and `verifier-candidate10/`. C2-only final measurement passed under
+  `candidate10-performance-manifest.md`: all five native cases against both
+  pins, untimed 257/257 records with zero skips, and every matched-serial
+  process wall/CPU/RSS/I/O gate. Three warmups/21 samples; fresh release build
+  with no default features or tracing. Native ratios versus the faster pin:
+  ungrouped 0.663–0.669x, few groups 0.860–0.868x, many groups 0.937–0.942x,
+  ordered DISTINCT 0.731–0.754x, mixed SUM/LIST 0.913–0.920x. Reports are
+  `native-c2-{release,development,fastest}-candidate10-final21.json` and
+  `process-c2-candidate10-final21.json` beside that manifest. Combined with
+  unchanged final21 evidence, all 23 affected native cases and six process
+  families pass. Retain unchanged five-family results and proof;
+  do not rerun them because the implementation or documentation commit changed.
 
   Historical candidates/profiles/failures remain in worker
   `target/c2-1/*candidate*.json`, `profile-candidate*.txt`, manifests and Git
@@ -729,11 +740,10 @@ Batch 1 evidence/restart details:
   remain historical only. Exact-command matched-serial tooling at `1d07c45`
   was independently verified with 16 Python tests; no engine sweep applied.
 
-- Batch 1 remains open solely on the declared C2/final affected performance
-  obligations. A1 evaluation and F1's earlier slice are accepted as recorded;
-  changed F1 publication is included in this final refresh. Next: collect all
-  final reports, preserve any failures and correct their affected inputs; only
-  after every gate passes checkpoint Batch 1 complete and dispatch Batch 2.
+- Batch 1 is complete at integrated implementation `6d221b8`. A1 evaluation,
+  F1's declared slice and C2.1 are accepted; this is not whole-engine parity.
+  Changed F1 publication passed the final21 refresh. Next: execute Batch 2's
+  three scoped tracks, then checkpoint acceptance and proceed to Batch 3.
   Never shrink workloads, retry unchanged failures to green, or restart
   completed checks merely for documentation/new commit hashes.
 The first round starts from the latest accepted integrated revision, after the
