@@ -449,14 +449,18 @@ fn parse_stoll(value: &str) -> Result<i64> {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn replace_loops(mut input: Vec<u8>, loops: &[LoopFrame]) -> Result<Vec<u8>> {
     for frame in loops {
-        let names: Vec<_> = frame.name.split(',').collect();
         // As in SQLLogicTestRunner::ReplaceLoopIterator, comma separation is
-        // selected by the iterator name. A scalar replacement can itself have
+        // selected by the raw iterator name. StringUtil::Split(string, string)
+        // discards every empty component, then falls back to the original text
+        // if all components were empty. A scalar replacement can itself have
         // commas (for example, DECIMAL(4,1)).
-        let values: Vec<_> = if frame.name.contains(',') {
-            frame.value.split(',').collect()
+        let (names, values): (Vec<_>, Vec<_>) = if frame.name.contains(',') {
+            (
+                split_tuple_fields(&frame.name),
+                split_tuple_fields(&frame.value),
+            )
         } else {
-            vec![frame.value.as_str()]
+            (vec![frame.name.as_str()], vec![frame.value.as_str()])
         };
         if names.len() != values.len() {
             return Err(Error::Execution(format!(
@@ -471,6 +475,17 @@ pub(crate) fn replace_loops(mut input: Vec<u8>, loops: &[LoopFrame]) -> Result<V
         }
     }
     Ok(input)
+}
+
+/// Match `StringUtil::Split(input, ",")` used by the pinned runner.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn split_tuple_fields(input: &str) -> Vec<&str> {
+    let fields: Vec<_> = input.split(',').filter(|field| !field.is_empty()).collect();
+    if fields.is_empty() {
+        vec![input]
+    } else {
+        fields
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -624,13 +639,13 @@ mod tests {
             ..scalar[0].clone()
         }];
         assert_eq!(replace_loops(b"${datatype}".to_vec(), &empty_scalar)?, b"");
-        let tuple_empty_part = [LoopFrame {
-            value: "a,".into(),
+        let tuple_interior_empty_part = [LoopFrame {
+            value: "first,,last".into(),
             ..frames[0].clone()
         }];
         assert_eq!(
-            replace_loops(b"{left}-${right}".to_vec(), &tuple_empty_part)?,
-            b"a-"
+            replace_loops(b"{left}-${right}".to_vec(), &tuple_interior_empty_part)?,
+            b"first-last"
         );
         let nested = [
             LoopFrame {
@@ -656,6 +671,74 @@ mod tests {
                 }]
             )
             .is_err()
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn tuple_replacement_discards_empty_fields_and_uses_raw_tuple_mode() -> Result<()> {
+        let frame = |name: &str, value: &str| LoopFrame {
+            name: name.into(),
+            value: value.into(),
+            ordinal: 0,
+            concurrent: false,
+        };
+
+        // Scalars are selected from the raw name, so both empty and
+        // comma-bearing values remain whole.
+        assert_eq!(
+            replace_loops(b"{datatype}".to_vec(), &[frame("datatype", "DECIMAL(4,1)")])?,
+            b"DECIMAL(4,1)"
+        );
+        assert_eq!(replace_loops(b"{}".to_vec(), &[frame("", "")])?, b"");
+
+        // Empty leading and interior components are discarded from both names
+        // and values, while both marker spellings bind surviving names.
+        assert_eq!(
+            replace_loops(
+                b"${}|{}|${right}|{right}".to_vec(),
+                &[frame(",right", ",first")],
+            )?,
+            b"${}|{}|first|first"
+        );
+        assert_eq!(
+            replace_loops(
+                b"{left}|${}|{}|{right}".to_vec(),
+                &[frame("left,,right", "first,,last")],
+            )?,
+            b"first|${}|{}|last"
+        );
+
+        // Trailing empty components are also discarded. If every component is
+        // empty, the splitter returns the original text as one field.
+        assert_eq!(
+            replace_loops(
+                b"{left}|{right}".to_vec(),
+                &[frame("left,right,", "first,last,")],
+            )?,
+            b"first|last"
+        );
+        assert_eq!(
+            replace_loops(b"{,}|${,}".to_vec(), &[frame(",", ",")])?,
+            b",|,"
+        );
+        assert_eq!(replace_loops(b"{,}".to_vec(), &[frame(",", "")])?, b"");
+
+        // Tuple arity is checked after empty fields are discarded.
+        assert!(replace_loops(b"{left}".to_vec(), &[frame("left,right", "first,")]).is_err());
+        assert!(replace_loops(b"{left}".to_vec(), &[frame("left,right,", "first")]).is_err());
+
+        // Inner substitutions still run after an outer tuple replacement.
+        assert_eq!(
+            replace_loops(
+                b"{left}:${right}".to_vec(),
+                &[
+                    frame("left,right", "{inner},${inner}"),
+                    frame("inner", "value")
+                ],
+            )?,
+            b"value:value"
         );
         Ok(())
     }

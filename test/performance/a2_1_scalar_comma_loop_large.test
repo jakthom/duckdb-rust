@@ -20,17 +20,17 @@ DECIMAL(4,1)
 
 endloop
 
-foreach left,right first,
+foreach left,right first,,last
 
 query T
 SELECT '{left}:{right}'
 ----
-first:
+first:last
 
 query T
 SELECT '{left}:{right}'
 ----
-first:
+first:last
 
 endloop
 

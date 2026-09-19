@@ -35,11 +35,32 @@ class SQLLogicSchedulingTests(unittest.TestCase):
         )
         self.assertEqual(Runner.bind_loop({}, "datatype", ""), {"datatype": ""})
         self.assertEqual(
-            Runner.bind_loop({}, "left,right", "a,"),
-            {"left": "a", "right": "", "left,right": "a,"},
+            Runner.bind_loop({}, ",right", ",first"),
+            {"right": "first", ",right": ",first"},
         )
-        with self.assertRaisesRegex(ValueError, "left,right"):
-            Runner.bind_loop({}, "left,right", "a,b,c")
+        self.assertEqual(
+            Runner.bind_loop({}, "left,,right", "first,,last"),
+            {"left": "first", "right": "last", "left,,right": "first,,last"},
+        )
+        self.assertEqual(Runner.bind_loop({}, "left,", "first,"), {"left": "first", "left,": "first,"})
+        self.assertEqual(Runner.bind_loop({}, ",", ","), {",": ","})
+        for name, value in (("left,right", ",first"), ("left,right", "first,"),
+                            ("left,right,", "first,second,third"), ("left,right", "")):
+            with self.subTest(name=name, value=value), self.assertRaisesRegex(ValueError, name):
+                Runner.bind_loop({}, name, value)
+        bound = Runner.bind_loop({}, ",right", ",first")
+        self.assertEqual(bound[",right"], ",first")
+        self.assertEqual(
+            Runner(None).replace("'{,right}' '${,right}' '{right}' '${right}'", bound),
+            "'{,right}' '${,right}' 'first' 'first'",
+        )
+        comma_only = Runner.bind_loop({}, ",", ",")
+        self.assertEqual(Runner(None).replace("'{,}' '${,}'", comma_only), "',' ','")
+        engine = ConcurrentEngine()
+        Runner(engine).run(parse(
+            "loop outer 0 1\nforeach left,right first,,last\nstatement ok\n"
+            "SELECT '{outer}:{left}:{right}'\n\nendloop\nendloop\n"))
+        self.assertEqual(engine.requests[-1]["sql"], "SELECT '0:first:last'")
 
     def test_loop_conditions_continue_and_boundaries(self):
         engine = ConcurrentEngine()

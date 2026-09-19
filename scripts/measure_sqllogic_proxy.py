@@ -33,15 +33,15 @@ EXPECTED_WORKLOADS = (
     {
         "id": "a2_1_scalar_comma_loop",
         "path": "test/performance/a2_1_scalar_comma_loop.test",
-        "sha256": "c5cb287e2e10e86b7bc1f5c2406a6b90d8322d068242f57d017cf3d7cb821cb6",
-        "bytes": 351,
+        "sha256": "e4e9ebe9c15dcab0ae9ce74d2fc4411e94fb6f4e70d8174a9341f7cd6f0f2adb",
+        "bytes": 368,
         "proxy_records": 5,
     },
     {
         "id": "a2_1_scalar_comma_loop_large",
         "path": "test/performance/a2_1_scalar_comma_loop_large.test",
-        "sha256": "4e43f69fa4c018c5d8051612575571f994469e467c9d19c66a24e9b9a9bfe115",
-        "bytes": 407,
+        "sha256": "bfc43aff382c8c0ab2f74d067df8a16f9a3ee0ac93579d797ff944d6725288db",
+        "bytes": 420,
         "proxy_records": 5000,
     },
     {

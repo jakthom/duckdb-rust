@@ -610,6 +610,24 @@ evidence is retained at candidate10 rather than rerun for unrelated tooling bran
 Generated-output adapter correction passes independent Python-only verifier:
 38/38 tests, py_compile and diff checks; hashes stable. Evidence:
 `target/batch2/a2-generated-database-verifier/`; actual A2 both-pin gates remain open.
+At `72ba095`, corrected preflight reaches C++ but original A2 tuple workload
+`left,right`/`first,` fails on bothpins before acceptance samples. Preserve original
+bytes/hashes under `target/batch2/a2-tuple-correction-original/` and harness1 failed
+report plus direct development probe. Actual string-delimiter Split removes all
+empty components, falling back to original input only if none remain; Python/Rust
+currently preserve empty tuple components incorrectly. Initial source review chose
+the wrong char overload; its failed leading-empty probes are preserved. Corrected
+v2 five-case probes pass bothpins, including `first,,last` mapping to two fields.
+Parallel Rust/Python contract repair and equivalent shared workload correction are
+assigned under `target/batch2/a2-tuple-correction-manifest.md`; preserve5/5000/16
+successful operation counts and all performance thresholds. No parity claim for
+the incomparable original workloads. CSV/F1 accepted unrelated evidence retained.
+Tuple repair routine passes Python12/Rust71; final configured seven-stage partial
+verifier passes Python50/Rust71, scoped Clippy/format, coverage missing=[] and trace.
+Frozen hashes match before/after; evidence `target/batch2/a2-tuple-verifier/`.
+Next `python3 target/batch2/prepare_a2_tuple.py` rebuilds only affected runner bins,
+replays exact corrected workloads and unchanged6pin/file selections, then
+`run_rest_a2_tuple_candidate1.py` resumes both-pin acceptance with fresh outputs.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |

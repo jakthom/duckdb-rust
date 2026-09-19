@@ -116,7 +116,7 @@ fn loop_foreach_conditions_continue_and_odd_bounds_match_pinned_runner() -> duck
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
-fn scalar_comma_foreach_values_match_pinned_runner() -> duckdb_rust::Result<()> {
+fn scalar_and_tuple_comma_foreach_values_match_pinned_runner() -> duckdb_rust::Result<()> {
     let root = root();
     let path = root.path().join("test/scalar-comma.test");
     std::fs::write(
@@ -124,15 +124,27 @@ fn scalar_comma_foreach_values_match_pinned_runner() -> duckdb_rust::Result<()> 
         "foreach datatype DECIMAL(4,1)\n\n\
          query T\nSELECT '{datatype}'\n----\nDECIMAL(4,1)\n\n\
          endloop\n\n\
-         foreach left,right a,\n\n\
-         query T\nSELECT '{left}:{right}'\n----\na:\n\n\
+         foreach left,right first,,last\n\n\
+         query T\nSELECT '{left}:{right}'\n----\nfirst:last\n\n\
+         endloop\n\n\
+         foreach left,,right first,,last\n\n\
+         query T\nSELECT '{left}-{}-{right}'\n----\nfirst-{}-last\n\n\
+         endloop\n\n\
+         foreach ,right ,last\n\n\
+         query T\nSELECT '{}-{right}'\n----\n{}-last\n\n\
+         endloop\n\n\
+         foreach left, first,\n\n\
+         query T\nSELECT '{left}'\n----\nfirst\n\n\
+         endloop\n\n\
+         foreach , ,\n\n\
+         query T\nSELECT '<{,}>'\n----\n<,>\n\n\
          endloop\n",
     )?;
     let report = runner::run_file_report(&Database::memory()?, &path)?;
     assert_eq!(report.status, runner::FileStatus::Passed);
     assert_eq!(
         (report.declarations, report.passed, report.skipped),
-        (2, 2, 0)
+        (6, 6, 0)
     );
 
     let mismatch = root.path().join("test/scalar-comma-mismatch.test");
@@ -141,6 +153,13 @@ fn scalar_comma_foreach_values_match_pinned_runner() -> duckdb_rust::Result<()> 
         "foreach left,right only-one\n\nstatement ok\nSELECT 1\n\nendloop\n",
     )?;
     assert!(runner::run_file_report(&Database::memory()?, &mismatch).is_err());
+
+    let trailing = root.path().join("test/tuple-trailing-empty.test");
+    std::fs::write(
+        &trailing,
+        "foreach left,right first,\n\nstatement ok\nSELECT 1\n\nendloop\n",
+    )?;
+    assert!(runner::run_file_report(&Database::memory()?, &trailing).is_err());
     Ok(())
 }
 

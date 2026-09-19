@@ -177,6 +177,11 @@ class Runner:
         for key in sorted(self.substitutions, key=len, reverse=True):
             text = text.replace(key, str(self.substitutions[key]))
         for key, value in variables.items():
+            # Tuple aliases are retained for loop-condition metadata, but C++
+            # replacement only sees the split component names. The comma-only
+            # fallback is itself a component and must remain replaceable.
+            if "," in key and key.replace(",", ""):
+                continue
             text = text.replace("${" + key + "}", str(value))
             text = text.replace("{" + key + "}", str(value))
         return text
@@ -288,7 +293,7 @@ class Runner:
         return result
 
     def loop_values(self, words):
-        if len(words) < 3 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*", words[1]):
+        if len(words) < 3:
             raise ValueError("invalid loop iterator")
         if words[0] in ("loop", "concurrentloop"):
             if len(words) != 4:
@@ -315,10 +320,19 @@ class Runner:
 
     @staticmethod
     def bind_loop(variables, name, value):
-        names = name.split(",")
-        # Pinned SQLLogicTest splits a replacement only for a tuple iterator.
-        # Scalar values such as DECIMAL(4,1) are one replacement, not a pair.
-        values = str(value).split(",") if "," in name else [str(value)]
+        def split_tuple(text):
+            # C++ StringUtil::Split(string, string) discards every empty
+            # component, then preserves the complete original input if no
+            # components remain.
+            original = str(text)
+            fields = [field for field in original.split(",") if field]
+            return fields or [original]
+
+        # Pinned SQLLogicTest selects tuple mode only from the raw iterator
+        # name containing a comma. Scalar values, including commas or empty
+        # strings, remain one replacement.
+        names = split_tuple(name) if "," in name else [name]
+        values = split_tuple(value) if "," in name else [str(value)]
         if len(names) != len(values):
             raise ValueError(f"foreach iterator {name} does not match replacement {value}")
         return {**variables, **dict(zip(names, values)), name: value}
