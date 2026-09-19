@@ -529,7 +529,7 @@ deferred under the engine-first rule.
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Resumed from checkpoint `7901568`. Engine integrated through `51b690a`, not accepted. Configured Terra/low verifier is running the integrated partial sweep; Sol/high is correcting the durable benchmark prototype. Fresh release build and selected untimed source/fixture checks pass; performance remains open. Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Engine integrated through `51b690a`, not accepted. Independent engine partial14 and Python adapter partial6 pass. Native view exchange and selected source/CSV fixture correctness pass. CSV native performance FAILS: narrow up to3.99× and wide4.51× faster-pin latency; optimize before rerunning affected gates. Sol/high owns durable untimed feasibility/oracle correction; Terra/medium owns bounded CSV optimization (source edits wait for the durable freeze). Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
 Checkpoint contract: update this table and each affected entry in place with
@@ -767,7 +767,7 @@ Batch 2 evidence/restart details:
   compatibility. Formatting/coverage evidence is reused on unchanged Rust inputs.
   Root manifest/evidence: `target/batch2/a2-scoped-verification.md` and
   `a2-verifier/`. Untimed worker workloads pass 5/5000/16 records. Final ROOT
-  release/source replay and both Rust/Python performance campaigns remain open;
+  release/source replay passes as recorded below; both Rust/Python performance campaigns remain open;
   no measured parity claim. Exact proxy commands remain worker
   `target/a2/manifest.md`; integrated acceptance uses
   `target/batch2/final-acceptance-manifest.md`.
@@ -786,8 +786,8 @@ Batch 2 evidence/restart details:
   tree. Exact-pin probes cover embedded LF, LF/CRLF limits, lone/trailing CR
   and custom escaping. Commands/logs: `target/batch2/csv-correction-delta.md`
   and `csv-correction-{leaf,table-functions}-test.log`. Test-list artifacts
-  are inventories only. Independent integrated partial verification remains
-  pending; the earlier sweep is evidence for its actual tested inputs.
+  are inventories only. Independent integrated partial verification now passes
+  all 14 commands below; the earlier sweep remains evidence for its actual inputs.
   Explicit mode requires `auto_detect=false`; omitted/true inference remains F3.4. Exact
   source replay of `test_quote_default.test` passes release3/dev2 with a
   recorded DATA_DIR environment. Provenance review found the worker's development
@@ -799,7 +799,14 @@ Batch 2 evidence/restart details:
   COPY prerequisites remain preserved failures, not passing whole-file claims.
   Generator correction `951821f` validates fixed100k narrow/wide all-column
   inputs, 16-record process fixtures, source/data/config hashes and before/after
-  verification; two Python tests pass. No performance measurement yet. Root
+  verification; two Python tests pass. Final native measurement on unchanged
+  engine `51b690a` and corrected generated candidate2 FAILS: narrow Rust
+  41.42/41.60ms against faster-pin10.43ms; wide266.56/266.67ms against59.25ms.
+  Quiet-host21/3 paired samples and joint gate are preserved under
+  `target/batch2/f2-performance/native-{release,development,fastest}-candidate2.json`.
+  No CSV process timing ran after this failure, and no unchanged retry is
+  authorized. Optimize the scanner/conversion hot path, retain all fixed data
+  and acceptance obligations, then refresh only affected evidence. Root
   seam `a817ede` supplies selected casts and binder-owned type-name resolution
   to table adapters; 8/8 `table_functions` tests pass, including nested STRUCT
   arguments, custom cast, DECIMAL and catalog/search-path ENUM. No alternate
@@ -829,24 +836,29 @@ Batch 2 evidence/restart details:
   direct-table controls cover checkpoint and WAL create/reopen/query/drop;
   no timing before review and quiet-host authorization.
 
-- Resumed checkpoint: the user requested continuation from `7901568` and the
-  configured Terra/low verifier successfully resumed. It now owns ROOT's
-  validation slot for the reviewed 14-command partial sweep; no substitute
-  model, full-engine sweep or repeated Batch 1 checks were authorized.
-  No independent integrated pass is claimed until its result is returned.
+- Resumed checkpoint: the configured Terra/low verifier passed all 14 commands
+  in `target/batch2/integrated-verifier/`: views11, catalog13, stored-expression15,
+  defaults6, logging1, publication8, CSV8, table-functions12 and native encoding1;
+  formatting, scoped Clippy, coverage and tracing compatibility also pass.
+  No substitute model, full-engine sweep or repeated Batch 1 checks ran.
   Frozen engine is `51b690a`; reviewed partial command manifest:
   `target/batch2/integrated-b1-f2-partial.md`. Completed Terra/medium preparation
   evidence is recorded below; it does not substitute for the verifier. The B1
-  Sol/high owner's separate durable adapter correction has resumed after two failed tooling review
-  cycles; commits through worker `c0413c0` are prototypes, not accepted or
-  integrated. Batch 3 remains queued until Batch 2 is actually accepted.
-  No timing is authorized during verification or implementation. The durable
+  Sol/high corrected the durable adapter after two failed tooling review cycles;
+  worker hardening `8658e6e`/`22d31eb` is integrated through `2854080`.
+  Independent Python-only verification passes all six stages (durable29,
+  generator2, syntax, scoped formatting/lint and diff), with evidence under
+  `target/batch2/python-adapters-verifier/`. No engine checks were repeated.
+  Batch 3 remains queued until Batch 2 is actually accepted.
+  No timing is authorized during concurrent verification or implementation. The durable
   worktree resumed from `c0413c0`; its audited remaining defects and next
   Python-only checks are in worker `target/b1-durable/validation-manifest.md`
   (SHA-256 `590b5d26ad7266a09ded8a685b367ccc0bc36271d5ff4002497fa52970e5cdb0`).
-  Fix seed hash timing, discarded/weak absence proof, partial-evidence loss,
-  canonical fresh release-shell attestation, conditional validation flags,
-  formatting and negative tests before integrating or timing that adapter.
+  Seed hashes, exact absence/positive seed proof, partial-evidence retention,
+  canonical release-shell attestation, conditional validation flags, late input
+  drift and nonempty WAL evidence are now corrected. Historical Git HEAD is
+  metadata, not a docs-only invalidation trigger. Durable real-CLI feasibility
+  and final timing remain open.
 
 - Fresh release preparation on engine `51b690a` passes: four binary builds;
   canonical worker provenance (source hash
@@ -857,14 +869,32 @@ Batch 2 evidence/restart details:
   B1 process331. Evidence: `target/batch2/prep-51b690a-*`. An initial shell
   status-variable error during provenance logging is preserved separately;
   corrected wrapper/provenance execution exits0, not a performance retry.
-  Next untimed command is the release narrow CSV C++ replay in
-  `target/batch2/final-acceptance-manifest.md`, followed by the other pin/CSV
-  fixtures and final integrated B1 native exchanges. No C++ fixture replay,
-  final timing or integrated independent sweep was run in this preparation.
-  Finish the configured Terra/low partial sweep and the remaining acceptance;
-  native exchange manifest/wrapper are `target/batch2/b1-exchange-manifest.md`
-  and `b1_exchange.py` (not yet executed). Then finish
-  Batch 2's open gates, checkpoint acceptance, and dispatch Batch 3.
+  Subsequent CSV C++ replay correctly failed closed on zero selected tests:
+  `target/batch2/csv-reference-fixtures-final1.json`. Both C++ runners discover
+  fixtures under `test/`, but the generator placed them at the input root.
+  Layout correction `8a91e96` preserves candidate1 and generates candidate2
+  with identical data hashes/populations. All four C++ fixture cases pass
+  (96/544 Catch assertions per pin) in `csv-reference-fixtures-final2.json`;
+  its overall report remains incomplete because wrapper serialization failed
+  before Rust ran. Only the affected Rust portion was resumed:
+  `csv-reference-fixtures-rust-final3.json` passes16/16 and verifies unchanged
+  inputs/data. These compose the six fixture checks, not a passing claim for
+  the incomplete whole report. Original zero-test output remains preserved.
+  Final B1 source replay `b1-source-integrated-final1.json` passes3/12/6 records
+  per pin using the current canonical worker. CSV native performance subsequently
+  failed as recorded above; other performance gates remain open.
+  Final native view exchange acceptance composes six positive cases from
+  `target/batch2/b1-exchange-final2/report.json` (three producers × checkpoint/WAL,
+  three consumers × three assertions each, 54 assertions) and both cross-catalog
+  rejections from `b1-exchange-cross-final3/report.json`. Relevant input/binary
+  hashes match across reports. Common format is storage64 (`v1.0.0`);
+  storage69 is only covered by the focused encoding rejection unit test.
+  Preserve setup failures: final1 caught an incorrect version-to-format mapping;
+  final2 passed positives but its cross-case output parser rejected empty
+  CHECKPOINT JSON arrays. Only those two affected negative cases were rerun.
+  Native exchange manifest/wrapper: `target/batch2/b1-exchange-manifest.md` and
+  `b1_exchange.py`. Finish remaining source/performance acceptance, checkpoint
+  Batch 2, then dispatch Batch 3.
   Both pins allow DROP TABLE/VIEW despite dependent views, so do not invent
   blocking dependencies; root observations are
   `target/batch2/b1-reference-observations.md`. Functional/performance acceptance
