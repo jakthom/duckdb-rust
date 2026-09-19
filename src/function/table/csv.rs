@@ -14,7 +14,7 @@ use crate::{
     common::{
         DataType, Error, NestedPayload, NestedType, Result, Value,
         cast::{BoundCast, CastMode},
-        vector::DataChunk,
+        vector::{DataChunk, Vector},
     },
     function::table::{
         TableFunction, TableFunctionArgument, TableFunctionBind, TableFunctionBindContext,
@@ -24,7 +24,7 @@ use crate::{
     planner::Field,
 };
 
-const BUFFER_BYTES: usize = 4096;
+const BUFFER_BYTES: usize = 64 * 1024;
 const DEFAULT_MAX_LINE_BYTES: usize = 2_000_000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -135,6 +135,35 @@ impl CsvReader {
                     return Ok((!rows.is_empty()).then_some(rows));
                 }
             }
+            if !self.in_quotes
+                && !self.quote_pending
+                && !self.escape_pending
+                && !self.carriage_return
+                && !(self.field_start && self.buffer[self.start] == self.options.quote)
+            {
+                let ordinary = {
+                    let input = &self.buffer[self.start..self.end];
+                    input
+                        .iter()
+                        .position(|byte| {
+                            matches!(*byte, b'\n' | b'\r') || *byte == self.options.delimiter
+                        })
+                        .unwrap_or(input.len())
+                };
+                if ordinary != 0 {
+                    let start = self.start;
+                    let end = start + ordinary;
+                    self.count_record_bytes(ordinary)?;
+                    self.field
+                        .try_reserve(ordinary)
+                        .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
+                    self.field.extend_from_slice(&self.buffer[start..end]);
+                    self.field_start = false;
+                    self.record_started = true;
+                    self.start += ordinary;
+                    continue;
+                }
+            }
             let byte = self.buffer[self.start];
             self.start += 1;
             self.consume(byte, &mut rows)?;
@@ -153,16 +182,7 @@ impl CsvReader {
         let terminal_delimiter =
             matches!(byte, b'\n' | b'\r') && (!self.in_quotes || self.quote_pending);
         if !terminal_delimiter {
-            self.record_bytes = self
-                .record_bytes
-                .checked_add(1)
-                .ok_or_else(|| Error::Resource("CSV record length overflow".into()))?;
-            if self.record_bytes > self.options.max_line_bytes {
-                return Err(Error::Resource(format!(
-                    "CSV record exceeds maximum line size of {} bytes",
-                    self.options.max_line_bytes
-                )));
-            }
+            self.count_record_bytes(1)?;
         }
         if self.carriage_return {
             self.carriage_return = false;
@@ -253,10 +273,26 @@ impl CsvReader {
     }
 
     fn push_field_byte(&mut self, byte: u8) -> Result<()> {
-        self.field
-            .try_reserve(1)
-            .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
+        if self.field.len() == self.field.capacity() {
+            self.field
+                .try_reserve(1)
+                .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
+        }
         self.field.push(byte);
+        Ok(())
+    }
+
+    fn count_record_bytes(&mut self, bytes: usize) -> Result<()> {
+        self.record_bytes = self
+            .record_bytes
+            .checked_add(bytes)
+            .ok_or_else(|| Error::Resource("CSV record length overflow".into()))?;
+        if self.record_bytes > self.options.max_line_bytes {
+            return Err(Error::Resource(format!(
+                "CSV record exceeds maximum line size of {} bytes",
+                self.options.max_line_bytes
+            )));
+        }
         Ok(())
     }
 
@@ -285,7 +321,10 @@ impl CsvReader {
             self.skipped_header = true;
             self.row.clear();
         } else {
-            rows.push(std::mem::take(&mut self.row));
+            let mut next = Vec::new();
+            next.try_reserve(self.row.len())
+                .map_err(|_| Error::Resource("CSV row allocation failed".into()))?;
+            rows.push(std::mem::replace(&mut self.row, next));
         }
         Ok(())
     }
@@ -449,7 +488,12 @@ impl TableFunction for ReadCsv {
         let Some(rows) = state.reader.next_rows(max_rows, context)? else {
             return Ok(None);
         };
-        let mut values = Vec::with_capacity(rows.len());
+        let count = rows.len();
+        let mut columns = data
+            .types
+            .iter()
+            .map(|_| Vec::with_capacity(count))
+            .collect::<Vec<_>>();
         for (row_number, row) in rows.into_iter().enumerate() {
             context.check()?;
             if row.len() != data.casts.len() {
@@ -460,14 +504,18 @@ impl TableFunction for ReadCsv {
                     data.casts.len()
                 )));
             }
-            let mut converted = Vec::with_capacity(row.len());
-            for (field, cast) in row.into_iter().zip(&data.casts) {
+            for ((field, cast), column) in row.into_iter().zip(&data.casts).zip(&mut columns) {
                 let input = field.value.map_or(Value::Null, Value::Varchar);
-                converted.push(cast.apply(&input, context)?);
+                column.push(cast.apply_owned(input, context)?);
             }
-            values.push(converted);
         }
-        DataChunk::from_owned_rows(&data.types, values).map(Some)
+        let columns = data
+            .types
+            .iter()
+            .zip(columns)
+            .map(|(data_type, values)| Vector::flat(data_type.clone(), values))
+            .collect::<Result<_>>()?;
+        DataChunk::new(columns, count).map(Some)
     }
 }
 
@@ -725,6 +773,16 @@ mod tests {
             Some(format!("{prefix}é").as_str())
         );
         assert!(rows(b"\xff\n", CsvOptions::default()).is_err());
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn ordinary_unquoted_fields_cross_the_large_input_buffer() -> Result<()> {
+        let prefix = "x".repeat(BUFFER_BYTES + 23);
+        let parsed = rows(format!("{prefix},tail\n").as_bytes(), CsvOptions::default())?;
+        assert_eq!(parsed[0][0].value.as_deref(), Some(prefix.as_str()));
+        assert_eq!(parsed[0][1].value.as_deref(), Some("tail"));
         Ok(())
     }
 
