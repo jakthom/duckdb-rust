@@ -7,6 +7,7 @@ use std::{
     collections::BTreeSet,
     fs::File,
     io::Read,
+    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -55,7 +56,13 @@ impl Default for CsvOptions {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct CsvField {
-    pub value: Option<String>,
+    pub value: Option<Range<usize>>,
+}
+
+#[derive(Debug)]
+pub(super) struct CsvBatch {
+    pub arena: String,
+    pub rows: Vec<Vec<CsvField>>,
 }
 
 #[derive(Debug)]
@@ -66,7 +73,8 @@ pub(super) struct CsvReader {
     start: usize,
     end: usize,
     row: Vec<CsvField>,
-    field: Vec<u8>,
+    arena: Vec<u8>,
+    field_offset: usize,
     field_quoted: bool,
     field_start: bool,
     in_quotes: bool,
@@ -96,7 +104,8 @@ impl CsvReader {
             start: 0,
             end: 0,
             row: Vec::new(),
-            field: Vec::new(),
+            arena: Vec::new(),
+            field_offset: 0,
             field_quoted: false,
             field_start: true,
             in_quotes: false,
@@ -115,9 +124,12 @@ impl CsvReader {
         &mut self,
         max_rows: usize,
         context: &QueryContext,
-    ) -> Result<Option<Vec<Vec<CsvField>>>> {
+    ) -> Result<Option<CsvBatch>> {
         if max_rows == 0 {
-            return Ok(Some(Vec::new()));
+            return Ok(Some(CsvBatch {
+                arena: String::new(),
+                rows: Vec::new(),
+            }));
         }
         let mut rows = Vec::with_capacity(max_rows);
         loop {
@@ -132,7 +144,7 @@ impl CsvReader {
                 self.end = read;
                 if read == 0 {
                     self.finish_eof(&mut rows)?;
-                    return Ok((!rows.is_empty()).then_some(rows));
+                    return Ok((!rows.is_empty()).then(|| self.take_batch(rows)));
                 }
             }
             if !(self.in_quotes
@@ -154,10 +166,10 @@ impl CsvReader {
                     let start = self.start;
                     let end = start + ordinary;
                     self.count_record_bytes(ordinary)?;
-                    self.field
+                    self.arena
                         .try_reserve(ordinary)
                         .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
-                    self.field.extend_from_slice(&self.buffer[start..end]);
+                    self.arena.extend_from_slice(&self.buffer[start..end]);
                     self.field_start = false;
                     self.record_started = true;
                     self.start += ordinary;
@@ -168,7 +180,7 @@ impl CsvReader {
             self.start += 1;
             self.consume(byte, &mut rows)?;
             if rows.len() == max_rows {
-                return Ok(Some(rows));
+                return Ok(Some(self.take_batch(rows)));
             }
         }
     }
@@ -264,7 +276,7 @@ impl CsvReader {
         if self.carriage_return
             || self.record_started
             || !self.row.is_empty()
-            || !self.field.is_empty()
+            || self.arena.len() != self.field_offset
         {
             self.carriage_return = false;
             self.finish_record(rows)?;
@@ -273,12 +285,12 @@ impl CsvReader {
     }
 
     fn push_field_byte(&mut self, byte: u8) -> Result<()> {
-        if self.field.len() == self.field.capacity() {
-            self.field
+        if self.arena.len() == self.arena.capacity() {
+            self.arena
                 .try_reserve(1)
                 .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
         }
-        self.field.push(byte);
+        self.arena.push(byte);
         Ok(())
     }
 
@@ -297,17 +309,19 @@ impl CsvReader {
     }
 
     fn finish_field(&mut self) -> Result<()> {
-        let bytes = std::mem::take(&mut self.field);
-        let value = String::from_utf8(bytes)
+        let range = self.field_offset..self.arena.len();
+        let bytes = &self.arena[range.clone()];
+        std::str::from_utf8(bytes)
             .map_err(|_| Error::Conversion("CSV field is not valid UTF-8".into()))?;
         let value = if (!self.field_quoted || self.options.allow_quoted_nulls)
-            && value.as_bytes() == self.options.null.as_slice()
+            && bytes == self.options.null.as_slice()
         {
             None
         } else {
-            Some(value)
+            Some(range)
         };
         self.row.push(CsvField { value });
+        self.field_offset = self.arena.len();
         self.field_quoted = false;
         self.field_start = true;
         Ok(())
@@ -320,6 +334,8 @@ impl CsvReader {
         if self.options.header && !self.skipped_header {
             self.skipped_header = true;
             self.row.clear();
+            self.arena.clear();
+            self.field_offset = 0;
         } else {
             let mut next = Vec::new();
             next.try_reserve(self.row.len())
@@ -327,6 +343,13 @@ impl CsvReader {
             rows.push(std::mem::replace(&mut self.row, next));
         }
         Ok(())
+    }
+
+    fn take_batch(&mut self, rows: Vec<Vec<CsvField>>) -> CsvBatch {
+        let arena = String::from_utf8(std::mem::take(&mut self.arena))
+            .expect("CSV fields are validated before they enter a completed batch");
+        self.field_offset = 0;
+        CsvBatch { arena, rows }
     }
 }
 
@@ -485,15 +508,36 @@ impl TableFunction for ReadCsv {
         let state = state
             .downcast_mut::<CsvState>()
             .ok_or_else(|| Error::Internal("read_csv state type mismatch".into()))?;
-        let Some(rows) = state.reader.next_rows(max_rows, context)? else {
+        let Some(CsvBatch { arena, rows }) = state.reader.next_rows(max_rows, context)? else {
             return Ok(None);
         };
         let count = rows.len();
-        let mut columns = data
-            .types
+        let preserve = data
+            .casts
             .iter()
-            .map(|_| Vec::with_capacity(count))
+            .map(BoundCast::can_preserve_plain_varchar_storage)
             .collect::<Vec<_>>();
+        let mut values = data
+            .casts
+            .iter()
+            .zip(&preserve)
+            .map(|(_, preserve)| {
+                (!*preserve)
+                    .then(|| Vec::with_capacity(count))
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
+        let mut ranges = data
+            .casts
+            .iter()
+            .zip(&preserve)
+            .map(|(_, preserve)| {
+                (*preserve)
+                    .then(|| Vec::with_capacity(count))
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
+        let mut arenas = data.types.iter().map(|_| String::new()).collect::<Vec<_>>();
         for (row_number, row) in rows.into_iter().enumerate() {
             context.check()?;
             if row.len() != data.casts.len() {
@@ -504,16 +548,41 @@ impl TableFunction for ReadCsv {
                     data.casts.len()
                 )));
             }
-            for ((field, cast), column) in row.into_iter().zip(&data.casts).zip(&mut columns) {
-                let input = field.value.map_or(Value::Null, Value::Varchar);
-                column.push(cast.apply_owned(input, context)?);
+            for (column, (field, cast)) in row.into_iter().zip(&data.casts).enumerate() {
+                if preserve[column] {
+                    let range = field
+                        .value
+                        .map(|source| {
+                            let start = arenas[column].len();
+                            let bytes = &arena[source];
+                            arenas[column].try_reserve(bytes.len()).map_err(|_| {
+                                Error::Resource("CSV column allocation failed".into())
+                            })?;
+                            arenas[column].push_str(bytes);
+                            Ok(start..arenas[column].len())
+                        })
+                        .transpose()?;
+                    ranges[column].push(range);
+                } else {
+                    let input = field
+                        .value
+                        .map_or(Value::Null, |range| Value::Varchar(arena[range].to_owned()));
+                    values[column].push(cast.apply_owned(input, context)?);
+                }
             }
         }
         let columns = data
             .types
             .iter()
-            .zip(columns)
-            .map(|(data_type, values)| Vector::flat(data_type.clone(), values))
+            .zip(values.into_iter().zip(ranges).zip(arenas))
+            .zip(preserve)
+            .map(|((data_type, ((values, ranges), arena)), preserve)| {
+                if preserve {
+                    Vector::packed_utf8(std::sync::Arc::new(arena), ranges)
+                } else {
+                    Vector::flat(data_type.clone(), values)
+                }
+            })
             .collect::<Result<_>>()?;
         DataChunk::new(columns, count).map(Some)
     }
@@ -596,15 +665,27 @@ mod tests {
     use crate::parallel::QueryContext;
     use std::io::Write;
 
+    #[derive(Debug)]
+    struct TextField {
+        value: Option<String>,
+    }
+
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-    fn rows(input: &[u8], options: CsvOptions) -> Result<Vec<Vec<CsvField>>> {
+    fn rows(input: &[u8], options: CsvOptions) -> Result<Vec<Vec<TextField>>> {
         let mut file = tempfile::NamedTempFile::new()?;
         file.write_all(input)?;
         let mut reader = CsvReader::open(file.path(), options)?;
         let context = QueryContext::background();
         let mut result = Vec::new();
         while let Some(next) = reader.next_rows(1, &context)? {
-            result.extend(next);
+            let CsvBatch { arena, rows } = next;
+            result.extend(rows.into_iter().map(|row| {
+                row.into_iter()
+                    .map(|field| TextField {
+                        value: field.value.map(|range| arena[range].to_owned()),
+                    })
+                    .collect()
+            }));
         }
         Ok(result)
     }
@@ -783,6 +864,65 @@ mod tests {
         let parsed = rows(format!("{prefix},tail\n").as_bytes(), CsvOptions::default())?;
         assert_eq!(parsed[0][0].value.as_deref(), Some(prefix.as_str()));
         assert_eq!(parsed[0][1].value.as_deref(), Some("tail"));
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn completed_records_share_one_validated_utf8_arena() -> Result<()> {
+        let mut file = tempfile::NamedTempFile::new()?;
+        file.write_all(b"a,\\N\nb,c\n")?;
+        let mut reader = CsvReader::open(
+            file.path(),
+            CsvOptions {
+                null: b"\\N".to_vec(),
+                ..CsvOptions::default()
+            },
+        )?;
+        let batch = reader
+            .next_rows(2, &QueryContext::background())?
+            .expect("two completed records");
+        assert_eq!(batch.arena, "a\\Nbc");
+        assert_eq!(batch.rows.len(), 2);
+        assert_eq!(batch.rows[0][0].value, Some(0..1));
+        assert_eq!(batch.rows[0][1].value, None);
+        assert_eq!(batch.rows[1][0].value, Some(3..4));
+        assert_eq!(batch.rows[1][1].value, Some(4..5));
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn utf8_validation_cannot_cross_csv_field_boundaries() {
+        assert!(rows(b"\xc3,\xa9\n", CsvOptions::default()).is_err());
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn header_empty_fields_and_eof_reset_each_batch_arena() -> Result<()> {
+        let mut file = tempfile::NamedTempFile::new()?;
+        file.write_all(b"h1,h2\n,\na,b")?;
+        let mut reader = CsvReader::open(
+            file.path(),
+            CsvOptions {
+                header: true,
+                null: b"\\N".to_vec(),
+                ..CsvOptions::default()
+            },
+        )?;
+        let first = reader
+            .next_rows(1, &QueryContext::background())?
+            .expect("first record");
+        assert_eq!(first.arena, "");
+        assert_eq!(first.rows[0][0].value, Some(0..0));
+        assert_eq!(first.rows[0][1].value, Some(0..0));
+        let second = reader
+            .next_rows(1, &QueryContext::background())?
+            .expect("EOF record");
+        assert_eq!(second.arena, "ab");
+        assert_eq!(second.rows[0][0].value, Some(0..1));
+        assert_eq!(second.rows[0][1].value, Some(1..2));
+        assert!(reader.next_rows(1, &QueryContext::background())?.is_none());
         Ok(())
     }
 
