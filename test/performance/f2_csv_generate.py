@@ -59,6 +59,20 @@ def materialize(output):
             "bytes": path.stat().st_size, "columns": width, "expected": expected(spec["rows"], width),
             "query": query(path, width)})
     (output / "manifest.json").write_text(json.dumps(result, indent=2) + "\n")
+    native = {"schema_version": 1, "rows": spec["rows"], "threads": 1, "setup": "", "workloads": []}
+    process = {"workloads": []}
+    for entry in result["files"]:
+        total = entry["expected"]["count"] + entry["expected"]["sum_id"] + sum(entry["expected"]["length_sums"]) + sum(entry["expected"]["non_null_counts"])
+        native["workloads"].append({"name": entry["id"], "sql": entry["query"], "rows": 1, "sum": str(total)})
+        path = output / (entry["id"] + ".test")
+        lines = []
+        for _ in range(16):
+            values = [entry["expected"]["count"], entry["expected"]["sum_id"], *entry["expected"]["length_sums"], *entry["expected"]["non_null_counts"]]
+            lines.extend(["query " + "I" * (2 + 2 * (entry["columns"] - 1)), entry["query"], "----", "\t".join(map(str, values)), ""])
+        path.write_text("\n".join(lines))
+        process["workloads"].append({"id": entry["id"], "path": path.name})
+    (output / "native-workloads.json").write_text(json.dumps(native, indent=2) + "\n")
+    (output / "process-workloads.json").write_text(json.dumps(process, indent=2) + "\n")
     return result
 
 if __name__ == "__main__":
