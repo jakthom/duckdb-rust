@@ -534,8 +534,8 @@ User follow-up authorizes execution of all three batches with parallel tracks,
 continuing through their acceptance without another dispatch request. Parallel
 read-only scope preparation is active while Batch 2's acceptance is repaired;
 implementation of Batch 3 still follows Batch 2 acceptance.
-Batch 1 stays accepted. Batch 2's latest verified implementation is `e94507d`;
-candidate9 scratch reuse has passed independent scoped verification.
+Batch 1 stays accepted. Batch 2's latest verified implementation is `08f81f8`;
+candidate9 scratch reuse passed independent scoped verification and production preparation.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -578,28 +578,36 @@ Frozen inputs: `recycle-frozen-inputs.json`; final logs/times/hashes are in
 `recycle-verifier-corrected/` (table_functions18, coverage missing=[], trace pass).
 The first sweep's test-only Clippy useless_vec failure remains in `recycle-verifier/`;
 ROOT corrected the expected-value container and reran the affected selection.
-Next production command is `python3 target/batch2/prepare_recycled_csv_candidate9.py`, followed
-by `run_csv_native_candidate9.py --authorized` and the serial
-`remaining-performance-candidate9.json` stages, with all fixed obligations retained.
+Candidate9 production8/8 passed at `08f81f8`. Native narrow10.411ms versus
+release10.324ms fails (both retained Rust medians1.0084x/1.0144x); wide52.786ms
+versus58.743ms passes. No process timings followed the failed native gate.
+Candidate10 removes the preliminary delimiter-count traversal, retaining fallible
+metadata growth and unchanged record semantics; ROOT owns production and the CSV
+worker owns a metadata-growth regression. Manifest:
+`target/batch2/csv-single-delimiter-manifest.md`; fixed acceptance obligations remain.
+Candidate10 seven-stage independent partial verifier passes: parser19/19,
+table_functions18/18, formatting/Clippy, coverage missing=[] and tracing. Frozen
+inputs match before/after; evidence `target/batch2/single-delimiter-verifier/`
+and `single-delimiter-frozen-inputs.json`. Next production/source preparation10.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: candidate9 reclaims one prior CSV arena only after output owners release it, and reuses drained metadata storage. Routine CSV10/10 and configured six-stage partial verifier pass (table_functions18, coverage missing=[], tracing). Candidate8 `e94507d` passes scoped/source preparation; native wide0.909× passes, narrow1.0473× fails. Prior failures are preserved. Next: `prepare_recycled_csv_candidate9.py`, fixed CSV native/process, then F1/A2/B1/COUNT gates from `remaining-performance-candidate9.json`. Manifest `target/batch2/csv-recycle-manifest.md`; unchanged lexer18/vector/cast/COUNT/source and durable feasibility evidence reused with scope rationale. Existing sibling worktrees/branches remain retained. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: candidate9 `08f81f8` passes scoped/source preparation; native wide0.903× passes, narrow1.0144× fails. Candidate10 removes redundant delimiter counting with fallible metadata growth and boundary regression under `target/batch2/csv-single-delimiter-manifest.md`. Prior failures preserved; fixed CSV native/process then F1/A2/B1/COUNT gates remain. Unchanged vector/cast/COUNT/source and durable feasibility evidence reused with scope rationale. Existing sibling worktrees/branches retained. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** candidate9 scoped verification passes;
-finish production/source preparation, then the fixed CSV native gate and
-remaining process/F1/A2/B1/COUNT gates with fresh candidate9 paths/provenance.
-The candidate7 commands in `target/batch2/shared-arena-completion-inputs.md`
-are the template; candidate7's measured failure is preserved. Preserve the prior
-candidate5 failure (narrow 1.81×, wide 1.44× the faster reference) and report
-candidate6 diagnostic independently. If candidate9 fails, repair the measured path
-and rerun only affected evidence. Reuse unchanged scoped verification, source
-selections and durable feasibility evidence. User has paused activity; the host
-must still be checked after production preparation. No applications were stopped.
+**Immediate carryover, before Batch 3:** candidate10 seven-command scoped verifier passes;
+finish production/source preparation, fixed
+CSV native gate and remaining process/F1/A2/B1/COUNT gates with fresh candidate10
+paths/provenance. Manifest `target/batch2/csv-single-delimiter-manifest.md`;
+production command `prepare_single_delimiter_candidate10.py`, then
+`run_csv_native_candidate10.py --authorized` and serial stages from
+`remaining-performance-candidate10.json`. All are under `target/batch2/`.
+Preserve candidates5/7/8/9 failures and candidate6 diagnostic independently.
+Reuse unchanged scoped verification, source selections and durable feasibility.
+User paused activity; check host after production preparation. Apps stay running.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 

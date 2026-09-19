@@ -333,13 +333,9 @@ impl CsvReader {
             return Ok(false);
         }
 
-        let field_count = memchr_iter(self.options.delimiter, record).count() + 1;
         self.arena
             .try_reserve(record.len())
             .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
-        self.fields
-            .try_reserve(field_count)
-            .map_err(|_| Error::Resource("CSV row allocation failed".into()))?;
 
         let arena_start = self.arena.len();
         self.arena.extend_from_slice(record);
@@ -354,6 +350,11 @@ impl CsvReader {
             } else {
                 Some(range)
             };
+            if self.fields.len() == self.fields.capacity() {
+                self.fields
+                    .try_reserve(1)
+                    .map_err(|_| Error::Resource("CSV row allocation failed".into()))?;
+            }
             self.fields.push(CsvField { value });
             field_start = field_end + 1;
         }
@@ -1264,6 +1265,67 @@ mod tests {
             ),
             Err(Error::Resource(message)) if message.contains("maximum line size")
         ));
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn wide_variable_records_grow_metadata_without_changing_retained_batches() -> Result<()> {
+        let empty_fields = 4097;
+        let mut first_record = String::from("α,\\N");
+        for _ in 0..empty_fields {
+            first_record.push(',');
+        }
+        first_record.push('\n');
+        let input = format!("{first_record}tail,🦆,\n");
+        let mut file = tempfile::NamedTempFile::new()?;
+        file.write_all(input.as_bytes())?;
+        let mut reader = CsvReader::open(
+            file.path(),
+            CsvOptions {
+                null: b"\\N".to_vec(),
+                ..CsvOptions::default()
+            },
+        )?;
+
+        let first = reader
+            .next_rows(1, &QueryContext::background())?
+            .expect("wide first record");
+        let width = empty_fields + 2;
+        assert_eq!(first.row_ends, vec![width]);
+        assert_eq!(first.fields.len(), width);
+        assert_eq!(first.fields[0].value, Some(0.."α".len()));
+        assert_eq!(first.fields[1].value, None);
+        assert_eq!(first.fields[2].value, Some("α,\\N,".len().."α,\\N,".len()));
+        assert_eq!(
+            first.fields.last().unwrap().value,
+            Some(first.arena.len()..first.arena.len())
+        );
+        let retained_arena = first.arena.clone();
+        let retained_fields = first
+            .fields
+            .iter()
+            .map(|field| field.value.clone())
+            .collect::<Vec<_>>();
+
+        let second = reader
+            .next_rows(1, &QueryContext::background())?
+            .expect("later record");
+        assert_eq!(second.row_ends, vec![3]);
+        assert_eq!(second.arena, "tail,🦆,");
+        assert_eq!(second.fields[0].value, Some(0..4));
+        assert_eq!(second.fields[1].value, Some(5..9));
+        assert_eq!(second.fields[2].value, Some(10..10));
+        assert_eq!(first.arena, retained_arena);
+        assert_eq!(
+            first
+                .fields
+                .iter()
+                .map(|field| field.value.clone())
+                .collect::<Vec<_>>(),
+            retained_fields
+        );
+        assert!(reader.next_rows(1, &QueryContext::background())?.is_none());
         Ok(())
     }
 
