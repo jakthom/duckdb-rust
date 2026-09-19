@@ -112,6 +112,10 @@ def context(output):
         "manifest": {"manifest": 1},
         "inputs": {
             "seed": {"sha256": "seed", "bytes": 4},
+            "execution_configuration": {
+                "cpp": {"threads": 1},
+                "rust": {"threads": 1, "scheduler": "inline"},
+            },
             "references": {"release": "release", "development": "development"},
             "helpers": {"measure": "helper"},
         },
@@ -231,20 +235,37 @@ class DurableViewMeasurementTests(unittest.TestCase):
                 m.timed(["x"], "publish", execute=lambda *args, **kwargs: incomplete)
         self.assertEqual(caught.exception.observation["stderr"], incomplete.stderr)
 
-    def test_sql_and_commands_fix_two_phases_threads_and_fresh_create(self):
+    def test_sql_and_commands_fix_two_phases_serial_execution_and_fresh_create(self):
         for workload in m.EXPECTED["workloads"]:
             for mode in m.EXPECTED["configurations"]:
                 sql = m.sqls(workload, mode)
                 self.assertEqual(tuple(sql), m.PHASES)
-                self.assertTrue(all("SET threads=1" in value for value in sql.values()))
+                self.assertTrue(
+                    all("SET threads" not in value for value in sql.values())
+                )
                 self.assertNotIn("OR REPLACE", sql["publish"])
                 self.assertEqual("CHECKPOINT" in sql["publish"], mode == "checkpoint")
-        cpp = m.command(engine("release"), "/db", "wal", "SELECT 1", readonly=True)
-        rust = m.command(engine("rust"), "/db", "wal", "SELECT 1", readonly=True)
+        cpp = m.command(engine("release"), "/db", "wal", m.seed_sql(), readonly=True)
+        rust = m.command(engine("rust"), "/db", "wal", m.seed_sql(), readonly=True)
         self.assertIn("-readonly", cpp)
         self.assertIn("PRAGMA disable_checkpoint_on_shutdown", cpp[-1])
+        self.assertIn("SET threads=1", cpp[-1])
         self.assertIn("--read-only", rust)
         self.assertNotIn("--durability", rust)
+        self.assertNotIn("SET threads", rust[-1])
+        for selected in (engine("release"), engine("rust")):
+            with self.subTest(engine=selected), self.assertRaises(ValueError):
+                m.command(selected, "/db", "checkpoint", "SET threads=2; SELECT 1")
+
+    def test_serial_configuration_hashes_rust_inline_scheduler_selection_and_use(self):
+        configuration = m.serial_configuration()
+        self.assertEqual(configuration["cpp"], {"threads": 1, "sql": "SET threads=1"})
+        self.assertEqual(configuration["rust"]["threads"], 1)
+        self.assertEqual(configuration["rust"]["scheduler"], "inline")
+        self.assertEqual(
+            configuration["rust"]["implementation"],
+            {path: m.file_id(m.ROOT / path) for path in m.RUST_SERIAL_IMPLEMENTATION},
+        )
 
     def test_json_result_accepts_cpp_hugeint_string(self):
         # Both pinned C++ CLIs serialize SUM(BIGINT), a HUGEINT, as this string.
@@ -836,6 +857,9 @@ class DurableViewMeasurementTests(unittest.TestCase):
             lambda inputs: inputs["seed"].__setitem__("sha256", "changed"),
             lambda inputs: inputs["references"].__setitem__("release", "changed"),
             lambda inputs: inputs["helpers"].__setitem__("measure", "changed"),
+            lambda inputs: inputs["execution_configuration"]["rust"].__setitem__(
+                "scheduler", "changed"
+            ),
         )
         with tempfile.TemporaryDirectory() as directory:
             for index, mutate in enumerate(mutations):

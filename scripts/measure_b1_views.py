@@ -92,6 +92,12 @@ BUILD_ENVIRONMENT_KEYS = (
     "SOURCE_DATE_EPOCH",
 )
 BUILD_ENVIRONMENT_PREFIXES = ("CARGO_PROFILE_RELEASE_", "CARGO_TARGET_")
+RUST_SERIAL_IMPLEMENTATION = (
+    "src/main/connection.rs",
+    "src/main/database.rs",
+    "src/parallel/mod.rs",
+    "tools/shell/main.rs",
+)
 
 
 class SampleFailure(RuntimeError):
@@ -168,6 +174,19 @@ def build_environment():
         if any(key.startswith(prefix) for prefix in BUILD_ENVIRONMENT_PREFIXES)
     )
     return {key: os.environ.get(key) for key in sorted(keys)}
+
+
+def serial_configuration():
+    return {
+        "cpp": {"threads": 1, "sql": "SET threads=1"},
+        "rust": {
+            "threads": 1,
+            "scheduler": "inline",
+            "implementation": {
+                path: file_id(ROOT / path) for path in RUST_SERIAL_IMPLEMENTATION
+            },
+        },
+    }
 
 
 def prepare_rust_provenance(path, execute=subprocess.run):
@@ -349,9 +368,9 @@ def sqls(workload, mode):
         raise ValueError("unknown durable workload")
     checkpoint = " CHECKPOINT;" if mode == "checkpoint" else ""
     return {
-        "publish": (f"SET threads=1; BEGIN TRANSACTION; {create}; COMMIT;{checkpoint}"),
+        "publish": (f"BEGIN TRANSACTION; {create}; COMMIT;{checkpoint}"),
         "reopen_query_drop": (
-            "SET threads=1; SELECT count(*) AS row_count, "
+            "SELECT count(*) AS row_count, "
             "coalesce(sum(i),0) AS checksum FROM b1_public; "
             f"BEGIN TRANSACTION; {drop}; COMMIT;"
         ),
@@ -359,19 +378,19 @@ def sqls(workload, mode):
 
 
 def seed_sql():
-    return (
-        "SET threads=1; SELECT count(*) AS row_count, "
-        "coalesce(sum(i),0) AS checksum FROM b1_seed"
-    )
+    return "SELECT count(*) AS row_count, coalesce(sum(i),0) AS checksum FROM b1_seed"
 
 
 def absent_sql():
-    return "SET threads=1; SELECT * FROM b1_public"
+    return "SELECT * FROM b1_public"
 
 
 def command(engine, database, mode, sql, readonly=False):
     database = str(database)
+    if re.search(r"(?i)\bset\s+threads\s*=", sql):
+        raise ValueError("thread configuration is selected by the adapter")
     if engine["kind"] == "cpp":
+        sql = "SET threads=1; " + sql
         prefix = "PRAGMA disable_checkpoint_on_shutdown; " if mode == "wal" else ""
         return [
             engine["binary"],
@@ -876,6 +895,7 @@ def campaign_context(arguments):
     inputs = {
         "manifest": spec,
         "seed": seed_identity(arguments.seed),
+        "execution_configuration": serial_configuration(),
         "helpers": {name: file_id(ROOT / "scripts" / name) for name in HELPERS},
         "references": references,
         "rust": rust,
