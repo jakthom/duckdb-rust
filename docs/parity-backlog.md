@@ -988,7 +988,46 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
  eight existing utf8proc inputs. The corrected fixture passes its exact test,
  checks the full dependency set and fingerprint sensitivity to every file;
  production input selection stays unchanged. Compose `a2-sha-verifier1/` and
- `a2-sha-verifier2/` at their recorded inputs. The three short proxy failures remain open until new measurements pass.
+ `a2-sha-verifier2/` at their recorded inputs. The follow-up is committed as `8c0c7a3` (native) and `a93563f` (Python).
+ Release preparation passes all10 stages, including both-pin selected replay,
+ the14-record witness, native view exchange and B1/C2/regex process witnesses.
+ All16 strict proxy-entry replays pass with fresh worker provenance.
+ B1 release now measures filtered view/direct772.167/542.917us versus421.291/
+ 269.041us; stacked direct270.167us versus73.167us; CREATE VIEW75.416us versus
+ 42.291us. Those four fail; stacked views208.708us versus266.167us passes release
+ only. B1 development/joint/process did not run after the release failure.
+ Python SHA candidate passes both large cases and every CPU/RSS/I/O gate;
+ short scalar/lifecycle/read-only latency still fails at27.851/57.574/50.976ms
+ versus25.180/37.706/34.980ms. Preserve `b1-native-release-native-followup2.json`,
+ `a2-sha-proxy-candidate1.json` and their failed stage receipts.
+
+ The next profile-supported repairs at `a93563f` specialize endpoint-proven
+ ordered arithmetic, validate a dependency graph once per catalog validation,
+ and remove eligible BIGINT checkpoint row/value copies. They own disjoint
+ arithmetic, catalog and checkpoint paths and remain incomplete pending their
+ new partial manifests. The catalog shared-validation change broadens affected
+ process acceptance to COUNT, compiled A2, prior seven process families, B1
+ durable/native/process and A2 proxy; do not retain now-affected earlier passes.
+ Native query evidence with only unchanged timed consumers remains at its prior
+ source identity. New native profiles are `b1-native-followup2-profiles1/` and
+ `b1-checkpoint-profile-followup2/`. The latter's diagnostic wrapper compared a
+ validating function's None return to a dict; preserve its false status and the
+ separate correction verifying actual exit0/sampler0 and unchanged seed/checksum.
+ These profiles are not performance acceptance, and sync durability is unchanged.
+ The integrated partial sweep passes560 functional cases: arithmetic/catalog,
+ packed checkpoint exact bytes and guards, native versions/services, numeric,
+ execution/operators/grouping/regex, views/contracts/ALTER, checkpointing,
+ recovery13 and logging17. Initial compilation exposed a missing import/type
+ annotation; later scoped Clippy exposed two equivalent writer cleanups.
+ Preserve `native-followup3-verifier1/` failures, `verifier2/` functional560,
+ and `verifier3/` refreshed13 writer/version/service tests plus passing Clippy.
+ Coverage then identified seven missing cfg(test) instrumentation attributes;
+ their attribute-only correction retains no-default functional evidence and
+ passes coverage (missing[]) and trace (completed1, no errors/incomplete/panics)
+ through `native-followup3-verifier4/`. The configured partial sweep is passed.
+ Source539, baseline-matching fixture155 and vendored dependency8 identities
+ are recorded in the corrected freeze and its input addenda. Release/upstream/performance acceptance
+ remains pending; this is not a completed Batch2 or measured parity claim.
 
 
 | Batch | Tracks | State / restart point |
@@ -999,17 +1038,21 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** repair the remaining B1 arithmetic,
-view-creation and checkpoint gaps and the three short Python proxy workloads.
-Release startup replay is complete at its recorded inputs; COUNT acceptance
-passes at `207a221`'s tested implementation. The next bounded B1 arithmetic and
-paired CREATE VIEW successor changes own disjoint operator and storage/journal
-paths; their manifests are `target/batch2/b1-arithmetic-followup-manifest.md` and
-`target/batch2/b1-ddl-followup-design.md`. Retain only unaffected evidence and
-finish affected B1, durable and string/regex gates against both pins. User paused
-activity; final timing stays serial on a quiet host with apps left running.
-Batch 3 implementation follows Batch 2 acceptance pending the user's response
-on changing that order.
+**Immediate carryover, before Batch 3:** finish the integrated `a93563f`
+follow-up: endpoint-proven BIGINT arithmetic, one dependency-graph validation
+per catalog check, and guarded packed BIGINT checkpoint encoding. The reviewed
+manifests are `target/batch2/b1-arithmetic-followup-manifest.md`,
+`b1-catalog-validation-manifest.md`, `b1-checkpoint-column-manifest.md`, and the
+integrated `native-followup3-*` command/input manifests. Checkpoint review adds
+actual fast-path assertions, generic byte equivalence, native successor/reopen,
+and negative eligibility/cancellation witnesses before source freeze.
+The catalog change requires fresh startup/process gates for COUNT, compiled A2,
+CSV and six other existing families, alongside all B1 and A2 proxy gates.
+Retain only unaffected native query evidence at its recorded inputs. The three
+short proxy latency failures and B1 native/checkpoint failures remain open;
+none is waived. User paused activity; timing stays serial on a quiet host with
+apps left running. Batch 3 implementation follows Batch 2 acceptance pending
+the user's response on changing that order.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 

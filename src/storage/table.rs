@@ -23,7 +23,7 @@ use crate::{
         TableDefinition, TableName, TypeBinding, TypeDefinition, TypeName, ViewBinding,
         ViewDefinition,
     },
-    common::{Error, Result, Row, Value, vector::DataChunk},
+    common::{DataType, Error, Result, Row, Value, vector::DataChunk},
     execution::index::{HashIndexFactory, IndexFactory, IndexSpec, KeyIndex},
     parallel::QueryContext,
 };
@@ -464,6 +464,35 @@ impl Snapshot {
                 Ok((id, row.to_owned()))
             })
             .collect()
+    }
+    /// Private checkpoint-only fast-path probe. It borrows an already
+    /// validated selected builtin lane and otherwise deliberately falls back
+    /// to the generic physical row scan.
+    pub(crate) fn implicit_append_bigints(
+        &self,
+        table: &TableDefinition,
+        context: &QueryContext,
+    ) -> Result<Option<&[i64]>> {
+        if table.columns.len() != 1
+            || table.columns[0].data_type != DataType::BigInt
+            || !table.unique_keys.is_empty()
+        {
+            return Ok(None);
+        }
+        if context
+            .bind_type(&DataType::BigInt)?
+            .requires_logical_validation()
+        {
+            return Ok(None);
+        }
+        let data = self.get(&table.name)?;
+        if data.definition != *table {
+            return Ok(None);
+        }
+        if !matches!(data.physical_order, PhysicalOrder::ImplicitAppend) {
+            return Ok(None);
+        }
+        data.rows.implicit_append_bigints(data.next_id, context)
     }
     /// Return a snapshot with checkpoint-reclaimed physical slots. Existing
     /// clones remain unchanged and continue to represent their older demand.

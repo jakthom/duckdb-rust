@@ -184,7 +184,7 @@ pub(super) fn encode_version_with_context(
 ) -> Result<Vec<u8>> {
     context.check()?;
     super::write_support::new_headers(version)?;
-    encode_checkpoint(snapshot, None, version, context)
+    encode_checkpoint(snapshot, None, version, context, false)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -206,6 +206,28 @@ pub(super) fn encode_successor_with_context(
         Some(previous),
         previous.storage_version(),
         context,
+        false,
+    )
+}
+
+#[cfg(test)]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn encode_version_generic(snapshot: &Snapshot, version: u64) -> Result<Vec<u8>> {
+    encode_checkpoint(snapshot, None, version, &QueryContext::background(), true)
+}
+
+#[cfg(test)]
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn encode_successor_generic(
+    snapshot: &Snapshot,
+    previous: super::CheckpointIdentity,
+) -> Result<Vec<u8>> {
+    encode_checkpoint(
+        snapshot,
+        Some(previous),
+        previous.storage_version(),
+        &QueryContext::background(),
+        true,
     )
 }
 
@@ -215,6 +237,7 @@ fn encode_checkpoint(
     previous: Option<super::CheckpointIdentity>,
     version: u64,
     context: &QueryContext,
+    force_generic: bool,
 ) -> Result<Vec<u8>> {
     // Physical values belong to the snapshot's retained type registry. Keep
     // every other selected caller service, setting and cancellation token.
@@ -277,24 +300,39 @@ fn encode_checkpoint(
         catalog.end();
     }
     for table in tables {
-        let rows: Vec<Row> = snapshot
-            .scan_physical(&table.name, &context)?
-            .into_iter()
-            .map(|(_, row)| row)
-            .collect();
-        let pointer = table_data(&mut arena, &table, &rows, &context)?;
+        let packed = if force_generic {
+            None
+        } else {
+            snapshot.implicit_append_bigints(&table, &context)?
+        };
+        let (pointer, row_count, rows) = if let Some(values) = packed {
+            (
+                table_data_packed_bigint(&mut arena, &table, values, &context)?,
+                values.len(),
+                None,
+            )
+        } else {
+            let rows: Vec<Row> = snapshot
+                .scan_physical(&table.name, &context)?
+                .into_iter()
+                .map(|(_, row)| row)
+                .collect();
+            let pointer = table_data(&mut arena, &table, &rows, &context)?;
+            (pointer, rows.len(), Some(rows))
+        };
         catalog.property(99, 1);
         catalog.field(100);
         catalog.boolean(true);
         table_definition(&mut catalog, &table, version, &context)?;
         catalog.field(101);
         catalog.pointer(pointer);
-        catalog.property(102, rows.len() as u64);
+        catalog.property(102, row_count as u64);
         catalog.property(103, 0);
         if !table.unique_keys.is_empty() {
+            let rows = rows.as_deref().expect("indexed tables use generic rows");
             catalog.property(104, table.unique_keys.len() as u64);
             for (ordinal, key) in table.unique_keys.iter().enumerate() {
-                index::serialize(&mut arena, &mut catalog, &table, key, ordinal, &rows)?;
+                index::serialize(&mut arena, &mut catalog, &table, key, ordinal, rows)?;
             }
         }
         catalog.end();
@@ -362,6 +400,175 @@ fn table_data(
         output.end();
     }
     arena.metadata(&output.0)
+}
+
+/// Native equivalent of `table_data` for the single borrowed lane admitted by
+/// `Snapshot::implicit_append_bigints`. Keep this intentionally narrow: the
+/// generic row path remains the format reference for every other table.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn table_data_packed_bigint(
+    arena: &mut Arena,
+    table: &TableDefinition,
+    values: &[i64],
+    context: &QueryContext,
+) -> Result<u64> {
+    debug_assert_eq!(table.columns.len(), 1);
+    debug_assert_eq!(table.columns[0].data_type, DataType::BigInt);
+    context.check_rows(values.len())?;
+    let mut output = Encoder::default();
+    output.property(100, 1);
+    output.boolean(true);
+    output.field(100);
+    packed_bigint_statistics(&mut output, values, true, context)?;
+    output.end();
+    output.end();
+    output
+        .0
+        .extend((values.len().div_ceil(122880) as u64).to_le_bytes());
+    for (group, values) in values.chunks(122880).enumerate() {
+        context.check()?;
+        output.property(100, (group * 122880) as u64);
+        output.property(101, values.len() as u64);
+        output.property(102, 1);
+        output.pointer(packed_bigint_column(
+            arena,
+            values,
+            group * 122880,
+            context,
+        )?);
+        output.property(103, 0);
+        output.end();
+    }
+    arena.metadata(&output.0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_bigint_column(
+    arena: &mut Arena,
+    values: &[i64],
+    row_start: usize,
+    context: &QueryContext,
+) -> Result<u64> {
+    let mut segments = Vec::new();
+    for (chunk, values) in values.chunks(2048).enumerate() {
+        segments.push(packed_bigint_segment(
+            arena,
+            values,
+            row_start + chunk * 2048,
+            context,
+        )?);
+    }
+    let mut output = Encoder::default();
+    output.property(100, segments.len() as u64);
+    for segment in segments {
+        output.0.extend(segment);
+    }
+    output.field(101);
+    output
+        .0
+        .extend(packed_bigint_validity(values, row_start, context)?);
+    output.end();
+    arena.metadata(&output.0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_bigint_validity(
+    values: &[i64],
+    row_start: usize,
+    context: &QueryContext,
+) -> Result<Vec<u8>> {
+    context.check()?;
+    let mut output = Encoder::default();
+    if values.is_empty() {
+        output.property(100, 0);
+        output.end();
+        return Ok(output.0);
+    }
+    output.property(100, 1);
+    output.property(100, row_start as u64);
+    output.property(101, values.len() as u64);
+    output.field(102);
+    output.field(100);
+    output.signed(-1);
+    output.end();
+    output.property(103, 2);
+    output.field(104);
+    packed_bigint_statistics(&mut output, values, false, context)?;
+    output.end();
+    output.end();
+    Ok(output.0)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_bigint_segment(
+    arena: &mut Arena,
+    values: &[i64],
+    row_start: usize,
+    context: &QueryContext,
+) -> Result<Vec<u8>> {
+    context.check()?;
+    let mut data = Vec::with_capacity(std::mem::size_of_val(values));
+    for value in values {
+        data.extend(value.to_le_bytes());
+    }
+    let block = arena.block(&data)?;
+    let mut output = Encoder::default();
+    output.property(100, row_start as u64);
+    output.property(101, values.len() as u64);
+    output.field(102);
+    output.field(100);
+    output.signed(block as i64);
+    output.end();
+    output.property(103, 1);
+    output.field(104);
+    packed_bigint_statistics(&mut output, values, true, context)?;
+    output.end();
+    Ok(output.0)
+}
+
+/// Emit the byte-for-byte `statistics` shape for an all-valid BIGINT slice.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn packed_bigint_statistics(
+    output: &mut Encoder,
+    values: &[i64],
+    typed: bool,
+    context: &QueryContext,
+) -> Result<()> {
+    context.check()?;
+    output.field(100);
+    output.boolean(false);
+    output.field(101);
+    output.boolean(!values.is_empty());
+    output.property(102, 0);
+    output.field(103);
+    if typed {
+        let mut bounds: Option<(i64, i64)> = None;
+        for values in values.chunks(2048) {
+            context.check()?;
+            for value in values {
+                bounds = Some(match bounds {
+                    Some((minimum, maximum)) => (minimum.min(*value), maximum.max(*value)),
+                    None => (*value, *value),
+                });
+            }
+        }
+        for (field, value) in [
+            (200, bounds.map(|(minimum, _)| minimum)),
+            (201, bounds.map(|(_, maximum)| maximum)),
+        ] {
+            output.field(field);
+            output.field(100);
+            output.boolean(value.is_some());
+            if let Some(value) = value {
+                output.field(101);
+                output.signed(value);
+            }
+            output.end();
+        }
+    }
+    output.end();
+    output.end();
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -716,4 +923,281 @@ pub(super) fn statistics(
     output.end();
     output.end();
     Ok(())
+}
+
+#[cfg(test)]
+mod packed_bigint_tests {
+    use super::*;
+    use crate::{
+        catalog::{Catalog, CatalogMut, ColumnDefinition, TableName, UniqueKey},
+        common::type_registry::{KeyWriter, PrimitiveTypes, TypeAdapter, TypeRegistry},
+        parallel::InterruptHandle,
+        storage::{TableStorageMut, format::SnapshotFormat},
+    };
+    use std::{cmp::Ordering, sync::Arc};
+
+    #[derive(Debug)]
+    struct LogicalBigint;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl TypeAdapter for LogicalBigint {
+        fn name(&self) -> &'static str {
+            "packed-bigint-logical-guard"
+        }
+        fn validate_type(&self, ty: &DataType) -> Result<()> {
+            PrimitiveTypes.validate_type(ty)
+        }
+        fn validate_value(&self, ty: &DataType, value: &Value, query: &QueryContext) -> Result<()> {
+            PrimitiveTypes.validate_value(ty, value, query)
+        }
+        fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+            PrimitiveTypes.common_type(left, right)
+        }
+        fn compare(
+            &self,
+            ty: &DataType,
+            left: &Value,
+            right: &Value,
+            query: &QueryContext,
+        ) -> Result<Ordering> {
+            PrimitiveTypes.compare(ty, left, right, query)
+        }
+        fn write_key(
+            &self,
+            ty: &DataType,
+            value: &Value,
+            output: &mut KeyWriter<'_>,
+            query: &QueryContext,
+        ) -> Result<()> {
+            PrimitiveTypes.write_key(ty, value, output, query)
+        }
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn bigint_snapshot(values: impl IntoIterator<Item = i64>) -> Result<Snapshot> {
+        let name = TableName::main("packed_bigints");
+        let mut snapshot = Snapshot::default();
+        snapshot.create_table(
+            TableDefinition {
+                name: name.clone(),
+                columns: vec![ColumnDefinition::new("v", DataType::BigInt)],
+                unique_keys: vec![],
+            },
+            false,
+        )?;
+        snapshot.insert(
+            &name,
+            values
+                .into_iter()
+                .map(|value| vec![Value::Integer(i128::from(value))])
+                .collect(),
+            &QueryContext::background(),
+        )?;
+        Ok(snapshot)
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn packed_bigint_checkpoint_matches_generic_bytes_for_supported_versions_and_boundaries()
+    -> Result<()> {
+        let mut values = vec![i64::MIN, -1, 0, i64::MAX];
+        values.extend(1..=10_000);
+        let snapshot = bigint_snapshot(values)?;
+        let table = Catalog::tables(&snapshot)?.pop().expect("table exists");
+        assert!(
+            snapshot
+                .implicit_append_bigints(&table, &QueryContext::background())?
+                .is_some()
+        );
+        for version in [64, 68] {
+            assert_eq!(
+                encode_version(&snapshot, version)?,
+                encode_version_generic(&snapshot, version)?,
+                "version {version}"
+            );
+        }
+        let original = encode_version(&snapshot, 64)?;
+        let previous = super::super::CheckpointIdentity::read(&original)?;
+        let packed_successor = encode_successor(&snapshot, previous)?;
+        let generic_successor = encode_successor_generic(&snapshot, previous)?;
+        assert_eq!(packed_successor, generic_successor);
+        let packed_identity = super::super::CheckpointIdentity::read(&packed_successor)?;
+        let generic_identity = super::super::CheckpointIdentity::read(&generic_successor)?;
+        assert_eq!(packed_identity.identifier, generic_identity.identifier);
+        assert_eq!(packed_identity.iteration, generic_identity.iteration);
+        assert_eq!(packed_identity.root, generic_identity.root);
+        assert_eq!(packed_identity.main_version, generic_identity.main_version);
+        assert_eq!(
+            packed_identity.database_version,
+            generic_identity.database_version
+        );
+        let restored = super::super::DuckDbFormat::default()
+            .decode(packed_successor, snapshot.type_registry())?;
+        assert_eq!(Catalog::tables(&restored)?, Catalog::tables(&snapshot)?);
+        assert_eq!(
+            restored.scan_physical(&table.name, &QueryContext::background())?,
+            snapshot.scan_physical(&table.name, &QueryContext::background())?
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn packed_bigint_checkpoint_matches_generic_empty_and_layout_boundaries() -> Result<()> {
+        for values in [Vec::new(), (0..(122_880 + 2_048)).map(i64::from).collect()] {
+            let snapshot = bigint_snapshot(values)?;
+            let table = Catalog::tables(&snapshot)?.pop().expect("table exists");
+            let packed = snapshot.implicit_append_bigints(&table, &QueryContext::background())?;
+            assert_eq!(packed.is_some(), snapshot.next_row_id(&table.name)? != 0);
+            assert_eq!(
+                encode_version(&snapshot, 64)?,
+                encode_version_generic(&snapshot, 64)?
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn packed_bigint_checkpoint_rejects_definition_null_and_physical_order_guards() -> Result<()> {
+        let mut snapshot = bigint_snapshot(0..10_000)?;
+        let table = Catalog::tables(&snapshot)?.pop().expect("table exists");
+        assert!(
+            snapshot
+                .implicit_append_bigints(&table, &QueryContext::background())?
+                .is_some()
+        );
+
+        let mut different_type = table.clone();
+        different_type.columns[0].data_type = DataType::Integer;
+        assert!(
+            snapshot
+                .implicit_append_bigints(&different_type, &QueryContext::background())?
+                .is_none()
+        );
+        different_type
+            .columns
+            .push(ColumnDefinition::new("extra", DataType::BigInt));
+        assert!(
+            snapshot
+                .implicit_append_bigints(&different_type, &QueryContext::background())?
+                .is_none()
+        );
+
+        snapshot.delete(&table.name, &[0], &QueryContext::background())?;
+        assert!(
+            snapshot
+                .implicit_append_bigints(&table, &QueryContext::background())?
+                .is_none()
+        );
+
+        let name = TableName::main("nullable_bigints");
+        let mut nullable = Snapshot::default();
+        nullable.create_table(
+            TableDefinition {
+                name: name.clone(),
+                columns: vec![ColumnDefinition::new("v", DataType::BigInt)],
+                unique_keys: vec![],
+            },
+            false,
+        )?;
+        nullable.insert(&name, vec![vec![Value::Null]], &QueryContext::background())?;
+        let table = Catalog::tables(&nullable)?.pop().expect("table exists");
+        assert!(
+            nullable
+                .implicit_append_bigints(&table, &QueryContext::background())?
+                .is_none()
+        );
+
+        let indexed_name = TableName::main("indexed_bigints");
+        let mut indexed = Snapshot::default();
+        indexed.create_table(
+            TableDefinition {
+                name: indexed_name.clone(),
+                columns: vec![ColumnDefinition::new("v", DataType::BigInt)],
+                unique_keys: vec![UniqueKey {
+                    columns: vec![0],
+                    primary: false,
+                }],
+            },
+            false,
+        )?;
+        indexed.insert(
+            &indexed_name,
+            vec![vec![Value::Integer(1)]],
+            &QueryContext::background(),
+        )?;
+        let table = Catalog::tables(&indexed)?.pop().expect("table exists");
+        assert!(
+            indexed
+                .implicit_append_bigints(&table, &QueryContext::background())?
+                .is_none()
+        );
+
+        let multi_name = TableName::main("multi_bigints");
+        let mut multi = Snapshot::default();
+        multi.create_table(
+            TableDefinition {
+                name: multi_name.clone(),
+                columns: vec![
+                    ColumnDefinition::new("left", DataType::BigInt),
+                    ColumnDefinition::new("right", DataType::BigInt),
+                ],
+                unique_keys: vec![],
+            },
+            false,
+        )?;
+        multi.insert(
+            &multi_name,
+            vec![vec![Value::Integer(1), Value::Integer(2)]],
+            &QueryContext::background(),
+        )?;
+        let table = Catalog::tables(&multi)?.pop().expect("table exists");
+        assert!(
+            multi
+                .implicit_append_bigints(&table, &QueryContext::background())?
+                .is_none()
+        );
+
+        let interrupted = InterruptHandle::default();
+        let cancelled = QueryContext::new(interrupted.clone(), None, 2, 10)?;
+        interrupted.interrupt();
+        let snapshot = bigint_snapshot(0..10_000)?;
+        let table = Catalog::tables(&snapshot)?.pop().expect("table exists");
+        assert!(matches!(
+            snapshot.implicit_append_bigints(&table, &cancelled),
+            Err(Error::Interrupted)
+        ));
+
+        let mut types = TypeRegistry::builtins();
+        types.replace(DataType::BigInt.family(), Arc::new(LogicalBigint))?;
+        let types = Arc::new(types);
+        let mut selected = Snapshot::new(types.clone());
+        let name = TableName::main("selected_bigints");
+        selected.create_table(
+            TableDefinition {
+                name: name.clone(),
+                columns: vec![ColumnDefinition::new("v", DataType::BigInt)],
+                unique_keys: vec![],
+            },
+            false,
+        )?;
+        selected.insert(
+            &name,
+            (0..10_000)
+                .map(|value| vec![Value::Integer(i128::from(value))])
+                .collect(),
+            &QueryContext::background().with_types(types),
+        )?;
+        let table = Catalog::tables(&selected)?.pop().expect("table exists");
+        assert!(
+            selected
+                .implicit_append_bigints(
+                    &table,
+                    &QueryContext::background().with_types(selected.type_registry())
+                )?
+                .is_none()
+        );
+        Ok(())
+    }
 }

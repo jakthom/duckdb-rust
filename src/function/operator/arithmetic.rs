@@ -161,6 +161,7 @@ impl OperatorFunction for NumericArithmetic {
                         right,
                         query,
                         i64::checked_add,
+                        i64::wrapping_add,
                         BigIntOrder::Preserves,
                     ),
                     Subtract => map_checked_bigint_constant(
@@ -168,6 +169,7 @@ impl OperatorFunction for NumericArithmetic {
                         right,
                         query,
                         i64::checked_sub,
+                        i64::wrapping_sub,
                         BigIntOrder::Preserves,
                     ),
                     Multiply if right == 0 => map_checked_bigint_constant(
@@ -175,6 +177,7 @@ impl OperatorFunction for NumericArithmetic {
                         right,
                         query,
                         i64::checked_mul,
+                        i64::wrapping_mul,
                         BigIntOrder::AlwaysAscending,
                     ),
                     Multiply if right > 0 => map_checked_bigint_constant(
@@ -182,6 +185,7 @@ impl OperatorFunction for NumericArithmetic {
                         right,
                         query,
                         i64::checked_mul,
+                        i64::wrapping_mul,
                         BigIntOrder::Preserves,
                     ),
                     Multiply => map_checked_bigint_constant(
@@ -189,6 +193,7 @@ impl OperatorFunction for NumericArithmetic {
                         right,
                         query,
                         i64::checked_mul,
+                        i64::wrapping_mul,
                         BigIntOrder::Unknown,
                     ),
                     _ => unreachable!("checked arithmetic operation"),
@@ -503,15 +508,17 @@ enum BigIntOrder {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[inline]
-fn map_checked_bigint_constant<F>(
+fn map_checked_bigint_constant<F, W>(
     column: &crate::common::vector::Vector,
     right: i64,
     query: &QueryContext,
     operation: F,
+    wrapping: W,
     order: BigIntOrder,
 ) -> Result<crate::common::vector::Vector>
 where
     F: Fn(i64, i64) -> Option<i64>,
+    W: Fn(i64, i64) -> i64,
 {
     use crate::common::vector::{SignedI64At, Vector};
 
@@ -528,11 +535,27 @@ where
         output
             .try_reserve_exact(values.len())
             .map_err(|_| Error::Resource("cannot allocate BIGINT column".into()))?;
-        for (index, &value) in values.iter().enumerate() {
-            if index % 1024 == 0 {
+        let proven = prove_ordered_bigint_range(
+            values.first().copied(),
+            values.last().copied(),
+            right,
+            &operation,
+        );
+        if proven && column.numeric_ascending() {
+            output.resize(values.len(), 0);
+            for (input, output) in values.chunks(1024).zip(output.chunks_mut(1024)) {
                 query.check()?;
+                for (&value, output) in input.iter().zip(output) {
+                    *output = wrapping(value, right);
+                }
             }
-            output.push(apply(value)?);
+        } else {
+            for (index, &value) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    query.check()?;
+                }
+                output.push(apply(value)?);
+            }
         }
         query.check()?;
         return Ok(Vector::bigints_prevalidated_with_order(output, ordered));
@@ -550,6 +573,45 @@ where
     {
         return map_checked_integer_column(column, &DataType::BigInt, query, apply);
     }
+    if let Some((parent, selection)) = column.dictionary()
+        && parent.all_valid()
+        && let Some(values) = parent.flat_bigints()
+    {
+        let first = selection
+            .first()
+            .and_then(|&index| values.get(index))
+            .copied();
+        let last = selection
+            .last()
+            .and_then(|&index| values.get(index))
+            .copied();
+        let proven = column.numeric_ascending()
+            && prove_ordered_bigint_range(first, last, right, &operation);
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(selection.len())
+            .map_err(|_| Error::Resource("cannot allocate BIGINT column".into()))?;
+        if proven {
+            output.resize(selection.len(), 0);
+            for (indices, output) in selection.chunks(1024).zip(output.chunks_mut(1024)) {
+                query.check()?;
+                for (&index, output) in indices.iter().zip(output) {
+                    let value = *values.get(index).expect("validated dictionary selection");
+                    *output = wrapping(value, right);
+                }
+            }
+        } else {
+            for (offset, &index) in selection.iter().enumerate() {
+                if offset % 1024 == 0 {
+                    query.check()?;
+                }
+                let value = *values.get(index).expect("validated dictionary selection");
+                output.push(apply(value)?);
+            }
+        }
+        query.check()?;
+        return Ok(Vector::bigints_prevalidated_with_order(output, ordered));
+    }
     if !column.all_valid() {
         return map_checked_integer_column(column, &DataType::BigInt, query, apply);
     }
@@ -559,6 +621,19 @@ where
     // Preflight the exact logical order before doing arithmetic. A selected or
     // chunked physical BIGINT view can then avoid Value reconstruction; any
     // unsupported view retains the ordinary mapper without partial output.
+    let proven = if column.numeric_ascending() {
+        let first = match column.signed_i64_at(0) {
+            SignedI64At::Value(value) => Some(value),
+            _ => None,
+        };
+        let last = match column.signed_i64_at(column.len().saturating_sub(1)) {
+            SignedI64At::Value(value) => Some(value),
+            _ => None,
+        };
+        prove_ordered_bigint_range(first, last, right, &operation)
+    } else {
+        false
+    };
     for index in 0..column.len() {
         if index % 1024 == 0 {
             query.check()?;
@@ -578,10 +653,27 @@ where
         let SignedI64At::Value(value) = column.signed_i64_at(index) else {
             unreachable!("preflighted BIGINT physical view");
         };
-        output.push(apply(value)?);
+        output.push(if proven {
+            wrapping(value, right)
+        } else {
+            apply(value)?
+        });
     }
     query.check()?;
     Ok(Vector::bigints_prevalidated_with_order(output, ordered))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline]
+fn prove_ordered_bigint_range(
+    first: Option<i64>,
+    last: Option<i64>,
+    right: i64,
+    operation: &impl Fn(i64, i64) -> Option<i64>,
+) -> bool {
+    first.zip(last).is_some_and(|(first, last)| {
+        operation(first, right).is_some() && operation(last, right).is_some()
+    })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -719,6 +811,7 @@ mod tests {
             1,
             &query,
             i64::checked_add,
+            i64::wrapping_add,
             BigIntOrder::Preserves,
         )?;
         assert_eq!(
@@ -732,6 +825,60 @@ mod tests {
         );
         assert!(!output.numeric_ascending());
 
+        let sorted = Vector::try_bigints([Ok(Some(i64::MIN + 1)), Ok(Some(0)), Ok(Some(4))])?;
+        assert!(sorted.numeric_ascending());
+        let output = map_checked_bigint_constant(
+            &sorted,
+            1,
+            &query,
+            i64::checked_add,
+            i64::wrapping_add,
+            BigIntOrder::Preserves,
+        )?;
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![
+                Value::Integer((i64::MIN + 2).into()),
+                Value::Integer(1),
+                Value::Integer(5)
+            ]
+        );
+        assert!(output.numeric_ascending());
+        let small_sorted = Vector::try_bigints([Ok(Some(-2)), Ok(Some(0)), Ok(Some(4))])?;
+        let output = map_checked_bigint_constant(
+            &small_sorted,
+            -2,
+            &query,
+            i64::checked_mul,
+            i64::wrapping_mul,
+            BigIntOrder::Unknown,
+        )?;
+        assert!(!output.numeric_ascending());
+        let output = map_checked_bigint_constant(
+            &small_sorted,
+            0,
+            &query,
+            i64::checked_mul,
+            i64::wrapping_mul,
+            BigIntOrder::AlwaysAscending,
+        )?;
+        assert!(output.numeric_ascending());
+
+        let selected_sorted = Arc::new(small_sorted.clone()).select(vec![0, 1, 2])?;
+        let output = map_checked_bigint_constant(
+            &selected_sorted,
+            1,
+            &query,
+            i64::checked_add,
+            i64::wrapping_add,
+            BigIntOrder::Preserves,
+        )?;
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![Value::Integer(-1), Value::Integer(1), Value::Integer(5)]
+        );
+        assert!(output.numeric_ascending());
+
         let chunks = Vector::chunked(
             DataType::BigInt,
             vec![
@@ -744,6 +891,7 @@ mod tests {
             2,
             &query,
             i64::checked_add,
+            i64::wrapping_add,
             BigIntOrder::Preserves,
         )?;
         assert_eq!(
@@ -774,6 +922,7 @@ mod tests {
                 1,
                 &query,
                 i64::checked_add,
+                i64::wrapping_add,
                 BigIntOrder::Preserves,
             ),
             Err(Error::Execution(message)) if message == "integer overflow"
@@ -784,6 +933,7 @@ mod tests {
             -2,
             &query,
             i64::checked_mul,
+            i64::wrapping_mul,
             BigIntOrder::Unknown,
         )?;
         assert_eq!(
@@ -813,6 +963,7 @@ mod tests {
                 1,
                 &cancelled,
                 i64::checked_add,
+                i64::wrapping_add,
                 BigIntOrder::Preserves,
             ),
             Err(Error::Interrupted)

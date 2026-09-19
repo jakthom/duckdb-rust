@@ -824,6 +824,9 @@ impl CatalogRegistry {
                     "catalog reverse name index disagrees".into(),
                 ));
             }
+        }
+        let dependencies = self.dependencies.validated()?;
+        for (name, identity) in &self.identities_by_name {
             if matches!(
                 name.kind,
                 CatalogObjectKind::Table | CatalogObjectKind::View | CatalogObjectKind::Type
@@ -834,7 +837,7 @@ impl CatalogRegistry {
                 let schema = self
                     .lookup(&CatalogObjectName::schema(schema)?)
                     .ok_or_else(|| Error::Internal("table registry schema is missing".into()))?;
-                if self.dependencies.dependency_flags(*identity, schema)?
+                if dependencies.dependency_flags(*identity, schema)?
                     != Some((DependentFlags::blocking(), SubjectFlags::ordinary()))
                 {
                     return Err(Error::Internal(
@@ -850,8 +853,7 @@ impl CatalogRegistry {
                 ));
             }
         }
-        self.dependencies
-            .validate_object_set(|identity| self.names_by_identity.contains_key(&identity))
+        dependencies.validate_object_set(|identity| self.names_by_identity.contains_key(&identity))
     }
 
     fn insert_without_version(&mut self, name: CatalogObjectName) -> Result<ObjectIdentity> {
@@ -1405,5 +1407,67 @@ mod tests {
         let before = blocked.clone();
         assert!(matches!(blocked.alter(second), Err(Error::Catalog(_))));
         assert_eq!(blocked, before);
+    }
+
+    #[test]
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    fn validate_checks_schema_edges_and_absent_graph_objects_without_mutation() {
+        let mut registry = CatalogRegistry::rebuild_with_types(
+            ["main".into()],
+            [TableName::main("table")],
+            [TypeName::main("kind")],
+        )
+        .unwrap();
+        let view = TableName::main("view");
+        let prepared = registry
+            .prepare_view_create(&view, CreateConflictPolicy::Error)
+            .unwrap();
+        assert!(registry.apply_prepared_create(&prepared).unwrap());
+        registry.validate().unwrap();
+
+        let schema = registry.lookup_schema("main").unwrap().unwrap();
+        let table = registry
+            .lookup_table(&TableName::main("table"))
+            .unwrap()
+            .unwrap();
+        let before_missing_edge = registry.clone();
+        assert!(
+            registry
+                .dependencies
+                .remove_dependency(table, schema)
+                .unwrap()
+        );
+        let missing_edge = registry.clone();
+        assert!(matches!(registry.validate(), Err(Error::Internal(_))));
+        assert!(matches!(
+            registry.insert(CatalogObjectName::table(&TableName::main("next")).unwrap()),
+            Err(Error::Internal(_))
+        ));
+        assert_eq!(registry, missing_edge);
+        assert_ne!(registry, before_missing_edge);
+
+        let mut registry = CatalogRegistry::rebuild(["main".into()], []).unwrap();
+        let schema = registry.lookup_schema("main").unwrap().unwrap();
+        let absent = ObjectIdentity::new(
+            registry.identity().id,
+            ObjectId::allocate().unwrap(),
+            CatalogObjectKind::Table,
+        );
+        registry
+            .dependencies
+            .add_dependency(
+                absent,
+                schema,
+                DependentFlags::blocking(),
+                SubjectFlags::ordinary(),
+            )
+            .unwrap();
+        let absent_object = registry.clone();
+        assert!(matches!(registry.validate(), Err(Error::Internal(_))));
+        assert!(matches!(
+            registry.insert(CatalogObjectName::table(&TableName::main("next")).unwrap()),
+            Err(Error::Internal(_))
+        ));
+        assert_eq!(registry, absent_object);
     }
 }

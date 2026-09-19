@@ -109,6 +109,11 @@ pub struct DependencyGraph {
     dependents_by_subject: Adjacency,
 }
 
+/// Borrowed read-only access to a graph that has passed complete validation.
+/// It cannot outlive or mutate the graph, so callers may avoid repeating the
+/// whole-graph proof while checking several individual edges.
+pub(crate) struct ValidatedDependencyGraph<'a>(&'a DependencyGraph);
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DependencyGraph {
     pub fn new() -> Self {
@@ -129,30 +134,19 @@ impl DependencyGraph {
         dependent: ObjectIdentity,
         subject: ObjectIdentity,
     ) -> Result<Option<(DependentFlags, SubjectFlags)>> {
-        self.validate()?;
-        validate_endpoints(dependent, subject)?;
-        Ok(self
-            .subjects_by_dependent
-            .get(&dependent)
-            .and_then(|subjects| subjects.get(&subject))
-            .map(|edge| (edge.dependent, edge.subject)))
+        self.validated()?.dependency_flags(dependent, subject)
     }
 
     /// Check that every graph endpoint is owned by the surrounding catalog.
     /// The graph cannot establish this invariant without that catalog.
-    pub fn validate_object_set(
-        &self,
-        mut contains: impl FnMut(ObjectIdentity) -> bool,
-    ) -> Result<()> {
+    pub fn validate_object_set(&self, contains: impl FnMut(ObjectIdentity) -> bool) -> Result<()> {
+        self.validated()?.validate_object_set(contains)
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    pub(crate) fn validated(&self) -> Result<ValidatedDependencyGraph<'_>> {
         self.validate()?;
-        for (dependent, subjects) in &self.subjects_by_dependent {
-            if !contains(*dependent) || subjects.keys().any(|subject| !contains(*subject)) {
-                return Err(Error::Internal(
-                    "dependency graph references an absent catalog object".into(),
-                ));
-            }
-        }
-        Ok(())
+        Ok(ValidatedDependencyGraph(self))
     }
 
     pub fn add_dependency(
@@ -459,6 +453,37 @@ impl DependencyGraph {
             ));
         }
         Ok(ordered)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ValidatedDependencyGraph<'_> {
+    pub(crate) fn dependency_flags(
+        &self,
+        dependent: ObjectIdentity,
+        subject: ObjectIdentity,
+    ) -> Result<Option<(DependentFlags, SubjectFlags)>> {
+        validate_endpoints(dependent, subject)?;
+        Ok(self
+            .0
+            .subjects_by_dependent
+            .get(&dependent)
+            .and_then(|subjects| subjects.get(&subject))
+            .map(|edge| (edge.dependent, edge.subject)))
+    }
+
+    pub(crate) fn validate_object_set(
+        &self,
+        mut contains: impl FnMut(ObjectIdentity) -> bool,
+    ) -> Result<()> {
+        for (dependent, subjects) in &self.0.subjects_by_dependent {
+            if !contains(*dependent) || subjects.keys().any(|subject| !contains(*subject)) {
+                return Err(Error::Internal(
+                    "dependency graph references an absent catalog object".into(),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -961,5 +986,42 @@ mod tests {
             Err(Error::Internal(_))
         ));
         assert_eq!(graph, malformed);
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn validated_borrow_keeps_checked_edge_and_object_set_rejections() {
+        let catalog = catalog();
+        let subject = table(catalog);
+        let dependent = table(catalog);
+        let absent = table(catalog);
+        let mut graph = DependencyGraph::new();
+        graph
+            .add_dependency(
+                dependent,
+                subject,
+                DependentFlags::blocking(),
+                SubjectFlags::ordinary(),
+            )
+            .unwrap();
+
+        let validated = graph.validated().unwrap();
+        assert_eq!(
+            validated.dependency_flags(dependent, subject).unwrap(),
+            Some((DependentFlags::blocking(), SubjectFlags::ordinary()))
+        );
+        assert!(matches!(
+            validated.dependency_flags(dependent, dependent),
+            Err(Error::InvalidInput(_))
+        ));
+        assert!(
+            validated
+                .validate_object_set(|object| object == dependent || object == subject)
+                .is_ok()
+        );
+        assert!(matches!(
+            validated.validate_object_set(|object| object != subject || object == absent),
+            Err(Error::Internal(_))
+        ));
     }
 }

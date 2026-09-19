@@ -77,6 +77,39 @@ impl Serialize for RowView<'_> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Rows {
+    /// Borrow the one ordinary all-valid BIGINT lane only when its published
+    /// identities are the untouched implicit append stream. Checkpoint
+    /// encoding uses this private proof to avoid reconstructing owned rows.
+    pub(super) fn implicit_append_bigints(
+        &self,
+        next_id: RowId,
+        context: &QueryContext,
+    ) -> Result<Option<&[i64]>> {
+        let Self::Published { ids, data, types } = self else {
+            return Ok(None);
+        };
+        let Ok(expected) = usize::try_from(next_id) else {
+            return Ok(None);
+        };
+        if expected == 0
+            || ids.len() != expected
+            || data.len() != expected
+            || types.as_ref() != [DataType::BigInt]
+            || data.columns().len() != 1
+        {
+            return Ok(None);
+        }
+        context.check_rows(expected)?;
+        if ids
+            .iter()
+            .enumerate()
+            .any(|(index, id)| *id != index as RowId)
+        {
+            return Ok(None);
+        }
+        context.check()?;
+        Ok(data.columns()[0].flat_bigints())
+    }
     pub fn from_chunks(
         ids: Vec<RowId>,
         types: Arc<[DataType]>,
