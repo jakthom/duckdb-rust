@@ -320,6 +320,7 @@ impl TableFunction for ReadCsv {
         let mut columns = None;
         let mut options = CsvOptions::default();
         let mut seen = BTreeSet::new();
+        let mut explicit_no_sniffing = false;
         for argument in arguments {
             let name = argument.name.as_deref().map(str::to_ascii_lowercase);
             if let Some(name) = &name
@@ -357,7 +358,9 @@ impl TableFunction for ReadCsv {
                 Some("max_line_size") | Some("maximum_line_size") => {
                     options.max_line_bytes = usize_argument(argument, "max_line_size")?
                 }
-                Some("auto_detect") if !boolean_argument(argument, "auto_detect")? => (),
+                Some("auto_detect") if !boolean_argument(argument, "auto_detect")? => {
+                    explicit_no_sniffing = true
+                }
                 Some("auto_detect") | Some("sample_size") | Some("all_varchar") => {
                     return Err(Error::NotImplemented(
                         "read_csv auto detection is outside the explicit-schema reader".into(),
@@ -374,6 +377,11 @@ impl TableFunction for ReadCsv {
         let columns = columns.ok_or_else(|| {
             Error::Bind("read_csv requires explicit columns={'name':'TYPE'}".into())
         })?;
+        if !explicit_no_sniffing {
+            return Err(Error::NotImplemented(
+                "read_csv explicit-schema mode requires auto_detect=false".into(),
+            ));
+        }
         if columns.is_empty() {
             return Err(Error::Bind("read_csv columns cannot be empty".into()));
         }

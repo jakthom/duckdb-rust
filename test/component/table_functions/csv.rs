@@ -35,7 +35,7 @@ fn explicit_schema_csv_reads_quotes_nulls_boundaries_and_prepared_reopens() -> R
     )?;
     let path = sql_path(file.path());
     let sql = format!(
-        "SELECT * FROM read_csv('{path}', columns={{'id':'INTEGER','note':'VARCHAR','value':'VARCHAR'}}, header=true, nullstr='\\N')"
+        "SELECT * FROM read_csv('{path}', columns={{'id':'INTEGER','note':'VARCHAR','value':'VARCHAR'}}, auto_detect=false, header=true, nullstr='\\N')"
     );
     let mut connection = DatabaseBuilder::new().batch_size(1).build()?.connect();
     let expected = vec![
@@ -66,7 +66,7 @@ fn explicit_schema_csv_reads_quotes_nulls_boundaries_and_prepared_reopens() -> R
 #[test]
 fn explicit_schema_csv_reports_open_parse_and_shape_failures() -> Result<()> {
     let missing = DatabaseBuilder::new().build()?.connect().query(
-        "SELECT * FROM read_csv('/definitely/not/a/duckdb-rust-csv-file.csv', columns={'id':'INTEGER'})",
+        "SELECT * FROM read_csv('/definitely/not/a/duckdb-rust-csv-file.csv', columns={'id':'INTEGER'}, auto_detect=false)",
     );
     assert!(matches!(missing, Err(Error::Io(_))));
 
@@ -76,7 +76,7 @@ fn explicit_schema_csv_reports_open_parse_and_shape_failures() -> Result<()> {
     let mut connection = DatabaseBuilder::new().build()?.connect();
     assert!(connection
         .query(&format!(
-            "SELECT * FROM read_csv('{malformed_path}', columns={{'id':'INTEGER','note':'VARCHAR'}})"
+            "SELECT * FROM read_csv('{malformed_path}', columns={{'id':'INTEGER','note':'VARCHAR'}}, auto_detect=false)"
         ))
         .is_err());
 
@@ -85,14 +85,14 @@ fn explicit_schema_csv_reports_open_parse_and_shape_failures() -> Result<()> {
     let short_path = sql_path(short.path());
     assert!(connection
         .query(&format!(
-            "SELECT * FROM read_csv('{short_path}', columns={{'id':'INTEGER','note':'VARCHAR'}})"
+            "SELECT * FROM read_csv('{short_path}', columns={{'id':'INTEGER','note':'VARCHAR'}}, auto_detect=false)"
         ))
         .is_err());
 
     let directory = tempfile::tempdir()?;
     assert!(matches!(
         connection.query(&format!(
-            "SELECT * FROM read_csv('{}', columns={{'id':'INTEGER'}})",
+            "SELECT * FROM read_csv('{}', columns={{'id':'INTEGER'}}, auto_detect=false)",
             sql_path(directory.path())
         )),
         Err(Error::Io(_))
@@ -123,11 +123,18 @@ fn explicit_schema_csv_handles_empty_blank_header_and_duplicate_options() -> Res
             "SELECT * FROM read_csv('{path}', columns={{'v':'VARCHAR'}}, header=false, header=true)"
         ))
         .is_err());
+    assert!(
+        connection
+            .query(&format!(
+                "SELECT * FROM read_csv('{path}', columns={{'v':'VARCHAR'}})"
+            ))
+            .is_err()
+    );
     let header_only = tempfile::NamedTempFile::new()?;
     assert!(
         connection
             .query(&format!(
-                "SELECT * FROM read_csv('{}', columns={{'v':'VARCHAR'}}, header=true)",
+            "SELECT * FROM read_csv('{}', columns={{'v':'VARCHAR'}}, auto_detect=false, header=true)",
                 sql_path(header_only.path())
             ))?
             .rows
@@ -153,7 +160,7 @@ fn explicit_schema_csv_uses_the_selected_varchar_cast() -> Result<()> {
     assert_eq!(
         connection
             .query(&format!(
-                "SELECT * FROM read_csv('{}', columns={{'v':'INTEGER'}})",
+                "SELECT * FROM read_csv('{}', columns={{'v':'INTEGER'}}, auto_detect=false)",
                 sql_path(file.path())
             ))?
             .rows,
