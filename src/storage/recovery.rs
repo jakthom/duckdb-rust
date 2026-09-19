@@ -11,6 +11,7 @@ use crate::{
 use super::{
     RowId, TableStorage,
     format::{FormatId, SnapshotFormat},
+    log::LogResume,
     table::Snapshot,
 };
 
@@ -29,6 +30,14 @@ pub struct PreparedRecovery {
     /// its publication lock and rejects stale plans before changing either file.
     pub basis: RecoveryInput,
     pub publication: RecoveryPublication,
+}
+
+/// A recovery result that can safely keep its exact WAL bytes and resume
+/// appending. Only the recovery adapter that validates the log may construct
+/// it; all other adapters retain publication recovery.
+pub struct RecoveredLog {
+    pub snapshot: Snapshot,
+    pub resume: LogResume,
 }
 
 /// Protocol shared with the file publisher. Replace first publishes and syncs
@@ -69,6 +78,16 @@ pub trait Recovery: Send + Sync {
         format: &dyn SnapshotFormat,
         context: &QueryContext,
     ) -> Result<Snapshot>;
+    /// Return a continuation only for a complete, clean log whose wire format
+    /// this adapter owns. `None` selects the unchanged publication recovery.
+    fn resume(
+        &self,
+        _input: RecoveryInput,
+        _format: &dyn SnapshotFormat,
+        _context: &QueryContext,
+    ) -> Result<Option<RecoveredLog>> {
+        Ok(None)
+    }
     fn prepare(
         &self,
         _input: RecoveryInput,

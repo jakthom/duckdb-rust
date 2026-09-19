@@ -15,7 +15,10 @@ use crate::{
     storage::{
         RowId, UpdateMode,
         format::{DUCKDB_FORMAT, FormatId, StorageVersion},
-        log::{LogAppend, LogCheckpoint, LogSession, LogStart, TransactionChange, TransactionLog},
+        log::{
+            LogAppend, LogCheckpoint, LogResume, LogSession, LogStart, TransactionChange,
+            TransactionLog,
+        },
         table::Snapshot,
     },
 };
@@ -50,7 +53,7 @@ impl TransactionLog for DuckDbTransactionLog {
         DUCKDB_FORMAT
     }
     fn start(&self, snapshot: &Snapshot, context: &QueryContext) -> Result<LogStart> {
-        Self::start_session(snapshot, None, context)
+        Self::start_session(snapshot, None, 0, context)
     }
     fn start_at(
         &self,
@@ -67,7 +70,41 @@ impl TransactionLog for DuckDbTransactionLog {
             }
             super::super::write_support::new_headers(version.version)?;
         }
-        Self::start_session(snapshot, version.map(|version| version.version), context)
+        Self::start_session(snapshot, version.map(|version| version.version), 0, context)
+    }
+    fn resume(
+        &self,
+        snapshot: &Snapshot,
+        resume: &LogResume,
+        context: &QueryContext,
+    ) -> Result<Option<LogStart>> {
+        context.check()?;
+        if resume.header.is_empty()
+            || resume.length < resume.header.len() as u64
+            || resume.commits == 0
+            || resume.entries == 0
+            || resume.entries > MAX_ENTRIES
+            || usize::try_from(resume.commits).map_or(true, |commits| commits > resume.entries)
+        {
+            return Err(Error::Internal(
+                "invalid native WAL continuation metadata".into(),
+            ));
+        }
+        let Some(version) = resume.storage_version else {
+            return Ok(None);
+        };
+        if version.format != DUCKDB_FORMAT {
+            return Ok(None);
+        }
+        super::super::write_support::new_headers(version.version)?;
+        let start = Self::start_session(snapshot, Some(version.version), resume.entries, context)?;
+        if start.header != resume.header {
+            // Tagged native headers are valid recovery input but this bounded
+            // continuation slice only emits the plain v2 header. Decline so
+            // normal recovery publication retains the prior behavior.
+            return Ok(None);
+        }
+        Ok(Some(start))
     }
 }
 
@@ -76,11 +113,13 @@ impl DuckDbTransactionLog {
     fn start_session(
         snapshot: &Snapshot,
         version: Option<u64>,
+        entries: usize,
         context: &QueryContext,
     ) -> Result<LogStart> {
         context.check()?;
         let mut session = Session {
             storage_version: version,
+            entries,
             ..Session::default()
         };
         for definition in snapshot.named_types()? {

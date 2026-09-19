@@ -83,6 +83,18 @@ pub trait CheckpointStorage: Send + Sync {
             "transaction logging on this storage".into(),
         ))
     }
+    /// Atomically publish a complete header and first transaction. Success
+    /// means the installed bytes and parent directory are durable. Storage that
+    /// does not opt in must decline with no effects so callers can retain the
+    /// header-then-append protocol. An error after installation is
+    /// `CommitUnknown`, never a definite failure.
+    fn initialize_log_transaction(
+        &self,
+        _header: &[u8],
+        _transaction: &[u8],
+    ) -> Result<Option<u64>> {
+        Ok(None)
+    }
     /// Append one complete encoded transaction to the expected log length.
     /// Serialize under the retained writer lease, sync before success, and
     /// return the new durable length. Failures either durably restore the old
@@ -352,6 +364,10 @@ impl CheckpointStorage for LocalCheckpointStorage {
     }
     fn initialize_log(&self, header: &[u8]) -> Result<u64> {
         self.initialize_transaction_log(header)
+    }
+    fn initialize_log_transaction(&self, header: &[u8], transaction: &[u8]) -> Result<Option<u64>> {
+        self.initialize_transaction_log_transaction(header, transaction)
+            .map(Some)
     }
     fn append_log(&self, expected: u64, bytes: &[u8]) -> Result<u64> {
         self.append_transaction_log(expected, bytes)

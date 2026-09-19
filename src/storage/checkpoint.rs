@@ -5,9 +5,9 @@ use std::{
 
 use super::{
     filesystem::{CheckpointStorage, LocalCheckpointStorage, OpenMode},
-    format::SnapshotFormat,
+    format::{CheckpointEncoder, SnapshotFormat},
     log::Commit,
-    recovery::{Recovery, RecoveryInput},
+    recovery::{RecoveredLog, Recovery, RecoveryInput},
     table::Snapshot,
 };
 use crate::common::{Error, Result};
@@ -104,6 +104,11 @@ enum PublicationState {
     Uncertain,
 }
 
+pub(crate) struct LogResumeLoad {
+    pub(crate) recovered: RecoveredLog,
+    encoder: Option<Box<dyn CheckpointEncoder>>,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl FileCheckpoint {
     pub fn new(file: Arc<dyn CheckpointStorage>, format: Arc<dyn SnapshotFormat>) -> Self {
@@ -171,6 +176,74 @@ impl FileCheckpoint {
             ));
         }
         Ok(version)
+    }
+
+    /// Attempt the selected recovery adapter's non-publishing continuation.
+    /// This deliberately leaves publication unbound until the selected log
+    /// encoder also accepts the recovered state.
+    pub(crate) fn load_for_log_resume(
+        &self,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<Option<LogResumeLoad>> {
+        context.check()?;
+        let publication = self
+            .publication
+            .lock()
+            .map_err(|_| Error::Internal("checkpoint publication mutex poisoned".into()))?;
+        if !matches!(*publication, PublicationState::Unloaded) {
+            return Err(Error::Transaction(
+                "checkpoint already loaded; share its transaction manager".into(),
+            ));
+        }
+        let Some(recovery) = &self.recovery else {
+            return Ok(None);
+        };
+        let checkpoint = self.file.read()?;
+        let log = self.file.read_log()?;
+        let Some(recovered) = recovery.resume(
+            RecoveryInput {
+                checkpoint: checkpoint.clone(),
+                log,
+            },
+            self.format.as_ref(),
+            context,
+        )?
+        else {
+            return Ok(None);
+        };
+        let encoder = self.format.checkpoint_encoder(&checkpoint)?;
+        if encoder
+            .as_ref()
+            .and_then(|encoder| encoder.storage_version())
+            != recovered.resume.storage_version
+        {
+            return Ok(None);
+        }
+        Ok(Some(LogResumeLoad { recovered, encoder }))
+    }
+
+    /// Bind the exact previously validated checkpoint encoder after both
+    /// recovery and transaction logging accepted a continuation.
+    pub(crate) fn activate_log_resume(
+        &self,
+        resume: LogResumeLoad,
+        context: &crate::parallel::QueryContext,
+    ) -> Result<RecoveredLog> {
+        context.check()?;
+        let mut publication = self
+            .publication
+            .lock()
+            .map_err(|_| Error::Internal("checkpoint publication mutex poisoned".into()))?;
+        if !matches!(*publication, PublicationState::Unloaded) {
+            return Err(Error::Transaction(
+                "checkpoint already loaded; share its transaction manager".into(),
+            ));
+        }
+        *publication = PublicationState::Ready {
+            encoder: resume.encoder,
+            context: context.clone(),
+        };
+        Ok(resume.recovered)
     }
 }
 

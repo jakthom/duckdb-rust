@@ -534,9 +534,10 @@ User follow-up authorizes execution of all three batches with parallel tracks,
 continuing through their acceptance without another dispatch request. Parallel
 read-only scope preparation is active while Batch 2's acceptance is repaired;
 implementation of Batch 3 still follows Batch 2 acceptance.
-Batch 1 stays accepted. Batch 2's latest verified tuple implementation is `c2a171e`;
-CSV candidate10 and F1 performance are accepted. Logged runner lifecycle and
-read-only rejection classification are in scoped verification; acceptance remains open.
+Batch 1 stays accepted. Batch 2's latest scoped-verified implementation is `373381e`;
+CSV candidate10 and F1 performance are accepted. Native WAL continuation and
+atomic first-transaction publication are now in scoped verification after logged
+lifecycle timing failed; Batch 2 acceptance remains open.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -670,26 +671,83 @@ Logged production/source preparation passes17/17: four release binaries, fresh
 worker and durable attestations, five workloads through Rust/proxy at
 5/5000/16/4/2002 records, and both new cases through both C++ pins. Evidence:
 `target/batch2/a2-logged-preparation/run1/report.json`. Timed gates remain open.
+At `373381e`, quiet-host logged candidate1 fails compiled lifecycle latency:
+66.526ms versus38.180ms (1.7424x); small read-only36.225ms versus35.602ms
+(1.0175x). Large read-only passes131.853ms versus215.231ms (0.6126x);
+CPU/RSS/block-I/O pass all three. Preserve
+`target/batch2/a2-logged-lifecycle-process-candidate1.json`; no proxy/B1/COUNT
+stage followed. Runtime sampling and file-publication source review investigate
+the remaining lifecycle cost; accepted evidence is not waived or retried unchanged.
+Native repair is scoped under `target/batch2/a2-wal-continuation-manifest.md`:
+optional clean committed WAL continuation retains physical IDs, byte/entry/commit
+counts and compatibility; legacy adapters, checkpoint-marker logs and incomplete
+tails retain prior recovery publication. Local storage can atomically stage the
+header plus first transaction with unchanged sync strength. An installed initial
+transaction with uncertain directory sync now correctly reports CommitUnknown.
+The scope includes native logging/checkpoint/recovery/fault and affected catalog,
+nested/identity consumers, plus explicit exhaustive recovery and both-pin native
+logging oracles. Routine15/16 tests pass; generated-prefix boundaries caught an
+incomplete-frame header misclassified as clean EOF, now being repaired. No
+performance acceptance or Batch3 dispatch is claimed.
+The clean-EOF bug is fixed by tracking incomplete header/payload termination
+explicitly; its exact generated-prefix regression passes1/1. Integrated source
+is frozen for configured partial verification under
+`target/batch2/a2-wal-continuation-verifier/`; the legacy storage fallback keeps
+its original header-only failure assertions. Fresh production/oracle preparation
+is `target/batch2/prepare_a2_wal_continuation.py`, then serial fixed measurements
+via `run_rest_a2_wal_candidate1.py`. Prior failed outputs remain preserved.
+Native partial verifier passes149 selected Rust tests, including logging16,
+checkpointing20, runner72/worker5, recovery13 plus the explicit exhaustive1,
+and affected identity/fault/nested/ALTER/view consumers. Python oracle harness18
+passes; formatting/Clippy/trace pass and coverage has no missing entries. Frozen
+Rust/Cargo/helper/test/fixture identities match before/after under
+`target/batch2/a2-wal-continuation-verifier/`. Release preparation and both-pin
+native WAL oracles are next; performance remains open.
+Production/source preparation passes its first17 stages, and release native WAL
+oracle passes4 data cases plus10 interruption boundaries. Development stops at
+primitive-case CLI decoding: its shell emits bare nan/inf/-inf, rejected by the
+existing JSON decoder before row comparison. Candidate1 failures are preserved.
+A narrow ignored transport decoder retains SQL, fixtures, expected values and
+both pins; four negative/representation tests receive Python-only verification.
+Then `verify_a2_wal_references_candidate2.py` reruns development only and reuses
+release evidence at unchanged source/binary identities. No engine revalidation or
+performance waiver follows this untimed oracle-input correction.
+The first decoder passes4 tests; development then exposes quoted HUGEINT
+rendering versus Rust/release numeric JSON. Candidate3 adds typed decoding from
+a separate read-only DESCRIBE: only canonical signed128-bit HUGEINT values are
+normalized, with range/shape checks and numeric VARCHAR text retained. Six
+adapter tests receive independent Python review; original SQL and logical values
+remain unchanged. Candidate1/2 failed oracle artifacts are retained.
+Typed adapter6/6 and syntax checks pass. Development native oracle candidate3
+passes4 cases/10 boundaries; release14 is reused from candidate1 at identical
+engine inputs. Corrected preparation receipt:
+`target/batch2/a2-wal-continuation-preparation/final1.json` links successful
+commands1–17 and both native oracles without relabeling the failed aggregate.
+All production/source obligations for this repair pass; timed acceptance is next.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active after `c2a171e`: CSV candidate10 and F1 native/process gates pass. Tuple repair passes scoped/source acceptance; compiled small/large loops pass, file lifecycle is 1.2502x slower. Writable runner files now use existing durable WAL; read-only mutation error tags are corrected. Scoped Rust verifier and two added comparable read-only rejection workloads are in progress under `target/batch2/a2-logged-runner-manifest.md`. Then fresh production/source preparation and `run_rest_a2_logged_candidate1.py` gate lifecycle/read-only/proxy, B1 and COUNT. Prior failures and unchanged accepted evidence retained at tested identities. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active after `373381e`: CSV candidate10/F1 accepted; tuple and logged runner correctness/source checks pass. Logged lifecycle timing fails1.7424x. Optional clean WAL continuation and atomic first-transaction publication are in native partial verification under `target/batch2/a2-wal-continuation-manifest.md`. One real incomplete-frame continuation bug was found and fixed by the new prefix regression. Next `prepare_a2_wal_continuation.py`, then `run_rest_a2_wal_candidate1.py` for lifecycle/read-only/proxy, B1 and COUNT. Keep all failures and unaffected accepted evidence at tested identities. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** finish the logged runner/read-only
-classification partial verification. Fresh production preparation builds four
-binaries and refreshes worker/durable attestations; new read-only cases must pass
-both pins, compiled Rust and the Python proxy. Then
-`target/batch2/run_rest_a2_logged_candidate1.py` executes the compiled lifecycle
-and read-only gates, full five-case proxy gate, B1/native-process-durable and COUNT.
-Use `remaining-performance-a2-logged-candidate1.json`; retain the original failed
-lifecycle result and individually accepted non-file-loop results. CSV/F1 paths
-never attempt read-only mutation, so their unchanged evidence remains valid at
-its tested revision. User paused activity; check host before timing and leave apps
-running. Batch 3 implementation follows Batch 2 acceptance.
+**Immediate carryover, before Batch 3:** finish the independent native WAL
+continuation/atomic initial-transaction partial sweep under
+`target/batch2/a2-wal-continuation-verifier/`. It includes affected recovery/fault
+consumers and an explicit exhaustive truncation stage; unrelated full-engine
+coverage remains excluded. Then `target/batch2/prepare_a2_wal_continuation.py`
+builds four release binaries, refreshes worker/durable provenance, replays all
+five Rust/proxy workloads and both-pin read-only cases, and runs the native logging
+oracle's four data cases plus ten interruption boundaries for each pin. Finally
+`target/batch2/run_rest_a2_wal_candidate1.py` uses
+`remaining-performance-a2-wal-candidate1.json` for compiled lifecycle/read-only,
+strict five-case proxy, B1/native-process-durable and COUNT acceptance. All three
+compiled file cases rerun because WAL initialization changed. Retain accepted
+CSV/F1 and non-file-loop evidence at its actual tested identities. User paused
+activity; check host before timing and leave apps running. Batch 3 implementation
+follows Batch 2 acceptance.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 

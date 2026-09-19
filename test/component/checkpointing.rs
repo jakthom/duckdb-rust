@@ -18,9 +18,12 @@ use duckdb_rust::{
             DuckDbFormat,
             wal::{DuckDbWalRecovery, writer::DuckDbTransactionLog},
         },
-        filesystem::{FileFaultInjector, LocalCheckpointStorage, OpenMode, PublicationStep},
+        filesystem::{
+            CheckpointStorage, FileFaultInjector, LocalCheckpointStorage, OpenMode, PublicationStep,
+        },
         format::SnapshotFormat,
         logged::FileWal,
+        recovery::{RecoveryInput, RecoveryPublication},
     },
     transaction::{SnapshotTransactions, TransactionManager},
 };
@@ -64,6 +67,74 @@ fn open(
     let wal =
         FileWal::new(checkpoint, Arc::new(DuckDbTransactionLog))?.with_checkpoint_policy(policy);
     let transactions = Arc::new(SnapshotTransactions::with_indexes(Arc::new(wal), indexes)?);
+    Ok((
+        DatabaseBuilder::new()
+            .transactions(transactions.clone())
+            .build()?,
+        transactions,
+    ))
+}
+
+/// Test-only adapter retaining the generic header-then-append route. It
+/// deliberately inherits `initialize_log_transaction`'s default `None` so
+/// this one fault test continues to cover legacy storage implementations.
+struct LegacyLogStorage(LocalCheckpointStorage);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CheckpointStorage for LegacyLogStorage {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+    fn writable(&self) -> bool {
+        self.0.writable()
+    }
+    fn read(&self) -> Result<Vec<u8>> {
+        self.0.read()
+    }
+    fn read_log(&self) -> Result<Vec<u8>> {
+        self.0.read_log()
+    }
+    fn replace(&self, bytes: &[u8]) -> Result<()> {
+        self.0.replace(bytes)
+    }
+    fn supports_recovery_publication(&self) -> bool {
+        self.0.supports_recovery_publication()
+    }
+    fn supports_log_append(&self) -> bool {
+        self.0.supports_log_append()
+    }
+    fn initialize_log(&self, header: &[u8]) -> Result<u64> {
+        self.0.initialize_log(header)
+    }
+    fn append_log(&self, expected: u64, bytes: &[u8]) -> Result<u64> {
+        self.0.append_log(expected, bytes)
+    }
+    fn publish_recovery(
+        &self,
+        basis: &RecoveryInput,
+        publication: &RecoveryPublication,
+    ) -> Result<()> {
+        self.0.publish_recovery(basis, publication)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn open_legacy_log(
+    path: &Path,
+    faults: Arc<dyn FileFaultInjector>,
+) -> Result<(Database, Arc<SnapshotTransactions>)> {
+    let storage = LocalCheckpointStorage::open(path, OpenMode::ReadWrite, || unreachable!())?
+        .with_faults(faults);
+    let checkpoint = FileCheckpoint::new(
+        Arc::new(LegacyLogStorage(storage)),
+        Arc::new(DuckDbFormat::default()),
+    )
+    .with_recovery(Arc::new(DuckDbWalRecovery))?;
+    let wal = FileWal::new(checkpoint, Arc::new(DuckDbTransactionLog))?;
+    let transactions = Arc::new(SnapshotTransactions::with_indexes(
+        Arc::new(wal),
+        Arc::new(HashIndexFactory),
+    )?);
     Ok((
         DatabaseBuilder::new()
             .transactions(transactions.clone())
@@ -738,12 +809,7 @@ fn checkpoint_retires_a_header_only_log_after_rejected_first_append() -> Result<
             armed: AtomicBool::new(true),
             exit: false,
         });
-        let (database, transactions) = open(
-            &path,
-            None,
-            Arc::new(HashIndexFactory),
-            Some(faults.clone()),
-        )?;
+        let (database, transactions) = open_legacy_log(&path, faults.clone())?;
         assert!(matches!(
             database
                 .connect()

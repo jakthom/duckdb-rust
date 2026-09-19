@@ -20,6 +20,11 @@ use std::{
     },
 };
 
+#[path = "logging_initial.rs"]
+mod initial;
+#[path = "logging_resume.rs"]
+mod resume;
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn open(
     path: &Path,
@@ -359,24 +364,24 @@ fn logging_errors_restore_commits_or_poison_uncertain_writers() -> Result<()> {
             .unwrap_err();
         let uncertain = matches!(
             step,
-            PublicationStep::LogRollbackTruncate | PublicationStep::LogRollbackSync
+            PublicationStep::LogInitializeDirectorySync
+                | PublicationStep::LogRollbackTruncate
+                | PublicationStep::LogRollbackSync
         );
-        let maintenance = step == PublicationStep::LogInitializeDirectorySync;
         assert_eq!(
             matches!(error, Error::CommitUnknown(_)),
             uncertain,
             "{step:?}: {error}"
         );
-        assert_eq!(
-            matches!(error, Error::RecoveryRequired(_)),
-            maintenance,
+        assert!(
+            !matches!(error, Error::RecoveryRequired(_)),
             "{step:?}: {error}"
         );
         faults.enabled.store(false, Ordering::Relaxed);
-        if uncertain || maintenance {
+        if uncertain {
             let blocked = database.connect().query("SELECT * FROM t").unwrap_err();
             assert_eq!(matches!(blocked, Error::CommitUnknown(_)), uncertain);
-            assert_eq!(matches!(blocked, Error::RecoveryRequired(_)), maintenance);
+            assert!(!matches!(blocked, Error::RecoveryRequired(_)));
         } else {
             assert_eq!(
                 database.connect().query("SELECT i FROM t ORDER BY i")?.rows,
@@ -395,7 +400,13 @@ fn logging_errors_restore_commits_or_poison_uncertain_writers() -> Result<()> {
         }
         drop(database);
         let expected_count = usize::from(prior_log)
-            + if (!uncertain && !maintenance) || step == PublicationStep::LogRollbackTruncate {
+            + if !uncertain
+                || matches!(
+                    step,
+                    PublicationStep::LogInitializeDirectorySync
+                        | PublicationStep::LogRollbackTruncate
+                )
+            {
                 2
             } else {
                 1
@@ -471,7 +482,12 @@ fn process_interruption_during_log_initialization_append_and_rollback_is_recover
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
-        let expected = usize::from(ordinal >= 5) + if [6, 7, 9].contains(&ordinal) { 2 } else { 1 };
+        let expected = usize::from(ordinal >= 5)
+            + if [4, 6, 7, 9].contains(&ordinal) {
+                2
+            } else {
+                1
+            };
         assert_eq!(values(&path)?.len(), expected, "boundary {ordinal}");
         Database::open_logged(&path)?
             .connect()

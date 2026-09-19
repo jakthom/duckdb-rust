@@ -1,5 +1,9 @@
 //! Transaction change capture and replaceable, effect-free log encoding.
-use super::{RowId, UpdateMetadata, format::FormatId, table::Snapshot};
+use super::{
+    RowId, UpdateMetadata,
+    format::{FormatId, StorageVersion},
+    table::Snapshot,
+};
 use crate::{
     catalog::{
         CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName, ViewDefinition,
@@ -88,6 +92,27 @@ pub trait TransactionLog: Send + Sync {
         }
         self.start(snapshot, context)
     }
+    /// Resume appending a complete, validated existing log. Adapters that do
+    /// not own its wire format decline so the durability layer can use normal
+    /// recovery publication instead.
+    fn resume(
+        &self,
+        _snapshot: &Snapshot,
+        _resume: &LogResume,
+        _context: &QueryContext,
+    ) -> Result<Option<LogStart>> {
+        Ok(None)
+    }
+}
+
+/// Exact durable state of a clean log that an owning recovery adapter permits
+/// to continue without first publishing a successor checkpoint.
+pub struct LogResume {
+    pub length: u64,
+    pub commits: u64,
+    pub entries: usize,
+    pub header: Vec<u8>,
+    pub storage_version: Option<StorageVersion>,
 }
 
 pub struct LogStart {

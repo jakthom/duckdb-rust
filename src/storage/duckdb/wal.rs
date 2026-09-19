@@ -12,7 +12,8 @@ use crate::{
     parallel::QueryContext,
     storage::{
         format::{DUCKDB_FORMAT, FormatId, SnapshotFormat},
-        recovery::{PreparedRecovery, Recovery, RecoveryInput, RecoveryTarget},
+        log::LogResume,
+        recovery::{PreparedRecovery, RecoveredLog, Recovery, RecoveryInput, RecoveryTarget},
         table::Snapshot,
     },
 };
@@ -61,6 +62,40 @@ impl Recovery for DuckDbWalRecovery {
         } = inspect(&input, format, context)?;
         let snapshot = format.decode_with_context(input.checkpoint, context)?;
         replay(snapshot, &input.log, &scan, identity, context)
+    }
+    fn resume(
+        &self,
+        input: RecoveryInput,
+        format: &dyn SnapshotFormat,
+        context: &QueryContext,
+    ) -> Result<Option<RecoveredLog>> {
+        let Inspection {
+            identity,
+            header,
+            scan,
+        } = inspect(&input, format, context)?;
+        let Some(header) = header else {
+            return Ok(None);
+        };
+        if !scan.complete || scan.checkpoint.is_some() || scan.uncommitted || scan.commits == 0 {
+            return Ok(None);
+        }
+        let storage_version = super::super::format::StorageVersion {
+            format: DUCKDB_FORMAT,
+            version: identity.storage_version(),
+        };
+        let snapshot = format.decode_with_context(input.checkpoint, context)?;
+        let snapshot = replay(snapshot, &input.log, &scan, identity, context)?;
+        Ok(Some(RecoveredLog {
+            snapshot,
+            resume: LogResume {
+                length: input.log.len() as u64,
+                commits: scan.commits,
+                entries: scan.frames.len(),
+                header: input.log[..header.end].to_vec(),
+                storage_version: Some(storage_version),
+            },
+        }))
     }
     fn prepare(
         &self,
@@ -224,6 +259,9 @@ fn validate_generation(
 struct LogScan {
     frames: Vec<std::ops::Range<usize>>,
     checkpoint: Option<u64>,
+    complete: bool,
+    uncommitted: bool,
+    commits: u64,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -235,18 +273,22 @@ fn scan_log(log: &[u8], mut position: usize, context: &QueryContext) -> Result<L
     let mut checkpoint = None;
     let mut checkpoint_flushed = false;
     let mut entries = 0;
+    let mut commits = 0u64;
+    let mut incomplete_tail = false;
     while position < log.len() {
         context.check()?;
         if checkpoint_flushed {
             return Err(corrupt("data after WAL checkpoint flush"));
         }
         if log.len() - position < 16 {
+            incomplete_tail = true;
             break;
         }
         let size = u64_at(log, position)?;
         let stored = u64_at(log, position + 8)?;
         position += 16;
         if size > (log.len() - position) as u64 {
+            incomplete_tail = true;
             break;
         }
         let end = position + size as usize;
@@ -305,10 +347,20 @@ fn scan_log(log: &[u8], mut position: usize, context: &QueryContext) -> Result<L
                 return Err(corrupt("invalid WAL commit marker"));
             }
             committed = frames.len();
+            commits = commits
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("WAL commit count exhausted".into()))?;
             checkpoint_flushed = checkpoint.is_some();
         }
         position = end;
     }
+    let uncommitted = frames.len() != committed;
     frames.truncate(committed);
-    Ok(LogScan { frames, checkpoint })
+    Ok(LogScan {
+        frames,
+        checkpoint,
+        complete: !incomplete_tail && position == log.len(),
+        uncommitted,
+        commits,
+    })
 }

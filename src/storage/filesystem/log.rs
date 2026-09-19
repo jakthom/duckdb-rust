@@ -2,6 +2,36 @@ use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LocalCheckpointStorage {
+    pub(super) fn initialize_transaction_log_transaction(
+        &self,
+        header: &[u8],
+        transaction: &[u8],
+    ) -> Result<u64> {
+        if !self.writable {
+            return Err(Error::Unsupported("logging on read-only storage".into()));
+        }
+        if header.is_empty() || transaction.is_empty() {
+            return Err(Error::Internal(
+                "empty transaction log header or first transaction".into(),
+            ));
+        }
+        let length = header
+            .len()
+            .checked_add(transaction.len())
+            .filter(|length| *length <= 512 * 1024 * 1024)
+            .ok_or_else(|| Error::Resource("WAL exceeds 512 MiB".into()))?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|_| Error::Resource("WAL allocation failed".into()))?;
+        bytes.extend_from_slice(header);
+        bytes.extend_from_slice(transaction);
+        // The established initializer treats its nonempty bytes as opaque and
+        // already stages, syncs, renames, and parent-syncs with the required
+        // pre-publication versus CommitUnknown failure distinction.
+        self.initialize_transaction_log(&bytes)
+    }
+
     pub(super) fn initialize_transaction_log(&self, header: &[u8]) -> Result<u64> {
         if !self.writable {
             return Err(Error::Unsupported("logging on read-only storage".into()));

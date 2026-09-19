@@ -172,6 +172,32 @@ Three complementary test classes are required: ordinary close/reopen and checkpo
 
 Assertions should separate acknowledged commits, rejected commits, and indeterminate external failures. Check table contents, catalog objects, indexes, and future database usability, not just whether opening succeeds. Historical storage files and cross-version readers add a separate format-compatibility obligation described in [compatibility testing](../testing/compatibility.md). Relevant code and execution limitations for fault campaigns are in [fuzzing](../testing/fuzzer.md) and [stress](../testing/stress.md).
 
+## Optional logged-file continuation (Rust integration contract)
+
+A writable FileWal may reopen a complete committed native v2 log without
+publishing a checkpoint when both selected recovery and transaction-log adapters
+accept continuation. Replay retains physical row IDs, including deleted slots and
+the append high-water mark. The resumed encoder retains the durable byte length,
+entry and transaction counts, header and checkpoint storage compatibility. These
+counts still constrain encoding and checkpoint scheduling after reopen.
+
+Continuation is limited to complete committed logs with the supported plain v2
+header. Tagged headers, checkpoint markers, uncommitted frames and incomplete
+tails use the existing recovery publication path. Invalid checksums or generation
+identities remain errors. Defaulted adapter hooks decline without effects;
+FileCheckpoint's ordinary writable recovery and read-only behavior remain intact.
+The retained storage lease and expected-length append check still apply, and each
+append must sync before acknowledgment.
+
+Local storage may atomically publish the header and first complete transaction
+through the existing staged-file protocol. It syncs the complete staged file,
+renames it and syncs the parent directory before success. A failure before
+installation does not commit the transaction; uncertainty after installation is
+CommitUnknown and prevents further writes until reopen. Storage adapters that
+decline this optional operation keep separate header initialization and append,
+including the existing header-only recovery case. Separate transactions are not
+combined and sync strength is unchanged.
+
 ## Selected stored-expression context (Rust integration contract)
 
 Database composition must select closed-expression binding, casts, functions and

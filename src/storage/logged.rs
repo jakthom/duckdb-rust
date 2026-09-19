@@ -180,6 +180,23 @@ impl Durability for FileWal {
                 "transaction logger already loaded; share its transaction manager".into(),
             ));
         }
+        if let Some(resume) = self.checkpoint.load_for_log_resume(context)?
+            && let Some(start) = self.encoder.resume(
+                &resume.recovered.snapshot,
+                &resume.recovered.resume,
+                context,
+            )?
+        {
+            let recovered = self.checkpoint.activate_log_resume(resume, context)?;
+            *state = State::Ready(Ready {
+                session: start.session,
+                length: recovered.resume.length,
+                header: recovered.resume.header,
+                context: context.clone(),
+                commits: recovered.resume.commits,
+            });
+            return Ok(recovered.snapshot);
+        }
         let snapshot = self.checkpoint.load_with_context(context)?;
         let start =
             self.encoder
@@ -238,6 +255,20 @@ impl Durability for FileWal {
                 .checked_add(1)
                 .ok_or_else(|| Error::Resource("log commit count exhausted".into()))?;
             if ready.length == 0 {
+                if let Some(length) = self
+                    .checkpoint
+                    .storage()
+                    .initialize_log_transaction(&ready.header, &append.bytes)?
+                {
+                    ready.length = length;
+                    ready.session = append.next;
+                    ready.commits = commits;
+                    return Ok(if checkpointed {
+                        PublishOutcome::CheckpointedBefore
+                    } else {
+                        PublishOutcome::Published
+                    });
+                }
                 ready.length = self
                     .checkpoint
                     .storage()

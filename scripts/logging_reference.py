@@ -52,7 +52,7 @@ def verify(rust, logged, reference, command, directory):
     worker = worker_binary('logging')
     source = hashlib.sha256()
     from source_identity import vendored_sources
-    for path in sorted([*vendored_sources(ROOT), ROOT/'Cargo.toml', ROOT/'Cargo.lock', *(ROOT/'src').rglob('*.rs'), ROOT/'test/component/logging.rs']):
+    for path in sorted([*vendored_sources(ROOT), ROOT/'Cargo.toml', ROOT/'Cargo.lock', *(ROOT/'src').rglob('*.rs'), *(ROOT/'test/component').glob('logging*.rs')]):
         source.update(str(path.relative_to(ROOT)).encode()+b'\0'+path.read_bytes())
     report = {'writer': 'duckdb-wal-v2-writer', 'cases': [], 'boundaries': [],
               'worker_binary_sha256': hashlib.sha256(worker.read_bytes()).hexdigest(), 'worker_source_sha256': source.hexdigest(),
@@ -85,8 +85,8 @@ def verify(rust, logged, reference, command, directory):
                 assert 'Constraint Error' in str(error), str(error)
             else:
                 raise AssertionError('native writer failed to enforce a WAL-restored key')
-        # Complete checkpoint recovery, then log mutations against its compacted
-        # row IDs. This crosses both physical identity transitions.
+        # Resume the committed WAL and preserve its physical row identities before
+        # crossing a later native checkpoint and continuing from Rust again.
         table = 'extra.t' if name == 'primitive_types' else 't'
         command(logged, path, f"UPDATE {table} SET s='after recovery' WHERE i={key}")
         command(reference, oracle, f"UPDATE {table} SET s='after recovery' WHERE i={key}")
@@ -106,7 +106,7 @@ def verify(rust, logged, reference, command, directory):
         assert result.returncode == 86, result.stdout+result.stderr
         expected = [{'i':1, 's':'base'}]
         if ordinal >= 5: expected.insert(0, {'i':0, 's':'acknowledged in log'})
-        if ordinal in [6,7,9]: expected.append({'i':2, 's':'pending'})
+        if ordinal in [4,6,7,9]: expected.append({'i':2, 's':'pending'})
         compare_pair(rust, reference, command, path, 'SELECT * FROM t ORDER BY i', expected)
         report['boundaries'].append({'before': step, 'expected_rows': len(expected), 'passed': True})
     return report
