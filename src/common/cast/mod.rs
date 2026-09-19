@@ -100,6 +100,13 @@ pub trait CastFunction: Debug + Send + Sync {
     fn preserves_integer_value(&self, _spec: &CastSpec) -> bool {
         false
     }
+    /// Opt in to transferring an owned value for a same-type identity cast.
+    /// Every valid input must be returned unchanged without data-dependent
+    /// failure. BoundCast still validates both logical boundaries and checks
+    /// cancellation. Replacements default to the ordinary selected callback.
+    fn permits_owned_identity(&self, _spec: &CastSpec) -> bool {
+        false
+    }
     /// Convert a validated column in logical row order, retaining the selected
     /// NULL handling. Call adapters receive typed NULLs as scalar inputs too.
     /// Output owns exactly the source cardinality and has the declared target
@@ -402,6 +409,38 @@ impl BoundCast {
     pub fn apply(&self, value: &Value, context: &QueryContext) -> Result<Value> {
         self.attempt(value, CastBehavior::Strict, context)
             .map_err(CastFailure::into_error)
+    }
+    /// Consume an input whose caller no longer needs its payload. Only an
+    /// explicitly opted-in selected identity can avoid the ordinary callback.
+    pub fn apply_owned(&self, value: Value, context: &QueryContext) -> Result<Value> {
+        if self.spec.source != self.spec.target
+            || self.null_handling != CastNullHandling::Propagate
+            || self.may_return_null
+            || !self.function.permits_owned_identity(&self.spec)
+        {
+            return self.apply(&value, context);
+        }
+        context.check()?;
+        if !value.fits_type(&self.spec.source) {
+            return Err(Error::Internal(
+                "cast input differs from its bound source type".into(),
+            ));
+        }
+        if self.source.requires_logical_validation() {
+            self.source.validate(&value, context)?;
+        }
+        if self.target.requires_logical_validation() {
+            self.target
+                .validate(&value, context)
+                .map_err(|error| match error {
+                    Error::Conversion(_) => {
+                        Error::Internal("cast adapter returned an invalid logical value".into())
+                    }
+                    other => other,
+                })?;
+        }
+        context.check()?;
+        Ok(value)
     }
     pub fn apply_try(&self, value: &Value, context: &QueryContext) -> Result<Value> {
         self.attempt(value, CastBehavior::Try, context)
@@ -749,6 +788,9 @@ impl CastFunction for StructuralCast {
 impl CastFunction for PrimitiveCast {
     fn name(&self) -> &'static str {
         "primitive-cast"
+    }
+    fn permits_owned_identity(&self, spec: &CastSpec) -> bool {
+        spec.source == spec.target
     }
     fn supports(&self, spec: &CastSpec) -> bool {
         if matches!(

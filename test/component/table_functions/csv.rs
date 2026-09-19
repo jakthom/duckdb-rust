@@ -5,6 +5,23 @@ use std::io::Write;
 #[derive(Debug)]
 struct CsvSelectedInteger;
 
+#[derive(Debug)]
+struct CsvSelectedIdentity(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for CsvSelectedIdentity {
+    fn name(&self) -> &'static str {
+        "csv-selected-identity"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Varchar && spec.target == DataType::Varchar
+    }
+    fn cast(&self, value: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ok(value.clone())
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CastFunction for CsvSelectedInteger {
@@ -172,5 +189,41 @@ fn explicit_schema_csv_uses_the_selected_varchar_cast() -> Result<()> {
             .rows,
         vec![vec![Value::Integer(77)]]
     );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn csv_owned_columns_retain_selected_identity_callbacks_and_nulls() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    file.write_all("α,first\nNULL,second\nlast,NULL\n".as_bytes())?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut casts = CastRegistry::builtins();
+    casts.replace(
+        CastSpec {
+            source: DataType::Varchar,
+            target: DataType::Varchar,
+            mode: CastMode::Explicit,
+        },
+        Arc::new(CsvSelectedIdentity(calls.clone())),
+    )?;
+    let mut connection = DatabaseBuilder::new()
+        .casts(casts)
+        .batch_size(2)
+        .build()?
+        .connect();
+    let query = format!(
+        "SELECT * FROM read_csv('{}', columns={{'a':'VARCHAR','b':'VARCHAR'}}, auto_detect=false, nullstr='NULL')",
+        sql_path(file.path()),
+    );
+    assert_eq!(
+        connection.query(&query)?.rows,
+        vec![
+            vec![Value::Varchar("α".into()), Value::Varchar("first".into())],
+            vec![Value::Null, Value::Varchar("second".into())],
+            vec![Value::Varchar("last".into()), Value::Null],
+        ]
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 4);
     Ok(())
 }

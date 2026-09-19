@@ -43,6 +43,92 @@ fn spec(target: DataType, mode: CastMode) -> CastSpec {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn owned_builtin_identity_retains_payload_and_validation() -> Result<()> {
+    let query = QueryContext::background();
+    let cast = CastRegistry::builtins().bind(
+        &DataType::Varchar,
+        &DataType::Varchar,
+        CastMode::Explicit,
+        query.types(),
+    )?;
+    let text = String::from("owned UTF-8 α🦆 payload");
+    let pointer = text.as_ptr();
+    let Value::Varchar(output) = cast.apply_owned(Value::Varchar(text), &query)? else {
+        panic!("VARCHAR identity changed physical type");
+    };
+    assert_eq!(output.as_ptr(), pointer);
+    assert_eq!(output, "owned UTF-8 α🦆 payload");
+    assert_eq!(cast.apply_owned(Value::Null, &query)?, Value::Null);
+    assert!(matches!(
+        cast.apply_owned(Value::Integer(1), &query),
+        Err(Error::Internal(_))
+    ));
+    let interrupted = InterruptHandle::default();
+    let context = QueryContext::new(interrupted.clone(), None, 1024, usize::MAX)?;
+    interrupted.interrupt();
+    assert!(matches!(
+        cast.apply_owned(Value::Varchar("x".into()), &context),
+        Err(Error::Interrupted)
+    ));
+    Ok(())
+}
+
+#[derive(Debug)]
+struct OwnedIdentity;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CastFunction for OwnedIdentity {
+    fn name(&self) -> &'static str {
+        "owned-identity-probe"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == spec.target
+    }
+    fn permits_owned_identity(&self, spec: &CastSpec) -> bool {
+        spec.source == spec.target
+    }
+    fn cast(&self, value: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
+        Ok(value.clone())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn owned_identity_still_rejects_invalid_registered_logical_values() -> Result<()> {
+    use duckdb_rust::common::type_registry::{TypeRegistry, ascii};
+    let mut types = TypeRegistry::builtins();
+    types.register(ascii::FAMILY, Arc::new(ascii::MaterializedAscii))?;
+    let query = QueryContext::background().with_types(Arc::new(types));
+    let data_type = ascii::data_type(3)?;
+    let mut registry = CastRegistry::builtins();
+    registry.register_type(&data_type, query.types())?;
+    registry.replace(
+        CastSpec {
+            source: data_type.clone(),
+            target: data_type.clone(),
+            mode: CastMode::Explicit,
+        },
+        Arc::new(OwnedIdentity),
+    )?;
+    let cast = registry.bind(&data_type, &data_type, CastMode::Explicit, query.types())?;
+    let valid = Value::extension(data_type.clone(), b"abc".to_vec());
+    assert_eq!(cast.apply_owned(valid.clone(), &query)?, valid);
+    for bytes in [b"abcd".to_vec(), "é".as_bytes().to_vec()] {
+        let invalid = Value::extension(data_type.clone(), bytes);
+        assert!(matches!(
+            cast.apply(&invalid, &query),
+            Err(Error::Conversion(_))
+        ));
+        assert!(matches!(
+            cast.apply_owned(invalid, &query),
+            Err(Error::Conversion(_))
+        ));
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn primitive_integer_overflow_reports_physical_types() -> Result<()> {
     let query = QueryContext::background();
     let cast = CastRegistry::builtins().bind(
