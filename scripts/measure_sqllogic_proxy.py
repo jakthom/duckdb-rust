@@ -28,7 +28,7 @@ PROXY_CONFIGURATION = {
     "timeout_seconds": 60,
 }
 EXPECTED_MANIFEST = "benchmark/a2_1_sqllogic_workloads.json"
-EXPECTED_MANIFEST_SHA256 = "287a8cc986f2e8047b332214af8768e805b07a3a03dd3841284c2ef7cb220fba"
+EXPECTED_MANIFEST_SHA256 = "dbb7c05065fe5a40513b538c8200aef9f280e7bdcd8ee0a535c5d193eac05242"
 EXPECTED_WORKLOADS = (
     {
         "id": "a2_1_scalar_comma_loop",
@@ -50,6 +50,20 @@ EXPECTED_WORKLOADS = (
         "sha256": "790954ce9e77bb67e7bb5b6e2fe06fcb1ed10a41e4d915d1c2265388e20ea974",
         "bytes": 862,
         "proxy_records": 16,
+    },
+    {
+        "id": "a2_1_readonly_rejections",
+        "path": "test/performance/a2_1_readonly_rejections.test",
+        "sha256": "e6d07907d8d8d88cfd1ec0ebbf653d1bb9dece1012e2464dbc1154789c7bbd6b",
+        "bytes": 400,
+        "proxy_records": 4,
+    },
+    {
+        "id": "a2_1_readonly_rejections_large",
+        "path": "test/performance/a2_1_readonly_rejections_large.test",
+        "sha256": "439bbb9a3bda14709f2af3026b0ea8d26066e817dc68c2f50dba032ce46a248e",
+        "bytes": 415,
+        "proxy_records": 2002,
     },
 )
 HELPERS = (
@@ -160,7 +174,7 @@ def validate_workload_population(manifest, test_root):
     manifest = Path(manifest).resolve(strict=True)
     expected_manifest = (root / EXPECTED_MANIFEST).resolve(strict=True)
     if manifest != expected_manifest or digest(manifest) != EXPECTED_MANIFEST_SHA256:
-        raise ValueError("proxy acceptance requires the frozen three-workload manifest")
+        raise ValueError("proxy acceptance requires the frozen five-workload manifest")
     try:
         data = json.loads(manifest.read_text())
     except json.JSONDecodeError as error:

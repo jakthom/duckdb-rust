@@ -86,7 +86,11 @@ class PerformanceGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             workload = root / "a.test"
-            workload.write_text("load {TEST_DIR}/generated/session.duckdb\nquery I\nSELECT 1\n----\n1\n")
+            workload.write_text(
+                "load {TEST_DIR}/generated/session.duckdb\n"
+                "load {TEST_DIR}/generated/session.duckdb readonly\n"
+                "query I\nSELECT 1\n----\n1\n"
+            )
             manifest = root / "workloads.json"
             manifest.write_text(json.dumps({"workloads": [{"id": "a", "path": "a.test"}]}))
             for name in ("release", "development", "rust"):
@@ -117,9 +121,18 @@ class PerformanceGateTests(unittest.TestCase):
                 [{"declared_path": "{TEST_DIR}/generated/session.duckdb",
                   "test_dir_relative_path": "generated/session.duckdb"}],
             )
+            self.assertEqual(
+                disk["workloads"][0]["generated_database_readonly_dependencies"],
+                [{"declared_path": "{TEST_DIR}/generated/session.duckdb",
+                  "test_dir_relative_path": "generated/session.duckdb"}],
+            )
             disk["workloads"][0]["generated_database_outputs"][0]["test_dir_relative_path"] = "mutated.duckdb"
             with self.assertRaisesRegex(ValueError, "identity changed"):
                 measure.gate_report(disk, measure.validate_manifest(manifest, root))
+            readonly_disk = json.loads(args.report.read_text())
+            readonly_disk["workloads"][0]["generated_database_readonly_dependencies"][0]["declared_path"] = "{TEST_DIR}/mutated.duckdb"
+            with self.assertRaisesRegex(ValueError, "identity changed"):
+                measure.gate_report(readonly_disk, measure.validate_manifest(manifest, root))
             self.assertNotEqual(disk["workloads"], disk["gate"]["workloads"])
             observations = disk["workloads"][0]["observations"]
             shared_root = str(root.resolve())
@@ -203,6 +216,7 @@ class PerformanceGateTests(unittest.TestCase):
                 [{"declared_path": "{TEST_DIR}/runtime/session.duckdb",
                   "test_dir_relative_path": "runtime/session.duckdb"}],
             )
+            self.assertNotIn("generated_database_readonly_dependencies", prepared[0])
 
             for directive in (
                 "load {TEST_DIR}/input.duckdb readonly",
@@ -227,6 +241,36 @@ class PerformanceGateTests(unittest.TestCase):
                 with self.subTest(directive=directive), self.assertRaises(ValueError):
                     measure.validate_manifest(manifest, root)
 
+    def test_manifest_records_only_prior_safe_generated_readonly_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "workloads.json"
+            manifest.write_text(json.dumps({"workloads": [{"id": "a", "path": "a.test"}]}))
+            (root / "a.test").write_text(
+                "load {TEST_DIR}/runtime/session.duckdb\n"
+                "load {TEST_DIR}/runtime/session.duckdb readonly\n"
+            )
+            workloads = measure.validate_manifest(manifest, root)
+            identity = {"declared_path": "{TEST_DIR}/runtime/session.duckdb",
+                        "test_dir_relative_path": "runtime/session.duckdb"}
+            self.assertEqual(workloads[0]["generated_database_readonly_dependencies"], [identity])
+            _, release, development = self.reports()
+            for report in (release, development):
+                report["workloads"][0] = {**copy.deepcopy(workloads[0]), "cpp": report["workloads"][0]["cpp"],
+                                          "rust": report["workloads"][0]["rust"]}
+            release["workloads"][0]["generated_database_readonly_dependencies"][0]["test_dir_relative_path"] = "mutated.duckdb"
+            with self.assertRaisesRegex(ValueError, "identity changed"):
+                measure.gate(release, development, workloads)
+
+            for contents in (
+                "load {TEST_DIR}/runtime/session.duckdb readonly\n",
+                "load {TEST_DIR}/runtime/other.duckdb\nload {TEST_DIR}/runtime/session.duckdb readonly\n",
+                "load {TEST_DIR}/runtime/session.duckdb\nload {TEST_DIR}/../session.duckdb readonly\n",
+            ):
+                (root / "a.test").write_text(contents)
+                with self.subTest(contents=contents), self.assertRaises(ValueError):
+                    measure.validate_manifest(manifest, root)
+
     def test_generated_output_identity_is_replayed_and_legacy_metadata_is_stable(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -246,6 +290,7 @@ class PerformanceGateTests(unittest.TestCase):
             (root / "a.test").write_text("statement ok\nSELECT 1\n")
             legacy = measure.validate_manifest(manifest, root)[0]
             self.assertNotIn("generated_database_outputs", legacy)
+            self.assertNotIn("generated_database_readonly_dependencies", legacy)
 
     def test_wrong_marker_nonzero_and_zero_record_fail(self):
         with self.assertRaises(ValueError):

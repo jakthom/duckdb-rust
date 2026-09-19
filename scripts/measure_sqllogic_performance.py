@@ -154,13 +154,24 @@ def validate_manifest(path, test_root):
         contents = candidate.read_text(errors="replace")
         fixture_directives = []
         generated_outputs = []
+        readonly_dependencies = []
+        fresh_paths = set()
         for line_number, line in enumerate(contents.splitlines(), 1):
             stripped = line.strip()
             directive = stripped.lower()
             directive_name = stripped.split(None, 1)[0].lower() if stripped else ""
-            generated_output = generated_load_output(stripped)
-            if generated_output is not None:
-                generated_outputs.append(generated_output)
+            generated_load = generated_load_output(stripped)
+            if generated_load is not None:
+                mode, identity = generated_load
+                identity_key = (identity["declared_path"], identity["test_dir_relative_path"])
+                if mode == "readonly":
+                    if identity_key not in fresh_paths:
+                        fixture_directives.append(line_number)
+                    else:
+                        readonly_dependencies.append(identity)
+                else:
+                    generated_outputs.append(identity)
+                    fresh_paths.add(identity_key)
             elif (directive_name in {"include", "load", "unzip"}
                     or "<file>:" in directive or "{test_dir}" in directive):
                 fixture_directives.append(line_number)
@@ -183,23 +194,25 @@ def validate_manifest(path, test_root):
         # the declared relative path is retained for replay attestation.
         if generated_outputs:
             entry["generated_database_outputs"] = generated_outputs
+        if readonly_dependencies:
+            entry["generated_database_readonly_dependencies"] = readonly_dependencies
         prepared.append(entry)
     return prepared
 
 
 def generated_load_output(line):
-    """Return a safe fresh ``load {TEST_DIR}/...`` output identity, if present.
+    """Return a safe generated ``load {TEST_DIR}/...`` mode and identity.
 
-    SQLLogic load defaults to read-write.  That lifecycle deletes and recreates
-    its database under each runner's scratch directory, so it has no external
-    input to hash.  Keep this grammar deliberately narrower than the runners:
-    readonly, compatibility versions, substitutions, and unsafe paths stay in
-    the external-fixture rejection path above.
+    A fresh load deletes and recreates its database under each runner's scratch
+    directory. A readonly load is accepted only by ``validate_manifest`` when
+    it follows that exact generated path in the same workload. Keep this grammar
+    deliberately narrower than the runners: compatibility versions,
+    substitutions, and unsafe paths stay in the external-fixture rejection path.
     """
     parts = line.split()
     if len(parts) not in (2, 3) or not parts or parts[0] != "load":
         return None
-    if len(parts) == 3 and parts[2] != "readwrite":
+    if len(parts) == 3 and parts[2] not in ("readwrite", "readonly"):
         return None
     declared = parts[1]
     prefix = "{TEST_DIR}/"
@@ -210,7 +223,8 @@ def generated_load_output(line):
     if (not relative or "\\" in relative
             or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", part) for part in components)):
         return None
-    return {"declared_path": declared, "test_dir_relative_path": relative}
+    return (parts[2] if len(parts) == 3 else "readwrite",
+            {"declared_path": declared, "test_dir_relative_path": relative})
 
 
 def active_peers(check_output=subprocess.check_output):

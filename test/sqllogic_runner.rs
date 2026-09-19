@@ -251,16 +251,19 @@ fn named_sessions_reconnect_restart_load_and_named_database_are_isolated() -> du
     std::fs::write(
         &path,
         "load {TEST_DIR}/case.duckdb\n\n\
-         statement ok writer\nCREATE TABLE t(i INTEGER); INSERT INTO t VALUES (1)\n\n\
+         statement ok writer\nCREATE TABLE t(i INTEGER); INSERT INTO t VALUES (1), (2)\n\n\
          statement ok reader\nBEGIN\n\n\
-         query I reader\nSELECT count(*) FROM t\n----\n1\n\n\
-         statement ok writer\nINSERT INTO t VALUES (2)\n\n\
+         query I reader\nSELECT count(*) FROM t\n----\n2\n\n\
+         statement ok writer\nINSERT INTO t VALUES (3)\n\n\
          reconnect\n\n\
-         query I reader\nSELECT count(*) FROM t\n----\n1\n\n\
-         query I\nSELECT count(*) FROM t\n----\n2\n\n\
+         query I reader\nSELECT count(*) FROM t\n----\n2\n\n\
+         query I\nSELECT count(*) FROM t\n----\n3\n\n\
          statement ok pending\nBEGIN; INSERT INTO t VALUES (99)\n\n\
          restart\n\n\
-         query I\nSELECT count(*) FROM t\n----\n2\n\n\
+         query I\nSELECT sum(i) FROM t\n----\n6\n\n\
+         load {TEST_DIR}/case.duckdb readonly\n\n\
+         query I\nSELECT sum(i) FROM t\n----\n6\n\n\
+         statement error\nINSERT INTO t VALUES (4)\n----\n<REGEX>:.*read-only.*\n\n\
          statement ok aux:c1\nCREATE TABLE isolated(i INTEGER); INSERT INTO isolated VALUES (7)\n\n\
          statement error\nSELECT * FROM isolated\n----\n<REGEX>:.*does not exist.*\n\n\
          query I aux:c2\nSELECT i FROM isolated\n----\n7\n\n\
@@ -269,7 +272,7 @@ fn named_sessions_reconnect_restart_load_and_named_database_are_isolated() -> du
     )?;
     let report = runner::run_file_report(&Database::memory()?, &path)?;
     assert_eq!(report.status, runner::FileStatus::Passed);
-    assert_eq!(report.passed, 12);
+    assert_eq!(report.passed, 14);
 
     let memory = root.path().join("test/memory_restart.test");
     std::fs::write(

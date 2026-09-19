@@ -11,6 +11,14 @@
     {
       "id": "g01_2c_loop_conditions_concurrent_sessions_lifecycle",
       "path": "test/performance/g01_2c_loop_sessions.test"
+    },
+    {
+      "id": "a2_1_readonly_rejections",
+      "path": "test/performance/a2_1_readonly_rejections.test"
+    },
+    {
+      "id": "a2_1_readonly_rejections_large",
+      "path": "test/performance/a2_1_readonly_rejections_large.test"
     }
   ]
 }

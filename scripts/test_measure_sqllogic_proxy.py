@@ -319,14 +319,14 @@ class ProxyEvidenceTests(unittest.TestCase):
         workloads = proxy.validate_workload_population(
             proxy.ROOT / proxy.EXPECTED_MANIFEST, proxy.ROOT
         )
-        self.assertEqual([item["proxy_records_expected"] for item in workloads], [5, 5000, 16])
+        self.assertEqual([item["proxy_records_expected"] for item in workloads], [5, 5000, 16, 4, 2002])
         with patch.object(proxy, "digest", return_value="0" * 64):
-            with self.assertRaisesRegex(ValueError, "frozen three-workload"):
+            with self.assertRaisesRegex(ValueError, "frozen five-workload"):
                 proxy.validate_workload_population(proxy.ROOT / proxy.EXPECTED_MANIFEST, proxy.ROOT)
         with tempfile.TemporaryDirectory() as directory:
             copied = Path(directory) / "workloads.json"
             copied.write_bytes((proxy.ROOT / proxy.EXPECTED_MANIFEST).read_bytes())
-            with self.assertRaisesRegex(ValueError, "frozen three-workload"):
+            with self.assertRaisesRegex(ValueError, "frozen five-workload"):
                 proxy.validate_workload_population(copied, proxy.ROOT)
 
     def test_actual_input_snapshots_and_all_top_level_identities_are_required(self):

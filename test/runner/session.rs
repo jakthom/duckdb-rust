@@ -160,7 +160,7 @@ impl Sessions {
         }
         let database = match &path {
             Some(path) if read_only => Database::open_read_only(path)?,
-            Some(path) => Database::open(path)?,
+            Some(path) => Database::open_logged(path)?,
             None if read_only => {
                 return Err(Error::Unsupported(
                     "read-only in-memory test database".into(),
@@ -223,6 +223,83 @@ mod tests {
                 Value::Varchar("ASCENDING".into()),
                 Value::Varchar("NULLS_FIRST".into()),
             ]]
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn writable_file_sessions_use_a_logged_wal_before_restart() -> Result<()> {
+        let scratch = tempfile::tempdir()?;
+        let scratch_path = scratch.path().canonicalize()?;
+        let database = Database::memory()?;
+        let mut sessions = Sessions::new(&database, &scratch_path);
+        let path = scratch_path.join("lifecycle.duckdb");
+        sessions.load(Some(path.clone()), false)?;
+        sessions
+            .connection("writer")?
+            .execute("CREATE TABLE state(i INTEGER); INSERT INTO state VALUES (1), (2)")?;
+        sessions.connection("reader")?.execute("BEGIN")?;
+        assert_eq!(
+            sessions
+                .connection("reader")?
+                .query("SELECT count(*) FROM state")?
+                .rows,
+            vec![vec![Value::Integer(2)]]
+        );
+        sessions
+            .connection("writer")?
+            .execute("INSERT INTO state VALUES (3)")?;
+        sessions.reconnect();
+        assert_eq!(
+            sessions
+                .connection("reader")?
+                .query("SELECT count(*) FROM state")?
+                .rows,
+            vec![vec![Value::Integer(2)]]
+        );
+        assert_eq!(
+            sessions
+                .connection("")?
+                .query("SELECT count(*) FROM state")?
+                .rows,
+            vec![vec![Value::Integer(3)]]
+        );
+        assert!(std::fs::metadata(path.with_extension("duckdb.wal"))?.len() > 0);
+
+        sessions.restart()?;
+        assert_eq!(
+            sessions
+                .connection("")?
+                .query("SELECT sum(i) FROM state")?
+                .rows,
+            vec![vec![Value::Integer(6)]]
+        );
+
+        sessions.load(Some(path.clone()), true)?;
+        assert_eq!(
+            sessions
+                .connection("")?
+                .query("SELECT sum(i) FROM state")?
+                .rows,
+            vec![vec![Value::Integer(6)]]
+        );
+        for sql in [
+            "INSERT INTO state VALUES (4)",
+            "CREATE TABLE blocked(i INTEGER)",
+        ] {
+            assert!(matches!(
+                sessions.connection("")?.execute(sql),
+                Err(Error::Transaction(_))
+            ));
+        }
+
+        sessions.load(Some(path), false)?;
+        assert!(
+            sessions
+                .connection("")?
+                .query("SELECT * FROM state")
+                .is_err()
         );
         Ok(())
     }

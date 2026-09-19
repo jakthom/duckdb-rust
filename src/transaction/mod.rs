@@ -207,7 +207,7 @@ impl Transaction for SnapshotTransaction {
     }
     fn catalog_mut(&mut self) -> Result<&mut dyn CatalogMut> {
         if !self.durability.writable() {
-            return Err(Error::Unsupported(
+            return Err(Error::Transaction(
                 "catalog mutation on a read-only database".into(),
             ));
         }
@@ -219,7 +219,7 @@ impl Transaction for SnapshotTransaction {
     }
     fn storage_mut(&mut self) -> Result<&mut dyn TableStorageMut> {
         if !self.durability.writable() {
-            return Err(Error::Unsupported(
+            return Err(Error::Transaction(
                 "mutation on a read-only database".into(),
             ));
         }

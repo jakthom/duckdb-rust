@@ -152,7 +152,7 @@ impl Session {
         }
         self.database = Some(match &self.path {
             Some(path) if read_only => Database::open_read_only(path)?,
-            Some(path) => Database::open(path)?,
+            Some(path) => Database::open_logged(path)?,
             None if read_only => {
                 return Err(Error::Unsupported(
                     "read-only in-memory test database".into(),
@@ -550,6 +550,68 @@ mod tests {
             ))
             .unwrap_err();
         assert!(error.to_string().contains("Database did not exist"));
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn writable_file_requests_use_logged_wal_before_restart() -> Result<()> {
+        let scratch = tempfile::tempdir_in("target")?;
+        let path = scratch.path().join("logged.duckdb");
+        let mut session = Session {
+            database: Some(Database::memory()?),
+            named_databases: BTreeMap::new(),
+            path: None,
+            read_only: false,
+            connections: BTreeMap::new(),
+        };
+        session.run(request(json!({
+            "operation":"load",
+            "path":path,
+        })))?;
+        session.run(request(json!({
+            "operation":"statement",
+            "sql":"CREATE TABLE state(i INTEGER); INSERT INTO state VALUES (1), (2)",
+        })))?;
+        assert!(std::fs::metadata(path.with_extension("duckdb.wal"))?.len() > 0);
+        session.run(request(json!({"operation":"restart"})))?;
+        assert_eq!(
+            session.run(request(json!({
+                "operation":"query",
+                "sql":"SELECT sum(i) FROM state",
+            })))?["rows"],
+            json!([["3"]])
+        );
+        session.run(request(json!({
+            "operation":"load",
+            "path":path,
+            "read_only":true,
+        })))?;
+        assert_eq!(
+            session.run(request(json!({
+                "operation":"query",
+                "sql":"SELECT sum(i) FROM state",
+            })))?["rows"],
+            json!([["3"]])
+        );
+        for sql in [
+            "INSERT INTO state VALUES (3)",
+            "CREATE TABLE blocked(i INTEGER)",
+        ] {
+            let error = session
+                .run(request(json!({"operation":"statement", "sql":sql})))
+                .expect_err("read-only mutation must fail");
+            assert!(matches!(error, Error::Transaction(_)));
+            assert_eq!(error_response(error)["unsupported"], json!(false));
+        }
+        session.run(request(json!({"operation":"load", "path":path})))?;
+        assert!(
+            session
+                .run(request(
+                    json!({"operation":"query", "sql":"SELECT * FROM state"})
+                ))
+                .is_err()
+        );
         Ok(())
     }
 

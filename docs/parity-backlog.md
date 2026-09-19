@@ -534,8 +534,9 @@ User follow-up authorizes execution of all three batches with parallel tracks,
 continuing through their acceptance without another dispatch request. Parallel
 read-only scope preparation is active while Batch 2's acceptance is repaired;
 implementation of Batch 3 still follows Batch 2 acceptance.
-Batch 1 stays accepted. Batch 2's latest verified implementation is `08f81f8`;
-candidate9 scratch reuse passed independent scoped verification and production preparation.
+Batch 1 stays accepted. Batch 2's latest verified tuple implementation is `c2a171e`;
+CSV candidate10 and F1 performance are accepted. Logged runner lifecycle and
+read-only rejection classification are in scoped verification; acceptance remains open.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -628,23 +629,67 @@ Frozen hashes match before/after; evidence `target/batch2/a2-tuple-verifier/`.
 Next `python3 target/batch2/prepare_a2_tuple.py` rebuilds only affected runner bins,
 replays exact corrected workloads and unchanged6pin/file selections, then
 `run_rest_a2_tuple_candidate1.py` resumes both-pin acceptance with fresh outputs.
+At `c2a171e`, preparation18/18 passes: release runner/worker attestation; all
+three corrected workloads pass bothpins, compiledRust and Pythonproxy at5/5000/16;
+v2sourceprobe5 passes Rust/Python; unchanged upstream release1211/47 and
+development1211/47/51/195 all pass with no skips/stale inputs. Evidence:
+`target/batch2/a2-tuple-preparation/run1/`. A2 Rust process candidate1 measured:
+small andlarge pass allmetrics (wall0.302x/0.149x), lifecycle wall48.229ms versus
+38.577ms fails1.2502x (CPU/RSS/I/O pass). Preserve
+`target/batch2/a2-tuple-rust-process-candidate1.json`; no proxy orlatergates followed.
+Diagnostic200x exactlifecycle validates3200records; samples in
+`target/batch2/a2-lifecycle-profile1/` point to fullcheckpoint publication file and
+parent syncs during commit. Read-only source investigation in progress; no flush
+or durability contract has been weakened. Further repair needs a reviewed impact
+manifest including affected native/recovery consumers before implementation.
+Reviewed `target/batch2/a2-logged-runner-manifest.md`: route writable SQLLogic
+session/worker files through existing `Database::open_logged`, preserving all
+per-commit sync/transaction boundaries and read-only behavior. Only runner call
+sites/tests change; existing WAL codecs/publication stay unchanged. Scoped runner
+and logging crash/recovery consumer checks precede fresh lifecycle/proxy timing.
+A2small/large compiled process passes retained individually; lifecycle stays open.
+Routine logged-runner checks exposed an error classification gap: read-only DML
+and catalog writes returned `Unsupported`, so runners called valid rejections
+missing functionality. The two transaction guards now return `Transaction` with
+identical checks/messages. Direct worker tests verify `unsupported=false`, and
+runner/worker feedback passes72/5. Existing logging and affected ALTER recovery
+consumers are included in the configured partial sweep. Native WAL codecs,
+publication and flush boundaries are unchanged; exhaustive byte-tail recovery and
+Kani are not applicable to this routing/error-tag scope. New comparable workloads
+exercise both rejection guards (4/2002 records); the harness permits a read-only
+load only of the same safe runtime path generated earlier in that workload.
+The strict proxy population expands3→5 with all old cases and thresholds intact.
+Logged-runner partial verification passes: worker5, runner72, logging8 and exact
+ALTER recovery1; formatting/Clippy/trace pass and coverage has no missing entries.
+Rust/Cargo hashes are stable under `target/batch2/a2-logged-rust-verifier/`.
+Separate Python verification passes51 tests and four-file syntax compilation;
+frozen harness/workload hashes are under `a2-readonly-python-verifier/`.
+Performance remains open. Production/source preparation uses
+`target/batch2/prepare_a2_logged.py` before fresh serial measurements.
+Logged production/source preparation passes17/17: four release binaries, fresh
+worker and durable attestations, five workloads through Rust/proxy at
+5/5000/16/4/2002 records, and both new cases through both C++ pins. Evidence:
+`target/batch2/a2-logged-preparation/run1/report.json`. Timed gates remain open.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active at `3fb8cfc`: candidate10 scoped verifier/source preparation/CSV native and process gates all pass; F1 native/process remaining5 also pass. A2 process preflight rejects fresh scratch-database load as an external fixture; Python-only adapter correction and boundary tests are under `target/batch2/a2-generated-database-manifest.md`. No A2 timing occurred in that failed stage. Next configured Python verifier, then `target/batch2/run_rest_candidate10_harness1.py` for A2/process-proxy, B1/native-process-durable and COUNT gates. CSV/F1 unchanged evidence retained; prior failures preserved. Engine source/binaries, fixed workloads and both pins unchanged by harness correction. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active after `c2a171e`: CSV candidate10 and F1 native/process gates pass. Tuple repair passes scoped/source acceptance; compiled small/large loops pass, file lifecycle is 1.2502x slower. Writable runner files now use existing durable WAL; read-only mutation error tags are corrected. Scoped Rust verifier and two added comparable read-only rejection workloads are in progress under `target/batch2/a2-logged-runner-manifest.md`. Then fresh production/source preparation and `run_rest_a2_logged_candidate1.py` gate lifecycle/read-only/proxy, B1 and COUNT. Prior failures and unchanged accepted evidence retained at tested identities. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** candidate10 scoped/source/CSV latency and
-resource gates pass, as does F1. Complete the Python-only generated-database
-adapter correction and delegated scoped checks, then run
-`target/batch2/run_rest_candidate10_harness1.py` with fresh A2 outputs and unchanged
-B1/COUNT obligations. It uses `remaining-performance-candidate10-harness1.json`
-and preserves the failed original A2 preflight. Reuse source/binary attestations
-while their actual Rust inputs stay unchanged. User paused activity; check host
-before timing. Apps stay running. Batch3 implementation follows Batch2 acceptance.
+**Immediate carryover, before Batch 3:** finish the logged runner/read-only
+classification partial verification. Fresh production preparation builds four
+binaries and refreshes worker/durable attestations; new read-only cases must pass
+both pins, compiled Rust and the Python proxy. Then
+`target/batch2/run_rest_a2_logged_candidate1.py` executes the compiled lifecycle
+and read-only gates, full five-case proxy gate, B1/native-process-durable and COUNT.
+Use `remaining-performance-a2-logged-candidate1.json`; retain the original failed
+lifecycle result and individually accepted non-file-loop results. CSV/F1 paths
+never attempt read-only mutation, so their unchanged evidence remains valid at
+its tested revision. User paused activity; check host before timing and leave apps
+running. Batch 3 implementation follows Batch 2 acceptance.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 

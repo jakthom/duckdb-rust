@@ -1,0 +1,25 @@
+load {TEST_DIR}/a2_1_readonly_rejections.duckdb
+
+statement ok
+CREATE TABLE state(i INTEGER); INSERT INTO state VALUES (1)
+
+load {TEST_DIR}/a2_1_readonly_rejections.duckdb readonly
+
+loop attempt 0 1
+
+statement error
+INSERT INTO state VALUES (2)
+----
+<REGEX>:.*read-only.*
+
+statement error
+CREATE TABLE rejected(i INTEGER)
+----
+<REGEX>:.*read-only.*
+
+endloop
+
+query I
+SELECT count(*) FROM state
+----
+1
