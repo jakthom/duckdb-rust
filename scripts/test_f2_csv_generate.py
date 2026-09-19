@@ -29,6 +29,8 @@ class GeneratorTest(unittest.TestCase):
             self.assertEqual(len(native["workloads"]), 2)
             self.assertEqual(len(process["workloads"]), 2)
             for entry, case, process_case in zip(a["files"], native["workloads"], process["workloads"]):
+                self.assertEqual(process_case["path"], "test/" + entry["id"] + ".test")
+                self.assertTrue((first / process_case["path"]).is_file())
                 self.assertIn("first''quoted", case["sql"])
                 self.assertIn("auto_detect=false", case["sql"])
                 self.assertEqual(case["rows"], 1)
@@ -62,6 +64,12 @@ class GeneratorTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "adapter manifest"):
                 generator.verify(first)
             adapter.write_bytes(original_adapter)
+            fixture = first / process["workloads"][0]["path"]
+            original_fixture = fixture.read_bytes()
+            fixture.write_bytes(original_fixture + b"\n# tampered\n")
+            with self.assertRaisesRegex(ValueError, "changed F2"):
+                generator.verify(first)
+            fixture.write_bytes(original_fixture)
             path = Path(a["files"][0]["path"])
             with path.open("ab") as file:
                 file.write(b"tampered\n")

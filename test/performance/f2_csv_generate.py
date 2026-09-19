@@ -92,16 +92,18 @@ def materialize(output):
             "query": query(path, width)})
     native = {"schema_version": 1, "rows": spec["rows"], "threads": 1, "setup": "", "workloads": []}
     process = {"workloads": []}
+    fixture_root = output / "test"
+    fixture_root.mkdir()
     for entry in result["files"]:
         total = entry["expected"]["count"] + entry["expected"]["sum_id"] + sum(entry["expected"]["length_sums"]) + sum(entry["expected"]["non_null_counts"])
         native["workloads"].append({"name": entry["id"], "sql": entry["query"], "rows": 1, "sum": str(total)})
-        path = output / (entry["id"] + ".test")
+        path = fixture_root / (entry["id"] + ".test")
         lines = []
         for _ in range(spec["process_repetitions"]):
             values = [entry["expected"]["count"], entry["expected"]["sum_id"], *entry["expected"]["length_sums"], *entry["expected"]["non_null_counts"]]
             lines.extend(["query " + "I" * (2 + 2 * (entry["columns"] - 1)), entry["query"], "----", "\t".join(map(str, values)), ""])
         path.write_text("\n".join(lines))
-        process["workloads"].append({"id": entry["id"], "path": path.name})
+        process["workloads"].append({"id": entry["id"], "path": "test/" + path.name})
         entry["process_fixture"] = {"path": str(path), "sha256": digest(path),
                                     "records": spec["process_repetitions"]}
     result["adapter_manifests"] = {}
@@ -129,7 +131,7 @@ def verify(output):
         raise ValueError("missing, reordered or duplicate F2 workload")
     for entry, declared in zip(files, spec["workloads"]):
         path = output / (declared["id"] + ".csv")
-        fixture = output / (declared["id"] + ".test")
+        fixture = output / "test" / (declared["id"] + ".test")
         if (entry.get("path") != str(path) or path.is_symlink()
                 or entry.get("sha256") != digest(path)
                 or entry.get("bytes") != path.stat().st_size
@@ -145,6 +147,12 @@ def verify(output):
         if (result.get("adapter_manifests", {}).get(name) !=
                 {"path": str(path), "sha256": digest(path)} or path.is_symlink()):
             raise ValueError("changed F2 adapter manifest")
+    process = json.loads((output / "process-workloads.json").read_text())
+    expected_paths = ["test/" + item["id"] + ".test" for item in spec["workloads"]]
+    if process.get("workloads") != [
+            {"id": item["id"], "path": path}
+            for item, path in zip(spec["workloads"], expected_paths)]:
+        raise ValueError("changed F2 process registration layout")
     return result
 
 
