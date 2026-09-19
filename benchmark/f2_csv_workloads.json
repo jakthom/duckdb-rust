@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "rows": 100000,
+  "dialect": {"delimiter": ",", "quote": "\"", "escape": "\"", "nullstr": "\\N", "header": true, "auto_detect": false, "threads": 1},
+  "workloads": [
+    {"id": "f2_csv_narrow", "columns": 3, "shape": "INTEGER,VARCHAR,VARCHAR"},
+    {"id": "f2_csv_wide", "columns": 17, "shape": "INTEGER,VARCHARx16"}
+  ]
+}
