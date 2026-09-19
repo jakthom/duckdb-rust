@@ -604,6 +604,7 @@ def main():
                       if args.path_list and (args.debug_worker or args.worker or args.feedback_watch_child) else None)
     lock_handle = acquire_validation_lock(args.suite_cache)
     source_before = validation_fingerprint(args)
+    build_started = time.monotonic()
     if args.worker:
         binary = args.worker.resolve(strict=True)
         provenance_path, provenance = checked_worker_provenance(binary, args.worker_provenance)
@@ -611,12 +612,16 @@ def main():
     else:
         rust_build, binary = worker_build(args.debug_worker)
     source_hash = worker_source_digest()
+    build_elapsed = time.monotonic() - build_started
     targets = ("development", "release") if args.target == "both" else (args.target,)
     report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "engine_git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "rust_build_command": rust_build, "worker_profile": "debug" if args.debug_worker else "release", "worker_provenance": provenance if args.worker else None, "rust_source_sha256": source_hash, "rust_binary_sha256": digest(binary), "harness_sha256": {n: digest(ROOT / "scripts" / n) for n in ("sqllogic.py", "worker_protocol.py", "secure_scratch.py", "run_upstream.py", "upstream_suite.py", "reference_version.py", "startup_json.py")}, "timeout_seconds": args.timeout, "jobs": args.jobs, "path_prefixes": args.path_prefix, "path_list": str(args.path_list) if args.path_list else None, "suite_cache": str(args.suite_cache), "campaign_kind": "selected-feedback" if feedback_paths else "suite-campaign", "populations": {}, "scope": "Exact SQLLogicTest inputs run against Rust with unchanged assertions. First blocker only. Passed/skipped are observed executions; unreached is source-record based, so loop-expanded totals are never invented. Native/client/benchmark declarations, compiled parameterizations, generated tests, configurations, platforms and external suites remain outside this SQL campaign." + (" Selected-feedback is deliberately not full-suite acceptance." if feedback_paths else "")}
     args.report.parent.mkdir(parents=True, exist_ok=True)
+    report["path_list_content_sha256"] = digest(args.path_list) if args.path_list else None
+    report["elapsed_stages"] = {"worker_preparation_seconds": build_elapsed}
     with journal.open("x") as progress:
         progress.write(json.dumps({"event": "started", "metadata": report}) + "\n"); progress.flush()
         for target in targets:
+            preparation_started = time.monotonic()
             if feedback_paths:
                 source, manifest, identity = selected_feedback_population(target, feedback_paths, args.suite_cache)
             else:
@@ -624,10 +629,14 @@ def main():
             sql = [e for e in manifest["tests"] if e["kind"] == "sqllogictest"]
             selected = selected_entries(sql, args.path_prefix, args.path_list, args.retry_timeouts_from, target)
             population = {"identity": identity, "inventory": manifest["counts"], "sql_files_total": len(sql), "selected": selected, "sql_files_selected": len(selected), "results": [], "unported": [e for e in manifest["tests"] if e["kind"] != "sqllogictest"], "obligations": {scope: "unverified" for scope in REQUIRED_SCOPES}, "selection_kind": "selected-feedback" if feedback_paths else "suite"}
+            preparation_elapsed = time.monotonic() - preparation_started
+            execution_started = time.monotonic()
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
                 for outcome in pool.map(lambda e: run_case(binary, source, e, args.timeout), selected):
                     population["results"].append(outcome); progress.write(json.dumps({"event": "result", "target": target, **outcome}) + "\n"); progress.flush()
                     if len(population["results"]) % 250 == 0: print(f"{target}: {len(population['results'])}/{len(selected)} files recorded", flush=True)
+            population["elapsed_stages"] = {"population_preparation_seconds": preparation_elapsed,
+                                             "execution_seconds": time.monotonic() - execution_started}
             population.update(summarize(sql, selected, population["results"], population["unported"], population["obligations"]))
             if feedback_paths:
                 population["sql_suite_passed"] = False

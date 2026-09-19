@@ -178,6 +178,10 @@ class RunUpstreamTests(unittest.TestCase):
             saved = __import__("json").loads(report.read_text())
             self.assertEqual(saved["campaign_kind"], "selected-feedback")
             self.assertFalse(saved["populations"]["release"]["full_suite_passed"])
+            self.assertEqual(saved["path_list_content_sha256"], __import__("hashlib").sha256(paths.read_bytes()).hexdigest())
+            self.assertGreaterEqual(saved["elapsed_stages"]["worker_preparation_seconds"], 0)
+            self.assertGreaterEqual(saved["populations"]["release"]["elapsed_stages"]["execution_seconds"], 0)
+            self.assertGreaterEqual(saved["populations"]["release"]["elapsed_stages"]["population_preparation_seconds"], 0)
 
     def test_prebuilt_failure_persists_report_then_exits_nonzero(self):
         with tempfile.TemporaryDirectory() as directory:
