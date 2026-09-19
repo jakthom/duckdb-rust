@@ -28,6 +28,19 @@ class ConcurrentEngine:
 
 
 class SQLLogicSchedulingTests(unittest.TestCase):
+    def test_loop_binding_splits_only_tuple_iterators(self):
+        self.assertEqual(
+            Runner.bind_loop({"outer": "0"}, "datatype", "DECIMAL(4,1)"),
+            {"outer": "0", "datatype": "DECIMAL(4,1)"},
+        )
+        self.assertEqual(Runner.bind_loop({}, "datatype", ""), {"datatype": ""})
+        self.assertEqual(
+            Runner.bind_loop({}, "left,right", "a,"),
+            {"left": "a", "right": "", "left,right": "a,"},
+        )
+        with self.assertRaisesRegex(ValueError, "left,right"):
+            Runner.bind_loop({}, "left,right", "a,b,c")
+
     def test_loop_conditions_continue_and_boundaries(self):
         engine = ConcurrentEngine()
         runner = Runner(engine)

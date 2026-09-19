@@ -116,6 +116,36 @@ fn loop_foreach_conditions_continue_and_odd_bounds_match_pinned_runner() -> duck
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn scalar_comma_foreach_values_match_pinned_runner() -> duckdb_rust::Result<()> {
+    let root = root();
+    let path = root.path().join("test/scalar-comma.test");
+    std::fs::write(
+        &path,
+        "foreach datatype DECIMAL(4,1)\n\n\
+         query T\nSELECT '{datatype}'\n----\nDECIMAL(4,1)\n\n\
+         endloop\n\n\
+         foreach left,right a,\n\n\
+         query T\nSELECT '{left}:{right}'\n----\na:\n\n\
+         endloop\n",
+    )?;
+    let report = runner::run_file_report(&Database::memory()?, &path)?;
+    assert_eq!(report.status, runner::FileStatus::Passed);
+    assert_eq!(
+        (report.declarations, report.passed, report.skipped),
+        (2, 2, 0)
+    );
+
+    let mismatch = root.path().join("test/scalar-comma-mismatch.test");
+    std::fs::write(
+        &mismatch,
+        "foreach left,right only-one\n\nstatement ok\nSELECT 1\n\nendloop\n",
+    )?;
+    assert!(runner::run_file_report(&Database::memory()?, &mismatch).is_err());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn loop_variables_do_not_rewrite_literal_expected_values() -> duckdb_rust::Result<()> {
     let root = root();
     let path = root.path().join("test/loop-expected.test");

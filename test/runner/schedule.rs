@@ -450,7 +450,14 @@ fn parse_stoll(value: &str) -> Result<i64> {
 pub(crate) fn replace_loops(mut input: Vec<u8>, loops: &[LoopFrame]) -> Result<Vec<u8>> {
     for frame in loops {
         let names: Vec<_> = frame.name.split(',').collect();
-        let values: Vec<_> = frame.value.split(',').collect();
+        // As in SQLLogicTestRunner::ReplaceLoopIterator, comma separation is
+        // selected by the iterator name. A scalar replacement can itself have
+        // commas (for example, DECIMAL(4,1)).
+        let values: Vec<_> = if frame.name.contains(',') {
+            frame.value.split(',').collect()
+        } else {
+            vec![frame.value.as_str()]
+        };
         if names.len() != values.len() {
             return Err(Error::Execution(format!(
                 "foreach loop: number of commas in iterator ({}) does not match replacement ({})",
@@ -602,6 +609,42 @@ mod tests {
             concurrent: false,
         }];
         assert_eq!(replace_loops(b"{left}-${right}".to_vec(), &frames)?, b"a-b");
+        let scalar = [LoopFrame {
+            name: "datatype".into(),
+            value: "DECIMAL(4,1)".into(),
+            ordinal: 0,
+            concurrent: false,
+        }];
+        assert_eq!(
+            replace_loops(b"{datatype}-${datatype}".to_vec(), &scalar)?,
+            b"DECIMAL(4,1)-DECIMAL(4,1)"
+        );
+        let empty_scalar = [LoopFrame {
+            value: "".into(),
+            ..scalar[0].clone()
+        }];
+        assert_eq!(replace_loops(b"${datatype}".to_vec(), &empty_scalar)?, b"");
+        let tuple_empty_part = [LoopFrame {
+            value: "a,".into(),
+            ..frames[0].clone()
+        }];
+        assert_eq!(
+            replace_loops(b"{left}-${right}".to_vec(), &tuple_empty_part)?,
+            b"a-"
+        );
+        let nested = [
+            LoopFrame {
+                name: "outer".into(),
+                value: "{datatype}".into(),
+                ordinal: 0,
+                concurrent: false,
+            },
+            scalar[0].clone(),
+        ];
+        assert_eq!(
+            replace_loops(b"{outer}".to_vec(), &nested)?,
+            b"DECIMAL(4,1)"
+        );
         let conditions = [parse_condition("left,right=a,b", false, false)?];
         assert!(selected(&conditions, &frames, false)?);
         assert!(

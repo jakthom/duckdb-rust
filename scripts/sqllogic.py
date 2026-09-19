@@ -315,7 +315,10 @@ class Runner:
 
     @staticmethod
     def bind_loop(variables, name, value):
-        names, values = name.split(","), str(value).split(",")
+        names = name.split(",")
+        # Pinned SQLLogicTest splits a replacement only for a tuple iterator.
+        # Scalar values such as DECIMAL(4,1) are one replacement, not a pair.
+        values = str(value).split(",") if "," in name else [str(value)]
         if len(names) != len(values):
             raise ValueError(f"foreach iterator {name} does not match replacement {value}")
         return {**variables, **dict(zip(names, values)), name: value}

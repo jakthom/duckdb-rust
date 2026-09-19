@@ -1,0 +1,12 @@
+{
+  "workloads": [
+    {
+      "id": "a2_1_scalar_comma_loop",
+      "path": "test/performance/a2_1_scalar_comma_loop.test"
+    },
+    {
+      "id": "g01_2c_loop_conditions_concurrent_sessions_lifecycle",
+      "path": "test/performance/g01_2c_loop_sessions.test"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# A2.1 shared runner workload: scalar comma values must remain scalar while
+# tuple iterators retain positional replacement, including an empty part.
+
+foreach datatype DECIMAL(4,1) DECIMAL(4,1) DECIMAL(4,1)
+
+query T
+SELECT '{datatype}'
+----
+DECIMAL(4,1)
+
+endloop
+
+foreach left,right first, first,
+
+query T
+SELECT '{left}:{right}'
+----
+first:
+
+endloop
