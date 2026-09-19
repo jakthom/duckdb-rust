@@ -793,6 +793,11 @@ fn aggregate_arguments(
                 )
             {
                 if function_name(&function.name)?.eq_ignore_ascii_case("count") {
+                    if list.duplicate_treatment == Some(ast::DuplicateTreatment::Distinct) {
+                        return Err(Error::Bind(
+                            "STAR expression is only allowed as the root element of an expression. Use COLUMNS(*) instead.".into(),
+                        ));
+                    }
                     if !list.clauses.is_empty() {
                         return Err(unsupported("function arguments"));
                     }

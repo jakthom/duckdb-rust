@@ -49,6 +49,37 @@ fn algorithms() -> Vec<Arc<dyn AggregationAlgorithm>> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn count_distinct_wildcard_uses_pinned_diagnostic() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    connection
+        .execute("CREATE TABLE integers(i INTEGER); INSERT INTO integers VALUES (1),(2),(NULL)")?;
+    for sql in [
+        "SELECT COUNT(DISTINCT *)",
+        "SELECT COUNT(DISTINCT *) FROM integers",
+    ] {
+        assert!(matches!(connection.query(sql), Err(Error::Bind(message))
+            if message == "STAR expression is only allowed as the root element of an expression. Use COLUMNS(*) instead."));
+    }
+    assert_eq!(
+        connection
+            .query("SELECT COUNT(*),COUNT(ALL *),COUNT(DISTINCT i),COUNT(i) FROM integers")?
+            .rows,
+        vec![vec![
+            Value::Integer(3),
+            Value::Integer(3),
+            Value::Integer(2),
+            Value::Integer(2)
+        ]]
+    );
+    assert_eq!(
+        connection.query("SELECT COUNT(*) + 1")?.rows,
+        vec![vec![Value::Integer(2)]]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn grouping_algorithms_share_the_sql_contract_across_compositions() -> Result<()> {
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test/sql/grouping.test");
     for algorithm in algorithms() {
