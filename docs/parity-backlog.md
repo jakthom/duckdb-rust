@@ -529,7 +529,7 @@ deferred under the engine-first rule.
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active dispatch from accepted Batch 1 implementation `6d221b8`. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}`. A2.1 and F2.1 use Terra medium; B1 uses Sol high. Worker manifests precede edits; root integrates shared seams and schedules quiet measurement windows. A1 exposed six old-pass losses caused by treating DECIMAL commas as tuple separators; fix both Python proxy and Rust runner with pinned-source semantics and focused regression/workload coverage. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Engine integrated through `51b690a`, not accepted. Fresh release build and selected untimed source/fixture checks pass; independent integrated verification and performance remain open. Paused at verifier authorization/session limit; durable benchmark prototype requires corrections. Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. A2.1/F2.1 use Terra medium; B1 uses Sol high. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
 Checkpoint contract: update this table and each affected entry in place with
@@ -839,6 +839,30 @@ Batch 2 evidence/restart details:
   correcting the separate durable adapter after two failed tooling review
   cycles; commits through worker `c0413c0` are prototypes, not accepted or
   integrated. Batch 3 remains queued until Batch 2 is actually accepted.
+  Workers are now paused; no validation/timing remains active. The durable
+  worktree is clean at `c0413c0`; its audited remaining defects and next
+  Python-only checks are in worker `target/b1-durable/validation-manifest.md`
+  (SHA-256 `590b5d26ad7266a09ded8a685b367ccc0bc36271d5ff4002497fa52970e5cdb0`).
+  Fix seed hash timing, discarded/weak absence proof, partial-evidence loss,
+  canonical fresh release-shell attestation, conditional validation flags,
+  formatting and negative tests before integrating or timing that adapter.
+
+- Fresh release preparation on engine `51b690a` passes: four binary builds;
+  canonical worker provenance (source hash
+  `49f8e9666c51285e5a7a4b50489adcc6fbe46142e18794f0017b06330c78916c`);
+  unchanged generated CSV input verification; original CSV source release3/dev2
+  with actual checkout/hash checks; A2 original release1211/47 and
+  development1211/47/51/195; Rust CSV16/16, F1 range64/128, A2 5/5000/16,
+  B1 process331. Evidence: `target/batch2/prep-51b690a-*`. An initial shell
+  status-variable error during provenance logging is preserved separately;
+  corrected wrapper/provenance execution exits0, not a performance retry.
+  Next untimed command is the release narrow CSV C++ replay in
+  `target/batch2/final-acceptance-manifest.md`, followed by the other pin/CSV
+  fixtures and final integrated B1 native exchanges. No C++ fixture replay,
+  final timing or integrated independent sweep was run in this preparation.
+  Resume the configured verifier in a fresh session, or obtain explicit user
+  approval before using a different existing verifier model/effort; then finish
+  Batch 2's open gates, checkpoint acceptance, and dispatch Batch 3.
   Both pins allow DROP TABLE/VIEW despite dependent views, so do not invent
   blocking dependencies; root observations are
   `target/batch2/b1-reference-observations.md`. Functional/performance acceptance
