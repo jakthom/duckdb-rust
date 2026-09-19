@@ -57,6 +57,12 @@ class Tests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    out=Path(d)/"out";out.mkdir(); args=type("A",(),{"output_dir":out})()
    with self.assertRaises(FileExistsError):m.run_campaign(args)
+ def test_campaign_failure_is_never_left_green_and_retains_report(self):
+  with tempfile.TemporaryDirectory() as d:
+   out=Path(d)/"out"; args=type("A",(),{"output_dir":out,"manifest":Path(d)/"missing","seed":Path(d)/"seed"})()
+   value=m.run_campaign(args)
+   self.assertEqual(value["status"],"failed");self.assertFalse(value["passed"])
+   disk=json.loads((out/"report.json").read_text());self.assertFalse(disk["passed"])
  def test_manifest_is_fixed(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/"m";p.write_text(json.dumps(m.EXPECTED));self.assertEqual(m.manifest(p)["data"],m.EXPECTED)
