@@ -529,7 +529,7 @@ deferred under the engine-first rule.
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Engine integrated through `51b690a`, not accepted. Fresh release build and selected untimed source/fixture checks pass; independent integrated verification and performance remain open. Paused at verifier authorization/session limit; durable benchmark prototype requires corrections. Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. A2.1/F2.1 use Terra medium; B1 uses Sol high. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Resumed from checkpoint `7901568`. Engine integrated through `51b690a`, not accepted. Configured Terra/low verifier is running the integrated partial sweep; Sol/high is correcting the durable benchmark prototype. Fresh release build and selected untimed source/fixture checks pass; performance remains open. Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
 Checkpoint contract: update this table and each affected entry in place with
@@ -829,18 +829,19 @@ Batch 2 evidence/restart details:
   direct-table controls cover checkpoint and WAL create/reopen/query/drop;
   no timing before review and quiet-host authorization.
 
-- Current restart constraint: the session agent-thread limit prevents resuming
-  the configured Terra/low verifier or creating a replacement. The user chose
-  to checkpoint for a fresh session, not authorize a Terra/medium substitute.
-  No independent integrated pass is claimed. Do not resume work in this session.
+- Resumed checkpoint: the user requested continuation from `7901568` and the
+  configured Terra/low verifier successfully resumed. It now owns ROOT's
+  validation slot for the reviewed 14-command partial sweep; no substitute
+  model, full-engine sweep or repeated Batch 1 checks were authorized.
+  No independent integrated pass is claimed until its result is returned.
   Frozen engine is `51b690a`; reviewed partial command manifest:
   `target/batch2/integrated-b1-f2-partial.md`. Completed Terra/medium preparation
   evidence is recorded below; it does not substitute for the verifier. The B1
-  Sol/high owner's separate durable adapter correction is paused after two failed tooling review
+  Sol/high owner's separate durable adapter correction has resumed after two failed tooling review
   cycles; commits through worker `c0413c0` are prototypes, not accepted or
   integrated. Batch 3 remains queued until Batch 2 is actually accepted.
-  Workers are now paused; no validation/timing remains active. The durable
-  worktree is clean at `c0413c0`; its audited remaining defects and next
+  No timing is authorized during verification or implementation. The durable
+  worktree resumed from `c0413c0`; its audited remaining defects and next
   Python-only checks are in worker `target/b1-durable/validation-manifest.md`
   (SHA-256 `590b5d26ad7266a09ded8a685b367ccc0bc36271d5ff4002497fa52970e5cdb0`).
   Fix seed hash timing, discarded/weak absence proof, partial-evidence loss,
@@ -860,7 +861,9 @@ Batch 2 evidence/restart details:
   `target/batch2/final-acceptance-manifest.md`, followed by the other pin/CSV
   fixtures and final integrated B1 native exchanges. No C++ fixture replay,
   final timing or integrated independent sweep was run in this preparation.
-  Resume the configured Terra/low verifier in a fresh session; then finish
+  Finish the configured Terra/low partial sweep and the remaining acceptance;
+  native exchange manifest/wrapper are `target/batch2/b1-exchange-manifest.md`
+  and `b1_exchange.py` (not yet executed). Then finish
   Batch 2's open gates, checkpoint acceptance, and dispatch Batch 3.
   Both pins allow DROP TABLE/VIEW despite dependent views, so do not invent
   blocking dependencies; root observations are
