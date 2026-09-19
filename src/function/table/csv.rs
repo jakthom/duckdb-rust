@@ -629,6 +629,21 @@ mod tests {
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
+    fn utf8_split_across_input_buffers_is_valid_but_invalid_utf8_errors() -> Result<()> {
+        let prefix = "x".repeat(BUFFER_BYTES - 2);
+        let valid = format!("{prefix}é\n");
+        assert_eq!(
+            rows(valid.as_bytes(), CsvOptions::default())?[0][0]
+                .value
+                .as_deref(),
+            Some(format!("{prefix}é").as_str())
+        );
+        assert!(rows(b"\xff\n", CsvOptions::default()).is_err());
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
     fn quote_escape_crossing_buffer_boundary_is_preserved() -> Result<()> {
         let prefix = "x".repeat(BUFFER_BYTES - 2);
         let input = ["\"", &prefix, "\"\"", "tail", "\"\"\"", ",ok\n"].concat();
