@@ -759,19 +759,29 @@ Batch 2 evidence/restart details:
   previously lost pin/file passes are restored (release records 1211/47;
   development 1211/47/51/195). Development uses the unchanged root-private
   pinned source via a recorded entry wrapper, not the mismatched shared checkout.
-  Adapter follow-ups remain on the worker branch pending fail-closed evidence
-  and negative-test review; no timing or independent final sweep yet. After two
+  Adapter hardening worker `d30e6f8` is integrated as `d83f8b9`: 16 proxy and
+  16 shared measurement Python tests pass, with untimed 5/5000/16-record
+  workloads. No timing or independent final sweep yet. After two
   incomplete review cycles, only the proxy measurement/negative-test files are
   reassigned to existing Sol/high agent `batch1_f1` in the A2 worktree. The
-  restored loop behavior is unchanged. Preserve worker commits through
-  `85b0d6c`; adapter correctness, not engine implementation, is the current
-  acceptance prerequisite.
+  restored loop behavior is unchanged. Current review checks that whole-tree
+  worker attestation remains outside per-file timing, as in the real upstream
+  workflow, while retaining current binary/source identity before and after
+  measurement. Exact commands/evidence remain worker `target/a2/manifest.md`.
 - F2.1: worker `codex/batch2-f2` owns single-file explicit-schema CSV. Manifest:
-  worker `target/f2/validation-manifest.md`. Initial adapter worker `797e3be`
-  passes five parser and ten table-function tests, but review identified pending
-  strict quote/error handling, resource bounds, option semantics, instrumentation
-  and boundary-test corrections. It is not integrated or accepted yet;
-  pin-specific unchanged upstream and performance acceptance remain open. Root
+  worker `target/f2/validation-manifest.md`. Reviewed CSV source is integrated
+  through `5384532`: bounded retained records, strict post-quote handling,
+  pinned custom escapes, UTF-8/read-error/NULL/options and selected-cast tests,
+  owned-row output. Seven parser and twelve table-function tests pass in the
+  worker; root independent partial sweep is running under
+  `target/batch2/f2-scoped-verification.md` / `f2-verifier/`. Explicit mode
+  requires `auto_detect=false`; omitted/true inference remains F3.4. Exact
+  source replay of `test_quote_default.test` passes release3/dev2 using pinned
+  CSV files and a recorded DATA_DIR environment; ordinary-runner fixture and
+  COPY prerequisites remain preserved failures, not passing whole-file claims.
+  Generator correction `951821f` validates fixed100k narrow/wide all-column
+  inputs, 16-record process fixtures, source/data/config hashes and before/after
+  verification; two Python tests pass. No performance measurement yet. Root
   seam `a817ede` supplies selected casts and binder-owned type-name resolution
   to table adapters; 8/8 `table_functions` tests pass, including nested STRUCT
   arguments, custom cast, DECIMAL and catalog/search-path ENUM. No alternate
@@ -783,7 +793,12 @@ Batch 2 evidence/restart details:
   `binder/table.rs` ownership is split by method: root's table-function context
   versus B1 relation resolution. Stored SQL must preserve pinned qualification,
   dependencies, old snapshots, replacement and native reopen semantics; an
-  in-memory view is not completion. Functional/performance verification open.
+  in-memory view is not completion. First engine/private-snapshot slice passes
+  five view tests; native query-AST codec/checkpoint/WAL is still in progress.
+  Both pins allow DROP TABLE/VIEW despite dependent views, so do not invent
+  blocking dependencies; root observations are
+  `target/batch2/b1-reference-observations.md`. Functional/performance acceptance
+  remains open.
 
 The first round starts from the latest accepted integrated revision, after the
 lead freezes the F1 and C2.1 scope/consumer manifests. Planned modules/targets below are
