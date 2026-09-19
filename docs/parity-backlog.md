@@ -529,7 +529,7 @@ deferred under the engine-first rule.
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Packed CSV/vector/cast implementation through `dd167be` passes configured Terra/low scoped verification; production preparation is running. Not accepted: previous candidate4 native performance FAILS (narrow2.30×, wide2.05×), packed candidate5 is not measured. Previous COUNT source/fixtures and durable feasibility12/12 pass and remain valid. Remaining CSV/F1/A2/B1/COUNT performance gates stay open. Exact restart commands and evidence below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Packed CSV/vector/cast implementation through `dd167be` passes scoped verification and production preparation, but candidate5 native performance still FAILS (narrow1.81×, wide1.44× faster-pin latency). Further bounded work is active: Terra/medium flat record metadata/unquoted-record fast path, Sol/high selected borrowed VARCHAR-to-integer casts, root scan integration/boundaries. Previous COUNT source/fixtures and durable feasibility12/12 remain valid. Remaining CSV/F1/A2/B1/COUNT performance gates stay open. Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
 Checkpoint contract: update this table and each affected entry in place with
@@ -872,17 +872,36 @@ Batch 2 evidence/restart details:
   Clippy conditional-expression style; equivalent if/else `dd167be` refreshed
   only scanner table_functions15 and remaining stages. Preserve both failed
   reports; no unrelated engine/Python/recovery/Kani checks ran.
-  Running production preparation:
-  `python3 target/batch2/prepare_optimized_csv.py --packed-csv`, then quiet-host
-  `python3 target/batch2/run_csv_native_candidate4.py --authorized --packed-csv`
-  writes fresh candidate5 reports against unchanged candidate2 inputs. The
-  wrapper's filename is historical; flags choose candidate5. Performance remains
-  open on this implementation; an agent-ready report is not completion.
+  Production preparation passes all7 stages in `prep-csv-count-candidate5/`,
+  including fresh four-binary build/provenance, original CSV source3/2, generated
+  Rust fixtures16/16 and unchanged input checks. Original COUNT7/6 is reused.
+  Candidate5 native performance still FAILS: narrow18.917/19.018ms against
+  faster-pin10.445ms; wide85.194/85.124ms against59.323ms. Wide beats development
+  but not release, so no joint acceptance. Preserve both21/3 campaigns and
+  `f2-performance/native-fastest-candidate5.json`; no CSV process timing ran.
+  Diagnostic-only profiles `profile-candidate5-{wide,narrow}/stacks.txt` pass
+  55/246 query oracles and identify remaining parser/row allocation and integer
+  input materialization costs. Frozen implementation `21ab348`: flattened field metadata with
+  row ends, conservative complete-unquoted-record fast path, and selected-adapter
+  borrowed VARCHAR integer conversion. Complex records and custom casts retain
+  ordinary fallbacks; no parser/cast validation may be bypassed. Root integration
+  manifest: `csv-record-borrowed-integration-manifest.md`; integrated nine-stage
+  `record-borrowed-final-partial.md` is dispatched to the configured Terra/low
+  verifier, output `record-borrowed-verifier/`. Expected affected counts are
+  borrowed cast3, CSV17, table_functions16, casts16. Packed vector/COUNT/length
+  inputs are unchanged, so retain that verified evidence. After a passing partial,
+  `prepare_optimized_csv.py --borrowed-csv` refreshes candidate6 production/source
+  evidence; then `run_csv_native_candidate4.py --authorized --borrowed-csv` runs
+  both fixed-pin native gates. Selected integer source obligations are14 original
+  records per pin in `borrowed-varchar-cast-manifest.md`; broader decimal/exponent
+  grammar remains a G05 gap, not delivered by this allocation optimization.
   Following the CSV native gate, reviewed command arrays for the remaining
   CSV process/F1/A2/B1/COUNT gates are in `remaining-performance-commands.json`;
   serial per-stage executor is `run_remaining_stage.py STAGE --authorized`.
-  Begin with its untimed `durable_preparation` after the current release build.
-  All outputs are fresh and all workloads/21samples/3warmups remain fixed.
+  Its untimed `durable_preparation` passed on candidate5; later executable
+  changes require a fresh attestation, not overwritten evidence. No timed stage
+  has run. CSV process output must advance to the next actual candidate rather
+  than retain a stale candidate5 label. All workloads/21samples/3warmups remain fixed.
   Then refresh the fixed quiet-host workloads; previous view/native evidence is
   unchanged, not an excuse to rerun it.
 - B1: worker `codex/batch2-b1` owns persistent views/catalog/binding/native
