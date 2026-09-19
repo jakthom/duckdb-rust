@@ -754,10 +754,19 @@ Batch 2 evidence/restart details:
   pin/file selections: `target/a2/{release,development}-paths.txt`. Scalar
   comma tokens must remain whole; tuple names retain arity checks. Python-proxy
   performance needs a comparable measurement adapter; this remains explicit
-  acceptance work, not an exemption for tooling.
+  acceptance work, not an exemption for tooling. Core worker `17d81f9` is
+  integrated as `0857865`: Python 12/12 and Rust runner 70/70 pass; all six
+  previously lost pin/file passes are restored (release records 1211/47;
+  development 1211/47/51/195). Development uses the unchanged root-private
+  pinned source via a recorded entry wrapper, not the mismatched shared checkout.
+  Adapter follow-ups remain on the worker branch pending fail-closed evidence
+  and negative-test review; no timing or independent final sweep yet.
 - F2.1: worker `codex/batch2-f2` owns single-file explicit-schema CSV. Manifest:
-  worker `target/f2/validation-manifest.md`. Buffered parser's initial three
-  tests pass; adapter/SQL/upstream/performance acceptance remains open. Root
+  worker `target/f2/validation-manifest.md`. Initial adapter worker `797e3be`
+  passes five parser and ten table-function tests, but review identified pending
+  strict quote/error handling, resource bounds, option semantics, instrumentation
+  and boundary-test corrections. It is not integrated or accepted yet;
+  pin-specific unchanged upstream and performance acceptance remain open. Root
   seam `a817ede` supplies selected casts and binder-owned type-name resolution
   to table adapters; 8/8 `table_functions` tests pass, including nested STRUCT
   arguments, custom cast, DECIMAL and catalog/search-path ENUM. No alternate
