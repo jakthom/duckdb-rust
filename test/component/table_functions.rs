@@ -20,6 +20,8 @@ use duckdb_rust::{
 
 #[path = "table_functions/bind_services.rs"]
 mod bind_services;
+#[path = "table_functions/csv.rs"]
+mod csv;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn ints(values: &[i128]) -> Vec<Vec<Value>> {

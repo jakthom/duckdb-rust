@@ -13,6 +13,9 @@ mod range;
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn register(registry: &mut super::FunctionRegistry) {
     registry
+        .register_table(Arc::new(csv::ReadCsv))
+        .expect("unique read_csv table function");
+    registry
         .register_table(Arc::new(range::IntegerRange::new(false)))
         .expect("unique range table function");
     registry

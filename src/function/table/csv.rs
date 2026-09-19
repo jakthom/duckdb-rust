@@ -3,11 +3,24 @@
 //! Dialect/type detection, file expansion, compression, and rejected-row modes
 //! deliberately do not belong here.  The scanner preserves enough field state
 //! across reads to make the fixed input buffer unobservable to callers.
-use std::{fs::File, io::Read, path::Path};
+use std::{
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use crate::{
-    common::{Error, Result},
+    common::{
+        DataType, Error, NestedPayload, NestedType, Result, Value,
+        cast::{BoundCast, CastMode},
+        vector::DataChunk,
+    },
+    function::table::{
+        TableFunction, TableFunctionArgument, TableFunctionBind, TableFunctionBindContext,
+        TableFunctionState,
+    },
     parallel::QueryContext,
+    planner::Field,
 };
 
 const BUFFER_BYTES: usize = 4096;
@@ -19,6 +32,7 @@ pub(super) struct CsvOptions {
     pub escape: u8,
     pub null: Vec<u8>,
     pub header: bool,
+    pub allow_quoted_nulls: bool,
 }
 
 impl Default for CsvOptions {
@@ -29,6 +43,7 @@ impl Default for CsvOptions {
             escape: b'"',
             null: Vec::new(),
             header: false,
+            allow_quoted_nulls: true,
         }
     }
 }
@@ -208,7 +223,9 @@ impl CsvReader {
         let bytes = std::mem::take(&mut self.field);
         let value = String::from_utf8(bytes)
             .map_err(|_| Error::Conversion("CSV field is not valid UTF-8".into()))?;
-        let value = if !self.field_quoted && value.as_bytes() == self.options.null.as_slice() {
+        let value = if (!self.field_quoted || self.options.allow_quoted_nulls)
+            && value.as_bytes() == self.options.null.as_slice()
+        {
             None
         } else {
             Some(value)
@@ -230,6 +247,227 @@ impl CsvReader {
         }
         Ok(())
     }
+}
+
+#[derive(Debug)]
+pub(super) struct ReadCsv;
+
+#[derive(Debug)]
+struct CsvBindData {
+    path: PathBuf,
+    options: CsvOptions,
+    types: Vec<DataType>,
+    casts: Vec<BoundCast>,
+}
+
+#[derive(Debug)]
+struct CsvState {
+    reader: CsvReader,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TableFunction for ReadCsv {
+    fn name(&self) -> &str {
+        "read_csv"
+    }
+
+    fn bind(
+        &self,
+        arguments: &[TableFunctionArgument],
+        context: &TableFunctionBindContext<'_>,
+    ) -> Result<TableFunctionBind> {
+        context.query.check()?;
+        let mut path = None;
+        let mut columns = None;
+        let mut options = CsvOptions::default();
+        for argument in arguments {
+            match argument
+                .name
+                .as_deref()
+                .map(str::to_ascii_lowercase)
+                .as_deref()
+            {
+                None => {
+                    if path.is_some() {
+                        return Err(Error::Bind("read_csv accepts one file path".into()));
+                    }
+                    path = Some(text_argument(argument, "file path")?);
+                }
+                Some("columns") => {
+                    if columns.is_some() {
+                        return Err(Error::Bind(
+                            "read_csv columns specified more than once".into(),
+                        ));
+                    }
+                    columns = Some(columns_argument(argument)?);
+                }
+                Some("header") => options.header = boolean_argument(argument, "header")?,
+                Some("allow_quoted_nulls") => {
+                    options.allow_quoted_nulls = boolean_argument(argument, "allow_quoted_nulls")?
+                }
+                Some("delim") | Some("sep") => {
+                    options.delimiter = byte_argument(argument, "delimiter")?
+                }
+                Some("quote") => options.quote = byte_argument(argument, "quote")?,
+                Some("escape") => options.escape = byte_argument(argument, "escape")?,
+                Some("nullstr") => options.null = text_argument(argument, "nullstr")?.into_bytes(),
+                Some("auto_detect") | Some("sample_size") | Some("all_varchar") => {
+                    return Err(Error::NotImplemented(
+                        "read_csv auto detection is outside the explicit-schema reader".into(),
+                    ));
+                }
+                Some(option) => {
+                    return Err(Error::NotImplemented(format!(
+                        "read_csv option {option} is not implemented"
+                    )));
+                }
+            }
+        }
+        let path = path.ok_or_else(|| Error::Bind("read_csv requires a file path".into()))?;
+        let columns = columns.ok_or_else(|| {
+            Error::Bind("read_csv requires explicit columns={'name':'TYPE'}".into())
+        })?;
+        if columns.is_empty() {
+            return Err(Error::Bind("read_csv columns cannot be empty".into()));
+        }
+        let mut schema = Vec::with_capacity(columns.len());
+        let mut types = Vec::with_capacity(columns.len());
+        let mut casts = Vec::with_capacity(columns.len());
+        for (name, type_name) in columns {
+            let data_type = (context.resolve_type)(&type_name)?;
+            let cast = context.casts.bind(
+                &DataType::Varchar,
+                &data_type,
+                CastMode::Explicit,
+                context.query.types(),
+            )?;
+            schema.push(Field::new(name, data_type.clone()));
+            types.push(data_type);
+            casts.push(cast);
+        }
+        Ok(TableFunctionBind::new(
+            schema,
+            CsvBindData {
+                path: PathBuf::from(path),
+                options,
+                types,
+                casts,
+            },
+        ))
+    }
+
+    fn init(
+        &self,
+        bind: &TableFunctionBind,
+        context: &QueryContext,
+    ) -> Result<Box<dyn TableFunctionState>> {
+        context.check()?;
+        let data = bind
+            .data()
+            .downcast_ref::<CsvBindData>()
+            .ok_or_else(|| Error::Internal("read_csv bind data type mismatch".into()))?;
+        Ok(Box::new(CsvState {
+            reader: CsvReader::open(&data.path, data.options.clone())?,
+        }))
+    }
+
+    fn scan(
+        &self,
+        bind: &TableFunctionBind,
+        state: &mut dyn TableFunctionState,
+        max_rows: usize,
+        context: &QueryContext,
+    ) -> Result<Option<DataChunk>> {
+        if max_rows == 0 {
+            return Ok(None);
+        }
+        let data = bind
+            .data()
+            .downcast_ref::<CsvBindData>()
+            .ok_or_else(|| Error::Internal("read_csv bind data type mismatch".into()))?;
+        let state = state
+            .downcast_mut::<CsvState>()
+            .ok_or_else(|| Error::Internal("read_csv state type mismatch".into()))?;
+        let Some(rows) = state.reader.next_rows(max_rows, context)? else {
+            return Ok(None);
+        };
+        let mut values = Vec::with_capacity(rows.len());
+        for (row_number, row) in rows.into_iter().enumerate() {
+            context.check()?;
+            if row.len() != data.casts.len() {
+                return Err(Error::Conversion(format!(
+                    "CSV record {} has {} columns; expected {}",
+                    row_number + 1,
+                    row.len(),
+                    data.casts.len()
+                )));
+            }
+            let mut converted = Vec::with_capacity(row.len());
+            for (field, cast) in row.into_iter().zip(&data.casts) {
+                let input = field.value.map_or(Value::Null, Value::Varchar);
+                converted.push(cast.apply(&input, context)?);
+            }
+            values.push(converted);
+        }
+        DataChunk::from_rows(&data.types, &values).map(Some)
+    }
+}
+
+fn text_argument(argument: &TableFunctionArgument, name: &str) -> Result<String> {
+    match &argument.value {
+        Value::Varchar(value) => Ok(value.clone()),
+        _ => Err(Error::Bind(format!("read_csv {name} must be VARCHAR"))),
+    }
+}
+
+fn boolean_argument(argument: &TableFunctionArgument, name: &str) -> Result<bool> {
+    match argument.value {
+        Value::Boolean(value) => Ok(value),
+        _ => Err(Error::Bind(format!("read_csv {name} must be BOOLEAN"))),
+    }
+}
+
+fn byte_argument(argument: &TableFunctionArgument, name: &str) -> Result<u8> {
+    let value = text_argument(argument, name)?;
+    let bytes = value.as_bytes();
+    if bytes.len() != 1 || !bytes[0].is_ascii() {
+        return Err(Error::Bind(format!(
+            "read_csv {name} must be one ASCII byte"
+        )));
+    }
+    Ok(bytes[0])
+}
+
+fn columns_argument(argument: &TableFunctionArgument) -> Result<Vec<(String, String)>> {
+    let Value::Nested(value) = &argument.value else {
+        return Err(Error::Bind("read_csv columns must be a STRUCT".into()));
+    };
+    let DataType::Nested(metadata) = &value.data_type else {
+        return Err(Error::Internal(
+            "CSV STRUCT value lacks nested metadata".into(),
+        ));
+    };
+    let NestedType::Struct(names) = metadata.as_ref() else {
+        return Err(Error::Bind("read_csv columns must be a STRUCT".into()));
+    };
+    let NestedPayload::Struct(values) = &value.payload else {
+        return Err(Error::Bind("read_csv columns must be a STRUCT".into()));
+    };
+    if names.len() != values.len() {
+        return Err(Error::Internal(
+            "CSV STRUCT value has inconsistent fields".into(),
+        ));
+    }
+    names
+        .iter()
+        .zip(values)
+        .map(|((name, _), value)| match value {
+            Value::Varchar(type_name) => Ok((name.clone(), type_name.clone())),
+            _ => Err(Error::Bind(format!(
+                "read_csv type for column {name} must be VARCHAR"
+            ))),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -268,7 +506,7 @@ mod tests {
         assert_eq!(parsed[0][1].value.as_deref(), Some("has, comma"));
         assert_eq!(parsed[0][2].value, None);
         assert_eq!(parsed[1][1].value.as_deref(), Some(long.as_str()));
-        assert_eq!(parsed[1][2].value.as_deref(), Some("\\N"));
+        assert_eq!(parsed[1][2].value, None);
         Ok(())
     }
 
