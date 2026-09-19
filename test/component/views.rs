@@ -159,8 +159,17 @@ fn old_transaction_keeps_view_definition_and_private_checkpoint_reopens() -> Res
     assert_eq!(old.query("SELECT * FROM v")?.rows, ints(&[3]));
     writer.execute("CREATE OR REPLACE VIEW v AS SELECT i + 5 AS i FROM t")?;
     assert_eq!(old.query("SELECT * FROM v")?.rows, ints(&[3]));
+    assert_eq!(writer.query("SELECT * FROM v")?.rows, ints(&[8]));
     old.execute("COMMIT")?;
     assert_eq!(old.query("SELECT * FROM v")?.rows, ints(&[8]));
+
+    old.execute("BEGIN")?;
+    assert_eq!(old.query("SELECT * FROM v")?.rows, ints(&[8]));
+    writer.execute("DROP VIEW v")?;
+    assert!(writer.query("SELECT * FROM v").is_err());
+    assert_eq!(old.query("SELECT * FROM v")?.rows, ints(&[8]));
+    old.execute("COMMIT")?;
+    assert!(old.query("SELECT * FROM v").is_err());
 
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("views.snapshot");

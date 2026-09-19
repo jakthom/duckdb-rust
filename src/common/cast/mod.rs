@@ -366,7 +366,9 @@ impl BoundCast {
         Ok(Some(selected))
     }
     pub fn is_total(&self) -> bool {
-        self.function.is_total(&self.spec)
+        // A total converter cannot prove a replacement target type's payload
+        // constraints. Keep those potentially fallible checks in row order.
+        !self.target.requires_logical_validation() && self.function.is_total(&self.spec)
     }
     pub fn apply_batch(
         &self,
@@ -946,14 +948,18 @@ impl CastFunction for PrimitiveCast {
                 || (spec.source == DataType::Float && spec.target == DataType::Double))
     }
     fn is_total(&self, spec: &CastSpec) -> bool {
+        // Decimal text exists for every valid BIGINT, including both extrema.
+        // This permits column evaluation of otherwise-total CASE expressions;
+        // it makes no claim that VARCHAR preserves integer representation.
+        (spec.source == DataType::BigInt && spec.target == DataType::Varchar)
+            || self.preserves_integer_value(spec)
+    }
+    fn preserves_integer_value(&self, spec: &CastSpec) -> bool {
         spec.source.integer_bits().is_some_and(|source| {
             spec.target
                 .integer_bits()
                 .is_some_and(|target| target >= source)
         })
-    }
-    fn preserves_integer_value(&self, spec: &CastSpec) -> bool {
-        self.is_total(spec)
     }
     fn cast_batch(
         &self,

@@ -32,7 +32,7 @@ use crate::{
 pub struct Snapshot {
     schemas: BTreeSet<String>,
     tables: BTreeMap<String, Arc<TableData>>,
-    views: BTreeMap<String, ViewDefinition>,
+    views: BTreeMap<String, Arc<ViewDefinition>>,
     named_types: BTreeMap<String, TypeDefinition>,
     #[serde(skip)]
     registry: CatalogRegistry,
@@ -402,7 +402,11 @@ impl Snapshot {
         Self {
             schemas: state.schemas,
             tables: state.tables,
-            views: state.views,
+            views: state
+                .views
+                .into_iter()
+                .map(|(key, definition)| (key, Arc::new(definition)))
+                .collect(),
             named_types: state.named_types,
             registry,
             indexes: Arc::new(HashIndexFactory),
@@ -690,11 +694,15 @@ impl Catalog for Snapshot {
     fn view(&self, name: &TableName) -> Result<ViewDefinition> {
         self.views
             .get(&name.key())
-            .cloned()
+            .map(|definition| definition.as_ref().clone())
             .ok_or_else(|| Error::Catalog(format!("view {name} does not exist")))
     }
     fn views(&self) -> Result<Vec<ViewDefinition>> {
-        Ok(self.views.values().cloned().collect())
+        Ok(self
+            .views
+            .values()
+            .map(|definition| definition.as_ref().clone())
+            .collect())
     }
     fn view_entry(&self, name: &TableName) -> Result<ResolvedView> {
         let definition = self.view(name)?;
@@ -916,7 +924,7 @@ impl CatalogMut for Snapshot {
         conflict: CreateConflictPolicy,
     ) -> Result<bool> {
         let prepared = self.prepare_view_creation(&definition, conflict)?;
-        self.apply_view_creation(definition, &prepared)
+        self.apply_view_creation(Arc::new(definition), &prepared)
     }
     fn drop_view(
         &mut self,
@@ -1090,7 +1098,7 @@ impl Snapshot {
 
     pub(crate) fn apply_view_creation(
         &mut self,
-        definition: ViewDefinition,
+        definition: Arc<ViewDefinition>,
         prepared: &PreparedCatalogCreate,
     ) -> Result<bool> {
         if prepared.name() != &CatalogObjectName::view(&definition.name)? {

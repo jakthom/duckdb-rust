@@ -537,13 +537,20 @@ implementation of Batch 3 still follows Batch 2 acceptance.
 Batch 1 stays accepted. Batch 2's native WAL continuation and atomic first-
 transaction publication pass scoped verification and both-pin native oracles at
 `d5d19ac`; empty-WAL read elision passes114 affected tests at `36a0293`.
-Compiled A2 now passes all five workload gates at `9e5418f`, including lifecycle
-at0.953 of the faster pin. CSV and all six other affected compiled process
-families also pass. The independent Python proxy now passes both large workloads and all memory
-gates, but three short workloads still fail latency; Batch 2 acceptance remains open. The next startup repair passes
-configured partial verification (150 Python, six worker and one temporal test,
-plus lint/coverage/tracing); release replay and fresh proxy performance follow.
-Unchanged compiled/native evidence is retained under the impact-scope policy.
+Compiled A2 passes all five workload gates at `9e5418f`, including lifecycle
+at0.953 of the faster pin. CSV and all six affected compiled process families
+also pass at their recorded inputs. At `d608b5a`, the independent Python proxy
+passes both large workloads and all memory gates; three short workloads still
+fail latency. The startup repair and tiny entry have passed configured partial
+checks and release replay. Independent B1/COUNT measurements expose additional
+native query/DDL, checkpoint publication and CTAS process gaps. Batch2 repairs
+now cover immutable view payload sharing, packed checked integer arithmetic,
+optional projection-chain evaluation and BIGINT-to-text CASE totality, with
+retained custom-adapter validation. Their integrated partial manifest is
+`target/batch2/native-repairs-integrated-manifest.md`;365 functional tests,
+scoped Clippy, coverage (no missing instrumentation) and tracing now pass.
+Release/upstream and affected performance acceptance remain pending. Unchanged evidence is retained only under
+the impact-scope policy, including the still-failed Python proxy gates.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -905,13 +912,67 @@ negatives. Existing public/upstream and Rust evidence remains at its unchanged
 inputs. Diagnostic entry savings are roughly3–4ms, not acceptance. A target-only
 standard static CPython3.11.4 build is being investigated as a separate runtime
 configuration; no installed interpreter is replaced and no prior failed runtime
-gate is converted to a pass. Final five-workload proxy performance stays open.
+gate is converted to a pass. Final tiny-entry campaign at `d608b5a` passes both large workloads and all
+memory/I/O gates; small CPU now passes. Short scalar/lifecycle/read-only latency
+still fails at31.399/60.090/54.914ms versus25.862/38.352/35.566ms; lifecycle CPU
+is30ms versus20ms. Preserve `a2-tiny-entry-proxy-candidate1.json` and stage exit1.
+Static CPython and removal of its unused direct CoreFoundation link pass bounded
+runtime smoke but do not show sufficient diagnostic improvement; neither is
+adopted as the project interpreter. Default-runtime proxy parity remains open.
+Batch ordering is unchanged pending the user's response to whether the next
+implementation batches may proceed while these acceptance gates remain open.
+Within Batch2, ROOT now collects the already-authorized independent B1 and COUNT
+acceptance stages while A2 remains failed. This scheduling change supersedes the
+prior stop-before-B1/COUNT clause only; each stage is still fail-fast and no pass
+can compensate for open A2. Reviewed exact commands/settings/outputs are copied
+unchanged into `independent-b1-count-performance-manifest.json`, with frozen
+input checks and receipts in `independent-b1-count-stage-logs/`. The fixed10k
+seed, references and all resource thresholds are unchanged. No new engine
+implementation or full sweep is introduced by that scheduling change.
+The independent campaign at `d608b5a` completes with stable inputs and exit1:
+all five release B1 native cases fail (ratios2.31/2.47/22.33/11.34/3.33), so
+development/joint/process stages remain unexecuted. B1 durable WAL view/direct
+cases pass (0.855/0.965); checkpoint view/direct fail (1.111/1.197), with
+CPU/RSS/I/O passing. COUNT native query passes both pins (0.101/0.087), but
+nullable-VARCHAR CTAS process fails at31.016ms versus27.382ms and CPU20ms versus
+10ms; DISTINCT-star rejection passes. Preserve the three independent stage
+receipts, all failed samples, and unchanged input hashes under `target/batch2/`.
+Follow-on Batch2 repairs investigate actual measured execution: BIGINT-to-text
+totality for CASE column evaluation, immutable view payload sharing, and stacked
+physical projections. The proposed expression-only add-spine optimization was
+withdrawn because separate view projections never reach it; conditional removal
+of non-journal catalog basis was rejected because it changes committed-row
+constraint checks. Their target-only designs are not passing implementations.
+The integrated follow-on repairs now pass configured partial verification:
+casts20, numeric contracts9, execution118, views11, contracts108, operators10,
+grouping84, regex2 and three exact ALTER consumers (365total). Clippy first
+caught one unused test import; its removal refreshed casts and passed lint,
+coverage with no missing instrumentation, and tracing. Preserve verifier1's
+failed lint result and compose unchanged functional evidence with verifier2's
+correction; source inputs are stable. Release build, the new14-record Rust/27-assertion-per-pin witness, and all eight
+native view exchange cases pass. The existing whole string-cast file still fails
+at its first hexadecimal-to-INTEGER case; the attested `add001f` worker reproduces
+the identical error. Its unchanged applicable formatting prefix and the four
+other selected files pass. Preserve the full-file failure and unreached cases;
+`native-repairs-hex-scope-resolution.md` records this pre-existing G04 gap.
+COUNT now passes both native references and every process/resource gate:
+nullable CTAS19.760ms versus27.077ms (ratio0.730), CPU10ms versus10ms, and lower
+peak memory. B1 stacked views improve to212.375us versus271.292us on release,
+but filtered view/direct, direct arithmetic and CREATE VIEW still fail at
+ratios2.307/2.503/3.852/2.811. Development/joint/process B1 stages did not run
+after that failure. Durable and string/regex consumer acceptance remains open.
+Evidence: `native-repairs-preparation2/report.json`,
+`native-repairs-performance-stage-logs1/`, and their exact source/input hashes. Pre-execution upstream scope review restored the exact previously
+accepted B1 view-if-not-exists/alias/stacked cases, alongside unchanged cast cases
+and a new14-record witness; unrelated introspection/deferred-binding settings
+remain unimplemented, not passed. Frozen commands, source/input hashes and
+scope rationale remain under `target/batch2/native-repairs-*`.
 
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: compiled A2 all five and all seven affected compiled process commands pass at `9e5418f`; native WAL/recovery evidence remains valid. Python proxy startup candidate1 passes both large workloads and all memory gates, but short scalar/lifecycle/read-only latency still fail. Startup repair passes150 Python,6 worker,1 temporal tests and all41 release replay stages. Tiny entry then passes64 affected Python tests and16 actual replay stages; fresh proxy gate remains open, then pending B1/COUNT. Keep failed runs and unaffected evidence. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: compiled A2 all five and all seven affected compiled process commands pass at their `9e5418f` inputs. Tiny-entry Python proxy at `d608b5a` passes both large workloads and memory gates; three short latency gates remain failed. Native repairs pass365 scoped functional tests plus lint/coverage/tracing and scoped release replay. COUNT now passes native/process/resource gates; B1 stacked views pass release latency, but four B1 native cases and earlier checkpoint gates fail. Durable and string/regex consumer acceptance remains pending; the pre-existing hexadecimal cast gap stays explicit. Preserve failed runs and only unaffected evidence. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |

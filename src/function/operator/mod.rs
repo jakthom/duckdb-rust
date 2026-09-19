@@ -183,6 +183,24 @@ impl BoundOperator {
     pub(crate) fn batch_kind(&self, access: OperatorBatchAccess) -> Option<OperatorBatchKind> {
         self.function.batch_kind(access)
     }
+    /// A crate-owned physical projection may skip per-stage operator dispatch
+    /// only after this binding proves that no retained logical adapter or
+    /// effect contract is being bypassed.
+    pub(crate) fn bigint_literal_add_physical_only(&self) -> bool {
+        self.batch_kind(OperatorBatchAccess)
+            .is_some_and(|kind| kind.is(OperatorBatchIdentity::NumericArithmetic))
+            && self.signature.operator == Operator::Add
+            && self.signature.arguments.as_slice() == [DataType::BigInt, DataType::BigInt]
+            && self.signature.result == DataType::BigInt
+            && !self.signature.nullable
+            && !self.effects.volatile
+            && !self.effects.external_access
+            && self
+                .arguments
+                .iter()
+                .all(|data_type| !data_type.requires_logical_validation())
+            && !self.result.requires_logical_validation()
+    }
     pub fn effects(&self) -> FunctionEffects {
         self.effects
     }

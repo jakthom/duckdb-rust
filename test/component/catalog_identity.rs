@@ -2,7 +2,7 @@ use duckdb_rust::{
     DataType, Database, Error, Result, Value,
     catalog::{
         Catalog, CatalogMut, ColumnDefinition, CreateConflictPolicy, DropBehavior, ResolvedTable,
-        TableAlteration, TableDefinition, TableName, TypeDefinition, TypeName,
+        TableAlteration, TableDefinition, TableName, TypeDefinition, TypeName, ViewDefinition,
     },
     common::cast::CastRegistry,
     execution::{
@@ -901,6 +901,16 @@ fn private_reopen_rebuilds_fresh_runtime_handles_without_wire_fields() -> Result
     snapshot.create_table(definition("analytics", "events"), false)?;
     let named_type = enum_definition("analytics", "mood", &[])?;
     snapshot.create_type(named_type.clone(), CreateConflictPolicy::Error)?;
+    let view = ViewDefinition {
+        name: TableName::new("analytics", "event_view"),
+        query: "SELECT i FROM analytics.events".into(),
+        aliases: vec![],
+        names: vec!["i".into()],
+        types: vec![DataType::Integer],
+        query_shape: None,
+        dependencies: vec![],
+    };
+    snapshot.create_view(view.clone(), CreateConflictPolicy::Error)?;
     let before_catalog = snapshot.identity().expect("snapshot identity");
     let before_table = snapshot
         .table_entry(&TableName::new("analytics", "events"))?
@@ -916,6 +926,12 @@ fn private_reopen_rebuilds_fresh_runtime_handles_without_wire_fields() -> Result
     assert_eq!(
         fields.keys().map(String::as_str).collect::<Vec<_>>(),
         vec!["named_types", "schemas", "tables", "views"]
+    );
+    let views = fields["views"].as_object().expect("raw view map");
+    assert_eq!(views.len(), 1);
+    assert_eq!(
+        views.values().next(),
+        Some(&serde_json::to_value(&view).map_err(|error| Error::Internal(error.to_string()))?)
     );
     let reopened: Snapshot =
         serde_json::from_slice(&bytes).map_err(|error| Error::Internal(error.to_string()))?;
@@ -938,6 +954,7 @@ fn private_reopen_rebuilds_fresh_runtime_handles_without_wire_fields() -> Result
         Err(Error::InvalidInput(_))
     ));
     assert_eq!(reopened.named_type(&named_type.name)?, named_type);
+    assert_eq!(reopened.view(&view.name)?, view);
 
     let mut legacy_wire = wire;
     legacy_wire

@@ -12,6 +12,80 @@ use duckdb_rust::{
     planner::BoundExpr,
 };
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn packed_checked_bigint_arithmetic_preserves_scalar_errors_and_selection() -> Result<()> {
+    use duckdb_rust::function::operator::{Operator, OperatorRegistry};
+    let query = QueryContext::background();
+    let registry = OperatorRegistry::builtins();
+    let flat = Vector::try_bigints([-9, -1, 0, 5, 21].map(|value| Ok(Some(value))))?;
+    let extrema = Vector::try_bigints([i64::MIN, 0, i64::MAX].map(|value| Ok(Some(value))))?;
+    let nullable = Vector::try_bigints([Some(-4), None, Some(8)].map(Ok))?;
+    let dictionary = Arc::new(flat.clone()).select(vec![4, 1, 3, 0])?;
+    let slice = flat.slice(1, 3)?;
+    let constant = Vector::constant(DataType::BigInt, Value::Integer(11), 5)?;
+    for operator in [Operator::Add, Operator::Subtract, Operator::Multiply] {
+        let bound = registry.bind(
+            operator,
+            &[DataType::BigInt, DataType::BigInt],
+            query.types(),
+        )?;
+        for rhs in [i64::MIN, -7, -1, 0, 1, 8, i64::MAX] {
+            for input in [&flat, &extrema, &nullable, &dictionary, &slice, &constant] {
+                let right =
+                    Vector::constant(DataType::BigInt, Value::Integer(rhs.into()), input.len())?;
+                let arguments = DataChunk::new(vec![input.clone(), right], input.len())?;
+                let scalar = input
+                    .values()
+                    .map(|value| bound.apply(&[value, Value::Integer(rhs.into())], &query))
+                    .collect::<Result<Vec<_>>>();
+                let batch = bound.apply_batch(&arguments, &query);
+                assert_eq!(
+                    format!("{scalar:?}"),
+                    format!(
+                        "{:?}",
+                        batch
+                            .as_ref()
+                            .map(|output| output.values().collect::<Vec<_>>())
+                    ),
+                    "{operator:?}, {rhs}, {input:?}"
+                );
+                if let Ok(output) = batch {
+                    let values = output.values().collect::<Vec<_>>();
+                    if output.numeric_ascending() {
+                        assert!(values.iter().all(|value| !value.is_null()));
+                        assert!(
+                            values.windows(2).all(
+                                |pair| pair[0].as_i128().unwrap() <= pair[1].as_i128().unwrap()
+                            )
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let interrupt = duckdb_rust::parallel::InterruptHandle::default();
+    let cancelled = QueryContext::new(interrupt.clone(), None, 1024, usize::MAX)?;
+    let add = registry.bind(
+        Operator::Add,
+        &[DataType::BigInt, DataType::BigInt],
+        query.types(),
+    )?;
+    let input = DataChunk::new(
+        vec![
+            flat,
+            Vector::constant(DataType::BigInt, Value::Integer(1), 5)?,
+        ],
+        5,
+    )?;
+    interrupt.interrupt();
+    assert!(matches!(
+        add.apply_batch(&input, &cancelled),
+        Err(Error::Interrupted)
+    ));
+    Ok(())
+}
+
 #[derive(Debug)]
 struct SelectionAdapter {
     kind: u8,

@@ -6,6 +6,7 @@ use duckdb_rust::{
         NumericArithmetic, Operator, OperatorFunction, OperatorRegistry, OperatorSignature,
     },
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
+    planner::{BoundExpr, ExprKind},
 };
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -83,6 +84,289 @@ fn integer_batch_kernels_match_scalar_width_null_selection_and_overflow_semantic
             }
         }
     }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn builtin_projection_chain_hook_proves_bounds_encodings_order_and_cancellation() -> Result<()> {
+    let registry = OperatorRegistry::builtins();
+    let query = QueryContext::background();
+    let stage = |query: &QueryContext, literal| -> Result<BoundExpr> {
+        Ok(BoundExpr {
+            kind: ExprKind::Operator(
+                Arc::new(registry.bind(
+                    Operator::Add,
+                    &[DataType::BigInt, DataType::BigInt],
+                    query.types(),
+                )?),
+                vec![
+                    BoundExpr {
+                        kind: ExprKind::Column(0),
+                        data_type: DataType::BigInt,
+                    },
+                    BoundExpr {
+                        kind: ExprKind::Literal(Value::Integer(literal)),
+                        data_type: DataType::BigInt,
+                    },
+                ],
+            ),
+            data_type: DataType::BigInt,
+        })
+    };
+    let stages = vec![stage(&query, 1)?, stage(&query, 2)?];
+    let input = Vector::try_bigints([Ok(Some(-2)), Ok(Some(0)), Ok(Some(4))])?;
+    let batch = DataChunk::new(vec![input.clone()], input.len())?;
+    let output = BatchedEvaluator
+        .evaluate_projection_chain_batch(&stages, &batch, &query)?
+        .expect("native BIGINT literal chain");
+    assert_eq!(
+        output.values().collect::<Vec<_>>(),
+        vec![Value::Integer(1), Value::Integer(3), Value::Integer(7)]
+    );
+    assert!(output.numeric_ascending());
+
+    for declined in [
+        Vector::constant(DataType::BigInt, Value::Integer(1), 3)?,
+        Vector::try_bigints([Ok(Some(1)), Ok(None), Ok(Some(3))])?,
+        Arc::new(input.clone()).select(vec![2, 0, 1])?,
+    ] {
+        let batch = DataChunk::new(vec![declined], 3)?;
+        assert!(
+            BatchedEvaluator
+                .evaluate_projection_chain_batch(&stages, &batch, &query)?
+                .is_none()
+        );
+    }
+    let out_of_range = vec![stage(&query, i128::from(i64::MAX) + 1)?, stage(&query, 1)?];
+    assert!(
+        BatchedEvaluator
+            .evaluate_projection_chain_batch(&out_of_range, &batch, &query)?
+            .is_none()
+    );
+    let overflow = DataChunk::new(
+        vec![Vector::try_bigints([Ok(Some(i64::MAX - 1)), Ok(Some(0))])?],
+        2,
+    )?;
+    assert!(
+        BatchedEvaluator
+            .evaluate_projection_chain_batch(&stages, &overflow, &query)?
+            .is_none()
+    );
+
+    let mut types = TypeRegistry::builtins();
+    types.replace(DataType::BigInt.family(), Arc::new(InvalidBatchType))?;
+    let logical = QueryContext::background().with_types(Arc::new(types));
+    assert!(
+        BatchedEvaluator
+            .evaluate_projection_chain_batch(&stages, &batch, &logical)?
+            .is_none()
+    );
+    let logical_stages = vec![stage(&logical, 1)?, stage(&logical, 2)?];
+    assert!(
+        BatchedEvaluator
+            .evaluate_projection_chain_batch(&logical_stages, &batch, &logical)?
+            .is_none()
+    );
+
+    let handle = InterruptHandle::default();
+    let cancelled = QueryContext::new(handle.clone(), None, 2, 20)?;
+    handle.interrupt();
+    assert!(matches!(
+        BatchedEvaluator.evaluate_projection_chain_batch(&stages, &batch, &cancelled),
+        Err(Error::Interrupted)
+    ));
+    Ok(())
+}
+
+#[derive(Debug)]
+struct CountingProjectionEvaluator(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ExpressionEvaluator for CountingProjectionEvaluator {
+    fn name(&self) -> &'static str {
+        "counting-projection"
+    }
+    fn evaluate(
+        &self,
+        expression: &duckdb_rust::planner::BoundExpr,
+        row: &Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<Value> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        ScalarEvaluator.evaluate(expression, row, context)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn projection_chain_keeps_custom_evaluator_stage_callbacks_and_native_fallbacks() -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut connection = DatabaseBuilder::new()
+        .expressions(Arc::new(CountingProjectionEvaluator(calls.clone())))
+        .batch_size(8)
+        .build()?
+        .connect();
+    connection.execute(
+        "CREATE TABLE base(i BIGINT); INSERT INTO base VALUES (1),(2),(3); \
+         CREATE VIEW first AS SELECT i + 1 AS i FROM base; \
+         CREATE VIEW second AS SELECT i + 1 AS i FROM first",
+    )?;
+    calls.store(0, Ordering::SeqCst);
+    assert_eq!(
+        connection.query("SELECT sum(i) FROM second")?.rows,
+        vec![ints(&[12])]
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 6);
+
+    let mut native = DatabaseBuilder::new().batch_size(8).build()?.connect();
+    native.execute(
+        "CREATE TABLE ends(i BIGINT); INSERT INTO ends VALUES (9223372036854775806); \
+         CREATE VIEW first_end AS SELECT i + 1 AS i FROM ends; \
+         CREATE VIEW second_end AS SELECT i + 1 AS i FROM first_end",
+    )?;
+    assert!(matches!(
+        native.query("SELECT sum(i) FROM second_end"),
+        Err(Error::Execution(message)) if message.contains("integer overflow")
+    ));
+    Ok(())
+}
+
+#[derive(Debug)]
+struct InvalidProjectionChainEvaluator;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ExpressionEvaluator for InvalidProjectionChainEvaluator {
+    fn name(&self) -> &'static str {
+        "invalid-projection-chain"
+    }
+    fn evaluate(
+        &self,
+        expression: &duckdb_rust::planner::BoundExpr,
+        row: &Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<Value> {
+        ScalarEvaluator.evaluate(expression, row, context)
+    }
+    fn evaluate_projection_chain_batch(
+        &self,
+        _: &[duckdb_rust::planner::BoundExpr],
+        input: &DataChunk,
+        _: &dyn EvaluationContext,
+    ) -> Result<Option<Vector>> {
+        Ok(Some(Vector::constant(
+            DataType::Varchar,
+            Value::Varchar("wrong".into()),
+            input.len(),
+        )?))
+    }
+}
+
+#[derive(Debug)]
+struct InvalidIntermediateProjectionEvaluator;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ExpressionEvaluator for InvalidIntermediateProjectionEvaluator {
+    fn name(&self) -> &'static str {
+        "invalid-intermediate-projection"
+    }
+    fn evaluate(
+        &self,
+        expression: &duckdb_rust::planner::BoundExpr,
+        row: &Row,
+        context: &dyn EvaluationContext,
+    ) -> Result<Value> {
+        ScalarEvaluator.evaluate(expression, row, context)
+    }
+    fn evaluate_batch(
+        &self,
+        _: &duckdb_rust::planner::BoundExpr,
+        input: &DataChunk,
+        _: &dyn EvaluationContext,
+    ) -> Result<Vector> {
+        Vector::constant(
+            DataType::Varchar,
+            Value::Varchar("wrong intermediate".into()),
+            input.len(),
+        )
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn projection_chain_validates_opt_in_evaluator_output() -> Result<()> {
+    let mut connection = DatabaseBuilder::new()
+        .expressions(Arc::new(InvalidProjectionChainEvaluator))
+        .batch_size(8)
+        .build()?
+        .connect();
+    connection.execute(
+        "CREATE TABLE base(i BIGINT); INSERT INTO base VALUES (1); \
+         CREATE VIEW first AS SELECT i + 1 AS i FROM base; \
+         CREATE VIEW second AS SELECT i + 1 AS i FROM first",
+    )?;
+    assert!(matches!(
+        connection.query("SELECT sum(i) FROM second"),
+        Err(Error::Internal(_))
+    ));
+
+    #[derive(Debug)]
+    struct WrongCardinality;
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    impl ExpressionEvaluator for WrongCardinality {
+        fn name(&self) -> &'static str {
+            "wrong-projection-chain-cardinality"
+        }
+        fn evaluate(
+            &self,
+            expression: &duckdb_rust::planner::BoundExpr,
+            row: &Row,
+            context: &dyn EvaluationContext,
+        ) -> Result<Value> {
+            ScalarEvaluator.evaluate(expression, row, context)
+        }
+        fn evaluate_projection_chain_batch(
+            &self,
+            _: &[duckdb_rust::planner::BoundExpr],
+            _: &DataChunk,
+            _: &dyn EvaluationContext,
+        ) -> Result<Option<Vector>> {
+            Ok(Some(Vector::constant(
+                DataType::BigInt,
+                Value::Integer(0),
+                0,
+            )?))
+        }
+    }
+    let mut cardinality = DatabaseBuilder::new()
+        .expressions(Arc::new(WrongCardinality))
+        .batch_size(8)
+        .build()?
+        .connect();
+    cardinality.execute(
+        "CREATE TABLE base(i BIGINT); INSERT INTO base VALUES (1); \
+         CREATE VIEW first AS SELECT i + 1 AS i FROM base; \
+         CREATE VIEW second AS SELECT i + 1 AS i FROM first",
+    )?;
+    assert!(matches!(
+        cardinality.query("SELECT sum(i) FROM second"),
+        Err(Error::Internal(message)) if message.contains("cardinality")
+    ));
+
+    let mut intermediate = DatabaseBuilder::new()
+        .expressions(Arc::new(InvalidIntermediateProjectionEvaluator))
+        .batch_size(8)
+        .build()?
+        .connect();
+    intermediate.execute(
+        "CREATE TABLE base(i BIGINT); INSERT INTO base VALUES (1); \
+         CREATE VIEW first AS SELECT i + 1 AS i FROM base; \
+         CREATE VIEW second AS SELECT i + 1 AS i FROM first",
+    )?;
+    assert!(matches!(
+        intermediate.query("SELECT sum(i) FROM second"),
+        Err(Error::Internal(_))
+    ));
     Ok(())
 }
 

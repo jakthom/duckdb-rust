@@ -43,6 +43,208 @@ fn spec(target: DataType, mode: CastMode) -> CastSpec {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn bigint_text_totality_preserves_integer_identity_and_boundaries() -> Result<()> {
+    let query = QueryContext::background();
+    let spec = CastSpec {
+        source: DataType::BigInt,
+        target: DataType::Varchar,
+        mode: CastMode::Explicit,
+    };
+    let mut registry = CastRegistry::builtins();
+    let cast = registry.bind(&spec.source, &spec.target, spec.mode, query.types())?;
+    assert!(cast.is_total());
+    assert!(!PrimitiveCast.preserves_integer_value(&spec));
+    let widening = CastSpec {
+        source: DataType::Integer,
+        target: DataType::BigInt,
+        mode: CastMode::Implicit,
+    };
+    assert!(PrimitiveCast.is_total(&widening));
+    assert!(PrimitiveCast.preserves_integer_value(&widening));
+    let flat = Vector::flat(
+        DataType::BigInt,
+        vec![
+            Value::Integer(i64::MIN.into()),
+            Value::Integer(-1),
+            Value::Integer(0),
+            Value::Integer(i64::MAX.into()),
+            Value::Null,
+        ],
+    )?;
+    let dictionary = Arc::new(flat.clone()).select(vec![3, 4, 0, 2, 1, 3])?;
+    let constant = Vector::constant(DataType::BigInt, Value::Integer(i64::MIN.into()), 7)?;
+    for input in [&flat, &dictionary, &constant] {
+        let expected = input
+            .values()
+            .map(|value| cast.apply(&value, &query))
+            .collect::<Result<Vec<_>>>()?;
+        assert_eq!(
+            cast.apply_batch(input, &query)?
+                .values()
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+    assert_eq!(
+        cast.apply_batch(&flat, &query)?
+            .values()
+            .collect::<Vec<_>>(),
+        vec![
+            Value::Varchar("-9223372036854775808".into()),
+            Value::Varchar("-1".into()),
+            Value::Varchar("0".into()),
+            Value::Varchar("9223372036854775807".into()),
+            Value::Null,
+        ]
+    );
+    assert!(matches!(
+        cast.apply(&Value::Integer(i128::MAX), &query),
+        Err(Error::Internal(_))
+    ));
+    let interrupt = InterruptHandle::default();
+    let cancelled = QueryContext::new(interrupt.clone(), None, 64, usize::MAX)?;
+    interrupt.interrupt();
+    assert!(matches!(
+        cast.apply_batch(&flat, &cancelled),
+        Err(Error::Interrupted)
+    ));
+    registry.replace(spec.clone(), Arc::new(Broken(1)))?;
+    assert!(
+        !registry
+            .bind(&spec.source, &spec.target, spec.mode, query.types())?
+            .is_total()
+    );
+    assert!(cast.is_total()); // Already bound plans retain the selected adapter.
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn bigint_text_case_matches_scalar_and_retains_lazy_errors() -> Result<()> {
+    use duckdb_rust::execution::expression_executor::BatchedEvaluator;
+    for batch_size in [1, 3, 2048] {
+        let mut scalar = DatabaseBuilder::new()
+            .expressions(Arc::new(ScalarEvaluator))
+            .batch_size(batch_size)
+            .build()?
+            .connect();
+        let mut batched = DatabaseBuilder::new()
+            .expressions(Arc::new(BatchedEvaluator))
+            .batch_size(batch_size)
+            .build()?
+            .connect();
+        for connection in [&mut scalar, &mut batched] {
+            connection.execute("CREATE TABLE text_case AS SELECT CASE WHEN i % 5 = 0 THEN NULL ELSE i::VARCHAR END AS v FROM range(2051) t(i)")?;
+        }
+        for sql in [
+            "SELECT v FROM text_case",
+            "SELECT count(v) FROM text_case",
+            "SELECT CASE WHEN i IS NULL THEN NULL ELSE i::VARCHAR END FROM (VALUES ('-9223372036854775808'::BIGINT),(0::BIGINT),(9223372036854775807::BIGINT),(NULL::BIGINT)) t(i)",
+            "SELECT CASE WHEN i % 2 = 0 THEN i::VARCHAR ELSE CAST('bad' AS BIGINT)::VARCHAR END FROM range(0,8,2) t(i)",
+            "SELECT CASE WHEN i < 0 THEN CAST('bad' AS BIGINT)::VARCHAR ELSE i::VARCHAR END FROM range(4) t(i)",
+        ] {
+            assert_eq!(batched.query(sql)?.rows, scalar.query(sql)?.rows, "{sql}");
+        }
+        assert_eq!(
+            batched.query("SELECT count(v) FROM text_case")?.rows,
+            vec![vec![Value::Integer(1640)]]
+        );
+        let sql = "SELECT CASE WHEN i % 2 = 0 THEN i::VARCHAR ELSE CAST('bad' AS BIGINT)::VARCHAR END FROM range(4) t(i)";
+        assert_eq!(
+            format!("{:?}", batched.query(sql).unwrap_err()),
+            format!("{:?}", scalar.query(sql).unwrap_err())
+        );
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct RejectTwoText;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl duckdb_rust::common::type_registry::TypeAdapter for RejectTwoText {
+    fn name(&self) -> &'static str {
+        "reject-two-text"
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        duckdb_rust::common::type_registry::PrimitiveTypes.validate_type(data_type)
+    }
+    fn validate_value(&self, _: &DataType, value: &Value, query: &QueryContext) -> Result<()> {
+        query.check()?;
+        if value == &Value::Varchar("2".into()) {
+            Err(Error::Conversion("logical target rejects two".into()))
+        } else {
+            Ok(())
+        }
+    }
+    fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        Ok(DataType::common(left, right).ok())
+    }
+    fn compare(
+        &self,
+        _: &DataType,
+        left: &Value,
+        right: &Value,
+        _: &QueryContext,
+    ) -> Result<std::cmp::Ordering> {
+        left.compare(right)
+    }
+    fn write_key(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        output: &mut duckdb_rust::common::type_registry::KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        duckdb_rust::common::type_registry::PrimitiveTypes
+            .write_key(data_type, value, output, query)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn total_converter_does_not_bypass_selected_logical_target_in_lazy_case() -> Result<()> {
+    use duckdb_rust::common::type_registry::TypeRegistry;
+    use duckdb_rust::execution::expression_executor::BatchedEvaluator;
+    let mut types = TypeRegistry::builtins();
+    types.replace(DataType::Varchar.family(), Arc::new(RejectTwoText))?;
+    let cast = CastRegistry::builtins().bind(
+        &DataType::BigInt,
+        &DataType::Varchar,
+        CastMode::Explicit,
+        &types,
+    )?;
+    assert!(!cast.is_total());
+    for evaluator in [
+        Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
+        Arc::new(BatchedEvaluator),
+    ] {
+        let mut connection = DatabaseBuilder::new()
+            .types(Arc::new(types.clone()))
+            .expressions(evaluator)
+            .build()?
+            .connect();
+        assert_eq!(
+            connection
+                .query("SELECT CASE WHEN i=2 THEN NULL ELSE i::VARCHAR END FROM range(1,4) t(i)")?
+                .rows,
+            vec![
+                vec![Value::Varchar("1".into())],
+                vec![Value::Null],
+                vec![Value::Varchar("3".into())]
+            ]
+        );
+        assert!(
+            connection
+                .query("SELECT i::VARCHAR FROM range(1,4) t(i)")
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn owned_builtin_identity_retains_payload_and_validation() -> Result<()> {
     let query = QueryContext::background();
     let cast = CastRegistry::builtins().bind(

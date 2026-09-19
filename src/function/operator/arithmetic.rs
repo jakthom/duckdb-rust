@@ -467,6 +467,32 @@ fn map_checked_integer_column(
     operation: impl Fn(i64) -> Result<i64>,
 ) -> Result<crate::common::vector::Vector> {
     use crate::common::vector::Vector;
+    if data_type == &DataType::BigInt
+        && column.all_valid()
+        && let Some(values) = column.flat_bigints()
+    {
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(values.len())
+            .map_err(|_| Error::Resource("cannot allocate BIGINT column".into()))?;
+        let mut numeric_ascending = true;
+        let mut previous = None;
+        for (index, &value) in values.iter().enumerate() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            // Retain the selected checked operation and its first lane error.
+            let value = operation(value)?;
+            numeric_ascending &= previous.is_none_or(|previous| previous <= value);
+            previous = Some(value);
+            output.push(value);
+        }
+        query.check()?;
+        return Ok(Vector::bigints_prevalidated_with_order(
+            output,
+            numeric_ascending,
+        ));
+    }
     if let Some(value) = column.constant_value() {
         let value = match value {
             Value::Null => Value::Null,

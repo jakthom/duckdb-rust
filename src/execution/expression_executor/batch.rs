@@ -580,6 +580,117 @@ pub struct BatchedEvaluator;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl ExpressionEvaluator for BatchedEvaluator {
+    fn evaluate_projection_chain_batch(
+        &self,
+        stages: &[BoundExpr],
+        input: &DataChunk,
+        context: &dyn EvaluationContext,
+    ) -> Result<Option<Vector>> {
+        let Some(column) = input
+            .columns()
+            .first()
+            .filter(|_| input.columns().len() == 1)
+        else {
+            return Ok(None);
+        };
+        if column.data_type() != &DataType::BigInt || !column.all_valid() {
+            return Ok(None);
+        }
+        let Some(values) = column.flat_bigints() else {
+            return Ok(None);
+        };
+        if context
+            .query()
+            .bind_type(&DataType::BigInt)?
+            .requires_logical_validation()
+        {
+            return Ok(None);
+        }
+        let mut offsets = Vec::new();
+        offsets
+            .try_reserve_exact(stages.len())
+            .map_err(|_| Error::Resource("cannot allocate projection-chain offsets".into()))?;
+        for stage in stages {
+            let ExprKind::Operator(operator, arguments) = &stage.kind else {
+                return Ok(None);
+            };
+            let [
+                BoundExpr {
+                    kind: ExprKind::Column(0),
+                    data_type: DataType::BigInt,
+                },
+                BoundExpr {
+                    kind: ExprKind::Literal(Value::Integer(offset)),
+                    data_type: DataType::BigInt,
+                },
+            ] = arguments.as_slice()
+            else {
+                return Ok(None);
+            };
+            if !operator.bigint_literal_add_physical_only() || stage.data_type != DataType::BigInt {
+                return Ok(None);
+            }
+            let Ok(offset) = i64::try_from(*offset) else {
+                return Ok(None);
+            };
+            offsets.push(offset);
+        }
+        if offsets.len() < 2 {
+            return Ok(None);
+        }
+        context.query().check()?;
+        let (mut minimum, mut maximum) = match values.split_first() {
+            Some((&value, tail)) => {
+                let mut minimum = value;
+                let mut maximum = value;
+                for (index, &value) in tail.iter().enumerate() {
+                    if index % 1024 == 0 {
+                        context.query().check()?;
+                    }
+                    minimum = minimum.min(value);
+                    maximum = maximum.max(value);
+                }
+                (minimum, maximum)
+            }
+            None => return Ok(None),
+        };
+        let mut folded = 0_i64;
+        for offset in offsets {
+            let Some(next_minimum) = minimum.checked_add(offset) else {
+                return Ok(None);
+            };
+            let Some(next_maximum) = maximum.checked_add(offset) else {
+                return Ok(None);
+            };
+            let Some(next_folded) = folded.checked_add(offset) else {
+                return Ok(None);
+            };
+            minimum = next_minimum;
+            maximum = next_maximum;
+            folded = next_folded;
+        }
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(values.len())
+            .map_err(|_| Error::Resource("cannot allocate BIGINT projection chain".into()))?;
+        let mut previous = None;
+        let mut ascending = true;
+        for (index, &value) in values.iter().enumerate() {
+            if index % 1024 == 0 {
+                context.query().check()?;
+            }
+            let value = value.checked_add(folded).ok_or_else(|| {
+                Error::Internal("proved projection-chain offset overflowed".into())
+            })?;
+            ascending &= previous.is_none_or(|previous| previous <= value);
+            previous = Some(value);
+            output.push(value);
+        }
+        context.query().check()?;
+        Ok(Some(Vector::bigints_prevalidated_with_order(
+            output, ascending,
+        )))
+    }
     fn uniform_selection(
         &self,
         expression: &BoundExpr,

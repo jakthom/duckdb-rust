@@ -21,7 +21,7 @@ use super::{
 use crate::{
     catalog::TableBinding,
     common::{
-        DataType, Result, Row,
+        DataType, Result, Row, Value,
         type_registry::OrderingRepresentation,
         vector::{DataChunk, Vector},
     },
@@ -141,6 +141,49 @@ struct Operator {
     node: Node,
 }
 
+/// Keep the planner neutral about expression adapters. It may preserve a
+/// consecutive unary shape, while the selected evaluator alone decides whether
+/// it can execute that chain specially.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn projection_chain(logical: &LogicalPlan) -> Option<(&LogicalPlan, Vec<BoundExpr>)> {
+    let mut current = logical;
+    let mut stages = Vec::new();
+    while let PlanNode::Projection { input, expressions } = &current.node {
+        if expressions.len() != 1 || !projection_chain_stage(&expressions[0]) {
+            return None;
+        }
+        stages.push(expressions[0].clone());
+        current = input;
+    }
+    (stages.len() >= 2).then(|| {
+        stages.reverse();
+        (current, stages)
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn projection_chain_stage(expression: &BoundExpr) -> bool {
+    let ExprKind::Operator(operator, arguments) = &expression.kind else {
+        return false;
+    };
+    let [
+        BoundExpr {
+            kind: ExprKind::Column(0),
+            data_type: DataType::BigInt,
+        },
+        BoundExpr {
+            kind: ExprKind::Literal(Value::Integer(literal)),
+            data_type: DataType::BigInt,
+        },
+    ] = arguments.as_slice()
+    else {
+        return false;
+    };
+    expression.data_type == DataType::BigInt
+        && i64::try_from(*literal).is_ok()
+        && operator.bigint_literal_add_physical_only()
+}
+
 #[derive(Debug)]
 enum Node {
     Values(Vec<Vec<BoundExpr>>),
@@ -168,6 +211,7 @@ enum Node {
     Filter(Arc<dyn PhysicalOperator>, BoundExpr),
     ColumnProjection(Arc<dyn PhysicalOperator>, Vec<usize>),
     Projection(Arc<dyn PhysicalOperator>, Vec<BoundExpr>),
+    ProjectionChain(Arc<dyn PhysicalOperator>, Vec<BoundExpr>),
     Join {
         left: Arc<dyn PhysicalOperator>,
         right: Arc<dyn PhysicalOperator>,
@@ -271,16 +315,20 @@ impl PhysicalPlanner for NativePhysicalPlanner {
                 }
             }
             PlanNode::Projection { input, expressions } => {
-                let columns = expressions
-                    .iter()
-                    .map(|expression| match expression.kind {
-                        ExprKind::Column(ordinal) => Some(ordinal),
-                        _ => None,
-                    })
-                    .collect::<Option<Vec<_>>>();
-                match columns {
-                    Some(columns) => Node::ColumnProjection(self.plan(input)?, columns),
-                    None => Node::Projection(self.plan(input)?, expressions.clone()),
+                if let Some((base, stages)) = projection_chain(logical) {
+                    Node::ProjectionChain(self.plan(base)?, stages)
+                } else {
+                    let columns = expressions
+                        .iter()
+                        .map(|expression| match expression.kind {
+                            ExprKind::Column(ordinal) => Some(ordinal),
+                            _ => None,
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    match columns {
+                        Some(columns) => Node::ColumnProjection(self.plan(input)?, columns),
+                        None => Node::Projection(self.plan(input)?, expressions.clone()),
+                    }
                 }
             }
             PlanNode::Join {
@@ -620,6 +668,61 @@ impl PhysicalOperator for Operator {
                     DataChunk::new(columns, batch.len()).map(Some)
                 })
             }
+            Node::ProjectionChain(input, stages) => {
+                let expressions = stages
+                    .iter()
+                    .map(PreparedExpression::new)
+                    .collect::<Vec<_>>();
+                let mut input = stream::open(input.as_ref(), context)?;
+                stream::from_fn(move |max_rows| {
+                    let Some(batch) = input.next(max_rows)? else {
+                        return Ok(None);
+                    };
+                    let count = batch.len();
+                    let (output, opted_in) = match context
+                        .expressions
+                        .evaluate_projection_chain_batch(stages, &batch, context)?
+                    {
+                        Some(output) => (output, true),
+                        None => {
+                            let mut current = batch;
+                            for (index, expression) in expressions.iter().enumerate() {
+                                let count = current.len();
+                                let output = expression.evaluate_batch(&current, context)?;
+                                if index + 1 < expressions.len() {
+                                    validate_projection_boundary(
+                                        &output,
+                                        &stages[index].data_type,
+                                        context,
+                                    )?;
+                                    context.query.check()?;
+                                }
+                                current = DataChunk::new(vec![output], count)?;
+                            }
+                            (
+                                current.columns().first().cloned().ok_or_else(|| {
+                                    crate::Error::Internal(
+                                        "projection chain produced no output".into(),
+                                    )
+                                })?,
+                                false,
+                            )
+                        }
+                    };
+                    if opted_in {
+                        if output.len() != count {
+                            return Err(crate::Error::Internal(
+                                "projection-chain batch cardinality differs from input".into(),
+                            ));
+                        }
+                        let field = schema.first().ok_or_else(|| {
+                            crate::Error::Internal("projection chain has no output field".into())
+                        })?;
+                        validate_projection_boundary(&output, &field.data_type, context)?;
+                    }
+                    DataChunk::new(vec![output], count).map(Some)
+                })
+            }
             Node::Limit(input, limit, offset) => {
                 let mut remaining = *limit;
                 let mut skip = *offset;
@@ -761,6 +864,31 @@ impl PhysicalOperator for Operator {
             }),
         })
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn validate_projection_boundary(
+    output: &Vector,
+    data_type: &DataType,
+    context: &ExecutionContext<'_>,
+) -> Result<()> {
+    if output.data_type() != data_type {
+        return Err(crate::Error::Internal(
+            "operator batch differs from its declared schema".into(),
+        ));
+    }
+    let data_type = context.query.types().bind(data_type)?;
+    if data_type.requires_logical_validation() {
+        data_type
+            .validate_vector(output, context.query)
+            .map_err(|error| match error {
+                crate::Error::Conversion(_) => {
+                    crate::Error::Internal("operator returned an invalid logical value".into())
+                }
+                other => other,
+            })?;
+    }
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

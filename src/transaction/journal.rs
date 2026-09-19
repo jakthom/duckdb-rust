@@ -215,6 +215,7 @@ impl CatalogMut for SnapshotTransaction {
         conflict: CreateConflictPolicy,
     ) -> Result<bool> {
         let prepared = self.snapshot.prepare_view_creation(&definition, conflict)?;
+        let definition = std::sync::Arc::new(definition);
         let mut snapshot = self.snapshot.clone();
         let mut basis = self.catalog_basis.clone();
         let changed = snapshot.apply_view_creation(definition.clone(), &prepared)?;
@@ -230,7 +231,7 @@ impl CatalogMut for SnapshotTransaction {
             self.catalog_basis = basis;
             if self.journal.is_some() {
                 self.record(TransactionChange::CreateView {
-                    definition,
+                    definition: definition.as_ref().clone(),
                     conflict,
                 });
             }

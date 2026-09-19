@@ -78,6 +78,19 @@ impl EvaluationContext for QueryContext {
 /// strategy, but must preserve NULLs, short-circuiting, errors and declared
 /// function effects, and observe query cancellation during work.
 pub trait ExpressionEvaluator: Send + Sync {
+    /// Optionally evaluate consecutive unary projection roots as one batch.
+    /// A `Some` result owns every stage's ordinary evaluation, validation,
+    /// errors, effects and callback semantics. The default deliberately
+    /// declines: physical planning must not infer an evaluator implementation
+    /// from its name or concrete type.
+    fn evaluate_projection_chain_batch(
+        &self,
+        _stages: &[BoundExpr],
+        _input: &crate::common::vector::DataChunk,
+        _context: &dyn EvaluationContext,
+    ) -> Result<Option<crate::common::vector::Vector>> {
+        Ok(None)
+    }
     /// Optional whole-batch selection proof. Some(true) selects all rows;
     /// Some(false) selects none. It must preserve required validation, errors,
     /// and effects. The default declines and keeps ordinary predicate work.
