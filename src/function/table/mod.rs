@@ -7,6 +7,7 @@ use crate::{
     planner::Schema,
 };
 
+mod csv;
 mod range;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
