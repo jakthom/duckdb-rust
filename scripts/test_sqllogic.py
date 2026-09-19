@@ -1,6 +1,8 @@
+import copy
+import pickle
 import unittest
 
-from sqllogic import Runner, Unsupported, parse
+from sqllogic import Record, Runner, Unsupported, parse
 
 
 class ConcurrentEngine:
@@ -28,6 +30,27 @@ class ConcurrentEngine:
 
 
 class SQLLogicSchedulingTests(unittest.TestCase):
+    def test_record_is_a_frozen_value_with_dataclass_compatible_basics(self):
+        record = Record(7, ("query", "I"))
+        self.assertEqual((record.line, record.words, record.sql, record.expected),
+                         (7, ("query", "I"), "", ()))
+        self.assertEqual(repr(record), "Record(line=7, words=('query', 'I'), sql='', expected=())")
+        self.assertEqual(record, Record(7, ("query", "I")))
+        self.assertEqual(hash(record), hash((7, ("query", "I"), "", ())))
+        self.assertEqual(record.__match_args__, ("line", "words", "sql", "expected"))
+        with self.assertRaises(AttributeError):
+            record.sql = "SELECT 7"
+        with self.assertRaises(AttributeError):
+            del record.expected
+        self.assertEqual(copy.copy(record), record)
+        self.assertEqual(copy.deepcopy(record), record)
+        self.assertEqual(pickle.loads(pickle.dumps(record)), record)
+
+        class DerivedRecord(Record):
+            pass
+
+        self.assertNotEqual(record, DerivedRecord(7, ("query", "I")))
+
     def test_loop_binding_splits_only_tuple_iterators(self):
         self.assertEqual(
             Runner.bind_loop({"outer": "0"}, "datatype", "DECIMAL(4,1)"),

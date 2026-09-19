@@ -1,6 +1,4 @@
 """DuckDB SQLLogicTest records, oracles and execution, independent of transport."""
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 import hashlib
 import re
 
@@ -9,12 +7,38 @@ class Unsupported(Exception):
     pass
 
 
-@dataclass(frozen=True)
 class Record:
-    line: int
-    words: tuple
-    sql: str = ""
-    expected: tuple = ()
+    """Immutable SQLLogic record without importing dataclasses at startup."""
+    __slots__ = ("line", "words", "sql", "expected")
+    __match_args__ = ("line", "words", "sql", "expected")
+
+    def __init__(self, line, words, sql="", expected=()):
+        object.__setattr__(self, "line", line)
+        object.__setattr__(self, "words", words)
+        object.__setattr__(self, "sql", sql)
+        object.__setattr__(self, "expected", expected)
+
+    def __setattr__(self, name, value):
+        raise AttributeError(f"cannot assign to field {name!r}")
+
+    def __delattr__(self, name):
+        raise AttributeError(f"cannot delete field {name!r}")
+
+    def __repr__(self):
+        return (f"{type(self).__qualname__}(line={self.line!r}, words={self.words!r}, "
+                f"sql={self.sql!r}, expected={self.expected!r})")
+
+    def __eq__(self, other):
+        if other.__class__ is self.__class__:
+            return (self.line, self.words, self.sql, self.expected) == (
+                other.line, other.words, other.sql, other.expected)
+        return NotImplemented
+
+    def __hash__(self):
+        return hash((self.line, self.words, self.sql, self.expected))
+
+    def __reduce__(self):
+        return type(self), (self.line, self.words, self.sql, self.expected)
 
 
 def parse(source):
@@ -60,6 +84,8 @@ def numeric_matches(actual, expected, kind):
     introduced here. Approximate FLOAT comparisons and expected values requiring
     a lossy cast remain explicit oracle limitations.
     """
+    from decimal import Decimal, InvalidOperation
+
     integer_bits = {'TINYINT': 8, 'SMALLINT': 16, 'INTEGER': 32, 'BIGINT': 64,
                     'HUGEINT': 128, 'UTINYINT': 8, 'USMALLINT': 16,
                     'UINTEGER': 32, 'UBIGINT': 64, 'UHUGEINT': 128}
