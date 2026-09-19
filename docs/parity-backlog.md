@@ -760,7 +760,12 @@ Batch 2 evidence/restart details:
   development 1211/47/51/195). Development uses the unchanged root-private
   pinned source via a recorded entry wrapper, not the mismatched shared checkout.
   Adapter follow-ups remain on the worker branch pending fail-closed evidence
-  and negative-test review; no timing or independent final sweep yet.
+  and negative-test review; no timing or independent final sweep yet. After two
+  incomplete review cycles, only the proxy measurement/negative-test files are
+  reassigned to existing Sol/high agent `batch1_f1` in the A2 worktree. The
+  restored loop behavior is unchanged. Preserve worker commits through
+  `85b0d6c`; adapter correctness, not engine implementation, is the current
+  acceptance prerequisite.
 - F2.1: worker `codex/batch2-f2` owns single-file explicit-schema CSV. Manifest:
   worker `target/f2/validation-manifest.md`. Initial adapter worker `797e3be`
   passes five parser and ten table-function tests, but review identified pending
