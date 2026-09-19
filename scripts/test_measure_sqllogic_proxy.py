@@ -504,6 +504,7 @@ class ProxyEvidenceTests(unittest.TestCase):
                 "reference_version.py",
                 "upstream_suite.py",
                 "worker_protocol.py",
+                "startup_json.py",
             },
         )
         workloads = proxy.validate_workload_population(

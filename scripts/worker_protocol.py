@@ -1,5 +1,5 @@
 """Minimal JSON-line protocol shared by SQLLogic Python runners."""
-import json
+import startup_json as json
 import os
 import time
 

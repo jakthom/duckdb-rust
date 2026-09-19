@@ -1,6 +1,7 @@
 import copy
 import pickle
 import unittest
+from unittest.mock import patch
 
 from sqllogic import Record, Runner, Unsupported, boolean_matches, check_query, numeric_matches, parse
 
@@ -301,6 +302,24 @@ endloop
         runner.run(parse(
             "foreach left,right <variable:pairs>\n"
             "statement ok\nSELECT '{left}:{right}'\n\nendloop\n"))
+
+    def test_hash_prefilter_keeps_unicode_digit_fullmatch_and_malformed_literals(self):
+        unicode_hash = "١ values hashing to " + "0" * 32
+        with patch("sqllogic.hash_values", return_value=unicode_hash) as digest:
+            check_query(
+                Record(1, ("query", "T"), expected=(unicode_hash,)),
+                {"columns": ["VARCHAR"], "rows": [["x"]]},
+                {},
+            )
+        digest.assert_called_once_with(["x"])
+
+        malformed = "١ values hashing to xyz"
+        with patch("sqllogic.hash_values", side_effect=AssertionError("must stay literal")):
+            check_query(
+                Record(2, ("query", "T"), expected=(malformed,)),
+                {"columns": ["VARCHAR"], "rows": [[malformed]]},
+                {},
+            )
 
 
 if __name__ == "__main__":

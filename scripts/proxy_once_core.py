@@ -1,5 +1,5 @@
 """Minimal, fail-closed execution path for one Python SQLLogic proxy workload."""
-import json
+import startup_json as json
 import os
 import time
 

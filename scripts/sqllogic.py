@@ -1,5 +1,10 @@
 """DuckDB SQLLogicTest records, oracles and execution, independent of transport."""
-import re
+class _LazyRE:
+    def __getattr__(self, name):
+        import re
+        globals()["re"] = re
+        return getattr(re, name)
+re = _LazyRE()
 
 
 class Unsupported(Exception):
@@ -215,7 +220,7 @@ def check_query(record, response, labels):
     if mode == "valuesort":
         actual.sort()
     expected = record.expected
-    expected_hash = len(expected) == 1 and re.fullmatch(r"\d+ values hashing to [0-9a-f]{32}", expected[0])
+    expected_hash = len(expected) == 1 and " values hashing to " in expected[0] and re.fullmatch(r"\d+ values hashing to [0-9a-f]{32}", expected[0])
     digest = None
     if expected_hash:
         digest = hash_values(actual)

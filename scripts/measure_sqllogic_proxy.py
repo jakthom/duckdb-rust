@@ -45,7 +45,7 @@ EXPECTED_WORKLOADS = once_core.EXPECTED_WORKLOADS
 HELPERS = (
     "measure_sqllogic_proxy.py", "sqllogic_proxy_once.py", "proxy_once_core.py", "secure_scratch.py",
     "measure_sqllogic_performance.py", "run_upstream.py", "sqllogic.py",
-    "source_identity.py", "reference_version.py", "upstream_suite.py", "worker_protocol.py",
+    "source_identity.py", "reference_version.py", "upstream_suite.py", "worker_protocol.py", "startup_json.py",
 )
 def file_identity(path):
     path = Path(path).resolve(strict=True)
