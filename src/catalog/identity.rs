@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::common::{Error, Result};
 
-use super::{TableDefinition, TableName, TypeDefinition, TypeName};
+use super::{TableDefinition, TableName, TypeDefinition, TypeName, ViewDefinition};
 
 // DuckDB starts runtime OIDs above PostgreSQL's built-in object range. A
 // single namespace prevents catalog and object handles from ever aliasing by
@@ -112,6 +112,7 @@ impl fmt::Display for CatalogIdentity {
 pub enum CatalogObjectKind {
     Schema,
     Table,
+    View,
     Type,
 }
 
@@ -121,8 +122,114 @@ impl fmt::Display for CatalogObjectKind {
         match self {
             Self::Schema => f.write_str("schema"),
             Self::Table => f.write_str("table"),
+            Self::View => f.write_str("view"),
             Self::Type => f.write_str("type"),
         }
+    }
+}
+
+/// A transaction-resolved view reference. Views share SQL relation names with
+/// tables but retain a distinct runtime kind so stale DROP plans cannot target
+/// a replacement of the other kind.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct ViewBinding {
+    name: TableName,
+    identity: Option<ObjectIdentity>,
+    catalog_version: Option<CatalogVersion>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ViewBinding {
+    pub fn unversioned(name: TableName) -> Self {
+        Self {
+            name,
+            identity: None,
+            catalog_version: None,
+        }
+    }
+
+    pub fn identified(
+        name: TableName,
+        identity: ObjectIdentity,
+        catalog: CatalogIdentity,
+    ) -> Result<Self> {
+        if identity.kind != CatalogObjectKind::View {
+            return Err(Error::InvalidInput(format!(
+                "view binding requires a view identity, got {}",
+                identity.kind
+            )));
+        }
+        if identity.catalog != catalog.id {
+            return Err(Error::InvalidInput(
+                "view identity and resolved catalog identity do not match".into(),
+            ));
+        }
+        Ok(Self {
+            name,
+            identity: Some(identity),
+            catalog_version: catalog.version,
+        })
+    }
+
+    pub const fn name(&self) -> &TableName {
+        &self.name
+    }
+    pub const fn identity(&self) -> Option<ObjectIdentity> {
+        self.identity
+    }
+    pub const fn catalog_version(&self) -> Option<CatalogVersion> {
+        self.catalog_version
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl fmt::Debug for ViewBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.name, f)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl fmt::Display for ViewBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedView {
+    binding: ViewBinding,
+    definition: ViewDefinition,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ResolvedView {
+    pub fn unversioned(definition: ViewDefinition) -> Self {
+        Self {
+            binding: ViewBinding::unversioned(definition.name.clone()),
+            definition,
+        }
+    }
+
+    pub fn identified(
+        identity: ObjectIdentity,
+        catalog: CatalogIdentity,
+        definition: ViewDefinition,
+    ) -> Result<Self> {
+        Ok(Self {
+            binding: ViewBinding::identified(definition.name.clone(), identity, catalog)?,
+            definition,
+        })
+    }
+
+    pub const fn binding(&self) -> &ViewBinding {
+        &self.binding
+    }
+    pub const fn definition(&self) -> &ViewDefinition {
+        &self.definition
+    }
+    pub fn into_parts(self) -> (ViewBinding, ViewDefinition) {
+        (self.binding, self.definition)
     }
 }
 

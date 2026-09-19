@@ -9,7 +9,9 @@ pub(super) fn expression(
 ) -> Result<()> {
     state.visit(depth)?;
     let (class, kind) = match &expression.kind {
-        StoredExpressionKind::CurrentTimestamp => (4, 203),
+        StoredExpressionKind::CurrentTimestamp | StoredExpressionKind::ColumnReference(_) => {
+            (4, 203)
+        }
         StoredExpressionKind::Literal { .. } => (7, 75),
         StoredExpressionKind::Cast { .. } => (3, 12),
         StoredExpressionKind::Function { .. } => (9, 140),
@@ -58,10 +60,10 @@ pub(super) fn expression(
     }
     match &expression.kind {
         StoredExpressionKind::CurrentTimestamp => {
-            const NAME: &str = "CURRENT_TIMESTAMP";
-            state.bytes(NAME.len())?;
-            output.property(200, 1);
-            output.blob(NAME.as_bytes());
+            column_reference(output, ["CURRENT_TIMESTAMP"], state)?
+        }
+        StoredExpressionKind::ColumnReference(parts) => {
+            column_reference(output, parts.iter().map(String::as_str), state)?;
         }
         StoredExpressionKind::Literal { data_type, value } => {
             output.field(200);
@@ -226,4 +228,19 @@ pub(super) fn expression(
     }
     output.end();
     state.query.check()
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn column_reference<'a>(
+    output: &mut Encoder,
+    parts: impl IntoIterator<Item = &'a str>,
+    state: &mut State<'_>,
+) -> Result<()> {
+    let parts = parts.into_iter().collect::<Vec<_>>();
+    output.property(200, parts.len() as u64);
+    for part in parts {
+        state.bytes(part.len())?;
+        output.blob(part.as_bytes());
+    }
+    Ok(())
 }

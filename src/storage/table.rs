@@ -19,8 +19,9 @@ use crate::{
     catalog::{
         Catalog, CatalogIdentity, CatalogMut, CatalogObjectKind, CatalogObjectName,
         CatalogRegistry, CreateConflictPolicy, DropBehavior, ObjectIdentity, PreparedCatalogCreate,
-        PreparedCatalogInsert, ResolvedTable, ResolvedType, TableBinding, TableDefinition,
-        TableName, TypeBinding, TypeDefinition, TypeName,
+        PreparedCatalogInsert, ResolvedTable, ResolvedType, ResolvedView, TableBinding,
+        TableDefinition, TableName, TypeBinding, TypeDefinition, TypeName, ViewBinding,
+        ViewDefinition,
     },
     common::{Error, Result, Row, Value, vector::DataChunk},
     execution::index::{HashIndexFactory, IndexFactory, IndexSpec, KeyIndex},
@@ -31,6 +32,7 @@ use crate::{
 pub struct Snapshot {
     schemas: BTreeSet<String>,
     tables: BTreeMap<String, Arc<TableData>>,
+    views: BTreeMap<String, ViewDefinition>,
     named_types: BTreeMap<String, TypeDefinition>,
     #[serde(skip)]
     registry: CatalogRegistry,
@@ -62,6 +64,7 @@ impl Snapshot {
         Ok(Self {
             schemas: BTreeSet::from(["main".into()]),
             tables: BTreeMap::new(),
+            views: BTreeMap::new(),
             named_types: BTreeMap::new(),
             registry: CatalogRegistry::rebuild_with_types(["main".into()], [], [])?,
             indexes: Arc::new(HashIndexFactory),
@@ -321,6 +324,7 @@ impl std::fmt::Debug for Snapshot {
         f.debug_struct("Snapshot")
             .field("schemas", &self.schemas)
             .field("tables", &self.tables)
+            .field("views", &self.views)
             .field("named_types", &self.named_types)
             .field("catalog", &self.registry.identity())
             .field("indexes", &self.indexes.name())
@@ -332,6 +336,8 @@ impl std::fmt::Debug for Snapshot {
 struct SnapshotState {
     schemas: BTreeSet<String>,
     tables: BTreeMap<String, Arc<TableData>>,
+    #[serde(default)]
+    views: BTreeMap<String, ViewDefinition>,
     #[serde(default)]
     named_types: BTreeMap<String, TypeDefinition>,
 }
@@ -378,12 +384,16 @@ impl Snapshot {
                 ));
             }
         }
-        let registry = CatalogRegistry::rebuild_with_types(
+        let registry = CatalogRegistry::rebuild_with_views_types(
             state.schemas.iter().cloned(),
             state
                 .tables
                 .values()
                 .map(|table| table.definition.name.clone()),
+            state
+                .views
+                .values()
+                .map(|definition| definition.name.clone()),
             state
                 .named_types
                 .values()
@@ -392,6 +402,7 @@ impl Snapshot {
         Self {
             schemas: state.schemas,
             tables: state.tables,
+            views: state.views,
             named_types: state.named_types,
             registry,
             indexes: Arc::new(HashIndexFactory),
@@ -561,6 +572,7 @@ impl Snapshot {
             .schemas
             .len()
             .checked_add(self.tables.len())
+            .and_then(|count| count.checked_add(self.views.len()))
             .and_then(|count| count.checked_add(self.named_types.len()))
             .ok_or_else(|| Error::Resource("snapshot catalog object count overflow".into()))?;
         if self.registry.len() != catalog_objects {
@@ -642,6 +654,21 @@ impl Snapshot {
             }
             table.validate_rows(context)?;
         }
+        for (key, view) in &self.views {
+            if *key != view.name.key()
+                || !self.schemas.contains(&view.name.schema)
+                || view.name != TableName::new(&view.name.schema, &view.name.name)
+                || view.names.len() != view.types.len()
+                || view.aliases.len() > view.types.len()
+            {
+                return Err(Error::Corrupt("invalid view definition".into()));
+            }
+            if self.registry.lookup_view(&view.name)?.is_none() {
+                return Err(Error::Corrupt(
+                    "runtime registry omits a snapshot view".into(),
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -659,6 +686,46 @@ impl Catalog for Snapshot {
     }
     fn tables(&self) -> Result<Vec<TableDefinition>> {
         Ok(self.tables.values().map(|t| t.definition.clone()).collect())
+    }
+    fn view(&self, name: &TableName) -> Result<ViewDefinition> {
+        self.views
+            .get(&name.key())
+            .cloned()
+            .ok_or_else(|| Error::Catalog(format!("view {name} does not exist")))
+    }
+    fn views(&self) -> Result<Vec<ViewDefinition>> {
+        Ok(self.views.values().cloned().collect())
+    }
+    fn view_entry(&self, name: &TableName) -> Result<ResolvedView> {
+        let definition = self.view(name)?;
+        let binding = self.registry.bind_view(name)?;
+        ResolvedView::identified(
+            binding
+                .identity()
+                .ok_or_else(|| Error::Internal("runtime view binding has no identity".into()))?,
+            self.registry.identity(),
+            definition,
+        )
+    }
+    fn view_entry_if_exists(&self, name: &TableName) -> Result<Option<ResolvedView>> {
+        if self.registry.lookup_view(name)?.is_none() {
+            return Ok(None);
+        }
+        self.view_entry(name).map(Some)
+    }
+    fn view_by_identity(&self, identity: &ObjectIdentity) -> Result<ResolvedView> {
+        let name = self.registry.name(*identity)?.view_name()?;
+        ResolvedView::identified(*identity, self.registry.identity(), self.view(&name)?)
+    }
+    fn view_by_identity_if_exists(
+        &self,
+        identity: &ObjectIdentity,
+    ) -> Result<Option<ResolvedView>> {
+        let Some(name) = self.registry.name_if_exists(*identity)? else {
+            return Ok(None);
+        };
+        let name = name.view_name()?;
+        ResolvedView::identified(*identity, self.registry.identity(), self.view(&name)?).map(Some)
     }
     fn named_type(&self, name: &TypeName) -> Result<TypeDefinition> {
         self.named_types
@@ -843,6 +910,52 @@ impl CatalogMut for Snapshot {
         };
         self.apply_table_creation(definition, &prepared)
     }
+    fn create_view(
+        &mut self,
+        definition: ViewDefinition,
+        conflict: CreateConflictPolicy,
+    ) -> Result<bool> {
+        let prepared = self.prepare_view_creation(&definition, conflict)?;
+        self.apply_view_creation(definition, &prepared)
+    }
+    fn drop_view(
+        &mut self,
+        name: &TableName,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        let Some(identity) = self.registry.lookup_view(name)? else {
+            return if if_exists {
+                Ok(false)
+            } else {
+                Err(Error::Catalog(format!("view {name} does not exist")))
+            };
+        };
+        let mut registry = self.registry.clone();
+        let removed = registry.drop_object(identity, behavior)?;
+        for record in &removed {
+            if record.name().kind() == CatalogObjectKind::View {
+                self.views.remove(&record.name().view_name()?.key());
+            }
+        }
+        self.registry = registry;
+        Ok(true)
+    }
+    fn drop_view_identified(
+        &mut self,
+        view: &ViewBinding,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        let Some(resolved) = self.resolve_view_binding_if_exists(view)? else {
+            return if if_exists {
+                Ok(false)
+            } else {
+                Err(Error::Catalog(format!("view {view} does not exist")))
+            };
+        };
+        self.drop_view(&resolved.definition().name, if_exists, behavior)
+    }
     fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()> {
         if !self.tables.contains_key(&name.key()) {
             return if if_exists {
@@ -955,6 +1068,46 @@ impl CatalogMut for Snapshot {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Snapshot {
+    pub(crate) fn prepare_view_creation(
+        &self,
+        definition: &ViewDefinition,
+        conflict: CreateConflictPolicy,
+    ) -> Result<PreparedCatalogCreate> {
+        if !self.schemas.contains(&definition.name.schema) {
+            return Err(Error::Catalog(format!(
+                "schema {} does not exist",
+                definition.name.schema
+            )));
+        }
+        if definition.names.len() != definition.types.len()
+            || definition.aliases.len() > definition.types.len()
+        {
+            return Err(Error::Catalog("invalid view output metadata".into()));
+        }
+        self.registry
+            .prepare_view_create(&definition.name, conflict)
+    }
+
+    pub(crate) fn apply_view_creation(
+        &mut self,
+        definition: ViewDefinition,
+        prepared: &PreparedCatalogCreate,
+    ) -> Result<bool> {
+        if prepared.name() != &CatalogObjectName::view(&definition.name)? {
+            return Err(Error::InvalidInput(
+                "prepared view creation has a different name".into(),
+            ));
+        }
+        let mut registry = self.registry.clone();
+        let changed = registry.apply_prepared_create(prepared)?;
+        if !changed {
+            return Ok(false);
+        }
+        self.views.insert(definition.name.key(), definition);
+        self.registry = registry;
+        Ok(true)
+    }
+
     pub(crate) fn prepare_type_creation(
         &self,
         definition: &TypeDefinition,
@@ -1068,7 +1221,9 @@ impl Snapshot {
                 definition.name.schema
             )));
         }
-        if self.tables.contains_key(&definition.name.key()) {
+        if self.tables.contains_key(&definition.name.key())
+            || self.views.contains_key(&definition.name.key())
+        {
             return if if_not_exists {
                 Ok(None)
             } else {
@@ -1095,7 +1250,9 @@ impl Snapshot {
                 definition.name.schema
             )));
         }
-        if self.tables.contains_key(&definition.name.key()) {
+        if self.tables.contains_key(&definition.name.key())
+            || self.views.contains_key(&definition.name.key())
+        {
             return Err(Error::Catalog(format!(
                 "table {} already exists",
                 definition.name

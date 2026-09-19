@@ -20,7 +20,7 @@ mod window;
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
 };
 
 use super::{
@@ -32,7 +32,7 @@ use super::{
 use crate::{
     catalog::{
         ColumnDefinition, CreateConflictPolicy, DropBehavior, ResolvedTable, TableBinding,
-        TableDefinition, TableName, TypeDefinition,
+        TableDefinition, TableName, TypeDefinition, ViewDependency,
     },
     common::{DataType, Error, Result, Value, cast::CastMode},
     function::operator::{Operator, OperatorArgument},
@@ -59,6 +59,9 @@ impl Binder for SqlBinder {
             parameters_allowed: false,
             ctes: BTreeMap::new(),
             outer: Vec::new(),
+            view_stack: Vec::new(),
+            view_schema: None,
+            view_dependencies: RefCell::new(BTreeSet::new()),
         };
         let bound = state.stored_expression(expression)?;
         if !closed_expression(&bound) {
@@ -80,6 +83,9 @@ impl Binder for SqlBinder {
             parameters_allowed: true,
             ctes: BTreeMap::new(),
             outer: Vec::new(),
+            view_stack: Vec::new(),
+            view_schema: None,
+            view_dependencies: RefCell::new(BTreeSet::new()),
         };
         match statement {
             crate::parser::Statement::Sql(statement) => state.statement(statement),
@@ -96,6 +102,9 @@ struct State<'a, 'b> {
     parameters_allowed: bool,
     ctes: BTreeMap<String, CommonTable>,
     outer: Vec<CorrelationScope>,
+    view_stack: Vec<TableName>,
+    view_schema: Option<String>,
+    view_dependencies: RefCell<BTreeSet<ViewDependency>>,
 }
 
 #[derive(Clone)]
@@ -827,6 +836,19 @@ fn alias(plan: &mut LogicalPlan, alias: &ast::TableAlias) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn deduplicate_names(names: &mut [String]) {
+    let mut used = HashSet::new();
+    for name in names {
+        let base = name.clone();
+        let mut suffix = 1;
+        while !used.insert(name.to_ascii_lowercase()) {
+            *name = format!("{base}_{suffix}");
+            suffix += 1;
+        }
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

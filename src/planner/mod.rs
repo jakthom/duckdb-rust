@@ -19,6 +19,7 @@ use crate::{
 };
 
 pub struct BindContext<'a> {
+    pub parser: &'a dyn crate::parser::Parser,
     pub catalog: &'a dyn Catalog,
     pub casts: &'a CastRegistry,
     pub operators: &'a crate::function::operator::OperatorRegistry,

@@ -60,6 +60,7 @@ fn bind_sql(catalog: &Snapshot, sql: &str) -> Result<BoundStatement> {
     SqlBinder.bind(
         &statements.remove(0),
         &BindContext {
+            parser: &duckdb_rust::parser::DuckDbParser,
             catalog,
             casts: &casts,
             operators: &operators,
@@ -914,7 +915,7 @@ fn private_reopen_rebuilds_fresh_runtime_handles_without_wire_fields() -> Result
     let fields = wire.as_object().expect("snapshot JSON object");
     assert_eq!(
         fields.keys().map(String::as_str).collect::<Vec<_>>(),
-        vec!["named_types", "schemas", "tables"]
+        vec!["named_types", "schemas", "tables", "views"]
     );
     let reopened: Snapshot =
         serde_json::from_slice(&bytes).map_err(|error| Error::Internal(error.to_string()))?;

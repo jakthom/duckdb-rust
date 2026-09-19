@@ -7,7 +7,7 @@ use super::{
 use crate::{
     catalog::{
         CreateConflictPolicy, DropBehavior, TableBinding, TableDefinition, TypeBinding,
-        TypeDefinition,
+        TypeDefinition, ViewBinding, ViewDefinition,
     },
     common::{DataType, Result, Row},
     function::AggregateFunction,
@@ -455,6 +455,15 @@ pub enum BoundStatement {
     DropTable {
         tables: Vec<TableBinding>,
         if_exists: bool,
+    },
+    CreateView {
+        definition: ViewDefinition,
+        conflict: CreateConflictPolicy,
+    },
+    DropView {
+        views: Vec<ViewBinding>,
+        if_exists: bool,
+        behavior: DropBehavior,
     },
     CreateType {
         definition: TypeDefinition,

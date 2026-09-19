@@ -209,6 +209,7 @@ mod tests {
         SqlBinder.bind(
             &syntax.remove(0),
             &BindContext {
+                parser: &DuckDbParser,
                 catalog,
                 casts: &casts,
                 operators: &operators,

@@ -48,7 +48,7 @@ pub(super) fn expression(
                 try_cast,
             }
         }
-        (4, 203) => current_timestamp(reader, state)?,
+        (4, 203) => column_reference(reader, state)?,
         (2, 150) => case_expression(reader, depth, state)?,
         (5, 25..=30) => {
             state.count(2)?;
@@ -123,7 +123,7 @@ pub(super) fn expression(
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn current_timestamp(reader: &mut Reader, state: &mut State<'_>) -> Result<StoredExpressionKind> {
+fn column_reference(reader: &mut Reader, state: &mut State<'_>) -> Result<StoredExpressionKind> {
     if !reader.optional(200)? {
         return Err(corrupt("native column reference has no identifiers"));
     }
@@ -136,22 +136,19 @@ fn current_timestamp(reader: &mut Reader, state: &mut State<'_>) -> Result<Store
             "native column reference qualification limit".into(),
         ));
     }
-    let mut matches_current_timestamp = false;
-    for index in 0..count {
+    let mut parts = Vec::with_capacity(count);
+    for _ in 0..count {
         let name = state.string(reader)?;
         if name.is_empty() {
             return Err(corrupt("empty native column reference identifier"));
         }
-        if index == 0 {
-            matches_current_timestamp = name.eq_ignore_ascii_case("current_timestamp");
-        }
+        parts.push(name);
     }
-    if count != 1 || !matches_current_timestamp {
-        return Err(Error::Unsupported(
-            "native retained column reference other than CURRENT_TIMESTAMP".into(),
-        ));
+    if count == 1 && parts[0].eq_ignore_ascii_case("current_timestamp") {
+        Ok(StoredExpressionKind::CurrentTimestamp)
+    } else {
+        Ok(StoredExpressionKind::ColumnReference(parts))
     }
-    Ok(StoredExpressionKind::CurrentTimestamp)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

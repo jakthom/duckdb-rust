@@ -34,6 +34,9 @@ impl State<'_, '_> {
             parameters_allowed: false,
             ctes: BTreeMap::new(),
             outer: Vec::new(),
+            view_stack: Vec::new(),
+            view_schema: None,
+            view_dependencies: RefCell::new(BTreeSet::new()),
         };
         let value = expression
             .map(|expression| -> Result<Value> {

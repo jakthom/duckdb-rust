@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "b1_view_process_resource",
+      "path": "test/performance/b1_views_process.test"
+    }
+  ]
+}

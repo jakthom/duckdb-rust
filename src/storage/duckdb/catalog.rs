@@ -7,8 +7,8 @@ use super::{
 };
 use crate::{
     catalog::{
-        CatalogMut, ColumnDefinition, CreateConflictPolicy, TableDefinition, TableName,
-        TypeDefinition, TypeName,
+        Catalog, CatalogMut, ColumnDefinition, CreateConflictPolicy, TableDefinition, TableName,
+        TypeDefinition, TypeName, ViewDefinition,
     },
     common::{DataType, Error, Result, Value},
     storage::table::Snapshot,
@@ -65,6 +65,22 @@ pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
                 let definition = type_definition_at(&mut reader, name)?;
                 if !snapshot.create_type(definition, CreateConflictPolicy::Error)? {
                     return Err(corrupt("duplicate checkpoint type"));
+                }
+                reader.end()?;
+            }
+            3 => {
+                let mut definition =
+                    view_definition_at(&mut reader, name, blocks.storage_version, context.query)?;
+                for dependency in &mut definition.dependencies {
+                    if let crate::catalog::ViewDependency::Table(name) = dependency
+                        && snapshot.table_entry_if_exists(name)?.is_none()
+                        && snapshot.view_entry_if_exists(name)?.is_some()
+                    {
+                        *dependency = crate::catalog::ViewDependency::View(name.clone());
+                    }
+                }
+                if !snapshot.create_view(definition, CreateConflictPolicy::Error)? {
+                    return Err(corrupt("duplicate checkpoint view"));
                 }
                 reader.end()?;
             }
@@ -391,11 +407,11 @@ pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<CreateName> 
     }
     reader.field(105)?;
     reader.unsigned()?;
-    if reader.optional(106)? && !reader.string()?.is_empty() {
-        return Err(Error::Unsupported(
-            "persisted DuckDB catalog SQL text".into(),
-        ));
-    }
+    let sql = if reader.optional(106)? {
+        reader.string()?
+    } else {
+        String::new()
+    };
     let mut name = None;
     if reader.optional(111)? {
         reader.field(100)?;
@@ -422,12 +438,85 @@ pub(super) fn create_base(reader: &mut Reader, kind: u64) -> Result<CreateName> 
             name = Some(last);
         }
     }
-    Ok(CreateName { schema, name })
+    Ok(CreateName { schema, name, sql })
 }
 
 pub(super) struct CreateName {
-    schema: String,
-    name: Option<String>,
+    pub(super) schema: String,
+    pub(super) name: Option<String>,
+    pub(super) sql: String,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(super) fn view_definition_at(
+    reader: &mut Reader,
+    qualified: CreateName,
+    version: u64,
+    query_context: &crate::parallel::QueryContext,
+) -> Result<ViewDefinition> {
+    let name = if reader.optional(200)? {
+        reader.string()?
+    } else {
+        return Err(corrupt("view without a name"));
+    };
+    if qualified
+        .name
+        .as_ref()
+        .is_some_and(|qualified| qualified != &name)
+    {
+        return Err(corrupt("qualified and legacy view names disagree"));
+    }
+    let aliases = if reader.optional(201)? {
+        (0..reader.length()?)
+            .map(|_| reader.string())
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
+    let types = if reader.optional(202)? {
+        (0..reader.length()?)
+            .map(|_| logical_type(reader))
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
+    let (query, query_shape) = if reader.optional(203)? {
+        super::view::read_query(reader, version, query_context)?
+    } else if !qualified.sql.is_empty() {
+        return Err(Error::Unsupported(
+            "native view SQL without query tree".into(),
+        ));
+    } else {
+        return Err(corrupt("view has no query"));
+    };
+    let names = if reader.optional(204)? {
+        (0..reader.length()?)
+            .map(|_| reader.string())
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        aliases.clone()
+    };
+    if reader.optional(205)? && reader.length()? != 0 {
+        return Err(Error::Unsupported("native view column comments".into()));
+    }
+    if reader.optional(206)? && reader.length()? != 0 {
+        return Err(Error::Unsupported("native view column comment map".into()));
+    }
+    if reader.optional(207)? && reader.unsigned()? != 0 {
+        return Err(Error::Unsupported("native view security mode".into()));
+    }
+    reader.end()?;
+    Ok(ViewDefinition {
+        name: TableName::new(qualified.schema, name),
+        query,
+        aliases,
+        names,
+        types,
+        dependencies: vec![crate::catalog::ViewDependency::Table(
+            query_shape.source.clone(),
+        )],
+        query_shape: Some(query_shape),
+    })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

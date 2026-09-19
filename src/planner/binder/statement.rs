@@ -26,6 +26,94 @@ impl State<'_, '_> {
             }) => self.setting(name, None, None),
             S::Pragma { name, value, .. } => self.pragma(name, value.as_ref()),
             S::Query(query) => Ok(BoundStatement::Query(self.query(query)?)),
+            S::CreateView(view) => {
+                if view.or_alter
+                    || view.materialized
+                    || view.secure
+                    || view.temporary
+                    || view.copy_grants
+                    || view.with_no_schema_binding
+                    || view.to.is_some()
+                    || view.params.is_some()
+                    || view.comment.is_some()
+                    || !view.cluster_by.is_empty()
+                    || !matches!(view.options, ast::CreateTableOptions::None)
+                {
+                    return Err(unsupported("CREATE VIEW modifiers"));
+                }
+                if view.or_replace && view.if_not_exists {
+                    return Err(Error::Bind(
+                        "CREATE VIEW cannot combine OR REPLACE and IF NOT EXISTS".into(),
+                    ));
+                }
+                if view
+                    .columns
+                    .iter()
+                    .any(|column| column.data_type.is_some() || column.options.is_some())
+                {
+                    return Err(unsupported("typed or optioned view columns"));
+                }
+                let name = self.resolve_create_target(&view.name)?;
+                self.view_stack.push(name.clone());
+                let previous_schema = self.view_schema.replace(name.schema.clone());
+                self.view_dependencies.borrow_mut().clear();
+                let plan = self.query(&view.query);
+                self.view_schema = previous_schema;
+                self.view_stack.pop();
+                let plan = plan?;
+                let aliases = view
+                    .columns
+                    .iter()
+                    .map(|column| column.name.value.clone())
+                    .collect::<Vec<_>>();
+                if aliases.len() > plan.schema.len() {
+                    return Err(Error::Bind(format!(
+                        "view {} has more aliases ({}) than query columns ({})",
+                        name,
+                        aliases.len(),
+                        plan.schema.len()
+                    )));
+                }
+                let mut output_names = plan
+                    .schema
+                    .iter()
+                    .map(|field| field.name.clone())
+                    .collect::<Vec<_>>();
+                for (name, alias) in output_names.iter_mut().zip(&aliases) {
+                    *name = alias.clone();
+                }
+                deduplicate_names(&mut output_names);
+                let conflict = if view.or_replace {
+                    CreateConflictPolicy::Replace
+                } else if view.if_not_exists {
+                    CreateConflictPolicy::Ignore
+                } else {
+                    CreateConflictPolicy::Error
+                };
+                let dependencies = self
+                    .view_dependencies
+                    .borrow()
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let query_shape = view_query_shape(&view.query, &name, &dependencies).ok();
+                Ok(BoundStatement::CreateView {
+                    definition: crate::catalog::ViewDefinition {
+                        name,
+                        query: view.query.to_string(),
+                        aliases,
+                        names: output_names,
+                        types: plan
+                            .schema
+                            .iter()
+                            .map(|field| field.data_type.clone())
+                            .collect(),
+                        query_shape,
+                        dependencies,
+                    },
+                    conflict,
+                })
+            }
             S::Call(function)
                 if matches!(function.parameters, ast::FunctionArguments::None)
                     && function.over.is_none()
@@ -124,6 +212,31 @@ impl State<'_, '_> {
                     .map(|resolved| resolved.binding().clone())
                     .collect(),
                 if_exists: *if_exists,
+            }),
+            S::Drop {
+                object_type: ast::ObjectType::View,
+                names,
+                if_exists,
+                cascade,
+                purge: false,
+                temporary: false,
+                table: None,
+                ..
+            } => Ok(BoundStatement::DropView {
+                views: names
+                    .iter()
+                    .map(|name| self.resolve_existing_view(name, *if_exists))
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .flatten()
+                    .map(|resolved| resolved.binding().clone())
+                    .collect(),
+                if_exists: *if_exists,
+                behavior: if *cascade {
+                    DropBehavior::Cascade
+                } else {
+                    DropBehavior::Restrict
+                },
             }),
             S::Drop {
                 object_type: ast::ObjectType::Type,
@@ -518,6 +631,228 @@ impl State<'_, '_> {
             source,
         })
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn view_query_shape(
+    query: &ast::Query,
+    view: &TableName,
+    dependencies: &[ViewDependency],
+) -> Result<crate::catalog::ViewQueryShape> {
+    use crate::catalog::{ViewProjection, ViewQueryShape};
+    if query.with.is_some()
+        || query.order_by.is_some()
+        || query.limit_clause.is_some()
+        || query.fetch.is_some()
+        || !query.locks.is_empty()
+        || query.for_clause.is_some()
+        || query.settings.is_some()
+        || query.format_clause.is_some()
+        || !query.pipe_operators.is_empty()
+    {
+        return Err(unsupported("native view query shape"));
+    }
+    let ast::SetExpr::Select(select) = query.body.as_ref() else {
+        return Err(unsupported("native view set operation"));
+    };
+    if select.projection.is_empty()
+        || select.from.len() != 1
+        || !select.from[0].joins.is_empty()
+        || !select.optimizer_hints.is_empty()
+        || select.distinct.is_some()
+        || select.select_modifiers.is_some()
+        || select.top.is_some()
+        || select.exclude.is_some()
+        || select.into.is_some()
+        || !select.lateral_views.is_empty()
+        || select.prewhere.is_some()
+        || !select.connect_by.is_empty()
+        || select.group_by != ast::GroupByExpr::Expressions(Vec::new(), Vec::new())
+        || !select.cluster_by.is_empty()
+        || !select.distribute_by.is_empty()
+        || !select.sort_by.is_empty()
+        || select.having.is_some()
+        || !select.named_window.is_empty()
+        || select.qualify.is_some()
+        || select.value_table_mode.is_some()
+        || select.flavor != ast::SelectFlavor::Standard
+    {
+        return Err(unsupported("native view projection/filter shape"));
+    }
+    let ast::TableFactor::Table {
+        name,
+        alias: None,
+        args: None,
+        with_hints,
+        version: None,
+        with_ordinality: false,
+        partitions,
+        json_path: None,
+        sample: None,
+        index_hints,
+    } = &select.from[0].relation
+    else {
+        return Err(unsupported("native view source relation"));
+    };
+    if !with_hints.is_empty() || !partitions.is_empty() || !index_hints.is_empty() {
+        return Err(unsupported("native view source modifiers"));
+    }
+    let unresolved = super::table_name::UnresolvedTableName::parse(name)?;
+    let mut source = TableName::new(
+        if unresolved.is_unqualified() {
+            &view.schema
+        } else {
+            name.0[0].as_ident().unwrap().value.as_str()
+        },
+        unresolved.table(),
+    );
+    if let Some(resolved) = dependencies.iter().find_map(|dependency| {
+        let candidate = match dependency {
+            ViewDependency::Table(name) | ViewDependency::View(name) => name,
+        };
+        (candidate == &source).then(|| candidate.clone())
+    }) {
+        source = resolved;
+    }
+    let projection = if select.projection.len() == 1
+        && matches!(select.projection[0], ast::SelectItem::Wildcard(_))
+    {
+        ViewProjection::Star
+    } else {
+        ViewProjection::Expressions(
+            select
+                .projection
+                .iter()
+                .map(|item| {
+                    let (expression, alias) = match item {
+                        ast::SelectItem::UnnamedExpr(expression) => (expression, None),
+                        ast::SelectItem::ExprWithAlias { expr, alias } => {
+                            (expr, Some(alias.value.clone()))
+                        }
+                        _ => return Err(unsupported("native view projection item")),
+                    };
+                    let mut expression = retained_view_expression(expression)?;
+                    expression.alias = alias;
+                    Ok(expression)
+                })
+                .collect::<Result<Vec<_>>>()?,
+        )
+    };
+    Ok(ViewQueryShape {
+        source,
+        projection,
+        filter: select
+            .selection
+            .as_ref()
+            .map(retained_view_expression)
+            .transpose()?,
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn retained_view_expression(
+    expression: &ast::Expr,
+) -> Result<crate::catalog::expression::StoredExpression> {
+    use crate::catalog::expression::{
+        StoredArgument, StoredArgumentStyle, StoredComparison, StoredConjunction, StoredExpression,
+        StoredExpressionKind,
+    };
+    let kind = match expression {
+        ast::Expr::Identifier(id) => StoredExpressionKind::ColumnReference(vec![id.value.clone()]),
+        ast::Expr::CompoundIdentifier(ids) => {
+            StoredExpressionKind::ColumnReference(ids.iter().map(|id| id.value.clone()).collect())
+        }
+        ast::Expr::Value(value) => match &value.value {
+            ast::Value::Number(value, _) => {
+                let value = Value::Integer(
+                    value
+                        .parse::<i128>()
+                        .map_err(|_| unsupported("native view numeric literal"))?,
+                );
+                StoredExpressionKind::Literal {
+                    data_type: value.data_type(),
+                    value,
+                }
+            }
+            ast::Value::SingleQuotedString(value) => StoredExpressionKind::Literal {
+                data_type: DataType::Varchar,
+                value: Value::Varchar(value.clone()),
+            },
+            _ => return Err(unsupported("native view literal")),
+        },
+        ast::Expr::BinaryOp { left, op, right } => {
+            let left = Box::new(retained_view_expression(left)?);
+            let right = Box::new(retained_view_expression(right)?);
+            match op {
+                ast::BinaryOperator::Eq => StoredExpressionKind::Comparison {
+                    kind: StoredComparison::Equal,
+                    left,
+                    right,
+                },
+                ast::BinaryOperator::NotEq => StoredExpressionKind::Comparison {
+                    kind: StoredComparison::NotEqual,
+                    left,
+                    right,
+                },
+                ast::BinaryOperator::Lt => StoredExpressionKind::Comparison {
+                    kind: StoredComparison::LessThan,
+                    left,
+                    right,
+                },
+                ast::BinaryOperator::Gt => StoredExpressionKind::Comparison {
+                    kind: StoredComparison::GreaterThan,
+                    left,
+                    right,
+                },
+                ast::BinaryOperator::LtEq => StoredExpressionKind::Comparison {
+                    kind: StoredComparison::LessThanOrEqual,
+                    left,
+                    right,
+                },
+                ast::BinaryOperator::GtEq => StoredExpressionKind::Comparison {
+                    kind: StoredComparison::GreaterThanOrEqual,
+                    left,
+                    right,
+                },
+                ast::BinaryOperator::And | ast::BinaryOperator::Or => {
+                    StoredExpressionKind::Conjunction {
+                        kind: if matches!(op, ast::BinaryOperator::And) {
+                            StoredConjunction::And
+                        } else {
+                            StoredConjunction::Or
+                        },
+                        children: vec![*left, *right],
+                    }
+                }
+                ast::BinaryOperator::Plus
+                | ast::BinaryOperator::Minus
+                | ast::BinaryOperator::Multiply
+                | ast::BinaryOperator::Divide => StoredExpressionKind::Function {
+                    name: vec![op.to_string()],
+                    arguments: vec![
+                        StoredArgument {
+                            name: None,
+                            expression: *left,
+                        },
+                        StoredArgument {
+                            name: None,
+                            expression: *right,
+                        },
+                    ],
+                    is_operator: true,
+                    argument_style: StoredArgumentStyle::LegacyAliases,
+                },
+                _ => return Err(unsupported("native view binary operator")),
+            }
+        }
+        ast::Expr::Nested(inner) => return retained_view_expression(inner),
+        _ => return Err(unsupported("native view expression")),
+    };
+    Ok(StoredExpression {
+        alias: None,
+        source_span: None,
+        kind,
+    })
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

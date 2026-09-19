@@ -57,6 +57,7 @@ impl StoredExpressionEvaluator for SelectedStoredExpressions {
         let bound = self.binder.bind_stored_expression(
             expression,
             &BindContext {
+                parser: &crate::parser::DuckDbParser,
                 catalog,
                 casts: &self.casts,
                 operators: &self.operators,

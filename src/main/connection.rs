@@ -475,6 +475,7 @@ impl Connection {
         match self.services.binder.bind(
             syntax,
             &BindContext {
+                parser: self.services.parser.as_ref(),
                 casts: &self.services.casts,
                 operators: &self.services.operators,
                 query: &context,

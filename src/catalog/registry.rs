@@ -10,7 +10,7 @@ use crate::common::{Error, Result};
 use super::{
     CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, CreateConflictPolicy,
     DependencyGraph, DependentFlags, DropBehavior, ObjectId, ObjectIdentity, SubjectFlags,
-    TableBinding, TableName, TypeBinding, TypeName,
+    TableBinding, TableName, TypeBinding, TypeName, ViewBinding,
 };
 
 const MAX_CATALOG_OBJECTS: usize = 1_000_000;
@@ -47,6 +47,14 @@ impl CatalogObjectName {
     pub fn named_type(name: &TypeName) -> Result<Self> {
         Ok(Self {
             kind: CatalogObjectKind::Type,
+            schema: Some(canonical_identifier(name.schema.clone())?),
+            name: canonical_identifier(name.name.clone())?,
+        })
+    }
+
+    pub fn view(name: &TableName) -> Result<Self> {
+        Ok(Self {
+            kind: CatalogObjectKind::View,
             schema: Some(canonical_identifier(name.schema.clone())?),
             name: canonical_identifier(name.name.clone())?,
         })
@@ -90,6 +98,21 @@ impl CatalogObjectName {
             self.schema
                 .as_deref()
                 .ok_or_else(|| Error::Internal("type registry key has no schema".into()))?,
+            &self.name,
+        ))
+    }
+
+    pub fn view_name(&self) -> Result<TableName> {
+        if self.kind != CatalogObjectKind::View {
+            return Err(Error::InvalidInput(format!(
+                "{} is not a view catalog name",
+                self.kind
+            )));
+        }
+        Ok(TableName::new(
+            self.schema
+                .as_deref()
+                .ok_or_else(|| Error::Internal("view registry key has no schema".into()))?,
             &self.name,
         ))
     }
@@ -221,6 +244,15 @@ impl CatalogRegistry {
         tables: impl IntoIterator<Item = TableName>,
         types: impl IntoIterator<Item = TypeName>,
     ) -> Result<Self> {
+        Self::rebuild_with_views_types(schemas, tables, [], types)
+    }
+
+    pub fn rebuild_with_views_types(
+        schemas: impl IntoIterator<Item = String>,
+        tables: impl IntoIterator<Item = TableName>,
+        views: impl IntoIterator<Item = TableName>,
+        types: impl IntoIterator<Item = TypeName>,
+    ) -> Result<Self> {
         let mut registry = Self::new()?;
         let mut input_count = 0usize;
         let mut schema_names = BTreeSet::new();
@@ -262,9 +294,33 @@ impl CatalogRegistry {
                 return Err(Error::Corrupt("duplicate durable type name".into()));
             }
         }
+        let mut view_names = BTreeSet::new();
+        for view in views {
+            input_count = input_count
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("catalog object count overflow".into()))?;
+            if input_count > MAX_CATALOG_OBJECTS {
+                return Err(Error::Resource("catalog object limit exceeded".into()));
+            }
+            let name = CatalogObjectName::view(&view)?;
+            if !view_names.insert(name) {
+                return Err(Error::Corrupt("duplicate durable view name".into()));
+            }
+        }
+        for table in &table_names {
+            let view = CatalogObjectName {
+                kind: CatalogObjectKind::View,
+                schema: table.schema.clone(),
+                name: table.name.clone(),
+            };
+            if view_names.contains(&view) {
+                return Err(Error::Corrupt("table and view names collide".into()));
+            }
+        }
         let count = schema_names
             .len()
             .checked_add(table_names.len())
+            .and_then(|count| count.checked_add(view_names.len()))
             .and_then(|count| count.checked_add(type_names.len()))
             .ok_or_else(|| Error::Resource("catalog object count overflow".into()))?;
         if count > MAX_CATALOG_OBJECTS {
@@ -273,6 +329,7 @@ impl CatalogRegistry {
         for name in schema_names
             .into_iter()
             .chain(table_names)
+            .chain(view_names)
             .chain(type_names)
         {
             registry.insert_without_version(name)?;
@@ -309,6 +366,14 @@ impl CatalogRegistry {
         Ok(self.lookup(&CatalogObjectName::named_type(name)?))
     }
 
+    pub fn lookup_view(&self, name: &TableName) -> Result<Option<ObjectIdentity>> {
+        Ok(self.lookup(&CatalogObjectName::view(name)?))
+    }
+
+    pub fn lookup_relation(&self, name: &TableName) -> Result<Option<ObjectIdentity>> {
+        Ok(self.lookup_table(name)?.or(self.lookup_view(name)?))
+    }
+
     pub fn name(&self, identity: ObjectIdentity) -> Result<&CatalogObjectName> {
         self.ensure_local(identity)?;
         self.names_by_identity
@@ -335,6 +400,77 @@ impl CatalogRegistry {
             .lookup(&name)
             .ok_or_else(|| Error::Catalog(format!("type {} does not exist", name.name)))?;
         TypeBinding::identified(name.type_name()?, identity, self.identity())
+    }
+
+    pub fn bind_view(&self, name: &TableName) -> Result<ViewBinding> {
+        let name = CatalogObjectName::view(name)?;
+        let identity = self
+            .lookup(&name)
+            .ok_or_else(|| Error::Catalog(format!("view {} does not exist", name.name)))?;
+        ViewBinding::identified(name.view_name()?, identity, self.identity())
+    }
+
+    pub fn prepare_view_create(
+        &self,
+        name: &TableName,
+        conflict: CreateConflictPolicy,
+    ) -> Result<PreparedCatalogCreate> {
+        self.validate()?;
+        let name = CatalogObjectName::view(name)?;
+        self.insert_schema(&name)?;
+        let table_name = TableName::new(name.schema.as_deref().unwrap_or("main"), &name.name);
+        if self.lookup_table(&table_name)?.is_some() {
+            return Err(Error::Catalog(format!(
+                "table {} already exists",
+                name.name
+            )));
+        }
+        let existing = self.lookup(&name);
+        let action = match (existing, conflict) {
+            (Some(_), CreateConflictPolicy::Error) => {
+                return Err(Error::Catalog(format!("view {} already exists", name.name)));
+            }
+            (Some(identity), CreateConflictPolicy::Ignore) => {
+                PreparedCreateAction::Ignore(identity)
+            }
+            (Some(identity), CreateConflictPolicy::Replace) => {
+                let plan = self
+                    .dependencies
+                    .plan_drop(identity, DropBehavior::Restrict)?;
+                if plan != [identity] {
+                    return Err(Error::Internal(
+                        "view replacement produced an invalid dependency plan".into(),
+                    ));
+                }
+                PreparedCreateAction::Replace {
+                    previous: CatalogObjectRecord {
+                        identity,
+                        name: name.clone(),
+                    },
+                    replacement: CatalogObjectRecord {
+                        identity: ObjectIdentity::new(
+                            self.catalog,
+                            ObjectId::allocate()?,
+                            CatalogObjectKind::View,
+                        ),
+                        name: name.clone(),
+                    },
+                }
+            }
+            (None, _) => PreparedCreateAction::Insert(CatalogObjectRecord {
+                identity: ObjectIdentity::new(
+                    self.catalog,
+                    ObjectId::allocate()?,
+                    CatalogObjectKind::View,
+                ),
+                name: name.clone(),
+            }),
+        };
+        Ok(PreparedCatalogCreate {
+            name,
+            basis: self.version,
+            action,
+        })
     }
 
     /// True when a cached binding observed the current complete catalog
@@ -552,7 +688,7 @@ impl CatalogRegistry {
         }
         if matches!(
             identity.kind,
-            CatalogObjectKind::Table | CatalogObjectKind::Type
+            CatalogObjectKind::Table | CatalogObjectKind::View | CatalogObjectKind::Type
         ) && current.schema != replacement.schema
         {
             return Err(Error::InvalidInput(
@@ -575,7 +711,9 @@ impl CatalogRegistry {
                 .filter_map(|(child, name)| {
                     (matches!(
                         name.kind,
-                        CatalogObjectKind::Table | CatalogObjectKind::Type
+                        CatalogObjectKind::Table
+                            | CatalogObjectKind::View
+                            | CatalogObjectKind::Type
                     ) && name.schema.as_deref() == Some(old.name.as_str()))
                     .then_some((*child, name.clone()))
                 })
@@ -688,7 +826,7 @@ impl CatalogRegistry {
             }
             if matches!(
                 name.kind,
-                CatalogObjectKind::Table | CatalogObjectKind::Type
+                CatalogObjectKind::Table | CatalogObjectKind::View | CatalogObjectKind::Type
             ) {
                 let schema = name.schema.as_deref().ok_or_else(|| {
                     Error::Internal("schema-scoped registry name has no schema".into())
@@ -783,7 +921,7 @@ impl CatalogRegistry {
     fn insert_schema(&self, name: &CatalogObjectName) -> Result<Option<ObjectIdentity>> {
         if !matches!(
             name.kind,
-            CatalogObjectKind::Table | CatalogObjectKind::Type
+            CatalogObjectKind::Table | CatalogObjectKind::View | CatalogObjectKind::Type
         ) {
             return Ok(None);
         }

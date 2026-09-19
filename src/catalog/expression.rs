@@ -28,6 +28,9 @@ pub struct StoredSourceSpan {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum StoredExpressionKind {
+    /// Unbound SQL column path. Catalog defaults reject this during binding;
+    /// native view query metadata uses it before ordinary relational binding.
+    ColumnReference(Vec<String>),
     /// Declared metadata is independent of the physical Value, including typed
     /// NULLs and small integers whose physical representation is full-width.
     Literal { data_type: DataType, value: Value },
@@ -230,6 +233,14 @@ impl StoredExpression {
             }
             match &expression.kind {
                 StoredExpressionKind::CurrentTimestamp => {}
+                StoredExpressionKind::ColumnReference(parts) => {
+                    if parts.is_empty() || parts.len() > 64 {
+                        return Err(Error::Bind("invalid stored column qualification".into()));
+                    }
+                    for part in parts {
+                        identifier(part, &mut identifier_bytes)?;
+                    }
+                }
                 StoredExpressionKind::Literal { data_type, value } => {
                     query.types().bind(data_type)?.validate(value, query)?;
                 }

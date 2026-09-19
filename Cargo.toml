@@ -211,6 +211,10 @@ path = "test/component/alter.rs"
 name = "adversarial"
 path = "test/component/adversarial.rs"
 
+[[test]]
+name = "views"
+path = "test/component/views.rs"
+
 [dependencies]
 duckdb-dev = { path = "dev", optional = true }
 serde = { version = "1.0.228", features = ["derive", "rc"] }

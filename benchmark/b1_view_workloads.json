@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "rows": 100000,
+  "threads": 1,
+  "setup": "CREATE TABLE b1_base AS SELECT i::BIGINT AS i FROM range(100000) t(i); CREATE VIEW b1_projected AS SELECT i + 1 AS x FROM b1_base WHERE i % 2 = 0; CREATE VIEW b1_s1 AS SELECT i + 1 AS i FROM b1_base; CREATE VIEW b1_s2 AS SELECT i + 1 AS i FROM b1_s1; CREATE VIEW b1_s3 AS SELECT i + 1 AS i FROM b1_s2; CREATE VIEW b1_s4 AS SELECT i + 1 AS i FROM b1_s3; CREATE VIEW b1_s5 AS SELECT i + 1 AS i FROM b1_s4; CREATE VIEW b1_s6 AS SELECT i + 1 AS i FROM b1_s5; CREATE VIEW b1_s7 AS SELECT i + 1 AS i FROM b1_s6; CREATE VIEW b1_s8 AS SELECT i + 1 AS i FROM b1_s7",
+  "workloads": [
+    {
+      "name": "b1_view_bind_query",
+      "sql": "SELECT sum(x) FROM b1_projected",
+      "rows": 1,
+      "sum": "2500000000"
+    },
+    {
+      "name": "b1_view_direct_control",
+      "sql": "SELECT sum(i + 1) FROM b1_base WHERE i % 2 = 0",
+      "rows": 1,
+      "sum": "2500000000"
+    },
+    {
+      "name": "b1_stacked_views",
+      "sql": "SELECT sum(i) FROM b1_s8",
+      "rows": 1,
+      "sum": "5000750000"
+    },
+    {
+      "name": "b1_stacked_direct_control",
+      "sql": "SELECT sum(i + 8) FROM b1_base",
+      "rows": 1,
+      "sum": "5000750000"
+    },
+    {
+      "name": "b1_view_create",
+      "sql": "CREATE VIEW b1_ddl AS SELECT i FROM b1_base",
+      "reset": "DROP VIEW IF EXISTS b1_ddl",
+      "verify": "SELECT sum(i) FROM b1_ddl",
+      "rows": 1,
+      "sum": "4999950000"
+    }
+  ]
+}

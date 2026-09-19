@@ -2,6 +2,59 @@ use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl State<'_, '_> {
+    fn bind_view(&mut self, resolved: crate::catalog::ResolvedView) -> Result<LogicalPlan> {
+        let (binding, definition) = resolved.into_parts();
+        if self.view_stack.iter().any(|name| name == &definition.name) {
+            return Err(Error::Bind(format!(
+                "recursive view {} is not supported",
+                definition.name
+            )));
+        }
+        self.view_dependencies
+            .borrow_mut()
+            .insert(ViewDependency::View(definition.name.clone()));
+        let statements = self.context.parser.parse(&definition.query)?;
+        let [crate::parser::Statement::Sql(statement)] = statements.as_slice() else {
+            return Err(Error::Corrupt(format!(
+                "view {} does not contain one query",
+                definition.name
+            )));
+        };
+        let ast::Statement::Query(query) = statement.as_ref() else {
+            return Err(Error::Corrupt(format!(
+                "view {} does not contain a SELECT",
+                definition.name
+            )));
+        };
+        self.view_stack.push(definition.name.clone());
+        let previous_schema = self.view_schema.replace(definition.name.schema.clone());
+        let result = self.query(query);
+        self.view_schema = previous_schema;
+        self.view_stack.pop();
+        let mut plan = result?;
+        if definition.aliases.len() > plan.schema.len() {
+            return Err(Error::Bind(format!(
+                "view {} has more aliases than its rebound query columns",
+                definition.name
+            )));
+        }
+        let mut names = plan
+            .schema
+            .iter()
+            .map(|field| field.name.clone())
+            .collect::<Vec<_>>();
+        for (name, alias) in names.iter_mut().zip(&definition.aliases) {
+            *name = alias.clone();
+        }
+        deduplicate_names(&mut names);
+        for (field, name) in plan.schema.iter_mut().zip(names) {
+            field.name = name;
+            field.qualifier = Some(definition.name.name.clone());
+        }
+        let _ = binding;
+        Ok(plan)
+    }
+
     pub(super) fn table_function(
         &self,
         name: &ast::ObjectName,
@@ -245,19 +298,40 @@ impl State<'_, '_> {
                             alias,
                         )
                     } else {
-                        let resolved =
-                            self.resolve_existing_table(name, false)?.ok_or_else(|| {
-                                Error::Internal("required table resolution is absent".into())
-                            })?;
-                        let (binding, definition) = resolved.into_parts();
-                        namespace = Some(definition.name.clone());
-                        (
-                            LogicalPlan {
-                                schema: schema(&definition),
-                                node: PlanNode::Scan(binding),
-                            },
-                            alias,
-                        )
+                        let recursive_name = unresolved.explicit_name().or_else(|| {
+                            self.view_schema
+                                .as_ref()
+                                .map(|schema| TableName::new(schema, unresolved.table()))
+                        });
+                        if recursive_name.as_ref().is_some_and(|candidate| {
+                            self.view_stack.iter().any(|view| view == candidate)
+                        }) {
+                            return Err(Error::Bind(format!(
+                                "recursive view {} is not supported",
+                                unresolved.table()
+                            )));
+                        }
+                        if let Some(resolved) = self.resolve_relation_view(name)? {
+                            namespace = Some(resolved.definition().name.clone());
+                            (self.bind_view(resolved)?, alias)
+                        } else {
+                            let resolved =
+                                self.resolve_existing_table(name, false)?.ok_or_else(|| {
+                                    Error::Internal("required table resolution is absent".into())
+                                })?;
+                            let (binding, definition) = resolved.into_parts();
+                            self.view_dependencies
+                                .borrow_mut()
+                                .insert(ViewDependency::Table(definition.name.clone()));
+                            namespace = Some(definition.name.clone());
+                            (
+                                LogicalPlan {
+                                    schema: schema(&definition),
+                                    node: PlanNode::Scan(binding),
+                                },
+                                alias,
+                            )
+                        }
                     }
                 }
             }

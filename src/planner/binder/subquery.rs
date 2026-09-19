@@ -104,8 +104,14 @@ impl State<'_, '_> {
             parameters_allowed: self.parameters_allowed,
             ctes: self.ctes.clone(),
             outer,
+            view_stack: self.view_stack.clone(),
+            view_schema: self.view_schema.clone(),
+            view_dependencies: RefCell::new(self.view_dependencies.borrow().clone()),
         };
         let mut plan = nested.query(query)?;
+        self.view_dependencies
+            .borrow_mut()
+            .extend(nested.view_dependencies.into_inner());
         let (kind, data_type) = if let SubqueryForm::Exists { negated } = form {
             plan = existence(plan);
             (SubqueryKind::Exists { negated }, DataType::Boolean)

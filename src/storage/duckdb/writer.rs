@@ -222,6 +222,7 @@ fn encode_checkpoint(
     context.check()?;
     let tables = snapshot.tables()?;
     let named_types = snapshot.named_types()?;
+    let views = snapshot.views()?;
     for definition in &named_types {
         context.check()?;
         definition.validate()?;
@@ -239,6 +240,7 @@ fn encode_checkpoint(
     let catalog_entries = tables
         .len()
         .checked_add(named_types.len())
+        .and_then(|count| count.checked_add(views.len()))
         .and_then(|count| count.checked_add(schemas.len()))
         .filter(|count| *count <= 16_777_216)
         .ok_or_else(|| Error::Resource("checkpoint catalog exceeds 16 million entries".into()))?;
@@ -264,6 +266,14 @@ fn encode_checkpoint(
         catalog.field(100);
         catalog.boolean(true);
         type_definition(&mut catalog, &definition, version)?;
+        catalog.end();
+    }
+    for definition in views {
+        context.check()?;
+        catalog.property(99, 3);
+        catalog.field(100);
+        catalog.boolean(true);
+        super::view::write(&mut catalog, &definition, version, &context)?;
         catalog.end();
     }
     for table in tables {

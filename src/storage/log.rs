@@ -1,7 +1,9 @@
 //! Transaction change capture and replaceable, effect-free log encoding.
 use super::{RowId, UpdateMetadata, format::FormatId, table::Snapshot};
 use crate::{
-    catalog::{CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName},
+    catalog::{
+        CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName, ViewDefinition,
+    },
     common::{Result, Row},
     parallel::QueryContext,
 };
@@ -16,6 +18,11 @@ pub enum TransactionChange {
     DropSchema(String),
     CreateTable(TableDefinition),
     DropTable(TableName),
+    CreateView {
+        definition: ViewDefinition,
+        conflict: CreateConflictPolicy,
+    },
+    DropView(TableName),
     CreateType {
         definition: TypeDefinition,
         conflict: CreateConflictPolicy,

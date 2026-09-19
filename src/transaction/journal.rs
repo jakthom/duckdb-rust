@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     catalog::{
         CreateConflictPolicy, DropBehavior, ResolvedType, TableDefinition, TypeBinding,
-        TypeDefinition, TypeName,
+        TypeDefinition, TypeName, ViewBinding, ViewDefinition,
     },
     storage::UpdateMetadata,
 };
@@ -21,6 +21,33 @@ impl Catalog for SnapshotTransaction {
     }
     fn tables(&self) -> Result<Vec<TableDefinition>> {
         self.snapshot.tables()
+    }
+    fn view(&self, name: &TableName) -> Result<ViewDefinition> {
+        self.snapshot.view(name)
+    }
+    fn views(&self) -> Result<Vec<ViewDefinition>> {
+        self.snapshot.views()
+    }
+    fn view_entry(&self, name: &TableName) -> Result<crate::catalog::ResolvedView> {
+        self.snapshot.view_entry(name)
+    }
+    fn view_entry_if_exists(
+        &self,
+        name: &TableName,
+    ) -> Result<Option<crate::catalog::ResolvedView>> {
+        self.snapshot.view_entry_if_exists(name)
+    }
+    fn view_by_identity(
+        &self,
+        identity: &crate::catalog::ObjectIdentity,
+    ) -> Result<crate::catalog::ResolvedView> {
+        self.snapshot.view_by_identity(identity)
+    }
+    fn view_by_identity_if_exists(
+        &self,
+        identity: &crate::catalog::ObjectIdentity,
+    ) -> Result<Option<crate::catalog::ResolvedView>> {
+        self.snapshot.view_by_identity_if_exists(identity)
     }
     fn named_type(&self, name: &TypeName) -> Result<TypeDefinition> {
         self.snapshot.named_type(name)
@@ -180,6 +207,80 @@ impl CatalogMut for SnapshotTransaction {
             self.record(TransactionChange::DropTable(name.clone()));
         }
         Ok(())
+    }
+
+    fn create_view(
+        &mut self,
+        definition: ViewDefinition,
+        conflict: CreateConflictPolicy,
+    ) -> Result<bool> {
+        let prepared = self.snapshot.prepare_view_creation(&definition, conflict)?;
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        let changed = snapshot.apply_view_creation(definition.clone(), &prepared)?;
+        let basis_changed = basis.apply_view_creation(definition.clone(), &prepared)?;
+        if changed != basis_changed {
+            return Err(Error::Internal(
+                "transaction catalog views disagree about view creation".into(),
+            ));
+        }
+        if changed {
+            ensure_catalog_views_match(&snapshot, &basis)?;
+            self.snapshot = snapshot;
+            self.catalog_basis = basis;
+            if self.journal.is_some() {
+                self.record(TransactionChange::CreateView {
+                    definition,
+                    conflict,
+                });
+            }
+        }
+        Ok(changed)
+    }
+
+    fn drop_view(
+        &mut self,
+        name: &TableName,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        let changed = snapshot.drop_view(name, if_exists, behavior)?;
+        let basis_changed = basis.drop_view(name, if_exists, behavior)?;
+        if changed != basis_changed {
+            return Err(Error::Internal(
+                "transaction catalog views disagree about view existence".into(),
+            ));
+        }
+        if changed {
+            ensure_catalog_views_match(&snapshot, &basis)?;
+            self.snapshot = snapshot;
+            self.catalog_basis = basis;
+            if self.journal.is_some() {
+                self.record(TransactionChange::DropView(name.clone()));
+            }
+        }
+        Ok(changed)
+    }
+
+    fn drop_view_identified(
+        &mut self,
+        view: &ViewBinding,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        if view.identity().is_none() {
+            return Err(Error::InvalidInput(
+                "runtime transaction requires an identified view binding".into(),
+            ));
+        }
+        let name = match self.snapshot.resolve_view_binding_if_exists(view)? {
+            Some(resolved) => resolved.definition().name.clone(),
+            None if if_exists => return Ok(false),
+            None => return Err(Error::Catalog(format!("view {view} does not exist"))),
+        };
+        self.drop_view(&name, if_exists, behavior)
     }
 
     fn create_type(

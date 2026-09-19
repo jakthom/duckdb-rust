@@ -41,7 +41,7 @@ impl UnresolvedTableName {
         &self.table
     }
 
-    fn explicit_name(&self) -> Option<TableName> {
+    pub(super) fn explicit_name(&self) -> Option<TableName> {
         self.schema
             .as_deref()
             .map(|schema| TableName::new(schema, &self.table))
@@ -77,6 +77,127 @@ impl State<'_, '_> {
         }
     }
 
+    pub(super) fn resolve_existing_view(
+        &self,
+        name: &ast::ObjectName,
+        if_exists: bool,
+    ) -> Result<Option<crate::catalog::ResolvedView>> {
+        let unresolved = self.unresolved_table_name(name)?;
+        if let Some(name) = unresolved.explicit_name() {
+            if let Some(resolved) = self.context.catalog.view_entry_if_exists(&name)? {
+                return Ok(Some(resolved));
+            }
+            if self.context.catalog.table_entry_if_exists(&name)?.is_some() {
+                return Err(Error::Catalog(format!(
+                    "existing object {name} is a table, not a view"
+                )));
+            }
+            return if if_exists {
+                Ok(None)
+            } else {
+                Err(Error::Catalog(format!("view {name} does not exist")))
+            };
+        }
+        let path = self
+            .context
+            .query
+            .settings()
+            .search_path(self.context.query)?;
+        for entry in path.entries() {
+            self.context.query.check()?;
+            if entry.catalog().is_some() {
+                return Err(unsupported(
+                    "catalog-qualified search_path entries require attached catalog routing",
+                ));
+            }
+            let candidate = TableName::new(entry.schema_name(), unresolved.table());
+            if let Some(resolved) = self.context.catalog.view_entry_if_exists(&candidate)? {
+                return Ok(Some(resolved));
+            }
+            if self
+                .context
+                .catalog
+                .table_entry_if_exists(&candidate)?
+                .is_some()
+            {
+                return Err(Error::Catalog(format!(
+                    "existing object {candidate} is a table, not a view"
+                )));
+            }
+        }
+        let candidate = TableName::main(unresolved.table());
+        if let Some(resolved) = self.context.catalog.view_entry_if_exists(&candidate)? {
+            return Ok(Some(resolved));
+        }
+        if self
+            .context
+            .catalog
+            .table_entry_if_exists(&candidate)?
+            .is_some()
+        {
+            return Err(Error::Catalog(format!(
+                "existing object {candidate} is a table, not a view"
+            )));
+        }
+        if if_exists {
+            Ok(None)
+        } else {
+            Err(Error::Catalog(format!("view {candidate} does not exist")))
+        }
+    }
+
+    pub(super) fn resolve_relation_view(
+        &self,
+        name: &ast::ObjectName,
+    ) -> Result<Option<crate::catalog::ResolvedView>> {
+        let unresolved = self.unresolved_table_name(name)?;
+        if let Some(name) = unresolved.explicit_name() {
+            return self.context.catalog.view_entry_if_exists(&name);
+        }
+        if let Some(schema) = &self.view_schema {
+            let candidate = TableName::new(schema, unresolved.table());
+            if let Some(resolved) = self.context.catalog.view_entry_if_exists(&candidate)? {
+                return Ok(Some(resolved));
+            }
+            if self
+                .context
+                .catalog
+                .table_entry_if_exists(&candidate)?
+                .is_some()
+            {
+                return Ok(None);
+            }
+        }
+        let path = self
+            .context
+            .query
+            .settings()
+            .search_path(self.context.query)?;
+        for entry in path.entries() {
+            self.context.query.check()?;
+            if entry.catalog().is_some() {
+                return Err(unsupported(
+                    "catalog-qualified search_path entries require attached catalog routing",
+                ));
+            }
+            let candidate = TableName::new(entry.schema_name(), unresolved.table());
+            if let Some(resolved) = self.context.catalog.view_entry_if_exists(&candidate)? {
+                return Ok(Some(resolved));
+            }
+            if self
+                .context
+                .catalog
+                .table_entry_if_exists(&candidate)?
+                .is_some()
+            {
+                return Ok(None);
+            }
+        }
+        self.context
+            .catalog
+            .view_entry_if_exists(&TableName::main(unresolved.table()))
+    }
+
     pub(super) fn resolve_create_target(&self, name: &ast::ObjectName) -> Result<TableName> {
         let unresolved = self.unresolved_table_name(name)?;
         if let Some(name) = unresolved.explicit_name() {
@@ -107,6 +228,20 @@ impl State<'_, '_> {
         if let Some(name) = unresolved.explicit_name() {
             return self.context.catalog.table_entry_if_exists(&name);
         }
+        if let Some(schema) = &self.view_schema {
+            let candidate = TableName::new(schema, unresolved.table());
+            if let Some(resolved) = self.context.catalog.table_entry_if_exists(&candidate)? {
+                return Ok(Some(resolved));
+            }
+            if self
+                .context
+                .catalog
+                .view_entry_if_exists(&candidate)?
+                .is_some()
+            {
+                return Ok(None);
+            }
+        }
         let path = self
             .context
             .query
@@ -122,6 +257,14 @@ impl State<'_, '_> {
             let candidate = TableName::new(entry.schema_name(), unresolved.table());
             if let Some(resolved) = self.context.catalog.table_entry_if_exists(&candidate)? {
                 return Ok(Some(resolved));
+            }
+            if self
+                .context
+                .catalog
+                .view_entry_if_exists(&candidate)?
+                .is_some()
+            {
+                return Ok(None);
             }
         }
         self.context

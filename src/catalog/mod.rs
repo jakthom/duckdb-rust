@@ -13,7 +13,8 @@ pub use alter::TableAlteration;
 pub use dependency::{DependencyGraph, DependentFlags, SubjectFlags};
 pub use identity::{
     CatalogId, CatalogIdentity, CatalogObjectKind, CatalogVersion, CreateConflictPolicy,
-    DropBehavior, ObjectId, ObjectIdentity, ResolvedTable, ResolvedType, TableBinding, TypeBinding,
+    DropBehavior, ObjectId, ObjectIdentity, ResolvedTable, ResolvedType, ResolvedView,
+    TableBinding, TypeBinding, ViewBinding,
 };
 pub use registry::{
     CatalogObjectName, CatalogObjectRecord, CatalogRegistry, PreparedCatalogCreate,
@@ -190,6 +191,44 @@ pub struct TableDefinition {
     pub unique_keys: Vec<UniqueKey>,
 }
 
+/// Durable source of a persistent view. The query is retained as owned SQL so
+/// every use binds against the caller's transaction snapshot. Output names and
+/// types are captured at CREATE time for native metadata and error checking;
+/// they do not replace rebinding the query.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ViewDefinition {
+    pub name: TableName,
+    pub query: String,
+    pub aliases: Vec<String>,
+    pub names: Vec<String>,
+    pub types: Vec<DataType>,
+    /// A bounded, parser-independent representation used by native checkpoint
+    /// and WAL codecs. Unsupported SQL remains valid for non-native catalogs.
+    #[serde(default)]
+    pub query_shape: Option<ViewQueryShape>,
+    #[serde(default)]
+    pub dependencies: Vec<ViewDependency>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ViewQueryShape {
+    pub source: TableName,
+    pub projection: ViewProjection,
+    pub filter: Option<StoredExpression>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ViewProjection {
+    Star,
+    Expressions(Vec<StoredExpression>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ViewDependency {
+    Table(TableName),
+    View(TableName),
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// All metadata is resolved in the caller's transaction snapshot.
 pub trait Catalog: Send {
@@ -202,6 +241,88 @@ pub trait Catalog: Send {
     fn schemas(&self) -> Result<Vec<String>>;
     fn table(&self, name: &TableName) -> Result<TableDefinition>;
     fn tables(&self) -> Result<Vec<TableDefinition>>;
+
+    fn view(&self, _name: &TableName) -> Result<ViewDefinition> {
+        Err(Error::Unsupported("views on this catalog".into()))
+    }
+
+    fn views(&self) -> Result<Vec<ViewDefinition>> {
+        Err(Error::Unsupported("views on this catalog".into()))
+    }
+
+    fn view_entry(&self, name: &TableName) -> Result<ResolvedView> {
+        if self.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware catalog must implement view entry resolution".into(),
+            ));
+        }
+        Ok(ResolvedView::unversioned(self.view(name)?))
+    }
+
+    fn view_entry_if_exists(&self, name: &TableName) -> Result<Option<ResolvedView>> {
+        if self.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware catalog must implement optional view resolution".into(),
+            ));
+        }
+        Ok(self
+            .views()?
+            .into_iter()
+            .find(|definition| definition.name == *name)
+            .map(ResolvedView::unversioned))
+    }
+
+    fn view_by_identity(&self, _identity: &ObjectIdentity) -> Result<ResolvedView> {
+        Err(Error::Unsupported(
+            "identity-aware view lookup on this catalog".into(),
+        ))
+    }
+
+    fn view_by_identity_if_exists(
+        &self,
+        _identity: &ObjectIdentity,
+    ) -> Result<Option<ResolvedView>> {
+        Err(Error::Unsupported(
+            "optional identity-aware view lookup on this catalog".into(),
+        ))
+    }
+
+    fn resolve_view_binding(&self, binding: &ViewBinding) -> Result<ResolvedView> {
+        if let Some(identity) = binding.identity() {
+            let catalog = self.identity().ok_or_else(|| {
+                Error::Unsupported("identified binding on an unversioned catalog".into())
+            })?;
+            if identity.catalog != catalog.id {
+                return Err(Error::InvalidInput(format!(
+                    "view binding for {} belongs to a different catalog",
+                    binding.name()
+                )));
+            }
+            self.view_by_identity(&identity)
+        } else {
+            self.view_entry(binding.name())
+        }
+    }
+
+    fn resolve_view_binding_if_exists(
+        &self,
+        binding: &ViewBinding,
+    ) -> Result<Option<ResolvedView>> {
+        if let Some(identity) = binding.identity() {
+            let catalog = self.identity().ok_or_else(|| {
+                Error::Unsupported("identified binding on an unversioned catalog".into())
+            })?;
+            if identity.catalog != catalog.id {
+                return Err(Error::InvalidInput(format!(
+                    "view binding for {} belongs to a different catalog",
+                    binding.name()
+                )));
+            }
+            self.view_by_identity_if_exists(&identity)
+        } else {
+            self.view_entry_if_exists(binding.name())
+        }
+    }
 
     /// Resolves the durable payload of a schema-scoped named type. Adapters
     /// that have not adopted named types fail explicitly.
@@ -456,6 +577,37 @@ pub trait CatalogMut: Catalog {
     fn drop_schema(&mut self, name: &str, if_exists: bool) -> Result<()>;
     fn create_table(&mut self, definition: TableDefinition, if_not_exists: bool) -> Result<()>;
     fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()>;
+
+    fn create_view(
+        &mut self,
+        _definition: ViewDefinition,
+        _conflict: CreateConflictPolicy,
+    ) -> Result<bool> {
+        Err(Error::Unsupported("view creation on this catalog".into()))
+    }
+
+    fn drop_view(
+        &mut self,
+        _name: &TableName,
+        _if_exists: bool,
+        _behavior: DropBehavior,
+    ) -> Result<bool> {
+        Err(Error::Unsupported("view drop on this catalog".into()))
+    }
+
+    fn drop_view_identified(
+        &mut self,
+        view: &ViewBinding,
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<bool> {
+        if self.identity().is_some() || view.identity().is_some() {
+            return Err(Error::Unsupported(
+                "identity-aware view drop on this catalog".into(),
+            ));
+        }
+        self.drop_view(view.name(), if_exists, behavior)
+    }
 
     /// Creates a named type under an explicit conflict policy. `Replace`
     /// always installs a fresh object identity even when the payload is equal;

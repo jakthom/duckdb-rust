@@ -10,6 +10,9 @@ impl State<'_, '_> {
     pub(super) fn stored_expression(&self, expression: &StoredExpression) -> Result<BoundExpr> {
         self.context.query.check()?;
         match &expression.kind {
+            StoredExpressionKind::ColumnReference(_) => Err(Error::Bind(
+                "stored catalog expression cannot depend on a row column".into(),
+            )),
             StoredExpressionKind::CurrentTimestamp => {
                 self.scalar_call("get_current_timestamp", Vec::new())
             }

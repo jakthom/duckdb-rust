@@ -21,6 +21,9 @@ impl SqlBinder {
             parameters_allowed: false,
             ctes: BTreeMap::new(),
             outer: Vec::new(),
+            view_stack: Vec::new(),
+            view_schema: None,
+            view_dependencies: RefCell::new(BTreeSet::new()),
         };
         let expression = state.capture_stored_expression(expression)?;
         expression.validate(context.query)?;
@@ -543,6 +546,7 @@ mod tests {
         SqlBinder.capture_stored_expression(
             &parsed(sql)?,
             &BindContext {
+                parser: &DuckDbParser,
                 catalog: &catalog,
                 casts: &casts,
                 operators: &operators,
@@ -629,6 +633,7 @@ mod tests {
         let functions = FunctionRegistry::builtins();
         let expressions = ScalarEvaluator;
         let context = BindContext {
+            parser: &DuckDbParser,
             catalog: &catalog,
             casts: &casts,
             operators: &operators,
@@ -726,6 +731,7 @@ mod tests {
         let functions = FunctionRegistry::builtins();
         let expressions = ScalarEvaluator;
         let context = BindContext {
+            parser: &DuckDbParser,
             catalog: &catalog,
             casts: &casts,
             operators: &operators,

@@ -138,6 +138,7 @@ fn bind(
     let bound = binder.bind_stored_expression(
         expression,
         &BindContext {
+            parser: &duckdb_rust::parser::DuckDbParser,
             catalog: &catalog,
             functions,
             casts,

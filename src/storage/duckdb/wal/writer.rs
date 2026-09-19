@@ -8,6 +8,7 @@ use super::{MAX_ENTRIES, append_frame};
 use crate::{
     catalog::{
         Catalog, CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName,
+        ViewDefinition,
     },
     common::{DataType, Error, Result, Row, Value},
     parallel::QueryContext,
@@ -34,6 +35,7 @@ struct TableState {
 #[derive(Clone, Default)]
 struct Session {
     tables: BTreeMap<TableName, TableState>,
+    views: BTreeMap<TableName, ViewDefinition>,
     types: BTreeMap<TypeName, TypeDefinition>,
     entries: usize,
     storage_version: Option<u64>,
@@ -109,6 +111,9 @@ impl DuckDbTransactionLog {
                 },
             );
         }
+        for definition in snapshot.views()? {
+            session.views.insert(definition.name.clone(), definition);
+        }
         Ok(LogStart {
             header: vec![100, 0, 98, 101, 0, 2, 255, 255],
             session: Box::new(session),
@@ -177,6 +182,23 @@ impl LogSession for Session {
         if logical_types != next.types || physical_types != logical_types {
             return Err(invalid("checkpoint named-type catalog changed"));
         }
+        let logical_views: BTreeMap<_, _> = checkpoint
+            .logical
+            .views()?
+            .into_iter()
+            .map(|definition| (definition.name.clone(), definition))
+            .collect();
+        let physical_views: BTreeMap<_, _> = checkpoint
+            .physical
+            .views()?
+            .into_iter()
+            .map(|definition| (definition.name.clone(), definition))
+            .collect();
+        if !view_catalogs_match(&logical_views, &next.views)
+            || !view_catalogs_match(&physical_views, &logical_views)
+        {
+            return Err(invalid("checkpoint view catalog changed"));
+        }
         let mut logical_layout = CheckpointLayout::default();
         if checkpoint.logical.tables()?.len() != next.tables.len()
             || checkpoint.layout.tables.len() != next.tables.len()
@@ -243,6 +265,42 @@ impl LogSession for Session {
         for change in changes {
             context.check()?;
             match change {
+                TransactionChange::CreateView {
+                    definition,
+                    conflict,
+                } => {
+                    let existing = next.views.contains_key(&definition.name);
+                    match (existing, conflict) {
+                        (true, CreateConflictPolicy::Error) => {
+                            return Err(invalid("duplicate view"));
+                        }
+                        (true, CreateConflictPolicy::Ignore) => {
+                            return Err(invalid("no-op view creation in journal"));
+                        }
+                        (true, CreateConflictPolicy::Replace) => {
+                            output.push(named(6, &definition.name)?)?;
+                        }
+                        (false, _) => {}
+                    }
+                    let mut entry = record(5);
+                    entry.field(101);
+                    entry.boolean(true);
+                    super::super::view::write(
+                        &mut entry,
+                        definition,
+                        next.storage_version.unwrap_or(64),
+                        context,
+                    )?;
+                    output.push(entry)?;
+                    next.views
+                        .insert(definition.name.clone(), definition.clone());
+                }
+                TransactionChange::DropView(name) => {
+                    if next.views.remove(name).is_none() {
+                        return Err(invalid("missing dropped view"));
+                    }
+                    output.push(named(6, name)?)?;
+                }
                 TransactionChange::CreateType {
                     definition,
                     conflict,
@@ -533,6 +591,23 @@ impl TableState {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn invalid(message: &str) -> Error {
     Error::Internal(format!("invalid transaction journal: {message}"))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn view_catalogs_match(
+    left: &BTreeMap<TableName, ViewDefinition>,
+    right: &BTreeMap<TableName, ViewDefinition>,
+) -> bool {
+    left.len() == right.len()
+        && left.iter().all(|(name, definition)| {
+            right.get(name).is_some_and(|other| {
+                definition.name == other.name
+                    && definition.aliases == other.aliases
+                    && definition.names == other.names
+                    && definition.types == other.types
+                    && definition.query_shape == other.query_shape
+            })
+        })
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn advance(next: &mut RowId) -> Result<RowId> {

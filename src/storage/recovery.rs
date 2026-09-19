@@ -2,6 +2,7 @@
 use crate::{
     catalog::{
         Catalog, CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName,
+        ViewDefinition,
     },
     common::{Error, Result, Row, Value},
     parallel::QueryContext,
@@ -87,6 +88,11 @@ pub enum RecoveredChange {
     DropSchema(String),
     CreateTable(TableDefinition),
     DropTable(TableName),
+    CreateView {
+        definition: ViewDefinition,
+        conflict: CreateConflictPolicy,
+    },
+    DropView(TableName),
     CreateType {
         definition: TypeDefinition,
         conflict: CreateConflictPolicy,

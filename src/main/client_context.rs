@@ -434,6 +434,27 @@ impl Services {
                 }
                 Ok(QueryResult::command(0))
             }
+            BoundStatement::CreateView {
+                definition,
+                conflict,
+            } => {
+                transaction
+                    .catalog_mut()?
+                    .create_view(definition, conflict)?;
+                Ok(QueryResult::command(0))
+            }
+            BoundStatement::DropView {
+                views,
+                if_exists,
+                behavior,
+            } => {
+                for view in views {
+                    transaction
+                        .catalog_mut()?
+                        .drop_view_identified(&view, if_exists, behavior)?;
+                }
+                Ok(QueryResult::command(0))
+            }
             BoundStatement::CreateType {
                 definition,
                 conflict,

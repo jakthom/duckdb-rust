@@ -84,6 +84,12 @@ impl RecoveryTarget for Snapshot {
                 RecoveredChange::CreateTable(definition) => {
                     next.create_table(definition.clone(), false)?
                 }
+                RecoveredChange::CreateView {
+                    definition,
+                    conflict,
+                } => {
+                    next.create_view(definition.clone(), *conflict)?;
+                }
                 RecoveredChange::CreateType {
                     definition,
                     conflict,
@@ -97,6 +103,9 @@ impl RecoveryTarget for Snapshot {
                     next.drop_table(name, false)?;
                     validity.retain(|(table, _, _), _| table != name);
                     physical.discard_table(name);
+                }
+                RecoveredChange::DropView(name) => {
+                    next.drop_view(name, false, DropBehavior::Restrict)?;
                 }
                 RecoveredChange::AlterTable { table, alteration } => {
                     physical.finish(&mut next, context)?;

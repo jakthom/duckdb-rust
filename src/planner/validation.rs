@@ -103,6 +103,16 @@ impl BoundStatement {
                 Ok(())
             }
             Self::CreateType { definition, .. } => definition.validate(),
+            Self::CreateView { definition, .. } => {
+                require(
+                    definition.names.len() == definition.types.len(),
+                    "CREATE VIEW output metadata",
+                )?;
+                for ty in &definition.types {
+                    query.types().bind(ty)?;
+                }
+                Ok(())
+            }
             Self::Insert {
                 table,
                 columns,
@@ -193,6 +203,18 @@ impl BoundStatement {
                         catalog.resolve_type_binding_if_exists(type_)?;
                     } else {
                         catalog.resolve_type_binding(type_)?;
+                    }
+                }
+                Ok(())
+            }
+            Self::DropView {
+                views, if_exists, ..
+            } => {
+                for view in views {
+                    if *if_exists {
+                        catalog.resolve_view_binding_if_exists(view)?;
+                    } else {
+                        catalog.resolve_view_binding(view)?;
                     }
                 }
                 Ok(())

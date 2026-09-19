@@ -8,6 +8,7 @@ use super::{
 use crate::{
     catalog::{
         Catalog, CreateConflictPolicy, TableDefinition, TableName, TypeDefinition, TypeName,
+        ViewDefinition,
     },
     common::{DataType, Error, Result, Value},
     parallel::QueryContext,
@@ -18,6 +19,7 @@ use std::collections::BTreeMap;
 pub(super) struct RecordState {
     tables: BTreeMap<TableName, TableDefinition>,
     types: BTreeMap<TypeName, TypeDefinition>,
+    views: BTreeMap<TableName, ViewDefinition>,
     selected: Option<TableName>,
     storage_version: u64,
 }
@@ -36,6 +38,11 @@ impl RecordState {
                 .into_iter()
                 .map(|definition| (definition.name.clone(), definition))
                 .collect(),
+            views: catalog
+                .views()?
+                .into_iter()
+                .map(|definition| (definition.name.clone(), definition))
+                .collect(),
             selected: None,
             storage_version,
         })
@@ -47,6 +54,28 @@ impl RecordState {
         context: &QueryContext,
     ) -> Result<Option<Change>> {
         let change = match kind {
+            5 => {
+                reader.field(101)?;
+                if !reader.boolean()? {
+                    return Err(corrupt("NULL WAL create view"));
+                }
+                let qualified = catalog::create_base(reader, 3)?;
+                let definition =
+                    catalog::view_definition_at(reader, qualified, self.storage_version, context)?;
+                self.views
+                    .insert(definition.name.clone(), definition.clone());
+                Some(Change::CreateView {
+                    definition,
+                    conflict: CreateConflictPolicy::Replace,
+                })
+            }
+            6 => {
+                let view = name(reader)?;
+                if self.views.remove(&view).is_none() {
+                    return Err(corrupt("WAL drops missing view"));
+                }
+                Some(Change::DropView(view))
+            }
             13 => {
                 reader.field(101)?;
                 if !reader.boolean()? {

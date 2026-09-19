@@ -14,6 +14,7 @@ mod temporal;
 mod value;
 #[cfg(test)]
 mod version_tests;
+mod view;
 mod visibility;
 pub mod wal;
 mod write_support;
