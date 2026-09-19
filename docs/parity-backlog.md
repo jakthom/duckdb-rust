@@ -780,6 +780,10 @@ Batch 2 evidence/restart details:
   `target/batch2/f2-scoped-verification.md` / `f2-verifier/` (parser7,
   table-functions12, owned-row contract1, generator2, scoped Clippy,
   formatting/diff, coverage and instrumentation compatibility). Explicit mode
+  Final review subsequently found quoted newlines escaping the record-size
+  accounting and custom-escape closing-quote handling; CSV-only correction is
+  active under `target/batch2/csv-correction-delta.md`. The earlier sweep remains
+  evidence for its tested inputs, not acceptance of the pending correction.
   requires `auto_detect=false`; omitted/true inference remains F3.4. Exact
   source replay of `test_quote_default.test` passes release3/dev2 with a
   recorded DATA_DIR environment. Provenance review found the worker's development
@@ -810,7 +814,11 @@ Batch 2 evidence/restart details:
   directions on both pins; these are worker feedback, not final integrated
   acceptance. Review is checking schema-qualified recursion, duplicate output
   names and wide numeric literal encoding before integration; the durable
-  performance adapter remains open.
+  performance adapter is assigned independently to Terra/medium in
+  `../duckdb-rust-batch2-b1-durable` / `codex/batch2-b1-durable`, owning only
+  the new durable measurement script/tests/manifest. Fixed 10k-row view and
+  direct-table controls cover checkpoint and WAL create/reopen/query/drop;
+  no timing before review and quiet-host authorization.
   Both pins allow DROP TABLE/VIEW despite dependent views, so do not invent
   blocking dependencies; root observations are
   `target/batch2/b1-reference-observations.md`. Functional/performance acceptance
