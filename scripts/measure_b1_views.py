@@ -392,10 +392,19 @@ def command(engine, database, mode, sql, readonly=False):
 
 
 def json_row(stdout):
+    remaining = stdout.strip()
+    values = []
+    decoder = json.JSONDecoder()
     try:
-        data = json.loads(stdout)
+        while remaining:
+            value, consumed = decoder.raw_decode(remaining)
+            values.append(value)
+            remaining = remaining[consumed:].lstrip()
     except json.JSONDecodeError as error:
         raise ValueError("CLI did not emit JSON") from error
+    if not values or any(value != [] for value in values[:-1]):
+        raise ValueError("CLI emitted a nonempty setup result")
+    data = values[-1]
     wanted = {"row_count", "checksum"}
     if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
         raise ValueError("CLI JSON must contain exactly one row")

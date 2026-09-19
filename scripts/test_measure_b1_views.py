@@ -250,6 +250,19 @@ class DurableViewMeasurementTests(unittest.TestCase):
         # Both pinned C++ CLIs serialize SUM(BIGINT), a HUGEINT, as this string.
         m.json_row('[{"row_count":10000,"checksum":"49995000"}]')
 
+    def test_json_result_accepts_only_empty_cpp_wal_setup_prefixes(self):
+        # The pinned CLIs emit [] for disable_checkpoint_on_shutdown before the row.
+        m.json_row("[]\n" + CHECKSUM)
+        m.json_row("[]\n[]\n" + CHECKSUM)
+        for value in (
+            '[{"changed":true}]\n' + CHECKSUM,
+            "null\n" + CHECKSUM,
+            CHECKSUM + "\n[]",
+            "[]\ntrailing",
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                m.json_row(value)
+
     def test_json_result_rejects_shape_type_and_value_changes(self):
         m.json_row(CHECKSUM)
         bad = (
