@@ -529,7 +529,7 @@ deferred under the engine-first rule.
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Engine integrated through `7fe9087`, not accepted. Scoped CSV/owned-cast/COUNT/Python and COUNT diagnostic verification and fresh release preparation pass; previous view/native/source evidence retained. Pre-optimization CSV native performance FAILS (narrow3.99×, wide4.51×); optimized performance not yet measured. Durable Rust feasibility and remaining F1/A2/B1/COUNT performance gates are open. Exact restart details below. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Verified engine through `7fe9087`, not accepted. Fresh release/source/COUNT fixtures and durable feasibility12/12 pass. CSV candidate4 roughly halves runtime but native performance still FAILS (narrow2.30×, wide2.05×). Next bounded optimization is frozen at `165fa53`: CSV arena storage, packed UTF-8 vectors/COUNT/length, selected-cast eligibility and callback/ownership tests. Configured Terra/low partial verification is active; no timing during verification. Remaining F1/A2/B1/COUNT performance gates stay open. Separate sibling worktrees `../duckdb-rust-batch2-{a2,f2,b1}` / branches `codex/batch2-{a2,f2,b1}` retained. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 
 Checkpoint contract: update this table and each affected entry in place with
@@ -844,7 +844,34 @@ Batch 2 evidence/restart details:
   `f10e030268e97017361efb0a903d2573f7ffe0e8bf65d184dfa9a56556c3c0ef`.
   Additional COUNT acceptance covers the fixed100k nullable VARCHAR population
   and64 explicit rejected-star records under `count-flat-values-performance/`;
-  these require untimed three-engine replay and separate performance gates.
+  untimed three-engine replay now passes2/64 each in
+  `count-durable-untimed-final1/`, with unchanged source/binary/input identities.
+  Separate performance gates remain open.
+  Optimized native candidate4 still FAILS against both exact pins: release
+  narrow23.762ms versus10.334ms (2.30×), wide120.811ms versus58.949ms (2.05×).
+  Both21/3 paired campaigns and joint gate are preserved in
+  `f2-performance/native-{release,development,fastest}-candidate4.json`.
+  No CSV process timing ran after failure. Diagnostic-only
+  `f2-performance/profile-candidate4/stacks.txt` passed38 query oracles and
+  identifies per-field allocation/free as the remaining dominant cost.
+  Frozen response: one reader batch byte arena with per-field UTF-8
+  validation, compact per-output-column arenas, checked packed UTF-8 vectors
+  and borrowed COUNT/length consumption. Generic materialization, selected
+  custom cast row order and logical validators retain their fallback contracts.
+  Per-column compaction avoids retaining unrelated CSV columns in projected
+  CTAS storage. Manifests: `csv-arena-manifest.md`, `packed-utf8-manifest.md`,
+  `csv-packed-cast-manifest.md`; original candidate2 inputs are unchanged.
+  Commits `aa716e5`, `dd67c99`, `ebd23db` integrate the three owners' changes.
+  Initial partial stopped at its first compilation on an ambiguous closure
+  Result error type; explicit annotation `165fa53` fixes that setup failure.
+  No tests passed before that failure. Configured Terra/low resumes exact15
+  commands from `packed-csv-final-partial.md` in `packed-csv-verifier-resume1/`;
+  preserve the failed `packed-csv-verifier/`. Pending after verification:
+  `python3 target/batch2/prepare_optimized_csv.py --packed-csv`, then quiet-host
+  `python3 target/batch2/run_csv_native_candidate4.py --authorized --packed-csv`
+  writes fresh candidate5 reports against unchanged candidate2 inputs. The
+  wrapper's filename is historical; flags choose candidate5. Performance remains
+  open on this implementation; an agent-ready report is not completion.
   Then refresh the fixed quiet-host workloads; previous view/native evidence is
   unchanged, not an excuse to rerun it.
 - B1: worker `codex/batch2-b1` owns persistent views/catalog/binding/native
@@ -902,9 +929,10 @@ Batch 2 evidence/restart details:
   Adapter fixes `bf5cbad`, `eaa3d03`, `b13cd82` also accept the pins' exact
   HUGEINT decimal-string JSON and empty setup-result arrays; strict negative
   tests pass32/32, including the independent Python delta check in the scoped
-  optimization sweep. Rust's four feasibility cases remain open after the
-  CSV source/release freeze. No durable
-  performance measurement has run.
+  optimization sweep. Fresh full12 feasibility now passes in
+  `target/batch2/count-durable-untimed-final1/b1-durable-full12/`: all three
+  engines × view/direct × checkpoint/WAL, with unchanged relevant identities.
+  No durable performance measurement has run.
 
 - Fresh release preparation on engine `51b690a` passes: four binary builds;
   canonical worker provenance (source hash
