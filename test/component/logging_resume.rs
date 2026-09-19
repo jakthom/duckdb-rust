@@ -376,3 +376,77 @@ fn incomplete_logs_take_publication_fallback_before_later_writes() -> Result<()>
     }
     Ok(())
 }
+
+struct CountReads {
+    storage: LocalCheckpointStorage,
+    reads: Arc<std::sync::atomic::AtomicUsize>,
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl duckdb_rust::storage::filesystem::CheckpointStorage for CountReads {
+    fn name(&self) -> &'static str {
+        "count-checkpoint-reads"
+    }
+    fn writable(&self) -> bool {
+        self.storage.writable()
+    }
+    fn read(&self) -> Result<Vec<u8>> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.storage.read()
+    }
+    fn read_log(&self) -> Result<Vec<u8>> {
+        self.storage.read_log()
+    }
+    fn replace(&self, bytes: &[u8]) -> Result<()> {
+        self.storage.replace(bytes)
+    }
+    fn supports_recovery_publication(&self) -> bool {
+        true
+    }
+    fn supports_log_append(&self) -> bool {
+        true
+    }
+    fn initialize_log(&self, header: &[u8]) -> Result<u64> {
+        self.storage.initialize_log(header)
+    }
+    fn initialize_log_transaction(&self, header: &[u8], transaction: &[u8]) -> Result<Option<u64>> {
+        self.storage.initialize_log_transaction(header, transaction)
+    }
+    fn append_log(&self, expected: u64, bytes: &[u8]) -> Result<u64> {
+        self.storage.append_log(expected, bytes)
+    }
+    fn publish_recovery(
+        &self,
+        basis: &duckdb_rust::storage::recovery::RecoveryInput,
+        publication: &duckdb_rust::storage::recovery::RecoveryPublication,
+    ) -> Result<()> {
+        self.storage.publish_recovery(basis, publication)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn empty_wal_startup_reads_the_checkpoint_once() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("read-once.duckdb");
+    seed(&path)?;
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let storage = CountReads {
+        storage: LocalCheckpointStorage::open(&path, OpenMode::ReadWrite, || unreachable!())?,
+        reads: reads.clone(),
+    };
+    let checkpoint = FileCheckpoint::new(Arc::new(storage), Arc::new(DuckDbFormat::default()))
+        .with_recovery(Arc::new(DuckDbWalRecovery))?;
+    let database = DatabaseBuilder::new()
+        .durability(Arc::new(FileWal::new(
+            checkpoint,
+            Arc::new(DuckDbTransactionLog),
+        )?))
+        .build()?;
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+    database
+        .connect()
+        .execute("INSERT INTO t VALUES(2,'after empty log')")?;
+    drop(database);
+    assert_eq!(values(&path)?.len(), 2);
+    Ok(())
+}

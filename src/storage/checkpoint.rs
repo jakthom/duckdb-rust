@@ -198,8 +198,13 @@ impl FileCheckpoint {
         let Some(recovery) = &self.recovery else {
             return Ok(None);
         };
-        let checkpoint = self.file.read()?;
         let log = self.file.read_log()?;
+        if log.is_empty() {
+            // Ordinary loading will read and bind the checkpoint. Avoid reading
+            // it twice when there is no existing log to continue.
+            return Ok(None);
+        }
+        let checkpoint = self.file.read()?;
         let Some(recovered) = recovery.resume(
             RecoveryInput {
                 checkpoint: checkpoint.clone(),

@@ -534,10 +534,11 @@ User follow-up authorizes execution of all three batches with parallel tracks,
 continuing through their acceptance without another dispatch request. Parallel
 read-only scope preparation is active while Batch 2's acceptance is repaired;
 implementation of Batch 3 still follows Batch 2 acceptance.
-Batch 1 stays accepted. Batch 2's latest scoped-verified implementation is `373381e`;
-CSV candidate10 and F1 performance are accepted. Native WAL continuation and
-atomic first-transaction publication are now in scoped verification after logged
-lifecycle timing failed; Batch 2 acceptance remains open.
+Batch 1 stays accepted. Batch 2's native WAL continuation and atomic first-
+transaction publication pass scoped verification and both-pin native oracles at
+`d5d19ac`. CSV candidate10 and F1 performance are accepted. Lifecycle still misses
+the strict performance gate by0.16%; the verified empty-WAL read elision has passed
+release preparation and is ready for timing. Batch 2 acceptance remains open.
 
 September 19 carryover: source digest still matches candidate6 preparation.
 A busy-host diagnostic (not acceptance) measured Rust narrow14.11ms/wide70.37ms
@@ -724,30 +725,46 @@ engine inputs. Corrected preparation receipt:
 `target/batch2/a2-wal-continuation-preparation/final1.json` links successful
 commands1–17 and both native oracles without relabeling the failed aggregate.
 All production/source obligations for this repair pass; timed acceptance is next.
+At `d5d19ac`, quiet-host WAL candidate1 improves lifecycle to37.698ms but still
+fails the strict faster-reference37.638ms gate (1.001613x). Both read-only
+workloads pass all metrics: small0.9110x and large0.5965x latency. Preserve
+`target/batch2/a2-wal-lifecycle-process-candidate1.json`; proxy had not run.
+The empty-WAL path redundantly read the checkpoint before ordinary loading read
+it again. `a2-empty-wal-manifest.md` scopes an early empty-log decline plus a
+counted-read regression (1/1 routine pass). Configured partial verification passes
+114 tests: worker5, checkpointing20, logging17 and runner72, plus formatting,
+Clippy, coverage (no missing entries) and trace compatibility. Frozen inputs
+match under `a2-empty-wal-verifier/`. Parser/recovery/encoding/initial-publication code
+is unchanged, so its prior exhaustive, native-oracle and other scoped evidence
+is retained at `d5d19ac`. Next `prepare_a2_empty_wal.py` and
+`run_rest_a2_empty_wal_candidate1.py`. The latter collects compiled3 and proxy5
+measurements as independent serial stages on the same frozen tree, even if one
+fails, to identify both bottlenecks; both must pass before B1/COUNT or Batch3.
+No threshold, sample, fixture or acceptance obligation changes.
+Empty-WAL production preparation passes all13 stages with unchanged source
+digests, fresh worker/durable provenance and exact five-case Rust/proxy counts
+5/5000/16/4/2002. Receipt: `a2-empty-wal-preparation/run1/report.json`.
 
 | Batch | Tracks | State / restart point |
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
-| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active after `373381e`: CSV candidate10/F1 accepted; tuple and logged runner correctness/source checks pass. Logged lifecycle timing fails1.7424x. Optional clean WAL continuation and atomic first-transaction publication are in native partial verification under `target/batch2/a2-wal-continuation-manifest.md`. One real incomplete-frame continuation bug was found and fixed by the new prefix regression. Next `prepare_a2_wal_continuation.py`, then `run_rest_a2_wal_candidate1.py` for lifecycle/read-only/proxy, B1 and COUNT. Keep all failures and unaffected accepted evidence at tested identities. |
+| 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Active: CSV candidate10/F1 accepted. At `d5d19ac`, native WAL continuation and atomic initial publication pass scoped checks and both-pin native oracles; lifecycle latency misses by0.16%, both read-only workloads pass. Empty-WAL read elision passes114 affected tests and scoped checks. Next `prepare_a2_empty_wal.py`, then `run_rest_a2_empty_wal_candidate1.py` for compiled lifecycle/read-only and independent proxy gates, followed by B1 and COUNT. Keep failures and unaffected accepted evidence at tested identities. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Queued after batch 2 acceptance; if A4 was accepted as batch 2's fallback, reuse that evidence and select its next measured engine-accounting leaf rather than repeat it. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | Queued after batch 3 acceptance. One transaction/publication owner; filesystem and writer proposals integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | Queued after batch 4 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1; B2.1 consumes B1/D1. |
 
-**Immediate carryover, before Batch 3:** finish the independent native WAL
-continuation/atomic initial-transaction partial sweep under
-`target/batch2/a2-wal-continuation-verifier/`. It includes affected recovery/fault
-consumers and an explicit exhaustive truncation stage; unrelated full-engine
-coverage remains excluded. Then `target/batch2/prepare_a2_wal_continuation.py`
-builds four release binaries, refreshes worker/durable provenance, replays all
-five Rust/proxy workloads and both-pin read-only cases, and runs the native logging
-oracle's four data cases plus ten interruption boundaries for each pin. Finally
-`target/batch2/run_rest_a2_wal_candidate1.py` uses
-`remaining-performance-a2-wal-candidate1.json` for compiled lifecycle/read-only,
-strict five-case proxy, B1/native-process-durable and COUNT acceptance. All three
-compiled file cases rerun because WAL initialization changed. Retain accepted
-CSV/F1 and non-file-loop evidence at its actual tested identities. User paused
-activity; check host before timing and leave apps running. Batch 3 implementation
-follows Batch 2 acceptance.
+**Immediate carryover, before Batch 3:** native WAL continuation and atomic
+initial publication are verified, including both-pin native oracles. Empty-WAL
+read elision also passes its scoped verifier. `target/batch2/prepare_a2_empty_wal.py`
+builds four release binaries, refreshes worker/durable provenance and replays all
+five Rust/proxy workloads. Then `target/batch2/run_rest_a2_empty_wal_candidate1.py`
+uses `remaining-performance-a2-empty-wal-candidate1.json` to measure compiled
+lifecycle/read-only and the strict five-case proxy independently and serially;
+both must pass before B1/native-process-durable and COUNT acceptance. All three
+compiled file cases rerun because startup changed. Retain accepted CSV/F1 and
+non-file-loop evidence at its actual tested identities. User paused activity;
+check host before timing and leave apps running. Batch 3 implementation follows
+Batch 2 acceptance.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 
