@@ -779,12 +779,12 @@ Batch 2 evidence/restart details:
   worker; root independent partial sweep passed all nine stages under
   `target/batch2/f2-scoped-verification.md` / `f2-verifier/` (parser7,
   table-functions12, owned-row contract1, generator2, scoped Clippy,
-  formatting/diff, coverage and instrumentation compatibility). Explicit mode
+  formatting/diff, coverage and instrumentation compatibility).
   Final review subsequently found quoted newlines escaping the record-size
   accounting and custom-escape closing-quote handling; CSV-only correction is
   active under `target/batch2/csv-correction-delta.md`. The earlier sweep remains
   evidence for its tested inputs, not acceptance of the pending correction.
-  requires `auto_detect=false`; omitted/true inference remains F3.4. Exact
+  Explicit mode requires `auto_detect=false`; omitted/true inference remains F3.4. Exact
   source replay of `test_quote_default.test` passes release3/dev2 with a
   recorded DATA_DIR environment. Provenance review found the worker's development
   checkout label was wrong: the consumed SQL and both CSV hashes do match the
