@@ -51,6 +51,7 @@ HELPERS = (
 )
 RUST_ATTESTATION_FIELDS = {
     "schema",
+    "status",
     "recorded_at",
     "root",
     "git_revision",
@@ -61,9 +62,36 @@ RUST_ATTESTATION_FIELDS = {
     "source_after",
     "toolchain_before",
     "toolchain_after",
+    "build_environment_before",
+    "build_environment_after",
     "binary_before",
     "binary_after",
 }
+BUILD_ENVIRONMENT_KEYS = (
+    "AR",
+    "CARGO_BUILD_TARGET",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "CARGO_INCREMENTAL",
+    "CARGO_PROFILE_RELEASE_CODEGEN_UNITS",
+    "CARGO_PROFILE_RELEASE_DEBUG",
+    "CARGO_PROFILE_RELEASE_LTO",
+    "CARGO_PROFILE_RELEASE_OPT_LEVEL",
+    "CARGO_PROFILE_RELEASE_PANIC",
+    "CARGO_PROFILE_RELEASE_STRIP",
+    "CC",
+    "CFLAGS",
+    "CXX",
+    "CXXFLAGS",
+    "DEVELOPER_DIR",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "RUSTC",
+    "RUSTFLAGS",
+    "RUSTC_WRAPPER",
+    "RUSTC_WORKSPACE_WRAPPER",
+    "SDKROOT",
+    "SOURCE_DATE_EPOCH",
+)
+BUILD_ENVIRONMENT_PREFIXES = ("CARGO_PROFILE_RELEASE_", "CARGO_TARGET_")
 
 
 class SampleFailure(RuntimeError):
@@ -94,6 +122,7 @@ def rust_source_paths():
     paths = [
         ROOT / "Cargo.toml",
         ROOT / "Cargo.lock",
+        ROOT / ".cargo/config.toml",
         ROOT / "tools/shell/main.rs",
         *(ROOT / "src").rglob("*.rs"),
         *vendored_sources(ROOT),
@@ -115,8 +144,14 @@ def rust_source_identity():
 
 
 def toolchain_identity(check_output=subprocess.check_output):
+    cargo = shutil.which("cargo")
+    rustc = shutil.which("rustc")
+    if cargo is None or rustc is None:
+        raise FileNotFoundError("cargo and rustc are required")
     return {
+        "cargo_path": str(Path(cargo).resolve(strict=True)),
         "cargo": check_output(["cargo", "--version", "--verbose"], text=True).strip(),
+        "rustc_path": str(Path(rustc).resolve(strict=True)),
         "rustc": check_output(["rustc", "-Vv"], text=True).strip(),
     }
 
@@ -125,20 +160,27 @@ def git_revision(check_output=subprocess.check_output):
     return check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
 
 
+def build_environment():
+    keys = set(BUILD_ENVIRONMENT_KEYS)
+    keys.update(
+        key
+        for key in os.environ
+        if any(key.startswith(prefix) for prefix in BUILD_ENVIRONMENT_PREFIXES)
+    )
+    return {key: os.environ.get(key) for key in sorted(keys)}
+
+
 def prepare_rust_provenance(path, execute=subprocess.run):
     path = Path(path)
     if path.exists():
         raise FileExistsError("preserve prior Rust attestation: output exists")
+    path.parent.mkdir(parents=True, exist_ok=True)
     binary = (ROOT / "target/release/duckdb-rust").resolve()
     source_before = rust_source_identity()
     toolchain_before = toolchain_identity()
+    environment_before = build_environment()
     binary_before = file_id(binary) if binary.is_file() else None
-    execute([*BUILD_COMMAND], cwd=ROOT, check=True)
-    source_after = rust_source_identity()
-    toolchain_after = toolchain_identity()
-    if source_before != source_after or toolchain_before != toolchain_after:
-        raise RuntimeError("source or toolchain changed during release-shell build")
-    provenance = {
+    base = {
         "schema": 1,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "root": str(ROOT.resolve()),
@@ -147,13 +189,45 @@ def prepare_rust_provenance(path, execute=subprocess.run):
         "default_features": False,
         "build_command": [*BUILD_COMMAND],
         "source_before": source_before,
-        "source_after": source_after,
         "toolchain_before": toolchain_before,
-        "toolchain_after": toolchain_after,
+        "build_environment_before": environment_before,
         "binary_before": binary_before,
-        "binary_after": file_id(binary),
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        execute([*BUILD_COMMAND], cwd=ROOT, check=True)
+        source_after = rust_source_identity()
+        toolchain_after = toolchain_identity()
+        environment_after = build_environment()
+        if (
+            source_before != source_after
+            or toolchain_before != toolchain_after
+            or environment_before != environment_after
+        ):
+            raise RuntimeError(
+                "source, toolchain, or build environment changed during release-shell build"
+            )
+        provenance = {
+            **base,
+            "status": "complete",
+            "source_after": source_after,
+            "toolchain_after": toolchain_after,
+            "build_environment_after": environment_after,
+            "binary_after": file_id(binary),
+        }
+    except Exception as error:
+        failure = {
+            **base,
+            "status": "failed",
+            "error": {"type": type(error).__name__, "message": str(error)},
+            "source_after": rust_source_identity(),
+            "toolchain_after": toolchain_identity(),
+            "build_environment_after": build_environment(),
+            "binary_after": file_id(binary) if binary.is_file() else None,
+        }
+        with path.open("x") as stream:
+            json.dump(failure, stream, indent=2)
+            stream.write("\n")
+        raise
     with path.open("x") as stream:
         json.dump(provenance, stream, indent=2)
         stream.write("\n")
@@ -171,10 +245,11 @@ def rust_identity(binary, provenance_path):
         raise ValueError("Rust release-shell attestation fields changed")
     current_source = rust_source_identity()
     current_toolchain = toolchain_identity()
+    current_environment = build_environment()
     expected = {
         "schema": 1,
+        "status": "complete",
         "root": str(ROOT.resolve()),
-        "git_revision": git_revision(),
         "profile": "release",
         "default_features": False,
         "build_command": [*BUILD_COMMAND],
@@ -182,11 +257,15 @@ def rust_identity(binary, provenance_path):
         "source_after": current_source,
         "toolchain_before": current_toolchain,
         "toolchain_after": current_toolchain,
+        "build_environment_before": current_environment,
+        "build_environment_after": current_environment,
         "binary_after": file_id(binary),
     }
     if (
         not isinstance(provenance.get("recorded_at"), str)
         or not provenance["recorded_at"]
+        or not isinstance(provenance.get("git_revision"), str)
+        or not provenance["git_revision"]
         or any(provenance.get(key) != value for key, value in expected.items())
     ):
         raise ValueError("Rust release-shell attestation is stale or noncanonical")
@@ -369,6 +448,7 @@ def one_sample(engine, mode, workload, seed, database):
         "phases": [],
         "absence": None,
         "seed_after": None,
+        "wal_after_publish": None,
         "aggregate": None,
         "artifacts": None,
     }
@@ -415,10 +495,11 @@ def one_sample(engine, mode, workload, seed, database):
             sample["phases"].append(row)
             if phase == "publish" and mode == "wal":
                 wal = database.with_name(database.name + ".wal")
-                if not wal.is_file():
+                if not wal.is_file() or wal.stat().st_size == 0:
                     fail_sample(
                         sample, database, "WAL was not retained before reopen", row
                     )
+                sample["wal_after_publish"] = file_id(wal)
             if phase == "reopen_query_drop":
                 try:
                     json_row(row["stdout"])
@@ -515,6 +596,7 @@ def validate_sample(sample, engine, mode, workload, database, seed_identity_valu
         "phases",
         "absence",
         "seed_after",
+        "wal_after_publish",
         "aggregate",
         "artifacts",
     }
@@ -567,6 +649,24 @@ def validate_sample(sample, engine, mode, workload, database, seed_identity_valu
     if sample["seed_after"]["returncode"] != 0:
         raise ValueError("final seed verification failed")
     json_row(sample["seed_after"]["stdout"])
+
+    if mode == "wal":
+        wal = sample["wal_after_publish"]
+        expected_path = str(
+            Path(database).with_name(Path(database).name + ".wal").resolve()
+        )
+        if (
+            not isinstance(wal, dict)
+            or set(wal) != {"path", "sha256", "bytes"}
+            or wal["path"] != expected_path
+            or not isinstance(wal["sha256"], str)
+            or len(wal["sha256"]) != 64
+            or type(wal["bytes"]) is not int
+            or wal["bytes"] <= 0
+        ):
+            raise ValueError("published WAL evidence is missing or tampered")
+    elif sample["wal_after_publish"] is not None:
+        raise ValueError("checkpoint sample unexpectedly records a WAL publication")
 
     recomputed = {
         metric: (
@@ -853,6 +953,8 @@ def run_campaign(arguments):
         report["inputs_before"] = context_value["inputs"]
         if not arguments.run:
             report["inputs_after"] = campaign_context(arguments)["inputs"]
+            if report["inputs_after"] != report["inputs_before"]:
+                raise ValueError("campaign input identity changed during preparation")
             report["status"] = "prepared"
             return report
         if not arguments.quiet_host_confirmed:
@@ -911,6 +1013,8 @@ def run_campaign(arguments):
                     save(report_path, report)
 
         report["inputs_after"] = campaign_context(arguments)["inputs"]
+        if report["inputs_after"] != report["inputs_before"]:
+            raise ValueError("campaign input identity changed while timing")
         report["status"] = "complete"
         report["gate"] = evaluate(report, context_value)
         report["passed"] = report["gate"]["passed"]

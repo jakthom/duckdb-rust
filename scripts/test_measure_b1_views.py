@@ -82,6 +82,17 @@ def sample(target, mode, workload, database, value=100):
             m.command(selected, database, mode, m.seed_sql(), readonly=True),
             "seed_after",
         ),
+        "wal_after_publish": (
+            {
+                "path": str(
+                    Path(database).with_name(Path(database).name + ".wal").resolve()
+                ),
+                "sha256": "0" * 64,
+                "bytes": 1,
+            }
+            if mode == "wal"
+            else None
+        ),
         "aggregate": {
             "wall_ns": value * 2,
             "cpu_ns": 20_000_000,
@@ -99,7 +110,11 @@ def sample(target, mode, workload, database, value=100):
 def context(output):
     return {
         "manifest": {"manifest": 1},
-        "inputs": {"seed": {"sha256": "seed", "bytes": 4}},
+        "inputs": {
+            "seed": {"sha256": "seed", "bytes": 4},
+            "references": {"release": "release", "development": "development"},
+            "helpers": {"measure": "helper"},
+        },
         "engines": {target: engine(target) for target in m.TARGETS_ORDER},
         "output": str(output),
     }
@@ -175,6 +190,9 @@ class DurableViewMeasurementTests(unittest.TestCase):
             path.write_text(json.dumps(changed))
             with self.assertRaises(ValueError):
                 m.workload_manifest(path)
+
+    def test_rust_source_identity_includes_repository_cargo_configuration(self):
+        self.assertIn((m.ROOT / ".cargo/config.toml").resolve(), m.rust_source_paths())
 
     def test_parse_time_requires_each_metric_and_preserves_real_zero_io(self):
         self.assertEqual(
@@ -385,6 +403,33 @@ class DurableViewMeasurementTests(unittest.TestCase):
                     m.one_sample(selected, "checkpoint", "view_cycle", seed, database)
             self.assertEqual(caught.exception.observation["phases"], rows)
 
+    def test_one_sample_rejects_zero_byte_wal_and_retains_publish_phase(self):
+        with tempfile.TemporaryDirectory() as directory:
+            seed = Path(directory) / "seed"
+            database = Path(directory) / "db"
+            seed.write_bytes(b"seed")
+            selected = engine("rust")
+            seed_check = untimed(
+                m.command(selected, database, "wal", m.seed_sql(), readonly=True),
+                "seed_verification",
+            )
+            publish = timed([], "publish")
+
+            def publish_zero_wal(command, phase):
+                database.with_name(database.name + ".wal").write_bytes(b"")
+                return publish
+
+            with (
+                patch.object(m, "observe", return_value=seed_check),
+                patch.object(m, "timed", side_effect=publish_zero_wal),
+            ):
+                with self.assertRaises(m.SampleFailure) as caught:
+                    m.one_sample(selected, "wal", "view_cycle", seed, database)
+            partial = caught.exception.observation
+            self.assertEqual(partial["phases"], [publish])
+            self.assertIsNone(partial["wal_after_publish"])
+            self.assertIn("WAL was not retained", partial["failure"]["message"])
+
     def test_one_sample_preserves_absence_and_positive_seed_on_absence_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             seed = Path(directory) / "seed"
@@ -466,6 +511,32 @@ class DurableViewMeasurementTests(unittest.TestCase):
                         database,
                         seed_identity,
                     )
+            unexpected_wal = copy.deepcopy(base)
+            unexpected_wal["wal_after_publish"] = {
+                "path": "/out/db.wal",
+                "sha256": "0" * 64,
+                "bytes": 1,
+            }
+            with self.assertRaises(ValueError):
+                m.validate_sample(
+                    unexpected_wal,
+                    engine("rust"),
+                    "checkpoint",
+                    "view_cycle",
+                    database,
+                    seed_identity,
+                )
+            wal_sample = sample("rust", "wal", "view_cycle", database)
+            wal_sample["wal_after_publish"]["bytes"] = 0
+            with self.assertRaises(ValueError):
+                m.validate_sample(
+                    wal_sample,
+                    engine("rust"),
+                    "wal",
+                    "view_cycle",
+                    database,
+                    seed_identity,
+                )
 
     def test_schedule_has_exact_rotated_warmup_and_observation_populations(self):
         rows = m.schedule("/absolute", "wal", "view_cycle")
@@ -577,12 +648,40 @@ class DurableViewMeasurementTests(unittest.TestCase):
             ):
                 value = m.prepare_rust_provenance(provenance, execute=execute)
                 self.assertEqual(calls, [([*m.BUILD_COMMAND], root, True)])
+                self.assertEqual(value["status"], "complete")
                 self.assertEqual(value["binary_after"], m.file_id(binary))
                 self.assertEqual(json.loads(provenance.read_text()), value)
                 with self.assertRaises(FileExistsError):
                     m.prepare_rust_provenance(provenance, execute=execute)
 
-    def test_rust_identity_rejects_stale_profile_source_binary_and_noncanonical_path(
+    def test_prepare_build_failure_retains_only_failed_nonusable_attestation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "target/release/duckdb-rust"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"old")
+            provenance = root / "failed.json"
+            source = {"sha256": "source", "count": 1, "files": []}
+            toolchain = {"cargo": "cargo", "rustc": "rustc"}
+
+            def fail(*args, **kwargs):
+                raise subprocess.CalledProcessError(1, [*m.BUILD_COMMAND])
+
+            with (
+                patch.object(m, "ROOT", root),
+                patch.object(m, "rust_source_identity", return_value=source),
+                patch.object(m, "toolchain_identity", return_value=toolchain),
+                patch.object(m, "git_revision", return_value="revision"),
+            ):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    m.prepare_rust_provenance(provenance, execute=fail)
+                retained = json.loads(provenance.read_text())
+                self.assertEqual(retained["status"], "failed")
+                self.assertEqual(retained["error"]["type"], "CalledProcessError")
+                with self.assertRaises(ValueError):
+                    m.rust_identity(binary, provenance)
+
+    def test_rust_identity_reuses_docs_only_head_and_rejects_changed_build_inputs(
         self,
     ):
         with tempfile.TemporaryDirectory() as directory:
@@ -592,8 +691,10 @@ class DurableViewMeasurementTests(unittest.TestCase):
             binary.write_bytes(b"release")
             source = {"sha256": "source", "count": 1, "files": []}
             toolchain = {"cargo": "cargo", "rustc": "rustc"}
+            environment = m.build_environment()
             base = {
                 "schema": 1,
+                "status": "complete",
                 "recorded_at": "now",
                 "root": str(root.resolve()),
                 "git_revision": "revision",
@@ -604,6 +705,8 @@ class DurableViewMeasurementTests(unittest.TestCase):
                 "source_after": source,
                 "toolchain_before": toolchain,
                 "toolchain_after": toolchain,
+                "build_environment_before": environment,
+                "build_environment_after": environment,
                 "binary_before": None,
                 "binary_after": m.file_id(binary),
             }
@@ -616,13 +719,19 @@ class DurableViewMeasurementTests(unittest.TestCase):
             ):
                 provenance.write_text(json.dumps(base))
                 m.rust_identity(binary, provenance)
+                with patch.object(
+                    m,
+                    "git_revision",
+                    side_effect=AssertionError("current HEAD must not be consulted"),
+                ):
+                    m.rust_identity(binary, provenance)
                 for mutate in (
                     lambda value: value.__setitem__("schema", 2),
-                    lambda value: value.__setitem__("git_revision", "other"),
                     lambda value: value.__setitem__("profile", "debug"),
                     lambda value: value.__setitem__("source_after", {}),
                     lambda value: value["binary_after"].__setitem__("sha256", "bad"),
                     lambda value: value.__setitem__("toolchain_after", {}),
+                    lambda value: value.__setitem__("build_environment_after", {}),
                 ):
                     changed = copy.deepcopy(base)
                     mutate(changed)
@@ -699,6 +808,47 @@ class DurableViewMeasurementTests(unittest.TestCase):
                 report["results"][0]["failed_sample"]["observation"], partial
             )
             self.assertEqual(json.loads((output / "report.json").read_text()), report)
+
+    def test_campaign_fails_immediately_on_late_seed_reference_or_helper_change(self):
+        mutations = (
+            lambda inputs: inputs["seed"].__setitem__("sha256", "changed"),
+            lambda inputs: inputs["references"].__setitem__("release", "changed"),
+            lambda inputs: inputs["helpers"].__setitem__("measure", "changed"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for index, mutate in enumerate(mutations):
+                output = Path(directory) / f"output-{index}"
+                arguments = campaign_args(output, run=True)
+                before = context(output.resolve())
+                after = copy.deepcopy(before)
+                mutate(after["inputs"])
+
+                def one_round(selected_output, mode, workload):
+                    return [
+                        (
+                            3,
+                            "rust",
+                            Path(selected_output) / f"{mode}-{workload}-rust-3.duckdb",
+                        )
+                    ]
+
+                with (
+                    patch.object(m, "campaign_context", side_effect=[before, after]),
+                    patch.object(m, "active_peers", return_value=[]),
+                    patch.object(m, "schedule", side_effect=one_round),
+                    patch.object(m, "one_sample", return_value={"retained": True}),
+                ):
+                    report = m.run_campaign(arguments)
+                self.assertEqual(report["status"], "failed")
+                self.assertFalse(report["passed"])
+                self.assertIn("input identity changed", report["error"])
+                self.assertEqual(len(report["results"]), 4)
+                self.assertTrue(
+                    all(
+                        item["observations"]["rust"] == [{"retained": True}]
+                        for item in report["results"]
+                    )
+                )
 
     def test_prepared_campaign_checks_identity_twice_without_running_samples(self):
         with tempfile.TemporaryDirectory() as directory:
