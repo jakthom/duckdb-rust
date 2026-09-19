@@ -1,10 +1,12 @@
 use super::*;
 use std::io::Write;
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn sql_path(path: &std::path::Path) -> String {
     path.to_string_lossy().replace('\'', "''")
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn explicit_schema_csv_reads_quotes_nulls_boundaries_and_prepared_reopens() -> Result<()> {
     let mut file = tempfile::NamedTempFile::new()?;
@@ -42,6 +44,7 @@ fn explicit_schema_csv_reads_quotes_nulls_boundaries_and_prepared_reopens() -> R
     Ok(())
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn explicit_schema_csv_reports_open_parse_and_shape_failures() -> Result<()> {
     let missing = DatabaseBuilder::new().build()?.connect().query(

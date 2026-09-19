@@ -4,6 +4,7 @@
 //! deliberately do not belong here.  The scanner preserves enough field state
 //! across reads to make the fixed input buffer unobservable to callers.
 use std::{
+    collections::BTreeSet,
     fs::File,
     io::Read,
     path::{Path, PathBuf},
@@ -24,6 +25,7 @@ use crate::{
 };
 
 const BUFFER_BYTES: usize = 4096;
+const DEFAULT_MAX_LINE_BYTES: usize = 2_000_000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct CsvOptions {
@@ -33,8 +35,10 @@ pub(super) struct CsvOptions {
     pub null: Vec<u8>,
     pub header: bool,
     pub allow_quoted_nulls: bool,
+    pub max_line_bytes: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Default for CsvOptions {
     fn default() -> Self {
         Self {
@@ -44,6 +48,7 @@ impl Default for CsvOptions {
             null: Vec::new(),
             header: false,
             allow_quoted_nulls: true,
+            max_line_bytes: DEFAULT_MAX_LINE_BYTES,
         }
     }
 }
@@ -70,8 +75,10 @@ pub(super) struct CsvReader {
     carriage_return: bool,
     skipped_header: bool,
     record_started: bool,
+    record_bytes: usize,
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CsvReader {
     pub(super) fn open(path: &Path, options: CsvOptions) -> Result<Self> {
         if options.delimiter == b'\n' || options.delimiter == b'\r' {
@@ -98,6 +105,7 @@ impl CsvReader {
             carriage_return: false,
             skipped_header: false,
             record_started: false,
+            record_bytes: 0,
         })
     }
 
@@ -113,8 +121,8 @@ impl CsvReader {
         }
         let mut rows = Vec::with_capacity(max_rows);
         loop {
-            context.check()?;
             if self.start == self.end {
+                context.check()?;
                 let read = self.file.read(&mut self.buffer).map_err(|error| {
                     Error::Io(std::io::Error::other(format!(
                         "could not read CSV file: {error}"
@@ -137,6 +145,18 @@ impl CsvReader {
     }
 
     fn consume(&mut self, byte: u8, rows: &mut Vec<Vec<CsvField>>) -> Result<()> {
+        if byte != b'\n' {
+            self.record_bytes = self
+                .record_bytes
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("CSV record length overflow".into()))?;
+            if self.record_bytes > self.options.max_line_bytes {
+                return Err(Error::Resource(format!(
+                    "CSV record exceeds maximum line size of {} bytes",
+                    self.options.max_line_bytes
+                )));
+            }
+        }
         loop {
             if self.carriage_return {
                 self.carriage_return = false;
@@ -147,7 +167,12 @@ impl CsvReader {
                 continue;
             }
             if self.escape_pending {
-                self.field.push(byte);
+                if byte != self.options.quote && byte != self.options.escape {
+                    return Err(Error::Conversion(
+                        "CSV escape must precede quote or escape".into(),
+                    ));
+                }
+                self.push_field_byte(byte)?;
                 self.escape_pending = false;
                 self.record_started = true;
                 return Ok(());
@@ -155,12 +180,22 @@ impl CsvReader {
             if self.quote_pending {
                 self.quote_pending = false;
                 if byte == self.options.quote {
-                    self.field.push(byte);
+                    self.push_field_byte(byte)?;
                     self.record_started = true;
                     return Ok(());
                 }
                 self.in_quotes = false;
-                continue;
+                return match byte {
+                    b if b == self.options.delimiter => self.finish_field(),
+                    b'\n' => self.finish_record(rows),
+                    b'\r' => {
+                        self.carriage_return = true;
+                        Ok(())
+                    }
+                    _ => Err(Error::Conversion(
+                        "CSV character after closing quote is not a delimiter or newline".into(),
+                    )),
+                };
             }
             if self.in_quotes {
                 if self.options.escape != self.options.quote && byte == self.options.escape {
@@ -172,7 +207,7 @@ impl CsvReader {
                         self.in_quotes = false;
                     }
                 } else {
-                    self.field.push(byte);
+                    self.push_field_byte(byte)?;
                 }
                 self.record_started = true;
                 return Ok(());
@@ -189,7 +224,7 @@ impl CsvReader {
                 b'\n' => self.finish_record(rows)?,
                 b'\r' => self.carriage_return = true,
                 _ => {
-                    self.field.push(byte);
+                    self.push_field_byte(byte)?;
                     self.field_start = false;
                     self.record_started = true;
                 }
@@ -219,6 +254,14 @@ impl CsvReader {
         Ok(())
     }
 
+    fn push_field_byte(&mut self, byte: u8) -> Result<()> {
+        self.field
+            .try_reserve(1)
+            .map_err(|_| Error::Resource("CSV field allocation failed".into()))?;
+        self.field.push(byte);
+        Ok(())
+    }
+
     fn finish_field(&mut self) -> Result<()> {
         let bytes = std::mem::take(&mut self.field);
         let value = String::from_utf8(bytes)
@@ -239,6 +282,7 @@ impl CsvReader {
     fn finish_record(&mut self, rows: &mut Vec<Vec<CsvField>>) -> Result<()> {
         self.finish_field()?;
         self.record_started = false;
+        self.record_bytes = 0;
         if self.options.header && !self.skipped_header {
             self.skipped_header = true;
             self.row.clear();
@@ -280,13 +324,17 @@ impl TableFunction for ReadCsv {
         let mut path = None;
         let mut columns = None;
         let mut options = CsvOptions::default();
+        let mut seen = BTreeSet::new();
         for argument in arguments {
-            match argument
-                .name
-                .as_deref()
-                .map(str::to_ascii_lowercase)
-                .as_deref()
+            let name = argument.name.as_deref().map(str::to_ascii_lowercase);
+            if let Some(name) = &name
+                && !seen.insert(name.clone())
             {
+                return Err(Error::Bind(format!(
+                    "read_csv option {name} specified more than once"
+                )));
+            }
+            match name.as_deref() {
                 None => {
                     if path.is_some() {
                         return Err(Error::Bind("read_csv accepts one file path".into()));
@@ -311,6 +359,10 @@ impl TableFunction for ReadCsv {
                 Some("quote") => options.quote = byte_argument(argument, "quote")?,
                 Some("escape") => options.escape = byte_argument(argument, "escape")?,
                 Some("nullstr") => options.null = text_argument(argument, "nullstr")?.into_bytes(),
+                Some("max_line_size") | Some("maximum_line_size") => {
+                    options.max_line_bytes = usize_argument(argument, "max_line_size")?
+                }
+                Some("auto_detect") if !boolean_argument(argument, "auto_detect")? => (),
                 Some("auto_detect") | Some("sample_size") | Some("all_varchar") => {
                     return Err(Error::NotImplemented(
                         "read_csv auto detection is outside the explicit-schema reader".into(),
@@ -413,6 +465,7 @@ impl TableFunction for ReadCsv {
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn text_argument(argument: &TableFunctionArgument, name: &str) -> Result<String> {
     match &argument.value {
         Value::Varchar(value) => Ok(value.clone()),
@@ -420,6 +473,7 @@ fn text_argument(argument: &TableFunctionArgument, name: &str) -> Result<String>
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn boolean_argument(argument: &TableFunctionArgument, name: &str) -> Result<bool> {
     match argument.value {
         Value::Boolean(value) => Ok(value),
@@ -427,6 +481,7 @@ fn boolean_argument(argument: &TableFunctionArgument, name: &str) -> Result<bool
     }
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn byte_argument(argument: &TableFunctionArgument, name: &str) -> Result<u8> {
     let value = text_argument(argument, name)?;
     let bytes = value.as_bytes();
@@ -438,6 +493,17 @@ fn byte_argument(argument: &TableFunctionArgument, name: &str) -> Result<u8> {
     Ok(bytes[0])
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn usize_argument(argument: &TableFunctionArgument, name: &str) -> Result<usize> {
+    let value = usize::try_from(argument.value.as_i128()?)
+        .map_err(|_| Error::Bind(format!("read_csv {name} must be a nonnegative integer")))?;
+    if value == 0 {
+        return Err(Error::Bind(format!("read_csv {name} must be positive")));
+    }
+    Ok(value)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn columns_argument(argument: &TableFunctionArgument) -> Result<Vec<(String, String)>> {
     let Value::Nested(value) = &argument.value else {
         return Err(Error::Bind("read_csv columns must be a STRUCT".into()));
@@ -476,6 +542,7 @@ mod tests {
     use crate::parallel::QueryContext;
     use std::io::Write;
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     fn rows(input: &[u8], options: CsvOptions) -> Result<Vec<Vec<CsvField>>> {
         let mut file = tempfile::NamedTempFile::new()?;
         file.write_all(input)?;
@@ -488,6 +555,7 @@ mod tests {
         Ok(result)
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn chunked_reader_preserves_quotes_nulls_and_crlf() -> Result<()> {
         let long = "x".repeat(BUFFER_BYTES + 19);
@@ -510,6 +578,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn quote_escape_and_partial_final_record_are_preserved() -> Result<()> {
         let doubled = rows(b"\"one \"\"two\"\"\",3\n", CsvOptions::default())?;
@@ -526,11 +595,39 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn malformed_quote_is_an_error() {
         assert!(rows(b"a,\"unterminated", CsvOptions::default()).is_err());
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn strict_quote_escape_and_line_bounds_reject_malformed_records() {
+        assert!(rows(b"\"x\"y\n", CsvOptions::default()).is_err());
+        assert!(
+            rows(
+                b"\"x\\y\"\n",
+                CsvOptions {
+                    escape: b'\\',
+                    ..CsvOptions::default()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            rows(
+                b"abcdef\n",
+                CsvOptions {
+                    max_line_bytes: 4,
+                    ..CsvOptions::default()
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn quote_escape_crossing_buffer_boundary_is_preserved() -> Result<()> {
         let prefix = "x".repeat(BUFFER_BYTES - 2);
@@ -543,6 +640,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
     fn cancellation_is_observed_before_reading() -> Result<()> {
         let mut file = tempfile::NamedTempFile::new()?;
