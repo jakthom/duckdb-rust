@@ -15,7 +15,43 @@ import sqllogic
 
 
 def digest(path):
-    return hashlib.file_digest(Path(path).open("rb"), "sha256").hexdigest()
+    with Path(path).open("rb") as file:
+        return hashlib.file_digest(file, "sha256").hexdigest()
+
+
+def save(report, path):
+    Path(path).write_text(json.dumps(report, indent=2) + "\n")
+
+
+def validate_report(report):
+    """Fail closed before deriving a gate from proxy raw observations."""
+    if report.get("schema") != "sqllogic-proxy-v1" or report.get("samples") != 21:
+        raise ValueError("invalid proxy evidence schema or sample count")
+    if report.get("proxy_configuration") != {"threads": 1, "worker": "release-attested", "mode": "python-proxy"}:
+        raise ValueError("invalid proxy serial configuration")
+    if not isinstance(report.get("inputs"), dict) or not report["inputs"] or not all(isinstance(v, str) and len(v) == 64 for v in report["inputs"].values()):
+        raise ValueError("missing input hashes")
+    for entry in report.get("workloads", []):
+        obs = entry.get("observations", {})
+        if set(obs) != {"release", "development", "proxy"}:
+            raise ValueError("missing proxy observation population")
+        commands = entry["commands"]
+        for name, samples in obs.items():
+            if len(samples) != 21 or not samples:
+                raise ValueError("partial observations")
+            if any(not isinstance(s.get("records"), int) or s["records"] <= 0 for s in samples):
+                raise ValueError("zero or invalid records")
+            if len({s["records"] for s in samples}) != 1:
+                raise ValueError("unstable record count")
+            if any(s.get("command") != commands[name] for s in samples):
+                raise ValueError("tampered or wrong serial command")
+            for sample in samples:
+                measure.validate_observation(sample)
+        if len({samples[0]["records"] for samples in obs.values()}) != 1:
+            raise ValueError("non-equivalent runner record counts")
+    if not report.get("workloads"):
+        raise ValueError("missing workloads")
+    return True
 
 
 def once(worker, root, relative, timeout=60):
@@ -61,15 +97,20 @@ def campaign(args):
         "development": measure.identity("development", args.development_cpp, args.development_source,
                                         args.development_build, args.development_cli, args.test_root, workloads),
     }
-    report = {"recorded_at": datetime.now(timezone.utc).isoformat(), "samples": args.samples,
+    if Path(args.report).exists():
+        raise FileExistsError("preserve prior evidence: choose a new report path")
+    report = {"schema": "sqllogic-proxy-v1", "recorded_at": datetime.now(timezone.utc).isoformat(), "samples": args.samples,
               "warmups": args.warmups, "test_root": str(Path(args.test_root).resolve()),
               "workloads_manifest": str(Path(args.workloads).resolve()), "workloads": [],
               "references": references, "worker": {"path": str(worker), "sha256": digest(worker),
               "provenance": provenance}, "python": {"executable": sys.executable,
-              "version": sys.version, "sqllogic_sha256": digest(Path(__file__).with_name("sqllogic.py")),
+              "binary_sha256": digest(sys.executable), "version": sys.version, "sqllogic_sha256": digest(Path(__file__).with_name("sqllogic.py")),
               "proxy_sha256": digest(__file__)}, "execution_configuration": measure.SERIAL_CONFIGURATION,
+              "proxy_configuration": {"threads": 1, "worker": "release-attested", "mode": "python-proxy"},
+              "inputs": {name: digest(Path(__file__).with_name(name)) for name in ("run_upstream.py", "source_identity.py", "reference_version.py", "measure_sqllogic_performance.py", "sqllogic.py")} | {"workloads": digest(args.workloads)},
               "order": "paired alternating release, development, proxy", "passed": False}
-    for workload in workloads:
+    try:
+      for workload in workloads:
         commands = {"release": [args.release_cpp, "--test-dir", args.test_root, workload["path"],
                     "--use-colour", "no", "--durations", "no", "--single-threaded"],
                     "development": [args.development_cpp, "--test-dir", args.test_root, workload["path"],
@@ -84,19 +125,23 @@ def campaign(args):
         kept = {name: values[args.warmups:] for name, values in observed.items()}
         if any(len({sample["records"] for sample in values}) != 1 for values in kept.values()):
             raise ValueError("inconsistent record count: " + workload["id"])
-        report["workloads"].append({**workload, "observations": kept})
-    gate_inputs = {target: {"workloads": [{**item, "cpp": entry["observations"][target],
-                   "rust": entry["observations"]["proxy"]} for item, entry in zip(workloads, report["workloads"])]}
-                   for target in ("release", "development")}
-    report["gate"] = measure.gate(gate_inputs["release"], gate_inputs["development"], workloads)
-    report["passed"] = report["gate"]["passed"]
-    Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
+        report["workloads"].append({**workload, "commands": commands, "observations": kept})
+      validate_report(report)
+      gate_inputs = {target: {"workloads": [{**item, "cpp": entry["observations"][target],
+                     "rust": entry["observations"]["proxy"]} for item, entry in zip(workloads, report["workloads"])]}
+                     for target in ("release", "development")}
+      report["gate"] = measure.gate(gate_inputs["release"], gate_inputs["development"], workloads)
+      report["passed"] = report["gate"]["passed"]
+    except Exception as error:
+      report["error"] = str(error)
+      report["failed_invocation"] = getattr(error, "details", None)
+    save(report, args.report)
     return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--once", action="store_true"); parser.add_argument("--worker", type=Path, required=True)
+    parser.add_argument("--once", action="store_true"); parser.add_argument("--validate", type=Path); parser.add_argument("--worker", type=Path, required=False)
     parser.add_argument("--test-root", type=Path, required=True); parser.add_argument("--path")
     parser.add_argument("--worker-provenance", type=Path); parser.add_argument("--workloads", type=Path)
     parser.add_argument("--release-cpp", type=Path); parser.add_argument("--development-cpp", type=Path)
@@ -106,6 +151,8 @@ def main():
     parser.add_argument("--samples", type=int, default=21); parser.add_argument("--warmups", type=int, default=3)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
+    if args.validate:
+        validate_report(json.loads(args.validate.read_text())); return
     if args.once:
         if not args.path: parser.error("--once requires --path")
         count = once(args.worker, args.test_root, args.path)
@@ -114,7 +161,7 @@ def main():
     required = ("workloads", "release_cpp", "development_cpp", "release_source", "development_source",
                 "release_build", "development_build", "release_cli", "development_cli", "report")
     if any(getattr(args, name) is None for name in required): parser.error("campaign arguments are incomplete")
-    result = campaign(args); print(json.dumps({"passed": result["passed"], "report": str(args.report)}))
+    result = campaign(args); print(json.dumps({"passed": result["passed"], "report": str(args.report)})); raise SystemExit(0 if result["passed"] else 1)
 
 
 if __name__ == "__main__": main()
