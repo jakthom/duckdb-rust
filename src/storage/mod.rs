@@ -1,4 +1,5 @@
 pub mod checkpoint;
+pub mod buffer;
 pub mod compression;
 pub mod duckdb;
 pub mod filesystem;
