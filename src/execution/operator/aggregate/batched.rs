@@ -42,6 +42,56 @@ enum CandidateOrder {
     Many(Vec<Value>),
 }
 
+enum ColumnarIndex {
+    Integer(index::IntegerIndex),
+    Varchar(index::VarcharIndex),
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ColumnarIndex {
+    fn new(representations: &[KeyRepresentation]) -> Option<Self> {
+        if representations.iter().all(|key| key.has_integer_keys()) {
+            Some(Self::Integer(index::IntegerIndex::default()))
+        } else if representations == [KeyRepresentation::VarcharBytes] {
+            Some(Self::Varchar(index::VarcharIndex::default()))
+        } else {
+            None
+        }
+    }
+
+    fn set_empty(&mut self, group: usize) {
+        match self {
+            Self::Integer(index) => index.set_empty(group),
+            Self::Varchar(index) => index.set_empty(group),
+        }
+    }
+
+    fn locate(
+        &mut self,
+        columns: &[&Vector],
+        representations: &[KeyRepresentation],
+        rows: usize,
+        query: &crate::parallel::QueryContext,
+        create: impl FnMut(usize) -> Result<usize>,
+    ) -> Result<Vec<usize>> {
+        match self {
+            Self::Integer(index) => index.locate(columns, representations, rows, query, create),
+            Self::Varchar(index) => {
+                let [column] = columns else {
+                    return Err(Error::Internal(
+                        "VARCHAR grouping index requires one column".into(),
+                    ));
+                };
+                index.locate(column, representations[0], rows, query, create)
+            }
+        }
+    }
+
+    fn is_varchar(&self) -> bool {
+        matches!(self, Self::Varchar(_))
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// None is returned only before consuming input. Unknown expression effects,
 /// DISTINCT/FILTER, broader keys and functions retain the ordered row driver.
@@ -91,7 +141,15 @@ pub(super) fn try_run(
                 .map(|data_type| data_type.key_representation())
         })
         .collect::<Result<Vec<_>>>()?;
-    if representations.iter().any(|key| !key.has_integer_keys()) {
+    let supported_sets = aggregation.sets.iter().all(|set| {
+        let keys = set
+            .indices()
+            .iter()
+            .map(|&index| representations[index])
+            .collect::<Vec<_>>();
+        set.is_empty() || ColumnarIndex::new(&keys).is_some()
+    });
+    if !supported_sets {
         return Ok(None);
     }
     aggregation.validate_metadata(context.query)?;
@@ -134,7 +192,13 @@ pub(super) fn try_run(
         .iter()
         .enumerate()
         .map(|(set_index, set)| {
-            let mut index = index::IntegerIndex::default();
+            let key_representations = set
+                .indices()
+                .iter()
+                .map(|&index| representations[index])
+                .collect::<Vec<_>>();
+            let mut index = ColumnarIndex::new(&key_representations)
+                .unwrap_or_else(|| ColumnarIndex::Integer(index::IntegerIndex::default()));
             if set.is_empty() {
                 context.query.check_rows(groups.len() + 1)?;
                 context.query.check()?;
@@ -161,6 +225,7 @@ pub(super) fn try_run(
             })
             .collect::<Result<Vec<_>>>()?;
         for (set_index, set) in aggregation.sets.iter().enumerate() {
+            groups.reserve(batch.len())?;
             let keys = set
                 .indices()
                 .iter()
@@ -171,6 +236,7 @@ pub(super) fn try_run(
                 .iter()
                 .map(|&index| representations[index])
                 .collect::<Vec<_>>();
+            let varchar_ordinal = indices[set_index].is_varchar().then(|| set.indices()[0]);
             let destinations = indices[set_index].locate(
                 &keys,
                 &key_representations,
@@ -182,7 +248,7 @@ pub(super) fn try_run(
                         context.query.check()?;
                     }
                     let index = groups.len();
-                    groups.push(&columns, set, set_index, row)?;
+                    groups.push_preallocated(&columns, set, set_index, row, varchar_ordinal)?;
                     Ok(index)
                 },
             )?;
@@ -195,6 +261,14 @@ pub(super) fn try_run(
                     ));
                 }
                 state.update_batch(&destinations, arguments, context.query)?;
+            }
+        }
+    }
+    for (index, set) in indices.iter_mut().zip(&aggregation.sets) {
+        if let ColumnarIndex::Varchar(index) = index {
+            let ordinal = set.indices()[0];
+            for (group, value) in index.take_values() {
+                groups.set(group, ordinal, Value::Varchar(value))?;
             }
         }
     }
@@ -310,6 +384,18 @@ impl ColumnarGroups {
         Ok(())
     }
 
+    fn reserve(&mut self, count: usize) -> Result<()> {
+        self.set_indices
+            .try_reserve(count)
+            .map_err(|_| Error::Resource("aggregate group allocation failed".into()))?;
+        for values in &mut self.values {
+            values
+                .try_reserve(count)
+                .map_err(|_| Error::Resource("aggregate group allocation failed".into()))?;
+        }
+        Ok(())
+    }
+
     fn push_empty(&mut self, set_index: usize) -> Result<()> {
         self.reserve_one()?;
         for values in &mut self.values {
@@ -319,21 +405,23 @@ impl ColumnarGroups {
         Ok(())
     }
 
-    fn push(
+    fn push_preallocated(
         &mut self,
         columns: &[Vector],
         set: &crate::planner::aggregation::GroupingSet,
         set_index: usize,
         row: usize,
+        owned_varchar: Option<usize>,
     ) -> Result<()> {
         if columns.len() != self.values.len() {
             return Err(Error::Internal(
                 "aggregate group column count differs".into(),
             ));
         }
-        self.reserve_one()?;
         for (ordinal, (values, column)) in self.values.iter_mut().zip(columns).enumerate() {
-            values.push(if set.contains(ordinal) {
+            values.push(if owned_varchar == Some(ordinal) {
+                Value::Null
+            } else if set.contains(ordinal) {
                 column
                     .get(row)
                     .ok_or_else(|| Error::Internal("aggregate group row outside input".into()))?
@@ -342,6 +430,21 @@ impl ColumnarGroups {
             });
         }
         self.set_indices.push(set_index);
+        Ok(())
+    }
+
+    fn set(&mut self, group: usize, ordinal: usize, value: Value) -> Result<()> {
+        let slot = self
+            .values
+            .get_mut(ordinal)
+            .and_then(|values| values.get_mut(group))
+            .ok_or_else(|| Error::Internal("owned VARCHAR group outside result".into()))?;
+        if !slot.is_null() {
+            return Err(Error::Internal(
+                "owned VARCHAR group replaced a materialized value".into(),
+            ));
+        }
+        *slot = value;
         Ok(())
     }
 

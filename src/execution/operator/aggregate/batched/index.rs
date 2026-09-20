@@ -5,7 +5,30 @@ use crate::{
     common::{Error, Result, type_registry::KeyRepresentation, vector::Vector},
     parallel::QueryContext,
 };
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, hash_map::RandomState},
+    hash::{BuildHasher, BuildHasherDefault, Hasher},
+};
+
+#[derive(Default)]
+struct IdentityHasher(u64);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Hasher for IdentityHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        let mut value = [0_u8; 8];
+        value[..bytes.len().min(8)].copy_from_slice(&bytes[..bytes.len().min(8)]);
+        self.0 = u64::from_ne_bytes(value);
+    }
+    fn write_u64(&mut self, value: u64) {
+        self.0 = value;
+    }
+}
+
+type HashIndex<T> = HashMap<u64, T, BuildHasherDefault<IdentityHasher>>;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 struct Key {
@@ -124,6 +147,121 @@ pub(super) struct IntegerIndex {
     dense: Option<Dense>,
     sparse: HashMap<Key, usize>,
     empty: Option<usize>,
+}
+
+#[derive(Default)]
+pub(super) struct VarcharIndex {
+    hashes: RandomState,
+    primary: HashIndex<usize>,
+    collisions: HashIndex<Vec<usize>>,
+    values: Vec<(usize, String)>,
+    null: Option<usize>,
+    empty: Option<usize>,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl VarcharIndex {
+    pub(super) fn set_empty(&mut self, group: usize) {
+        self.empty = Some(group);
+    }
+
+    fn find_group(&self, hash: u64, value: &str) -> Option<usize> {
+        if let Some(candidates) = self.collisions.get(&hash) {
+            candidates.iter().find_map(|&candidate| {
+                (self.values[candidate].1 == value).then_some(self.values[candidate].0)
+            })
+        } else {
+            self.primary.get(&hash).and_then(|&candidate| {
+                (self.values[candidate].1 == value).then_some(self.values[candidate].0)
+            })
+        }
+    }
+
+    fn retain_group(&mut self, hash: u64, group: usize, value: String) {
+        let index = self.values.len();
+        self.values.push((group, value));
+        if let Some(&first) = self.primary.get(&hash) {
+            self.collisions
+                .entry(hash)
+                .or_insert_with(|| vec![first])
+                .push(index);
+        } else {
+            self.primary.insert(hash, index);
+        }
+    }
+
+    pub(super) fn locate(
+        &mut self,
+        column: &Vector,
+        representation: KeyRepresentation,
+        rows: usize,
+        query: &QueryContext,
+        mut create: impl FnMut(usize) -> Result<usize>,
+    ) -> Result<Vec<usize>> {
+        if representation != KeyRepresentation::VarcharBytes {
+            return Err(Error::Internal(
+                "VARCHAR grouping key differs from byte capability".into(),
+            ));
+        }
+        if let Some(empty) = self.empty {
+            return Ok(vec![empty; rows]);
+        }
+        let mut result = Vec::new();
+        result
+            .try_reserve_exact(rows)
+            .map_err(|_| Error::Resource("VARCHAR grouping allocation failed".into()))?;
+        self.primary
+            .try_reserve(rows)
+            .map_err(|_| Error::Resource("VARCHAR grouping allocation failed".into()))?;
+        self.values
+            .try_reserve(rows)
+            .map_err(|_| Error::Resource("VARCHAR grouping allocation failed".into()))?;
+        for row in 0..rows {
+            if row % 1024 == 0 {
+                query.check()?;
+            }
+            let value = column
+                .varchar_at(row)
+                .ok_or_else(|| Error::Internal("VARCHAR grouping key type changed".into()))?;
+            let group = match value {
+                None => match self.null {
+                    Some(group) => group,
+                    None => {
+                        let group = create(row)?;
+                        self.null = Some(group);
+                        group
+                    }
+                },
+                Some(value) => {
+                    if value.len() > 16 * 1024 * 1024 - 9 {
+                        return Err(Error::Resource("type key exceeds 16 MiB".into()));
+                    }
+                    let hash = self.hashes.hash_one(value);
+                    if let Some(group) = self.find_group(hash, value) {
+                        group
+                    } else {
+                        let mut owned = String::new();
+                        owned.try_reserve_exact(value.len()).map_err(|_| {
+                            Error::Resource("VARCHAR grouping allocation failed".into())
+                        })?;
+                        owned.push_str(value);
+                        let group = create(row)?;
+                        self.retain_group(hash, group, owned);
+                        group
+                    }
+                }
+            };
+            result.push(group);
+        }
+        query.check()?;
+        Ok(result)
+    }
+
+    pub(super) fn take_values(&mut self) -> Vec<(usize, String)> {
+        self.primary.clear();
+        self.collisions.clear();
+        std::mem::take(&mut self.values)
+    }
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl IntegerIndex {
@@ -673,6 +811,25 @@ mod tests {
                 *groups.entry(value).or_insert(next)
             })
             .collect()
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn varchar_hash_collisions_confirm_full_keys_and_preserve_owned_values() {
+        let mut index = VarcharIndex::default();
+        index.retain_group(7, 3, "alpha".into());
+        index.retain_group(7, 9, "beta".into());
+
+        assert_eq!(index.find_group(7, "alpha"), Some(3));
+        assert_eq!(index.find_group(7, "beta"), Some(9));
+        assert_eq!(index.find_group(7, "missing"), None);
+        assert_eq!(index.collisions.get(&7), Some(&vec![0, 1]));
+        assert_eq!(
+            index.take_values(),
+            vec![(3, "alpha".into()), (9, "beta".into())]
+        );
+        assert!(index.primary.is_empty());
+        assert!(index.collisions.is_empty());
     }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

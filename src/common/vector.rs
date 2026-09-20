@@ -2357,6 +2357,19 @@ pub struct DataChunk {
     reservation: Option<crate::parallel::Reservation>,
 }
 
+/// A complete single-column flat value allocation and its retained execution
+/// charge. This is an ownership handoff between engine consumers; exposing the
+/// fields outside the common module would permit uncharged application export.
+pub(crate) struct OwnedFlatValues {
+    pub(crate) values: Vec<Value>,
+    pub(crate) reservation: Option<crate::parallel::Reservation>,
+}
+
+pub(crate) enum OwnedFlatValuesHandoff {
+    Owned(OwnedFlatValues),
+    Unsupported(DataChunk),
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl DataChunk {
     pub fn new(columns: Vec<Vector>, count: usize) -> Result<Self> {
@@ -2403,6 +2416,45 @@ impl DataChunk {
                         .and_then(crate::parallel::Reservation::memory_pool)
                 })
             })
+    }
+    /// Consume a complete one-column generic flat allocation without cloning
+    /// heap payloads. Slices, selected encodings, shared flats and typed lanes
+    /// return the original chunk for the ordinary materialization path.
+    pub(crate) fn into_owned_single_flat_values(self) -> OwnedFlatValuesHandoff {
+        let eligible = match self.columns.as_slice() {
+            [column] if column.offset == 0 && column.count == self.count => {
+                matches!(
+                    &column.encoding,
+                    Encoding::FlatValues(values)
+                        if values.len() == self.count && Arc::strong_count(values) == 1
+                )
+            }
+            _ => false,
+        };
+        if !eligible {
+            return OwnedFlatValuesHandoff::Unsupported(self);
+        }
+        let Self {
+            mut columns,
+            reservation,
+            ..
+        } = self;
+        let Vector {
+            encoding,
+            reservation: column_reservation,
+            ..
+        } = columns.pop().expect("eligible single column");
+        let Encoding::FlatValues(values) = encoding else {
+            unreachable!("eligible generic flat column")
+        };
+        let values = Arc::try_unwrap(values)
+            .unwrap_or_else(|_| unreachable!("eligible flat allocation became shared"));
+        OwnedFlatValuesHandoff::Owned(OwnedFlatValues {
+            values,
+            // A chunk-level token is also retained by its column. Prefer the
+            // column guard because it additionally includes any earlier guard.
+            reservation: column_reservation.or(reservation),
+        })
     }
     pub fn from_rows(types: &[DataType], rows: &[Row]) -> Result<Self> {
         if rows.iter().any(|r| r.len() != types.len()) {

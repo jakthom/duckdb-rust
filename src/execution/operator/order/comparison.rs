@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    common::{Error, Value, type_registry::BoundType},
+    common::{
+        Error, Value,
+        type_registry::{BoundType, OrderingRepresentation},
+    },
     execution::subquery::PreparedExpression,
 };
 use std::cmp::Ordering;
@@ -145,14 +148,17 @@ impl SortAlgorithm for ComparisonSort {
                 }
             }
         }
-        let direct_order = order.len() == 1
-            && rows.first().is_none_or(|row| row.len() == 1)
+        let direct_column = if order.len() == 1
             && order[0].expression.data_type == crate::common::DataType::Varchar
-            && matches!(
-                order[0].expression.kind,
-                crate::planner::ExprKind::Column(0)
-            );
-        let owned_keys = if direct_order {
+            && types[0].ordering_representation() == OrderingRepresentation::VarcharBytes
+            && let crate::planner::ExprKind::Column(column) = order[0].expression.kind
+            && rows.first().is_none_or(|row| column < row.len())
+        {
+            Some(column)
+        } else {
+            None
+        };
+        let owned_keys = if direct_column.is_some() {
             None
         } else {
             temporary_reservations.push(
@@ -186,6 +192,11 @@ impl SortAlgorithm for ComparisonSort {
             Some(keys)
         };
         let keys = owned_keys.as_deref().unwrap_or(&rows);
+        if let Some(column) = direct_column {
+            for row in keys {
+                types[0].validate(&row[column], context.query)?;
+            }
+        }
         let indexes = vec_bytes::<usize>(rows.len())?;
         temporary_reservations.push(
             context
@@ -197,49 +208,73 @@ impl SortAlgorithm for ComparisonSort {
         permutation
             .try_reserve(rows.len())
             .map_err(|_| Error::Resource("comparison sort permutation allocation failed".into()))?;
-        permutation.extend(0..rows.len());
-        temporary_reservations.push(
-            context
-                .query
-                .memory_pool()
-                .reserve(indexes, context.query)?,
-        );
-        let mut scratch = Vec::new();
-        scratch
-            .try_reserve_exact(rows.len())
-            .map_err(|_| Error::Resource("comparison sort scratch allocation failed".into()))?;
-        scratch.resize(rows.len(), 0);
-        let mut width = 1usize;
-        while width < rows.len() {
-            for start in (0..rows.len()).step_by(width.saturating_mul(2)) {
-                context.query.check()?;
-                let middle = start.saturating_add(width).min(rows.len());
-                let end = middle.saturating_add(width).min(rows.len());
-                let (mut left, mut right) = (start, middle);
-                for output in &mut scratch[start..end] {
-                    let take_left = left < middle
-                        && (right == end
-                            || compare(
-                                &keys[permutation[left]],
-                                &keys[permutation[right]],
-                                order,
-                                &types,
-                                context,
-                            )? != Ordering::Greater);
-                    let position = if take_left {
-                        let p = left;
-                        left += 1;
-                        p
-                    } else {
-                        let p = right;
-                        right += 1;
-                        p
-                    };
-                    *output = permutation[position];
+        let run = if let Some(column) = direct_column {
+            direct_varchar_run(keys, column, &order[0], context)?
+        } else {
+            RunOrder::Unordered
+        };
+        match run {
+            RunOrder::Ascending => permutation.extend(0..rows.len()),
+            RunOrder::StrictDescending => permutation.extend((0..rows.len()).rev()),
+            RunOrder::Unordered => {
+                permutation.extend(0..rows.len());
+                temporary_reservations.push(
+                    context
+                        .query
+                        .memory_pool()
+                        .reserve(indexes, context.query)?,
+                );
+                let mut scratch = Vec::new();
+                scratch.try_reserve_exact(rows.len()).map_err(|_| {
+                    Error::Resource("comparison sort scratch allocation failed".into())
+                })?;
+                scratch.resize(rows.len(), 0);
+                let mut width = 1usize;
+                while width < rows.len() {
+                    for start in (0..rows.len()).step_by(width.saturating_mul(2)) {
+                        context.query.check()?;
+                        let middle = start.saturating_add(width).min(rows.len());
+                        let end = middle.saturating_add(width).min(rows.len());
+                        let (mut left, mut right) = (start, middle);
+                        for output in &mut scratch[start..end] {
+                            let comparison = if let Some(column) = direct_column
+                                && left < middle
+                                && right < end
+                            {
+                                direct_varchar_compare(
+                                    &keys[permutation[left]][column],
+                                    &keys[permutation[right]][column],
+                                    &order[0],
+                                )
+                            } else if left < middle && right < end {
+                                compare(
+                                    &keys[permutation[left]],
+                                    &keys[permutation[right]],
+                                    order,
+                                    &types,
+                                    context,
+                                )?
+                            } else {
+                                Ordering::Less
+                            };
+                            let take_left =
+                                left < middle && (right == end || comparison != Ordering::Greater);
+                            let position = if take_left {
+                                let p = left;
+                                left += 1;
+                                p
+                            } else {
+                                let p = right;
+                                right += 1;
+                                p
+                            };
+                            *output = permutation[position];
+                        }
+                    }
+                    std::mem::swap(&mut permutation, &mut scratch);
+                    width = width.saturating_mul(2);
                 }
             }
-            std::mem::swap(&mut permutation, &mut scratch);
-            width = width.saturating_mul(2);
         }
         context.query.check()?;
         temporary_reservations.push(
@@ -272,7 +307,6 @@ impl SortAlgorithm for ComparisonSort {
         }
         // The carrier and its token cease to own rows after every row moved.
         drop(carrier);
-        drop(scratch);
         drop(owned_keys);
         drop(row_capacity_reservation);
         // Merge existing charges without a second admission or a release gap.
@@ -281,6 +315,73 @@ impl SortAlgorithm for ComparisonSort {
             rows,
             reservation: Some(crate::parallel::Reservation::merge(output_reservations)),
         })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RunOrder {
+    Ascending,
+    StrictDescending,
+    Unordered,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn direct_varchar_run(
+    rows: &[Row],
+    column: usize,
+    order: &OrderExpr,
+    context: &ExecutionContext<'_>,
+) -> Result<RunOrder> {
+    let mut ascending = true;
+    let mut strict_descending = true;
+    for (index, pair) in rows.windows(2).enumerate() {
+        if index % 1024 == 0 {
+            context.query.check()?;
+        }
+        match direct_varchar_compare(&pair[0][column], &pair[1][column], order) {
+            Ordering::Less => strict_descending = false,
+            Ordering::Equal => strict_descending = false,
+            Ordering::Greater => ascending = false,
+        }
+        if !ascending && !strict_descending {
+            return Ok(RunOrder::Unordered);
+        }
+    }
+    Ok(if ascending {
+        RunOrder::Ascending
+    } else if strict_descending {
+        RunOrder::StrictDescending
+    } else {
+        RunOrder::Unordered
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[inline]
+fn direct_varchar_compare(left: &Value, right: &Value, order: &OrderExpr) -> Ordering {
+    let comparison = match (left, right) {
+        (Value::Null, Value::Null) => Ordering::Equal,
+        (Value::Null, _) => {
+            if order.nulls_first {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        }
+        (_, Value::Null) => {
+            if order.nulls_first {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        }
+        (Value::Varchar(left), Value::Varchar(right)) => left.as_bytes().cmp(right.as_bytes()),
+        _ => unreachable!("validated VARCHAR ordering capability received another value type"),
+    };
+    if order.descending && !left.is_null() && !right.is_null() {
+        comparison.reverse()
+    } else {
+        comparison
     }
 }
 

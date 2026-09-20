@@ -174,6 +174,53 @@ impl TypeAdapter for InvalidCapability {
     }
 }
 
+#[derive(Debug)]
+struct CustomVarcharOrdering;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TypeAdapter for CustomVarcharOrdering {
+    fn name(&self) -> &'static str {
+        "custom-varchar-ordering"
+    }
+    fn key_representation(&self, _: &DataType) -> KeyRepresentation {
+        KeyRepresentation::VarcharBytes
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        PrimitiveTypes.validate_type(data_type)
+    }
+    fn validate_value(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.validate_value(data_type, value, query)
+    }
+    fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        PrimitiveTypes.common_type(left, right)
+    }
+    fn compare(
+        &self,
+        data_type: &DataType,
+        left: &Value,
+        right: &Value,
+        query: &QueryContext,
+    ) -> Result<Cmp> {
+        PrimitiveTypes
+            .compare(data_type, left, right, query)
+            .map(Cmp::reverse)
+    }
+    fn write_key(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.write_key(data_type, value, output, query)
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn integer_ordering_capability_rejects_other_physical_types() -> Result<()> {
@@ -274,6 +321,139 @@ fn sorting_fallback_preserves_string_boolean_float_order_and_payload_bits() -> R
                 algorithm.name()
             );
         }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn builtin_varchar_ordering_fast_paths_preserve_stable_ties() -> Result<()> {
+    let rows = [
+        vec![Value::Varchar("c".into()), Value::Integer(0)],
+        vec![Value::Varchar("b".into()), Value::Integer(1)],
+        vec![Value::Varchar("b".into()), Value::Integer(2)],
+        vec![Value::Varchar("a".into()), Value::Integer(3)],
+    ];
+    let input = DataChunk::from_rows(&[DataType::Varchar, DataType::BigInt], &rows)?;
+    for algorithm in algorithms() {
+        let result = sort(
+            algorithm.as_ref(),
+            &QueryContext::background(),
+            &BatchedEvaluator,
+            &input,
+            &[key(0, &DataType::Varchar, false, false)],
+        )?;
+        assert_eq!(
+            result,
+            vec![
+                rows[3].clone(),
+                rows[1].clone(),
+                rows[2].clone(),
+                rows[0].clone(),
+            ],
+            "{} reversed equal VARCHAR keys",
+            algorithm.name()
+        );
+
+        let hidden_rows = [
+            vec![
+                Value::Varchar("same".into()),
+                Value::Varchar("c".into()),
+                Value::Integer(0),
+            ],
+            vec![
+                Value::Varchar("same".into()),
+                Value::Varchar("b".into()),
+                Value::Integer(1),
+            ],
+            vec![
+                Value::Varchar("same".into()),
+                Value::Varchar("b".into()),
+                Value::Integer(2),
+            ],
+            vec![Value::Null, Value::Varchar("a".into()), Value::Integer(3)],
+            vec![
+                Value::Varchar("same".into()),
+                Value::Null,
+                Value::Integer(4),
+            ],
+        ];
+        let hidden = DataChunk::from_rows(
+            &[DataType::Varchar, DataType::Varchar, DataType::BigInt],
+            &hidden_rows,
+        )?;
+        assert_eq!(
+            sort(
+                algorithm.as_ref(),
+                &QueryContext::background(),
+                &BatchedEvaluator,
+                &hidden,
+                &[key(1, &DataType::Varchar, false, false)],
+            )?,
+            vec![
+                hidden_rows[3].clone(),
+                hidden_rows[1].clone(),
+                hidden_rows[2].clone(),
+                hidden_rows[0].clone(),
+                hidden_rows[4].clone(),
+            ],
+            "{} mishandled a nonzero direct VARCHAR sort column",
+            algorithm.name()
+        );
+
+        let strict_hidden = DataChunk::from_rows(
+            &[DataType::Varchar, DataType::Varchar],
+            &[
+                vec![Value::Varchar("same".into()), Value::Varchar("d".into())],
+                vec![Value::Varchar("same".into()), Value::Varchar("c".into())],
+                vec![Value::Varchar("same".into()), Value::Varchar("b".into())],
+                vec![Value::Varchar("same".into()), Value::Varchar("a".into())],
+            ],
+        )?;
+        let mut strict_expected = strict_hidden.rows().collect::<Vec<_>>();
+        strict_expected.reverse();
+        assert_eq!(
+            sort(
+                algorithm.as_ref(),
+                &QueryContext::background(),
+                &BatchedEvaluator,
+                &strict_hidden,
+                &[key(1, &DataType::Varchar, false, false)],
+            )?,
+            strict_expected,
+            "{} missed a strict reverse run on a nonzero sort column",
+            algorithm.name()
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn custom_varchar_ordering_keeps_its_comparator_fallback() -> Result<()> {
+    let mut types = TypeRegistry::builtins();
+    types.replace(DataType::Varchar.family(), Arc::new(CustomVarcharOrdering))?;
+    for algorithm in algorithms() {
+        let db = DatabaseBuilder::new()
+            .types(Arc::new(types.clone()))
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_sorting(algorithm.clone()),
+            ))
+            .build()?;
+        let mut connection = db.connect();
+        assert_eq!(
+            connection
+                .query("SELECT v FROM (VALUES ('a'),('z'),('b'),(NULL)) t(v) ORDER BY v")?
+                .rows,
+            vec![
+                vec![Value::Varchar("z".into())],
+                vec![Value::Varchar("b".into())],
+                vec![Value::Varchar("a".into())],
+                vec![Value::Null],
+            ],
+            "{} bypassed a selected custom VARCHAR comparator",
+            algorithm.name()
+        );
     }
     Ok(())
 }

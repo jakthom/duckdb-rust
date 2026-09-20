@@ -92,6 +92,69 @@ fn columnar_grouped_results_preserve_sets_masks_nulls_and_empty_input() -> Resul
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn varchar_columnar_groups_preserve_first_keys_nulls_sets_and_custom_fallback() -> Result<()> {
+    for batch_size in [1, 3, 2048] {
+        let mut connection = DatabaseBuilder::new()
+            .batch_size(batch_size)
+            .physical_planner(Arc::new(
+                NativePhysicalPlanner::default().with_aggregation(Arc::new(HashAggregation)),
+            ))
+            .build()?
+            .connect();
+        assert_eq!(
+            connection
+                .query(
+                    "SELECT v,count(*),grouping(v) FROM \
+                     (VALUES ('b'),('a'),('b'),(NULL),('a'||chr(0)),(NULL)) t(v) \
+                     GROUP BY GROUPING SETS ((v),()) \
+                     ORDER BY grouping(v),v NULLS FIRST",
+                )?
+                .rows,
+            vec![
+                vec![Value::Null, Value::Integer(2), Value::Integer(0)],
+                vec![
+                    Value::Varchar("a".into()),
+                    Value::Integer(1),
+                    Value::Integer(0),
+                ],
+                vec![
+                    Value::Varchar("a\0".into()),
+                    Value::Integer(1),
+                    Value::Integer(0),
+                ],
+                vec![
+                    Value::Varchar("b".into()),
+                    Value::Integer(2),
+                    Value::Integer(0),
+                ],
+                vec![Value::Null, Value::Integer(6), Value::Integer(1)],
+            ]
+        );
+    }
+
+    let mut types = TypeRegistry::builtins();
+    types.replace(DataType::Varchar.family(), Arc::new(CaseFoldVarchar))?;
+    let mut custom = DatabaseBuilder::new()
+        .types(Arc::new(types))
+        .physical_planner(Arc::new(
+            NativePhysicalPlanner::default().with_aggregation(Arc::new(HashAggregation)),
+        ))
+        .build()?
+        .connect();
+    assert_eq!(
+        custom
+            .query("SELECT v,count(*) FROM (VALUES ('A'),('a'),('B')) t(v) GROUP BY v ORDER BY v",)?
+            .rows,
+        vec![
+            vec![Value::Varchar("A".into()), Value::Integer(2)],
+            vec![Value::Varchar("B".into()), Value::Integer(1)],
+        ]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn grouped_integer_states_match_scalar_states_for_encodings_widths_and_empty_groups() -> Result<()>
 {
     let query = QueryContext::background();

@@ -174,6 +174,9 @@ impl ScalarFunction for Formatting {
         arguments: &DataChunk,
         query: &QueryContext,
     ) -> Result<Option<Vector>> {
+        if let Some(result) = self.evaluate_identity_varchar_batch(arguments, query)? {
+            return Ok(Some(result));
+        }
         if let Some(result) = self.evaluate_bigint_varchar_batch(arguments, query)? {
             return Ok(Some(result));
         }
@@ -201,6 +204,29 @@ impl ScalarFunction for Formatting {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Formatting {
+    fn evaluate_identity_varchar_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        let [_, value] = arguments.columns() else {
+            return Ok(None);
+        };
+        if self.name != "format"
+            || self.signature.as_deref() != Some(&[DataType::Varchar, DataType::Varchar])
+            || value.data_type() != &DataType::Varchar
+            || !matches!(
+                self.constant_plan.as_ref(),
+                Some(FormatPlan::Brace(parts))
+                    if matches!(parts.as_slice(), [BracePart::Field { argument: 0, spec }] if spec.is_empty())
+            )
+        {
+            return Ok(None);
+        }
+        query.check()?;
+        Ok(Some(value.clone()))
+    }
+
     fn evaluate_bigint_varchar_batch(
         &self,
         arguments: &DataChunk,

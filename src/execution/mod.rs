@@ -270,7 +270,7 @@ impl ResultSink for CollectingSink<'_> {
     fn consume(&mut self, chunk: DataChunk) -> Result<StreamControl> {
         self.query
             .check_rows(self.rows.len().saturating_add(chunk.len()))?;
-        self.rows.append_with_context(&chunk, self.query)?;
+        self.rows.append_owned_with_context(chunk, self.query)?;
         Ok(StreamControl::Continue)
     }
 }

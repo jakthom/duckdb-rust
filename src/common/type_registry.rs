@@ -167,6 +167,10 @@ pub enum OrderingRepresentation {
     /// Non-NULL comparison is exactly signed integer ordering and is total
     /// after logical validation. Consumers own NULL placement and direction.
     SignedInteger,
+    /// Non-NULL comparison is exactly UTF-8 byte ordering and is total after
+    /// logical validation. Consumers own NULL placement and direction. Only
+    /// physical VARCHAR may advertise this capability.
+    VarcharBytes,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -557,6 +561,13 @@ impl TypeRegistry {
                 "signed integer ordering requires a physical integer type".into(),
             ));
         }
+        if ordering_representation == OrderingRepresentation::VarcharBytes
+            && *data_type != DataType::Varchar
+        {
+            return Err(Error::Bind(
+                "VARCHAR byte ordering requires a physical VARCHAR type".into(),
+            ));
+        }
         Ok(BoundType {
             data_type: data_type.clone(),
             validation: adapter.value_validation(),
@@ -837,6 +848,8 @@ impl TypeAdapter for PrimitiveTypes {
     fn ordering_representation(&self, data_type: &DataType) -> OrderingRepresentation {
         if data_type.is_signed_integer() {
             OrderingRepresentation::SignedInteger
+        } else if *data_type == DataType::Varchar {
+            OrderingRepresentation::VarcharBytes
         } else {
             OrderingRepresentation::Comparison
         }

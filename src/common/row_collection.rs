@@ -2,7 +2,9 @@ use std::{ops::Index, sync::Arc};
 
 use super::{
     Error, Result, Row, Value,
-    vector::{DataChunk, materialized_value_bytes, try_clone_materialized_value},
+    vector::{
+        DataChunk, OwnedFlatValuesHandoff, materialized_value_bytes, try_clone_materialized_value,
+    },
 };
 use crate::parallel::{MemoryPool, QueryContext, Reservation};
 
@@ -36,6 +38,19 @@ fn slot_bytes(count: usize) -> Result<usize> {
     count
         .checked_mul(std::mem::size_of::<Value>())
         .ok_or_else(allocation_error)
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn owned_payload_capacity_bytes(values: &[Value]) -> Result<usize> {
+    values.iter().try_fold(0usize, |bytes, value| {
+        add_bytes(
+            bytes,
+            match value {
+                Value::Varchar(value) => value.capacity(),
+                Value::Blob(value) => value.capacity(),
+                _ => 0,
+            },
+        )
+    })
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn grown_slot_capacity(current: usize, required: usize) -> Result<usize> {
@@ -97,6 +112,151 @@ impl RowCollection {
         query: &QueryContext,
     ) -> Result<()> {
         self.append_impl(chunk, Some(query))
+    }
+    /// Consume the ordinary single-flat publication path without cloning its
+    /// VARCHAR/BLOB payloads. Unsupported encodings retain the borrowed path.
+    pub(crate) fn append_owned_with_context(
+        &mut self,
+        chunk: DataChunk,
+        query: &QueryContext,
+    ) -> Result<()> {
+        if chunk.columns().len() != self.width {
+            return Err(Error::Internal(
+                "materialized chunk width differs from schema".into(),
+            ));
+        }
+        if self.width != 1 || Arc::strong_count(&self.backing) != 1 {
+            return self.append_with_context(&chunk, query);
+        }
+        let compatible_destination = self
+            .backing
+            .pool
+            .as_ref()
+            .is_none_or(|pool| Arc::ptr_eq(pool, query.memory_pool()));
+        if !compatible_destination {
+            return self.append_with_context(&chunk, query);
+        }
+        let incoming = match chunk.into_owned_single_flat_values() {
+            OwnedFlatValuesHandoff::Owned(incoming) => incoming,
+            OwnedFlatValuesHandoff::Unsupported(chunk) => {
+                return self.append_with_context(&chunk, query);
+            }
+        };
+        let count = incoming.values.len();
+        self.value_count(count)?;
+        let incoming_capacity = incoming.values.capacity();
+        let incoming_payload = owned_payload_capacity_bytes(&incoming.values)?;
+        let pool = query.memory_pool().clone();
+        let previous_charged = self.backing.pool.is_some();
+        let previous_payload = if previous_charged {
+            self.backing.payload_bytes
+        } else {
+            owned_payload_capacity_bytes(&self.backing.values)?
+        };
+        let total_payload = add_bytes(previous_payload, incoming_payload)?;
+
+        if self.backing.values.is_empty() {
+            let admit = add_bytes(incoming_payload, slot_bytes(incoming_capacity)?)?;
+            let reservation = pool.reserve(admit, query)?;
+            let mut charges = Vec::new();
+            charges
+                .try_reserve_exact(1)
+                .map_err(|_| allocation_error())?;
+            charges.push(reservation);
+            let backing = Arc::get_mut(&mut self.backing).expect("unique checked backing");
+            // All fallible work is complete. Replacing the charge vector now
+            // releases any accounted spare allocation retained by a prior
+            // zero-row result together with its discarded values buffer.
+            backing.values = incoming.values;
+            backing.charges = charges;
+            backing.pool = Some(pool);
+            backing.payload_bytes = incoming_payload;
+            backing.slot_capacity = incoming_capacity;
+            self.count += count;
+            drop(incoming.reservation);
+            return Ok(());
+        }
+
+        let required_slots = add_bytes(self.backing.values.len(), count)?;
+        let grows = self.backing.values.capacity() < required_slots;
+        let planned_slots = if grows {
+            grown_slot_capacity(
+                self.backing
+                    .values
+                    .capacity()
+                    .max(self.backing.values.len()),
+                required_slots,
+            )?
+        } else {
+            self.backing.values.capacity()
+        };
+        let covered_slots = if previous_charged {
+            self.backing.slot_capacity
+        } else {
+            0
+        };
+        let planned_added_slots = planned_slots.saturating_sub(covered_slots);
+        let planned_admit = add_bytes(
+            add_bytes(
+                if previous_charged {
+                    0
+                } else {
+                    previous_payload
+                },
+                incoming_payload,
+            )?,
+            slot_bytes(planned_added_slots)?,
+        )?;
+        let planned_reservation = if planned_admit == 0 {
+            None
+        } else {
+            Some(pool.reserve(planned_admit, query)?)
+        };
+        // The retained charge plus the persistent final-capacity delta now
+        // covers the planned new allocation. Admit the old allocation only
+        // for the interval in which staged growth keeps both buffers alive.
+        let old_temporary = grows
+            .then(|| pool.reserve(slot_bytes(self.backing.values.capacity())?, query))
+            .transpose()?;
+        // Stage growth separately so allocator rounding is known and admitted
+        // before the destination's values or bookkeeping change.
+        let mut staged = grows.then(Vec::new);
+        if let Some(staged) = &mut staged {
+            staged
+                .try_reserve_exact(planned_slots)
+                .map_err(|_| allocation_error())?;
+        }
+        let target_slots = staged
+            .as_ref()
+            .map_or(self.backing.values.capacity(), Vec::capacity);
+        let rounded_reservation = if target_slots > planned_slots {
+            Some(pool.reserve(slot_bytes(target_slots - planned_slots)?, query)?)
+        } else {
+            None
+        };
+        let retained_reservations =
+            usize::from(planned_reservation.is_some()) + usize::from(rounded_reservation.is_some());
+        let backing = Arc::get_mut(&mut self.backing).expect("unique checked backing");
+        backing
+            .charges
+            .try_reserve(retained_reservations)
+            .map_err(|_| allocation_error())?;
+        if let Some(mut staged) = staged {
+            staged.append(&mut backing.values);
+            staged.extend(incoming.values);
+            backing.values = staged;
+        } else {
+            backing.values.extend(incoming.values);
+        }
+        backing.charges.extend(planned_reservation);
+        backing.charges.extend(rounded_reservation);
+        backing.pool = Some(pool);
+        backing.payload_bytes = total_payload;
+        backing.slot_capacity = target_slots;
+        self.count += count;
+        drop(old_temporary);
+        drop(incoming.reservation);
+        Ok(())
     }
     fn append_impl(&mut self, chunk: &DataChunk, query: Option<&QueryContext>) -> Result<()> {
         if chunk.columns().len() != self.width {
@@ -699,6 +859,181 @@ mod tests {
         drop(rows);
         assert_eq!(pool.used()?, expected - 7);
         drop(retained);
+        assert_eq!(pool.used()?, 0);
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn owned_flat_append_moves_payload_and_keeps_failed_growth_atomic() -> Result<()> {
+        let pool = Arc::new(MemoryPool::default());
+        let query = QueryContext::background().with_memory_pool(pool.clone());
+        let payload = String::from("owned-é\0");
+        let pointer = payload.as_ptr();
+        let bytes = materialized_value_bytes(&Value::Varchar(payload.clone()))?;
+        let first = DataChunk::new(
+            vec![Vector::flat(
+                DataType::Varchar,
+                vec![Value::Varchar(payload)],
+            )?],
+            1,
+        )?
+        .with_reservation(pool.reserve(bytes, &query)?);
+        let mut rows = RowCollection::new(1);
+        rows.append_owned_with_context(first, &query)?;
+        let Value::Varchar(retained) = &rows[0][0] else {
+            panic!("owned VARCHAR result")
+        };
+        assert_eq!(retained.as_ptr(), pointer);
+        assert_eq!(pool.used()?, bytes);
+
+        let second = DataChunk::new(
+            vec![Vector::flat(
+                DataType::Varchar,
+                vec![Value::Varchar("second".into())],
+            )?],
+            1,
+        )?
+        .with_reservation(pool.reserve(bytes, &query)?);
+        let before = pool.used()?;
+        pool.publish_limit(Some(before))?;
+        assert!(matches!(
+            rows.append_owned_with_context(second, &query),
+            Err(Error::Resource(_))
+        ));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0][0], Value::Varchar("owned-é\0".into()));
+        assert_eq!(pool.used()?, bytes);
+        drop(rows);
+        assert_eq!(pool.used()?, 0);
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn owned_flat_append_independently_admits_unrelated_guard_and_spare_capacity() -> Result<()> {
+        let pool = Arc::new(MemoryPool::default());
+        let query = QueryContext::background().with_memory_pool(pool.clone());
+        let mut payload = String::with_capacity(32);
+        payload.push('x');
+        let pointer = payload.as_ptr();
+        let mut values = Vec::with_capacity(8);
+        values.push(Value::Varchar(payload));
+        let chunk = DataChunk::new(vec![Vector::flat(DataType::Varchar, values)?], 1)?
+            .with_reservation(pool.reserve(1, &query)?);
+        let mut rows = RowCollection::new(1);
+        rows.append_owned_with_context(chunk, &query)?;
+        let expected = slot_bytes(8)? + 32;
+        assert_eq!(pool.used()?, expected);
+        assert_eq!(rows.backing.slot_capacity, 8);
+        let Value::Varchar(retained) = &rows[0][0] else {
+            panic!("owned VARCHAR result")
+        };
+        assert_eq!(retained.as_ptr(), pointer);
+        assert_eq!(retained.capacity(), 32);
+
+        let mut shared = rows.clone();
+        pool.publish_limit(Some(expected))?;
+        assert!(matches!(
+            shared.push(&[Value::Varchar("blocked".into())]),
+            Err(Error::Resource(_))
+        ));
+        assert_eq!(shared, rows);
+        assert_eq!(pool.used()?, expected);
+        drop((shared, rows));
+        assert_eq!(pool.used()?, 0);
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn owned_flat_append_replaces_charged_zero_row_spare_capacity() -> Result<()> {
+        let pool = Arc::new(MemoryPool::default());
+        let query = QueryContext::background().with_memory_pool(pool.clone());
+        let empty_capacity = 8;
+        let empty = DataChunk::new(
+            vec![Vector::flat(
+                DataType::Varchar,
+                Vec::with_capacity(empty_capacity),
+            )?],
+            0,
+        )?
+        .with_reservation(pool.reserve(1, &query)?);
+        let mut rows = RowCollection::new(1);
+        rows.append_owned_with_context(empty, &query)?;
+        assert_eq!(pool.used()?, slot_bytes(empty_capacity)?);
+        assert_eq!(rows.backing.slot_capacity, empty_capacity);
+
+        let mut payload = String::with_capacity(12);
+        payload.push('x');
+        let payload_capacity = payload.capacity();
+        let pointer = payload.as_ptr();
+        let mut values = Vec::with_capacity(1);
+        values.push(Value::Varchar(payload));
+        let value_capacity = values.capacity();
+        let replacement = DataChunk::new(vec![Vector::flat(DataType::Varchar, values)?], 1)?
+            .with_reservation(pool.reserve(1, &query)?);
+        rows.append_owned_with_context(replacement, &query)?;
+
+        let expected = add_bytes(slot_bytes(value_capacity)?, payload_capacity)?;
+        assert_eq!(pool.used()?, expected);
+        assert_eq!(rows.backing.slot_capacity, value_capacity);
+        let Value::Varchar(retained) = &rows[0][0] else {
+            panic!("owned VARCHAR result")
+        };
+        assert_eq!(retained.as_ptr(), pointer);
+        drop(rows);
+        assert_eq!(pool.used()?, 0);
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn owned_flat_growth_succeeds_at_exact_old_plus_new_slot_peak() -> Result<()> {
+        let pool = Arc::new(MemoryPool::default());
+        let query = QueryContext::background().with_memory_pool(pool.clone());
+        let mut first_values = Vec::with_capacity(1);
+        first_values.push(Value::Varchar(String::new()));
+        let first = DataChunk::new(vec![Vector::flat(DataType::Varchar, first_values)?], 1)?
+            .with_reservation(pool.reserve(1, &query)?);
+        let mut rows = RowCollection::new(1);
+        rows.append_owned_with_context(first, &query)?;
+        let old_capacity = rows.backing.values.capacity();
+        let covered_capacity = rows.backing.slot_capacity;
+
+        let required = rows.backing.values.len() + 1;
+        let planned = grown_slot_capacity(old_capacity, required)?;
+        let mut allocation_probe = Vec::<Value>::new();
+        allocation_probe
+            .try_reserve_exact(planned)
+            .map_err(|_| allocation_error())?;
+        let target_capacity = allocation_probe.capacity();
+        drop(allocation_probe);
+
+        let mut second_values = Vec::with_capacity(1);
+        second_values.push(Value::Varchar(String::new()));
+        let second = DataChunk::new(vec![Vector::flat(DataType::Varchar, second_values)?], 1)?
+            .with_reservation(pool.reserve(1, &query)?);
+        let peak = add_bytes(
+            pool.used()?,
+            add_bytes(
+                slot_bytes(target_capacity.saturating_sub(covered_capacity))?,
+                slot_bytes(old_capacity)?,
+            )?,
+        )?;
+        pool.publish_limit(Some(peak))?;
+        rows.append_owned_with_context(second, &query)?;
+
+        assert_eq!(
+            rows,
+            vec![
+                vec![Value::Varchar(String::new())],
+                vec![Value::Varchar(String::new())]
+            ]
+        );
+        assert_eq!(rows.backing.slot_capacity, target_capacity);
+        assert_eq!(pool.used()?, slot_bytes(target_capacity)?);
+        drop(rows);
         assert_eq!(pool.used()?, 0);
         Ok(())
     }

@@ -50,6 +50,20 @@ fn printf_and_format_cover_values_nulls_nuls_and_errors() -> Result<()> {
             connection.query("SELECT printf('%u:%o:%X:%b:%#x:%d', 18446744073709551615::UBIGINT, 8, 255, 5, 15, true), printf('%s', NULL), format('{}', NULL)")?.rows,
             vec![vec![Value::Varchar("18446744073709551615:10:FF:101:0xf:1".into()), Value::Null, Value::Null]]
         );
+        connection.execute("CREATE TABLE identity_format(i BIGINT, v VARCHAR)")?;
+        connection.execute(
+            "INSERT INTO identity_format VALUES (1, 'a' || chr(0) || 'é'), (2, NULL), (3, '')",
+        )?;
+        assert_eq!(
+            connection
+                .query("SELECT format('{}', v) FROM identity_format ORDER BY i")?
+                .rows,
+            vec![
+                vec![Value::Varchar("a\0é".into())],
+                vec![Value::Null],
+                vec![Value::Varchar(String::new())],
+            ]
+        );
         connection.execute("CREATE TABLE formatting(f VARCHAR, n BIGINT)")?;
         connection.execute("INSERT INTO formatting VALUES ('x=%d', 7), ('%04d', 9)")?;
         assert_eq!(
