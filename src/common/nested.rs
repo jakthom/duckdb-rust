@@ -153,18 +153,33 @@ impl NestedValue {
     pub fn fits_type(&self) -> bool {
         // Shared Arc subtrees can describe exponentially many logical visits
         // while using little physical memory. Bound both depth and traversal.
-        self.fits_at_depth(0, &mut 16_777_216)
+        super::type_registry::check_metadata(&self.data_type).is_ok()
+            && self.fits_validated_type(&self.data_type)
     }
 
+    /// Check one payload against an exact target whose complete metadata tree
+    /// has already passed the built-in metadata validator.
+    pub(crate) fn fits_validated_type(&self, target: &DataType) -> bool {
+        self.fits_validated_at_depth(target, 0, &mut 16_777_216)
+    }
+
+    #[cfg(test)]
     fn fits_at_depth(&self, depth: usize, remaining: &mut usize) -> bool {
-        if depth > 64
-            || *remaining == 0
-            || super::type_registry::check_metadata(&self.data_type).is_err()
-        {
+        super::type_registry::check_metadata(&self.data_type).is_ok()
+            && self.fits_validated_at_depth(&self.data_type, depth, remaining)
+    }
+
+    fn fits_validated_at_depth(
+        &self,
+        target: &DataType,
+        depth: usize,
+        remaining: &mut usize,
+    ) -> bool {
+        if depth > 64 || *remaining == 0 || !same_data_type(&self.data_type, target) {
             return false;
         }
         *remaining -= 1;
-        let DataType::Nested(metadata) = &self.data_type else {
+        let DataType::Nested(metadata) = target else {
             return false;
         };
         if let (NestedType::List(DataType::Varchar), NestedPayload::Sequence(values)) =
@@ -184,9 +199,7 @@ impl NestedValue {
             return true;
         }
         let mut fits = |value: &Value, target: &DataType| match value {
-            Value::Nested(value) => {
-                value.fits_at_depth(depth + 1, remaining) && value.data_type == *target
-            }
+            Value::Nested(value) => value.fits_validated_at_depth(target, depth + 1, remaining),
             value => {
                 if *remaining == 0 {
                     return false;
@@ -223,10 +236,22 @@ impl NestedValue {
                 fields.get(*tag).is_some_and(|(_, ty)| fits(value, ty))
             }
             (NestedType::Variant, NestedPayload::Variant { data_type, value }) => {
+                // VARIANT carries a dynamic type outside the statically
+                // validated target tree. Validate that independent tree before
+                // using the same bounded physical walk.
                 super::type_registry::check_metadata(data_type).is_ok() && fits(value, data_type)
             }
             _ => false,
         }
+    }
+}
+
+fn same_data_type(left: &DataType, right: &DataType) -> bool {
+    match (left, right) {
+        (DataType::Nested(left), DataType::Nested(right)) => {
+            Arc::ptr_eq(left, right) || left == right
+        }
+        _ => left == right,
     }
 }
 

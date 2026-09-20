@@ -2,7 +2,7 @@
 use super::*;
 use crate::common::{
     cast::CastMode,
-    vector::{DataChunk, Vector, append_physical_identity},
+    vector::{DataChunk, MetadataAdmission, Vector, append_physical_identity},
 };
 use std::collections::HashMap;
 
@@ -184,6 +184,9 @@ impl ScalarFunction for BoundConstructor {
                 "nested constructor batch differs from binding".into(),
             ));
         }
+        if matches!(self.name, "struct_pack" | "list_value") {
+            return construct_columnar(self, arguments, query).map(Some);
+        }
         if arguments.len() < 8 {
             return Ok(None);
         }
@@ -206,7 +209,11 @@ impl ScalarFunction for BoundConstructor {
                     &column.get(index).expect("validated constructor column"),
                     &mut key,
                 ) {
-                    return Ok(None);
+                    // Some valid physical families intentionally have no
+                    // compact identity encoding. Retain batch evaluation by
+                    // materializing the already bound row shape rather than
+                    // replaying the whole enclosing expression scalar-wise.
+                    return construct_flat_rows(self, arguments, query).map(Some);
                 }
             }
             if let Some(&entry) = dictionary.get(key.as_slice()) {
@@ -214,10 +221,10 @@ impl ScalarFunction for BoundConstructor {
                 continue;
             }
             if unique.len() == limit {
-                return Ok(None);
+                return construct_flat_rows(self, arguments, query).map(Some);
             }
             arguments.read_row(index, &mut row)?;
-            let value = self.evaluate(&row, query)?;
+            let value = construct_bound_value(self, &row)?;
             let entry = unique.len();
             dictionary.insert(key.clone(), entry);
             unique.push(value);
@@ -260,6 +267,188 @@ impl ScalarFunction for BoundConstructor {
         self.result.validate(&result, query)?;
         Ok(result)
     }
+}
+
+fn construct_columnar(
+    function: &BoundConstructor,
+    arguments: &DataChunk,
+    query: &QueryContext,
+) -> Result<Vector> {
+    match function.name {
+        "struct_pack" => {
+            let mut admission = MetadataAdmission::new();
+            let mut children = Vec::new();
+            admission.try_reserve_vec(
+                &mut children,
+                arguments.columns().len(),
+                query,
+                "STRUCT constructor metadata allocation failed",
+            )?;
+            children.extend_from_slice(arguments.columns());
+            Vector::flat_struct_checked(
+                function.result.data_type().clone(),
+                arguments.len(),
+                None,
+                children,
+                admission,
+                query,
+            )
+        }
+        "list_value" => {
+            let arity = arguments.columns().len();
+            let count = arguments.len();
+            let child_count = count
+                .checked_mul(arity)
+                .ok_or_else(|| Error::Resource("LIST constructor cardinality overflow".into()))?;
+            let offset_count = count
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("LIST constructor cardinality overflow".into()))?;
+            let mut offset_admission = MetadataAdmission::new();
+            let mut offsets = Vec::new();
+            offset_admission.try_reserve_vec(
+                &mut offsets,
+                offset_count,
+                query,
+                "LIST constructor offsets allocation failed",
+            )?;
+            for row in 0..=count {
+                offsets.push(
+                    row.checked_mul(arity).ok_or_else(|| {
+                        Error::Resource("LIST constructor offset overflow".into())
+                    })?,
+                );
+            }
+            let child_type = function
+                .arguments
+                .first()
+                .cloned()
+                .unwrap_or(DataType::Null);
+            let child = match arity {
+                0 => Vector::flat(child_type, Vec::new())?,
+                1 => arguments.columns()[0].clone(),
+                _ => {
+                    let mut chunk_admission = MetadataAdmission::new();
+                    let mut chunk_columns = Vec::new();
+                    chunk_admission.try_reserve_vec(
+                        &mut chunk_columns,
+                        arity,
+                        query,
+                        "LIST constructor chunk metadata allocation failed",
+                    )?;
+                    chunk_columns.extend_from_slice(arguments.columns());
+                    let mut chunk_offsets = Vec::new();
+                    chunk_admission.try_reserve_vec(
+                        &mut chunk_offsets,
+                        arity.checked_add(1).ok_or_else(|| {
+                            Error::Resource("LIST constructor arity overflow".into())
+                        })?,
+                        query,
+                        "LIST constructor chunk offsets allocation failed",
+                    )?;
+                    chunk_offsets.push(0);
+                    for argument in 1..=arity {
+                        chunk_offsets.push(argument.checked_mul(count).ok_or_else(|| {
+                            Error::Resource("LIST constructor chunk offset overflow".into())
+                        })?);
+                    }
+                    let chunks = Vector::chunked_with_metadata_admission(
+                        child_type.clone(),
+                        chunk_columns,
+                        chunk_offsets,
+                        chunk_admission,
+                        query,
+                    )?;
+                    let mut selection_admission = MetadataAdmission::new();
+                    let mut selection = Vec::new();
+                    selection_admission.try_reserve_vec(
+                        &mut selection,
+                        child_count,
+                        query,
+                        "LIST constructor selection allocation failed",
+                    )?;
+                    for row in 0..count {
+                        if row % 1024 == 0 {
+                            query.check()?;
+                        }
+                        for argument in 0..arity {
+                            selection.push(
+                                argument
+                                    .checked_mul(count)
+                                    .and_then(|base| base.checked_add(row))
+                                    .ok_or_else(|| {
+                                        Error::Resource(
+                                            "LIST constructor selection overflow".into(),
+                                        )
+                                    })?,
+                            );
+                        }
+                    }
+                    Arc::new(chunks).select_with_metadata_admission(
+                        selection,
+                        selection_admission,
+                        query,
+                    )?
+                }
+            };
+            Vector::flat_list_checked(
+                function.result.data_type().clone(),
+                count,
+                None,
+                offsets,
+                child,
+                offset_admission,
+                query,
+            )
+        }
+        _ => Err(Error::Internal("columnar constructor dispatch".into())),
+    }
+}
+
+/// Materialize a high-cardinality constructor without replaying the scalar
+/// callback's per-value shape and logical validation. Argument vectors already
+/// have the bound physical types, this function constructs only the retained
+/// result shape, and the speculative expression boundary validates the whole
+/// output with `function.result` before publication.
+fn construct_flat_rows(
+    function: &BoundConstructor,
+    arguments: &DataChunk,
+    query: &QueryContext,
+) -> Result<Vector> {
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(arguments.len())
+        .map_err(|_| Error::Resource("nested constructor result allocation failed".into()))?;
+    let mut row = Vec::with_capacity(arguments.columns().len());
+    for index in 0..arguments.len() {
+        if index % 1024 == 0 {
+            query.check()?;
+        }
+        arguments.read_row(index, &mut row)?;
+        output.push(construct_bound_value(function, &row)?);
+    }
+    query.check()?;
+    Vector::flat(function.result.data_type().clone(), output)
+}
+
+fn construct_bound_value(function: &BoundConstructor, row: &[Value]) -> Result<Value> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(row.len())
+        .map_err(|_| Error::Resource("nested constructor allocation failed".into()))?;
+    values.extend_from_slice(row);
+    let payload = match function.name {
+        "list_value" | "array_value" => NestedPayload::Sequence(values),
+        "row" | "struct_pack" => NestedPayload::Struct(values),
+        "union_value" => NestedPayload::Union {
+            tag: 0,
+            value: values.remove(0),
+        },
+        _ => return Err(Error::Internal("nested constructor dispatch".into())),
+    };
+    Ok(Value::Nested(Arc::new(NestedValue {
+        data_type: function.result.data_type().clone(),
+        payload,
+    })))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -305,7 +494,7 @@ fn dictionary_argument_constructor(
             return Ok(None);
         }
         arguments.read_row(index, &mut row)?;
-        let value = function.evaluate(&row, query)?;
+        let value = construct_bound_value(function, &row)?;
         let entry = unique.len();
         dictionary.insert(key.clone(), entry);
         unique.push(value);

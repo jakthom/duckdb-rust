@@ -206,6 +206,12 @@ fn regexp_extract_all_scalar_groups_cover_matches_and_boundaries() -> Result<()>
                 vec![Value::Null],
             ]
         );
+        assert_eq!(
+            connection
+                .query("SELECT sum(list_position(regexp_extract_all(i::VARCHAR || '-x', '([0-9]+)', 1), i::VARCHAR)) FROM range(2051) t(i)")?
+                .rows,
+            vec![vec![Value::Integer(2051)]]
+        );
         assert!(
             connection
                 .query("SELECT regexp_extract_all('x', '(x)', 2)")
@@ -374,6 +380,27 @@ fn regexp_named_struct_extract_metadata_values_and_bind_rejections() -> Result<(
             assert!(connection.query(sql).is_err(), "{sql}");
         }
     }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn regexp_named_high_cardinality_batch_matches_constructed_values_and_formatting() -> Result<()> {
+    let mut connection = DatabaseBuilder::new()
+        .expressions(Arc::new(BatchedEvaluator))
+        .batch_size(2048)
+        .build()?
+        .connect();
+    connection.execute("CREATE TABLE named_many AS SELECT i, i::VARCHAR || '-alpha ' || (i + 1)::VARCHAR || '-beta' AS v FROM range(600) t(i)")?;
+    assert_eq!(
+        connection.query("SELECT sum(CASE WHEN regexp_extract(v, '([0-9]+)-([a-z]+)', ['number','word']) = struct_pack(number := i::VARCHAR, word := 'alpha') THEN 1 ELSE 0 END), sum(CASE WHEN regexp_extract_all(v, '([0-9]+)-([a-z]+)', ['number','word']) = [struct_pack(number := i::VARCHAR, word := 'alpha'), struct_pack(number := (i + 1)::VARCHAR, word := 'beta')] THEN 1 ELSE 0 END), sum(length(CAST(regexp_extract(v, '([0-9]+)-([a-z]+)', ['','word']) AS VARCHAR))), sum(length(CAST(regexp_extract_all(v, '([0-9]+)-([a-z]+)', ['','word']) AS VARCHAR))) FROM named_many")?.rows,
+        vec![vec![
+            Value::Integer(600),
+            Value::Integer(600),
+            Value::Integer(7090),
+            Value::Integer(15982),
+        ]]
+    );
     Ok(())
 }
 

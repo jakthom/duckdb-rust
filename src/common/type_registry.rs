@@ -173,6 +173,15 @@ pub enum OrderingRepresentation {
     VarcharBytes,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BoundValidationIdentity {
+    PhysicalBuiltin,
+    RecursiveNested,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TypeAdapterAccess(());
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Immutable, pure type semantics, safe for concurrent use. Implementations
 /// validate parameters and non-NULL physical values, return a total ordering,
@@ -186,6 +195,29 @@ pub enum OrderingRepresentation {
 /// Replacement preserves the meaning of serialized metadata and
 /// payloads. Missing families/unsupported parameters fail before use.
 pub trait TypeAdapter: Debug + Send + Sync {
+    /// Crate-private identity for validation implementations whose recursive
+    /// proof can be consumed by another bound built-in adapter. The inaccessible
+    /// capability prevents registry replacements from asserting this proof.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn bound_validation_identity(
+        &self,
+        _access: TypeAdapterAccess,
+    ) -> Option<BoundValidationIdentity> {
+        None
+    }
+    /// Private exact-adapter proof for prepared recursive comparison. `Some`
+    /// promises the built-in row-major lexicographic semantics through these
+    /// retained children. Registry replacements cannot call this capability;
+    /// `None` preserves ordinary selected-adapter comparison.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn retained_nested_comparison_children(
+        &self,
+        _access: TypeAdapterAccess,
+    ) -> Option<&[BoundType]> {
+        None
+    }
     /// SQL index admissibility is separate from comparison/canonical-key
     /// support: INTERVAL and nested values can group/join but have no native
     /// DuckDB index key. Retained adapters own this policy for their family.
@@ -301,6 +333,56 @@ pub trait TypeAdapter: Debug + Send + Sync {
             self.compare(data_type, a, b, context)
         })
     }
+    /// Private callback after `BoundType::compare_batch` has validated both
+    /// vectors through this exact adapter. Registry replacements cannot opt in;
+    /// None retains the public comparison path.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn compare_validated_batch(
+        &self,
+        _access: TypeAdapterAccess,
+        _data_type: &DataType,
+        _left: &super::vector::Vector,
+        _right: &super::vector::Vector,
+        _context: &QueryContext,
+    ) -> Option<Result<Vec<Option<Ordering>>>> {
+        None
+    }
+    /// Private single-row counterpart used only after this exact retained
+    /// adapter validated both complete vectors. Composite built-ins may recurse
+    /// through their retained children without materializing scalar trees.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    #[allow(clippy::too_many_arguments)]
+    fn compare_validated_vector_at(
+        &self,
+        _access: TypeAdapterAccess,
+        _data_type: &DataType,
+        _left: &super::vector::Vector,
+        _left_index: usize,
+        _right: &super::vector::Vector,
+        _right_index: usize,
+        _context: &QueryContext,
+    ) -> Option<Result<Ordering>> {
+        None
+    }
+    /// Private mixed physical/scalar counterpart. The scalar and complete
+    /// vector were validated through this exact retained adapter before use.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    #[allow(clippy::too_many_arguments)]
+    fn compare_validated_vector_value_at(
+        &self,
+        _access: TypeAdapterAccess,
+        _data_type: &DataType,
+        _column: &super::vector::Vector,
+        _index: usize,
+        _value: &Value,
+        _column_is_left: bool,
+        _context: &QueryContext,
+    ) -> Option<Result<Ordering>> {
+        None
+    }
     /// Return every matching logical row exactly once in ascending row order.
     /// Inputs have identical bound metadata and cardinality and are validated.
     /// The default retains the selected scalar comparison and error order.
@@ -366,6 +448,7 @@ pub struct BoundType {
     data_type: DataType,
     adapter: Arc<dyn TypeAdapter>,
     validation: ValueValidation,
+    validation_identity: Option<BoundValidationIdentity>,
     key_representation: KeyRepresentation,
     ordering_representation: OrderingRepresentation,
 }
@@ -384,6 +467,12 @@ impl BoundType {
     pub fn requires_logical_validation(&self) -> bool {
         self.validation == ValueValidation::Logical
     }
+    pub(crate) fn has_recursive_builtin_validation(&self) -> bool {
+        self.validation_identity == Some(BoundValidationIdentity::RecursiveNested)
+    }
+    pub(crate) fn has_reusable_builtin_validation(&self) -> bool {
+        self.validation_identity.is_some()
+    }
     pub fn data_type(&self) -> &DataType {
         &self.data_type
     }
@@ -392,7 +481,7 @@ impl BoundType {
     }
     pub fn validate(&self, value: &Value, context: &QueryContext) -> Result<()> {
         context.check()?;
-        if !value.fits_type(&self.data_type) {
+        if !value.fits_type_with_validated_metadata(&self.data_type) {
             return Err(Error::Conversion(
                 "value differs from its declared physical type".into(),
             ));
@@ -407,6 +496,19 @@ impl BoundType {
     pub fn compare(&self, left: &Value, right: &Value, context: &QueryContext) -> Result<Ordering> {
         self.validate(left, context)?;
         self.validate(right, context)?;
+        self.compare_validated(left, right, context)
+    }
+
+    /// Compare values after this exact retained bound type has validated them.
+    /// This is restricted to recursive bound adapters that validated their
+    /// children through the same retained child `BoundType`s immediately before
+    /// dispatch. It is not a reusable marker on a value.
+    pub(crate) fn compare_validated(
+        &self,
+        left: &Value,
+        right: &Value,
+        context: &QueryContext,
+    ) -> Result<Ordering> {
         if left.is_null() || right.is_null() {
             return Err(Error::Internal(
                 "NULL ordering belongs to the consuming operator".into(),
@@ -568,9 +670,11 @@ impl TypeRegistry {
                 "VARCHAR byte ordering requires a physical VARCHAR type".into(),
             ));
         }
+        let validation_identity = adapter.bound_validation_identity(TypeAdapterAccess(()));
         Ok(BoundType {
             data_type: data_type.clone(),
             validation: adapter.value_validation(),
+            validation_identity,
             key_representation,
             ordering_representation,
             adapter,
@@ -845,6 +949,10 @@ fn integer_literal_target(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TypeAdapter for PrimitiveTypes {
+    #[allow(private_interfaces)]
+    fn bound_validation_identity(&self, _: TypeAdapterAccess) -> Option<BoundValidationIdentity> {
+        Some(BoundValidationIdentity::PhysicalBuiltin)
+    }
     fn ordering_representation(&self, data_type: &DataType) -> OrderingRepresentation {
         if data_type.is_signed_integer() {
             OrderingRepresentation::SignedInteger
@@ -1004,5 +1112,113 @@ impl TypeAdapter for PrimitiveTypes {
     ) -> Result<()> {
         context.check()?;
         value.append_primitive_key(output)
+    }
+}
+
+#[cfg(test)]
+mod validation_identity_tests {
+    use super::*;
+    use crate::common::NestedType;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    #[derive(Debug)]
+    struct CountedIdentity {
+        calls: Arc<AtomicUsize>,
+        identity: Option<BoundValidationIdentity>,
+    }
+
+    impl TypeAdapter for CountedIdentity {
+        fn bound_validation_identity(
+            &self,
+            _: TypeAdapterAccess,
+        ) -> Option<BoundValidationIdentity> {
+            self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+            self.identity
+        }
+        fn value_validation(&self) -> ValueValidation {
+            ValueValidation::Physical
+        }
+        fn name(&self) -> &'static str {
+            "counted-validation-identity"
+        }
+        fn validate_type(&self, data_type: &DataType) -> Result<()> {
+            if *data_type == DataType::Varchar {
+                Ok(())
+            } else {
+                Err(Error::Unsupported("counted VARCHAR adapter".into()))
+            }
+        }
+        fn validate_value(&self, _: &DataType, _: &Value, context: &QueryContext) -> Result<()> {
+            context.check()
+        }
+        fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+            Ok(DataType::common(left, right).ok())
+        }
+        fn compare(
+            &self,
+            _: &DataType,
+            left: &Value,
+            right: &Value,
+            context: &QueryContext,
+        ) -> Result<Ordering> {
+            context.check()?;
+            left.compare(right)
+        }
+        fn write_key(
+            &self,
+            data_type: &DataType,
+            value: &Value,
+            output: &mut KeyWriter<'_>,
+            context: &QueryContext,
+        ) -> Result<()> {
+            PrimitiveTypes.write_key(data_type, value, output, context)
+        }
+    }
+
+    #[test]
+    fn bound_validation_identity_is_cached_for_exact_retained_adapter() -> Result<()> {
+        let builtin_calls = Arc::new(AtomicUsize::new(0));
+        let mut types = TypeRegistry::builtins();
+        types.replace(
+            DataType::Varchar.family(),
+            Arc::new(CountedIdentity {
+                calls: builtin_calls.clone(),
+                identity: Some(BoundValidationIdentity::PhysicalBuiltin),
+            }),
+        )?;
+
+        let text = types.bind(&DataType::Varchar)?;
+        assert!(text.has_reusable_builtin_validation());
+        assert!(!text.has_recursive_builtin_validation());
+        assert_eq!(builtin_calls.load(AtomicOrdering::SeqCst), 1);
+
+        let list_type = NestedType::List(DataType::Varchar).data_type();
+        let list = types.bind(&list_type)?;
+        assert!(list.has_reusable_builtin_validation());
+        assert!(list.has_recursive_builtin_validation());
+        assert_eq!(builtin_calls.load(AtomicOrdering::SeqCst), 2);
+
+        let custom_calls = Arc::new(AtomicUsize::new(0));
+        types.replace(
+            DataType::Varchar.family(),
+            Arc::new(CountedIdentity {
+                calls: custom_calls.clone(),
+                identity: None,
+            }),
+        )?;
+        let custom = types.bind(&DataType::Varchar)?;
+        assert!(!custom.has_reusable_builtin_validation());
+        assert!(!custom.has_recursive_builtin_validation());
+        assert_eq!(custom_calls.load(AtomicOrdering::SeqCst), 1);
+
+        // Replacement cannot alter either exact retained proof, and repeated
+        // consumers read the cached field without re-entering an adapter.
+        for _ in 0..4 {
+            assert!(text.has_reusable_builtin_validation());
+            assert!(list.has_recursive_builtin_validation());
+        }
+        assert_eq!(builtin_calls.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(custom_calls.load(AtomicOrdering::SeqCst), 1);
+        Ok(())
     }
 }

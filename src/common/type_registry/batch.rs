@@ -74,6 +74,124 @@ pub(super) fn compare_values(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundType {
+    pub(crate) fn compare_vector_at_validated(
+        &self,
+        left: &Vector,
+        left_index: usize,
+        right: &Vector,
+        right_index: usize,
+        context: &QueryContext,
+    ) -> Result<Ordering> {
+        let left_null = left
+            .is_null_at(left_index)
+            .ok_or_else(|| Error::Internal("comparison vector index".into()))?;
+        let right_null = right
+            .is_null_at(right_index)
+            .ok_or_else(|| Error::Internal("comparison vector index".into()))?;
+        match (left_null, right_null) {
+            (true, true) => return Ok(Ordering::Equal),
+            (true, false) => return Ok(Ordering::Greater),
+            (false, true) => return Ok(Ordering::Less),
+            (false, false) => {}
+        }
+        if self.ordering_representation() == OrderingRepresentation::VarcharBytes {
+            let left = left
+                .varchar_at_validated(left_index)
+                .flatten()
+                .ok_or_else(|| Error::Internal("validated VARCHAR comparison input".into()))?;
+            let right = right
+                .varchar_at_validated(right_index)
+                .flatten()
+                .ok_or_else(|| Error::Internal("validated VARCHAR comparison input".into()))?;
+            return Ok(left.cmp(right));
+        }
+        if let Some(result) = self.adapter.compare_validated_vector_at(
+            super::TypeAdapterAccess(()),
+            &self.data_type,
+            left,
+            left_index,
+            right,
+            right_index,
+            context,
+        ) {
+            let result = result?;
+            context.check()?;
+            return Ok(result);
+        }
+        let left = left
+            .value(left_index)
+            .ok_or_else(|| Error::Internal("comparison vector index".into()))?;
+        let right = right
+            .value(right_index)
+            .ok_or_else(|| Error::Internal("comparison vector index".into()))?;
+        compare_nullable_validated(self, &left, &right, context)
+    }
+
+    pub(crate) fn compare_vector_value_at_validated(
+        &self,
+        column: &Vector,
+        index: usize,
+        value: &Value,
+        column_is_left: bool,
+        context: &QueryContext,
+    ) -> Result<Ordering> {
+        let column_null = column
+            .is_null_at(index)
+            .ok_or_else(|| Error::Internal("comparison vector index".into()))?;
+        let value_null = value.is_null();
+        let order = match (column_null, value_null) {
+            (true, true) => Some(Ordering::Equal),
+            (true, false) => Some(Ordering::Greater),
+            (false, true) => Some(Ordering::Less),
+            (false, false) => None,
+        };
+        if let Some(order) = order {
+            return Ok(if column_is_left {
+                order
+            } else {
+                order.reverse()
+            });
+        }
+        if self.ordering_representation() == OrderingRepresentation::VarcharBytes {
+            let column = column
+                .varchar_at_validated(index)
+                .flatten()
+                .ok_or_else(|| Error::Internal("validated VARCHAR comparison input".into()))?;
+            let Value::Varchar(value) = value else {
+                return Err(Error::Internal(
+                    "validated VARCHAR scalar comparison input".into(),
+                ));
+            };
+            let order = column.cmp(value);
+            return Ok(if column_is_left {
+                order
+            } else {
+                order.reverse()
+            });
+        }
+        if let Some(result) = self.adapter.compare_validated_vector_value_at(
+            super::TypeAdapterAccess(()),
+            &self.data_type,
+            column,
+            index,
+            value,
+            column_is_left,
+            context,
+        ) {
+            let result = result?;
+            context.check()?;
+            return Ok(result);
+        }
+        let column = column
+            .value(index)
+            .ok_or_else(|| Error::Internal("comparison vector index".into()))?;
+        if column_is_left {
+            compare_nullable_validated(self, &column, value, context)
+        } else {
+            compare_nullable_validated(self, value, &column, context)
+        }
+    }
+
     pub fn uniform_comparison(
         &self,
         left: &Vector,
@@ -121,9 +239,37 @@ impl BoundType {
         }
         self.validate_vector(left, context)?;
         self.validate_vector(right, context)?;
-        let selected =
+        let selected = if let Some(compared) = self.adapter.compare_validated_batch(
+            super::TypeAdapterAccess(()),
+            &self.data_type,
+            left,
+            right,
+            context,
+        ) {
+            compared.and_then(|compared| {
+                if compared.len() != left.len() {
+                    return Err(Error::Internal(
+                        "comparison output cardinality differs".into(),
+                    ));
+                }
+                let mut selected = Vec::new();
+                selected.try_reserve_exact(compared.len()).map_err(|_| {
+                    Error::Resource("comparison selection allocation failed".into())
+                })?;
+                for (index, order) in compared.into_iter().enumerate() {
+                    if index % 1024 == 0 {
+                        context.check()?;
+                    }
+                    if order.is_some_and(|order| predicate.matches(order)) {
+                        selected.push(index);
+                    }
+                }
+                Ok(selected)
+            })
+        } else {
             self.adapter
-                .select_comparison(&self.data_type, left, right, predicate, context);
+                .select_comparison(&self.data_type, left, right, predicate, context)
+        };
         context.check()?;
         let selected = selected?;
         if left.all_valid() && right.all_valid() {
@@ -154,8 +300,7 @@ impl BoundType {
                 ));
             }
             if !(left.all_valid() && right.all_valid())
-                && (left.get(index).is_some_and(|value| value.is_null())
-                    || right.get(index).is_some_and(|value| value.is_null()))
+                && (left.is_null_at(index) == Some(true) || right.is_null_at(index) == Some(true))
             {
                 return Err(Error::Internal("comparison selected a NULL input".into()));
             }
@@ -234,7 +379,17 @@ impl BoundType {
         self.validate_vector(right, context)?;
         let result = self
             .adapter
-            .compare_batch(&self.data_type, left, right, context);
+            .compare_validated_batch(
+                super::TypeAdapterAccess(()),
+                &self.data_type,
+                left,
+                right,
+                context,
+            )
+            .unwrap_or_else(|| {
+                self.adapter
+                    .compare_batch(&self.data_type, left, right, context)
+            });
         context.check()?;
         let result = result?;
         if result.len() != left.len() {
@@ -255,8 +410,7 @@ impl BoundType {
                 context.check()?;
             }
             if value.is_none()
-                != (left.get(index).is_some_and(|value| value.is_null())
-                    || right.get(index).is_some_and(|value| value.is_null()))
+                != (left.is_null_at(index) == Some(true) || right.is_null_at(index) == Some(true))
             {
                 return Err(Error::Internal(
                     "comparison batch violated NULL semantics".into(),
@@ -264,5 +418,19 @@ impl BoundType {
             }
         }
         Ok(result)
+    }
+}
+
+fn compare_nullable_validated(
+    bound: &BoundType,
+    left: &Value,
+    right: &Value,
+    context: &QueryContext,
+) -> Result<Ordering> {
+    match (left.is_null(), right.is_null()) {
+        (true, true) => Ok(Ordering::Equal),
+        (true, false) => Ok(Ordering::Greater),
+        (false, true) => Ok(Ordering::Less),
+        (false, false) => bound.compare_validated(left, right, context),
     }
 }

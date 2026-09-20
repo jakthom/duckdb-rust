@@ -1111,6 +1111,14 @@ fn evaluate_speculative_expression<T: ExpressionEvaluator + ?Sized>(
     input: &DataChunk,
     context: &dyn EvaluationContext,
 ) -> Result<Option<Vector>> {
+    if matches!(expression.kind, ExprKind::Binary(..)) {
+        let output = evaluate_speculative_comparison(evaluator, expression, input, context)?;
+        return validate_speculative_output(expression, input, context, output);
+    }
+    if matches!(expression.kind, ExprKind::Case(..)) {
+        let output = evaluate_speculative_constant_case(evaluator, expression, input, context)?;
+        return validate_speculative_output(expression, input, context, output);
+    }
     let arguments: &[BoundExpr] = match &expression.kind {
         ExprKind::Scalar(function, arguments) => {
             let effects = function.effects();
@@ -1195,6 +1203,19 @@ fn evaluate_speculative_expression<T: ExpressionEvaluator + ?Sized>(
         },
         _ => unreachable!("matched speculative expression"),
     };
+    validate_speculative_output(expression, input, context, Some(output))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn validate_speculative_output(
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+    output: Option<Vector>,
+) -> Result<Option<Vector>> {
+    let Some(output) = output else {
+        return Ok(None);
+    };
     if output.len() != input.len() || output.data_type() != &expression.data_type {
         return Err(Error::Internal(
             "speculative expression batch differs from binding".into(),
@@ -1205,6 +1226,145 @@ fn evaluate_speculative_expression<T: ExpressionEvaluator + ?Sized>(
         .bind_type(&expression.data_type)?
         .validate_vector(&output, context.query())?;
     Ok(Some(output))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Evaluate an ordinary comparison by complete operand columns in retained
+/// source order. Both operands are effect-free, so a data error may discard
+/// every temporary and return to the original input's scalar row order. A
+/// resource, cancellation or internal failure remains fatal.
+fn evaluate_speculative_comparison<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Option<Vector>> {
+    let ExprKind::Binary(operator, left, right, operand_type) = &expression.kind else {
+        return Ok(None);
+    };
+    if !ordinary_comparison(*operator)
+        || expression.data_type != DataType::Boolean
+        || !comparison_operand_admits_speculation(left)
+        || !comparison_operand_admits_speculation(right)
+        || left.uses_physical_batch()
+        || right.uses_physical_batch()
+    {
+        return Ok(None);
+    }
+    let attempted = (|| -> Result<Vector> {
+        // Keep physical-batch callbacks in the comparison's retained operand
+        // order. A failed attempt drops both columns before the caller replays
+        // the original expression and input.
+        let left = evaluator.evaluate_batch(left, input, context)?;
+        let right = evaluator.evaluate_batch(right, input, context)?;
+        let values = operand_type
+            .compare_batch(&left, &right, context.query())?
+            .into_iter()
+            .map(|ordering| match ordering {
+                None => Value::Null,
+                Some(ordering) => Value::Boolean(comparison_matches(*operator, ordering)),
+            })
+            .collect();
+        Vector::flat(DataType::Boolean, values)
+    })();
+    match attempted {
+        Ok(output) => Ok(Some(output)),
+        Err(error) if speculative_data_error(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn comparison_operand_admits_speculation(expression: &BoundExpr) -> bool {
+    if !expression.is_effect_free() {
+        return false;
+    }
+    if let ExprKind::Operator(function, arguments) = &expression.kind {
+        let constants = arguments
+            .iter()
+            .map(BoundExpr::constant_value)
+            .collect::<Vec<_>>();
+        let built_in_checked_arithmetic = function
+            .batch_kind(crate::function::operator::OperatorBatchAccess)
+            .is_some_and(|kind| {
+                kind.is(crate::function::operator::OperatorBatchIdentity::NumericArithmetic)
+            });
+        if !function.is_total(&constants) && !built_in_checked_arithmetic {
+            return false;
+        }
+    }
+    let mut admitted = true;
+    expression
+        .visit_children(&mut |child| admitted &= comparison_operand_admits_speculation(child));
+    admitted
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Batch the condition of a single-WHEN CASE only when both possible results
+/// are already resolved literal or parameter values. Select and validate only
+/// the demanded result when every row chooses the same branch.
+fn evaluate_speculative_constant_case<T: ExpressionEvaluator + ?Sized>(
+    evaluator: &T,
+    expression: &BoundExpr,
+    input: &DataChunk,
+    context: &dyn EvaluationContext,
+) -> Result<Option<Vector>> {
+    let ExprKind::Case(branches, otherwise) = &expression.kind else {
+        return Ok(None);
+    };
+    let [(condition, selected)] = branches.as_slice() else {
+        return Ok(None);
+    };
+    if !matches!(selected.kind, ExprKind::Literal(_) | ExprKind::Parameter(_))
+        || !matches!(
+            otherwise.kind,
+            ExprKind::Literal(_) | ExprKind::Parameter(_)
+        )
+        || selected.data_type != expression.data_type
+        || otherwise.data_type != expression.data_type
+        || !matches!(condition.kind, ExprKind::Binary(..))
+    {
+        return Ok(None);
+    }
+    let Some(condition) = evaluate_speculative_comparison(evaluator, condition, input, context)?
+    else {
+        return Ok(None);
+    };
+    let selected_rows = select_boolean(&condition, input.len(), context.query())?;
+    if selected_rows.is_empty() {
+        return case_constant_column(otherwise, input.len()).map(Some);
+    }
+    if selected_rows.len() == input.len() {
+        return case_constant_column(selected, input.len()).map(Some);
+    }
+    let selected_value = case_constant_value(selected).clone();
+    let otherwise_value = case_constant_value(otherwise).clone();
+    let dictionary = std::sync::Arc::new(Vector::flat(
+        expression.data_type.clone(),
+        vec![selected_value, otherwise_value],
+    )?);
+    let mut indices = vec![1; input.len()];
+    for index in selected_rows {
+        indices[index] = 0;
+    }
+    dictionary.select(indices).map(Some)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn case_constant_column(expression: &BoundExpr, len: usize) -> Result<Vector> {
+    Vector::constant(
+        expression.data_type.clone(),
+        case_constant_value(expression).clone(),
+        len,
+    )
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn case_constant_value(expression: &BoundExpr) -> &Value {
+    match &expression.kind {
+        ExprKind::Literal(value) | ExprKind::Parameter(value) => value,
+        _ => unreachable!("constant CASE branch was checked before demand"),
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

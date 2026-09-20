@@ -1,6 +1,9 @@
 use super::*;
 use duckdb_rust::{
-    common::{type_registry::TypeRegistry, vector::Vector},
+    common::{
+        type_registry::{KeyWriter, PrimitiveTypes, TypeAdapter, TypeRegistry},
+        vector::Vector,
+    },
     execution::expression_executor::{BatchedEvaluator, EvaluationContext, ExpressionEvaluator},
     function::operator::{
         NumericArithmetic, Operator, OperatorFunction, OperatorRegistry, OperatorSignature,
@@ -8,6 +11,98 @@ use duckdb_rust::{
     optimizer::{IdentityOptimizer, Optimizer, PipelineOptimizer},
     planner::{BoundExpr, ExprKind},
 };
+
+#[derive(Debug)]
+struct ReverseBigIntComparison(Arc<AtomicUsize>);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl TypeAdapter for ReverseBigIntComparison {
+    fn name(&self) -> &'static str {
+        "reverse-bigint-case-comparison"
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        PrimitiveTypes.validate_type(data_type)
+    }
+    fn validate_value(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.validate_value(data_type, value, query)
+    }
+    fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        PrimitiveTypes.common_type(left, right)
+    }
+    fn compare(
+        &self,
+        data_type: &DataType,
+        left: &Value,
+        right: &Value,
+        query: &QueryContext,
+    ) -> Result<std::cmp::Ordering> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        PrimitiveTypes
+            .compare(data_type, left, right, query)
+            .map(std::cmp::Ordering::reverse)
+    }
+    fn write_key(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.write_key(data_type, value, output, query)
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn speculative_constant_case_retains_null_parameter_and_custom_comparison_semantics() -> Result<()>
+{
+    let comparisons = Arc::new(AtomicUsize::new(0));
+    let mut types = TypeRegistry::builtins();
+    types.replace(
+        DataType::BigInt.family(),
+        Arc::new(ReverseBigIntComparison(comparisons.clone())),
+    )?;
+    let mut c = DatabaseBuilder::new()
+        .types(Arc::new(types))
+        .optimizer(Arc::new(IdentityOptimizer))
+        .batch_size(64)
+        .build()?
+        .connect();
+    let prepared = c.prepare(
+        "SELECT CASE WHEN i+0 < 2::BIGINT THEN $1 ELSE $2 END \
+         FROM (VALUES (1::BIGINT),(3::BIGINT),(NULL::BIGINT)) t(i)",
+    )?;
+    assert_eq!(
+        c.execute_prepared(
+            &prepared,
+            &[
+                Value::Varchar("selected".into()),
+                Value::Varchar("otherwise".into()),
+            ],
+        )?
+        .rows,
+        vec![
+            vec![Value::Varchar("otherwise".into())],
+            vec![Value::Varchar("selected".into())],
+            vec![Value::Varchar("otherwise".into())],
+        ]
+    );
+    assert_eq!(comparisons.load(Ordering::Relaxed), 2);
+
+    // Parameters are resolved before execution in this API. A missing value is
+    // rejected even if another query shape could leave that branch unselected;
+    // the executor therefore receives only valid, typed Parameter nodes.
+    assert!(matches!(
+        c.execute_prepared(&prepared, &[Value::Varchar("selected".into())]),
+        Err(Error::Bind(_))
+    ));
+    Ok(())
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]

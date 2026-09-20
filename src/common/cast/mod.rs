@@ -52,6 +52,16 @@ pub struct CastSpec {
     pub mode: CastMode,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CastAdapterAccess(());
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CastValidationProof {
+    source_recursive_builtin: bool,
+    source_builtin: bool,
+    target_builtin: bool,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Pure, deterministic, synchronous conversion of a physical value. Ordinary
 /// casts receive non-NULL input. A selected Call capability also receives NULL.
@@ -174,6 +184,40 @@ pub trait CastFunction: Debug + Send + Sync {
         context.check()?;
         super::vector::Vector::flat(spec.target.clone(), values)
     }
+    /// Private callback after `BoundCast::apply_batch` has validated the source
+    /// vector through this exact bound cast. Registry replacements cannot opt
+    /// into consuming that proof.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn cast_validated_batch(
+        &self,
+        _access: CastAdapterAccess,
+        _proof: CastValidationProof,
+        _input: &super::vector::Vector,
+        _spec: &CastSpec,
+        _context: &QueryContext,
+    ) -> Option<Result<super::vector::Vector>> {
+        None
+    }
+    /// Private row renderer used after this exact retained cast's source was
+    /// recursively validated. Composite built-ins can append a nested child
+    /// without first constructing an owned scalar tree.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    #[allow(clippy::too_many_arguments)]
+    fn cast_validated_vector_at_into(
+        &self,
+        _access: CastAdapterAccess,
+        _source_has_recursive_builtin_validation: bool,
+        _input: &super::vector::Vector,
+        _index: usize,
+        _spec: &CastSpec,
+        _behavior: CastBehavior,
+        _context: &QueryContext,
+        _output: &mut String,
+    ) -> Option<CastResult<()>> {
+        None
+    }
     /// Overload ranking only: this never grants an unavailable conversion.
     /// Identity has cost zero at the registry boundary. Replacements may
     /// explicitly supply a different resolution policy while preserving casts.
@@ -251,6 +295,35 @@ pub struct BoundCast {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundCast {
+    pub(crate) fn source_has_recursive_builtin_validation(&self) -> bool {
+        self.source.has_recursive_builtin_validation()
+    }
+
+    pub(crate) fn append_validated_vector_at(
+        &self,
+        input: &super::vector::Vector,
+        index: usize,
+        behavior: CastBehavior,
+        context: &QueryContext,
+        output: &mut String,
+    ) -> Option<CastResult<()>> {
+        if !self.source.has_recursive_builtin_validation()
+            || self.target.requires_logical_validation()
+        {
+            return None;
+        }
+        self.function.cast_validated_vector_at_into(
+            CastAdapterAccess(()),
+            true,
+            input,
+            index,
+            &self.spec,
+            behavior,
+            context,
+            output,
+        )
+    }
+
     /// Validate and retain the source physical lane for a selected, total,
     /// value-preserving signed widening into BIGINT. Consumers still perform
     /// their own bounded cancellation while reading the retained rows.
@@ -382,7 +455,20 @@ impl BoundCast {
             // input encoding rather than rebuilding every logical row.
             return Ok(input.clone());
         }
-        let output = self.function.cast_batch(input, &self.spec, context);
+        let output = self
+            .function
+            .cast_validated_batch(
+                CastAdapterAccess(()),
+                CastValidationProof {
+                    source_recursive_builtin: self.source.has_recursive_builtin_validation(),
+                    source_builtin: self.source.has_reusable_builtin_validation(),
+                    target_builtin: self.target.has_reusable_builtin_validation(),
+                },
+                input,
+                &self.spec,
+                context,
+            )
+            .unwrap_or_else(|| self.function.cast_batch(input, &self.spec, context));
         context.check()?;
         let output = output?;
         if output.data_type() != &self.spec.target || output.len() != input.len() {
@@ -391,14 +477,20 @@ impl BoundCast {
             ));
         }
         if !(input.all_valid() && output.all_valid()) {
-            for (index, (a, b)) in input.values().zip(output.values()).enumerate() {
+            for index in 0..input.len() {
                 if index % 1024 == 0 {
                     context.check()?;
                 }
-                if (!a.is_null() && b.is_null() && !self.may_return_null)
+                let input_null = input
+                    .is_null_at(index)
+                    .ok_or_else(|| Error::Internal("cast input row".into()))?;
+                let output_null = output
+                    .is_null_at(index)
+                    .ok_or_else(|| Error::Internal("cast output row".into()))?;
+                if (!input_null && output_null && !self.may_return_null)
                     || (self.null_handling == CastNullHandling::Propagate
-                        && a.is_null()
-                        && !b.is_null())
+                        && input_null
+                        && !output_null)
                 {
                     return Err(Error::Internal("cast batch changed NULL semantics".into()));
                 }
@@ -548,6 +640,31 @@ impl BoundCast {
                 .validate(value, context)
                 .map_err(CastFailure::fatal)?;
         }
+        self.attempt_validated_with_context(value, behavior, source_context, context)
+    }
+
+    /// Invoke this exact retained cast after its source `BoundType` has already
+    /// validated the value. Recursive batch casts use this only while walking a
+    /// parent value validated by the matching retained recursive adapter.
+    /// Selected callback, NULL/error policy, target validation and cancellation
+    /// remain identical to the ordinary path.
+    pub(crate) fn attempt_validated(
+        &self,
+        value: &Value,
+        behavior: CastBehavior,
+        context: &QueryContext,
+    ) -> CastResult<Value> {
+        context.check()?;
+        self.attempt_validated_with_context(value, behavior, CastSourceContext::Ordinary, context)
+    }
+
+    fn attempt_validated_with_context(
+        &self,
+        value: &Value,
+        behavior: CastBehavior,
+        source_context: CastSourceContext,
+        context: &QueryContext,
+    ) -> CastResult<Value> {
         if value.is_null() && self.null_handling == CastNullHandling::Propagate {
             return Ok(Value::Null);
         }
@@ -1038,6 +1155,26 @@ impl CastFunction for PrimitiveCast {
         context.check()?;
         super::vector::Vector::flat(spec.target.clone(), values)
     }
+    #[allow(private_interfaces)]
+    fn cast_validated_batch(
+        &self,
+        _: CastAdapterAccess,
+        proof: CastValidationProof,
+        input: &super::vector::Vector,
+        spec: &CastSpec,
+        context: &QueryContext,
+    ) -> Option<Result<super::vector::Vector>> {
+        if !proof.source_builtin
+            || !proof.target_builtin
+            || spec.source != DataType::BigInt
+            || spec.target != DataType::Varchar
+            || !input.all_valid()
+        {
+            return None;
+        }
+        let values = input.flat_bigints()?;
+        Some(pack_bigint_varchar(values, context))
+    }
     fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {
         context.check()?;
         builtin::primitive(value, &spec.target).map_err(|error| match error {
@@ -1053,6 +1190,75 @@ impl CastFunction for PrimitiveCast {
             other => other,
         })
     }
+}
+
+fn pack_bigint_varchar(values: &[i64], context: &QueryContext) -> Result<super::vector::Vector> {
+    context.check()?;
+    let mut bytes = 0usize;
+    for (index, value) in values.iter().enumerate() {
+        if index % 1024 == 0 {
+            context.check()?;
+        }
+        let mut magnitude = value.unsigned_abs();
+        let mut digits = 1usize;
+        while magnitude >= 10 {
+            magnitude /= 10;
+            digits += 1;
+        }
+        let width = digits + usize::from(*value < 0);
+        bytes = bytes
+            .checked_add(width)
+            .ok_or_else(|| Error::Resource("BIGINT VARCHAR result size overflow".into()))?;
+    }
+    let (mut arena, mut ranges) = allocate_bigint_varchar(bytes, values.len())?;
+    context.check()?;
+    for (index, value) in values.iter().enumerate() {
+        if index % 1024 == 0 {
+            context.check()?;
+        }
+        let start = arena.len();
+        append_bigint_decimal(&mut arena, *value)?;
+        ranges.push(Some(start..arena.len()));
+    }
+    context.check()?;
+    super::vector::Vector::packed_utf8(Arc::new(arena), ranges)
+}
+
+fn allocate_bigint_varchar(
+    bytes: usize,
+    rows: usize,
+) -> Result<(String, Vec<Option<std::ops::Range<usize>>>)> {
+    let mut arena = String::new();
+    arena
+        .try_reserve_exact(bytes)
+        .map_err(|_| Error::Resource("cannot allocate BIGINT VARCHAR payload".into()))?;
+    let mut ranges = Vec::new();
+    ranges
+        .try_reserve_exact(rows)
+        .map_err(|_| Error::Resource("cannot allocate BIGINT VARCHAR ranges".into()))?;
+    Ok((arena, ranges))
+}
+
+fn append_bigint_decimal(output: &mut String, value: i64) -> Result<()> {
+    let mut buffer = [0u8; 20];
+    let mut start = buffer.len();
+    let mut magnitude = value.unsigned_abs();
+    loop {
+        start -= 1;
+        buffer[start] = b'0' + (magnitude % 10) as u8;
+        magnitude /= 10;
+        if magnitude == 0 {
+            break;
+        }
+    }
+    if value < 0 {
+        start -= 1;
+        buffer[start] = b'-';
+    }
+    let text = std::str::from_utf8(&buffer[start..])
+        .map_err(|_| Error::Internal("BIGINT VARCHAR formatting failed".into()))?;
+    output.push_str(text);
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -1076,7 +1282,10 @@ fn primitive_numeric_name(data_type: &DataType) -> &'static str {
 mod packed_storage_tests {
     use super::*;
     use crate::common::type_registry::{KeyWriter, PrimitiveTypes, TypeAdapter, TypeRegistry};
-    use std::cmp::Ordering;
+    use std::{
+        cmp::Ordering,
+        sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
+    };
 
     #[derive(Debug)]
     struct NoIdentity;
@@ -1097,6 +1306,22 @@ mod packed_storage_tests {
 
     #[derive(Debug)]
     struct LogicalVarchar;
+
+    #[derive(Debug)]
+    struct CountingPrimitive(Arc<AtomicUsize>);
+
+    impl CastFunction for CountingPrimitive {
+        fn name(&self) -> &'static str {
+            "counting-primitive"
+        }
+        fn supports(&self, _: &CastSpec) -> bool {
+            true
+        }
+        fn cast(&self, value: &Value, spec: &CastSpec, context: &QueryContext) -> Result<Value> {
+            self.0.fetch_add(1, AtomicOrdering::SeqCst);
+            PrimitiveCast.cast(value, spec, context)
+        }
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl TypeAdapter for LogicalVarchar {
@@ -1177,6 +1402,129 @@ mod packed_storage_tests {
             let other = casts.bind(&source, &target, CastMode::Explicit, &types)?;
             assert!(!other.can_preserve_plain_varchar_storage());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn bigint_varchar_packing_requires_exact_builtin_proofs_and_preserves_fallbacks() -> Result<()>
+    {
+        let query = QueryContext::background();
+        let types = TypeRegistry::builtins();
+        let casts = CastRegistry::builtins();
+        let bound = casts.bind(
+            &DataType::BigInt,
+            &DataType::Varchar,
+            CastMode::Explicit,
+            &types,
+        )?;
+        let input = super::super::vector::Vector::try_bigints(
+            [i64::MIN, -42, 0, 7, i64::MAX]
+                .into_iter()
+                .map(|value| Ok(Some(value))),
+        )?;
+        let expected = [
+            "-9223372036854775808",
+            "-42",
+            "0",
+            "7",
+            "9223372036854775807",
+        ];
+        let packed = bound.apply_batch(&input, &query)?;
+        assert!(packed.flat_utf8().is_some());
+        assert_eq!(
+            packed.values().collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|value| Value::Varchar((*value).into()))
+                .collect::<Vec<_>>()
+        );
+        for (value, packed) in [i64::MIN, -42, 0, 7, i64::MAX]
+            .into_iter()
+            .zip(packed.values())
+        {
+            assert_eq!(
+                packed,
+                bound.apply(&Value::Integer(value.into()), &query)?,
+                "packed decimal differs from the unchanged scalar cast for {value}"
+            );
+        }
+
+        let sliced = input.slice(1, 3)?;
+        assert!(bound.apply_batch(&sliced, &query)?.flat_utf8().is_some());
+        let selected = Arc::new(input.clone()).select(vec![4, 0, 2])?;
+        let selected_output = bound.apply_batch(&selected, &query)?;
+        assert!(selected_output.flat_utf8().is_none());
+        assert_eq!(
+            selected_output.values().collect::<Vec<_>>(),
+            vec![
+                Value::Varchar(expected[4].into()),
+                Value::Varchar(expected[0].into()),
+                Value::Varchar(expected[2].into()),
+            ]
+        );
+        let chunked = super::super::vector::Vector::chunked(
+            DataType::BigInt,
+            vec![input.slice(0, 2)?, input.slice(2, 3)?],
+        )?;
+        let chunked_output = bound.apply_batch(&chunked, &query)?;
+        assert!(chunked_output.flat_utf8().is_none());
+        assert_eq!(
+            chunked_output.values().collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|value| Value::Varchar((*value).into()))
+                .collect::<Vec<_>>()
+        );
+        let nullable = super::super::vector::Vector::try_bigints(
+            [Some(1), None, Some(-2)].into_iter().map(Ok),
+        )?;
+        let nullable_output = bound.apply_batch(&nullable, &query)?;
+        assert!(nullable_output.flat_utf8().is_none());
+        assert_eq!(
+            nullable_output.values().collect::<Vec<_>>(),
+            vec![
+                Value::Varchar("1".into()),
+                Value::Null,
+                Value::Varchar("-2".into())
+            ]
+        );
+
+        for replace_source in [true, false] {
+            let mut logical = types.clone();
+            logical.replace(
+                if replace_source {
+                    DataType::BigInt.family()
+                } else {
+                    DataType::Varchar.family()
+                },
+                Arc::new(LogicalVarchar),
+            )?;
+            let changed = casts.bind(
+                &DataType::BigInt,
+                &DataType::Varchar,
+                CastMode::Explicit,
+                &logical,
+            )?;
+            assert!(changed.apply_batch(&input, &query)?.flat_utf8().is_none());
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut changed = bound.clone();
+        changed.function = Arc::new(CountingPrimitive(calls.clone()));
+        assert!(changed.apply_batch(&input, &query)?.flat_utf8().is_none());
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), input.len());
+
+        let interrupt = crate::parallel::InterruptHandle::default();
+        let cancelled = QueryContext::new(interrupt.clone(), None, 64, usize::MAX)?;
+        interrupt.interrupt();
+        assert!(matches!(
+            bound.apply_batch(&input, &cancelled),
+            Err(Error::Interrupted)
+        ));
+        assert!(matches!(
+            allocate_bigint_varchar(usize::MAX, 0),
+            Err(Error::Resource(_))
+        ));
         Ok(())
     }
 }

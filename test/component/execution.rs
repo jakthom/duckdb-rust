@@ -233,6 +233,143 @@ impl ScalarFunction for CountCalls {
     }
 }
 
+#[derive(Debug)]
+struct ExternalCalls(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for ExternalCalls {
+    fn name(&self) -> &str {
+        "external_calls"
+    }
+    fn effects(&self) -> FunctionEffects {
+        FunctionEffects {
+            volatile: false,
+            external_access: true,
+        }
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _types: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        if arguments.len() == 1 {
+            Ok(arguments[0].clone())
+        } else {
+            Err(Error::Bind("one argument required".into()))
+        }
+    }
+    fn evaluate(&self, arguments: &[Value], _: &QueryContext) -> Result<Value> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ok(arguments[0].clone())
+    }
+}
+
+#[derive(Debug)]
+struct PhysicalCount(Arc<AtomicUsize>);
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ScalarFunction for PhysicalCount {
+    fn name(&self) -> &str {
+        "physical_count"
+    }
+    fn return_type(
+        &self,
+        arguments: &[DataType],
+        _types: &duckdb_rust::common::type_registry::TypeRegistry,
+    ) -> Result<DataType> {
+        arguments
+            .first()
+            .filter(|_| arguments.len() == 1)
+            .cloned()
+            .ok_or_else(|| Error::Bind("one argument required".into()))
+    }
+    fn is_total(&self, _: &[Option<&Value>]) -> bool {
+        true
+    }
+    fn uses_physical_batch(&self) -> bool {
+        true
+    }
+    fn supports_batch_evaluation(&self, _: &[DataType]) -> bool {
+        true
+    }
+    fn evaluate(&self, arguments: &[Value], _: &QueryContext) -> Result<Value> {
+        Ok(arguments[0].clone())
+    }
+    fn evaluate_batch(
+        &self,
+        arguments: &DataChunk,
+        _: &QueryContext,
+    ) -> Result<Option<duckdb_rust::common::vector::Vector>> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ok(Some(arguments.columns()[0].clone()))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn speculative_constant_case_preserves_error_demand_and_effects() -> Result<()> {
+    let volatile_calls = Arc::new(AtomicUsize::new(0));
+    let external_calls = Arc::new(AtomicUsize::new(0));
+    let physical_calls = Arc::new(AtomicUsize::new(0));
+    let mut functions = FunctionRegistry::builtins();
+    functions.register_scalar(Arc::new(CountCalls(volatile_calls.clone())))?;
+    functions.register_scalar(Arc::new(ExternalCalls(external_calls.clone())))?;
+    functions.register_scalar(Arc::new(PhysicalCount(physical_calls.clone())))?;
+    let mut c = DatabaseBuilder::new()
+        .functions(functions)
+        .batch_size(64)
+        .build()?
+        .connect();
+
+    // Column-at-a-time speculation sees the later left error first. Its data
+    // error must discard the temporary column and restore row/operand order,
+    // where the first row's right operand fails first.
+    let error = c
+        .query(
+            "SELECT CASE WHEN CAST(l AS INTEGER)=CAST(r AS INTEGER) THEN 1 ELSE 0 END \
+             FROM (VALUES ('1','bad-rhs'),('bad-lhs','1')) t(l,r)",
+        )
+        .unwrap_err();
+    assert!(
+        format!("{error}").contains("bad-rhs"),
+        "unexpected first error: {error}"
+    );
+
+    // A fallible branch is outside the constant-branch path and remains lazy.
+    assert_eq!(
+        c.query(
+            "SELECT CASE WHEN CAST(v AS INTEGER)=i THEN 1 ELSE CAST('unused-bad' AS INTEGER) END \
+             FROM (VALUES ('1',1),('2',2)) t(v,i)",
+        )?
+        .rows,
+        vec![ints(&[1]), ints(&[1])]
+    );
+
+    // Effectful conditions are never speculated across rows.
+    assert_eq!(
+        c.query(
+            "SELECT CASE WHEN count_calls(i)=i THEN 7 ELSE 9 END, \
+                         CASE WHEN external_calls(i)=i THEN 11 ELSE 13 END \
+             FROM range(5) t(i)",
+        )?
+        .rows,
+        vec![vec![Value::Integer(7), Value::Integer(11)]; 5]
+    );
+    assert_eq!(volatile_calls.load(Ordering::Relaxed), 5);
+    assert_eq!(external_calls.load(Ordering::Relaxed), 5);
+
+    // Source-defined physical callbacks keep their established boundary. A
+    // later comparison error must not invoke the physical child once during a
+    // speculative attempt and again during row-ordered replay.
+    assert!(matches!(
+        c.query(
+            "SELECT CASE WHEN physical_count(i)=CAST(v AS BIGINT) THEN 1 ELSE 0 END \
+             FROM (VALUES (1::BIGINT,'bad-physical-rhs'),(2::BIGINT,'2')) t(i,v)",
+        ),
+        Err(Error::Conversion(_))
+    ));
+    assert_eq!(physical_calls.load(Ordering::Relaxed), 1);
+    Ok(())
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn physical_wrappers_do_not_coalesce_or_repeat_volatile_children() -> Result<()> {

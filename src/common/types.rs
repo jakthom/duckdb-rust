@@ -377,11 +377,19 @@ impl Value {
             Self::Temporal(value) => value.data_type() == *data_type && value.validate().is_ok(),
             Self::Nested(value) => {
                 super::type_registry::check_metadata(data_type).is_ok()
-                    && value.fits_type()
-                    && value.data_type == *data_type
+                    && value.fits_validated_type(data_type)
             }
             Self::Varchar(_) => matches!(data_type, DataType::Varchar),
             _ => self.data_type() == *data_type,
+        }
+    }
+
+    /// Physical type check against a target whose complete metadata tree was
+    /// already validated by a vector or bound-type boundary.
+    pub(crate) fn fits_type_with_validated_metadata(&self, data_type: &DataType) -> bool {
+        match self {
+            Self::Nested(value) => value.fits_validated_type(data_type),
+            _ => self.fits_type(data_type),
         }
     }
 

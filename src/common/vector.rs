@@ -1,6 +1,6 @@
-use std::{ops::Range, sync::Arc};
+use std::{collections::HashSet, ops::Range, sync::Arc};
 
-use super::{DataType, Error, Result, Row, Value};
+use super::{DataType, Error, NestedPayload, NestedType, NestedValue, Result, Row, Value};
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 pub(crate) fn materialized_value_bytes(value: &Value) -> Result<usize> {
@@ -57,14 +57,263 @@ enum Encoding {
     FlatDecimalI64(Arc<Vec<i64>>),
     /// VARCHAR payloads share one immutable UTF-8 arena. Row-order ranges may
     /// overlap or interleave other columns; `None` alone represents SQL NULL.
-    FlatUtf8(Arc<String>, Arc<[Option<Range<usize>>]>),
+    FlatUtf8(Arc<String>, Arc<Vec<Option<Range<usize>>>>),
+    /// Plain STRUCT rows retain their fields as independently encoded columns.
+    /// The declared field metadata remains authoritative in `Vector.data_type`.
+    FlatStruct {
+        validity: Option<Arc<Vec<u64>>>,
+        children: Arc<Vec<Vector>>,
+    },
+    /// Plain LIST rows retain checked row offsets into one child column. A
+    /// clear validity bit and an equal adjacent offset represent NULL; equal
+    /// offsets with a set bit represent an empty list.
+    FlatList {
+        validity: Option<Arc<Vec<u64>>>,
+        offsets: Arc<Vec<usize>>,
+        child: Arc<Vector>,
+    },
     Constant(Value),
-    Dictionary(Arc<Vector>, Arc<[usize]>),
+    Dictionary(Arc<Vector>, Arc<Vec<usize>>),
     /// Immutable table storage retains CTAS batches without first copying all
     /// payloads into a second table-wide flat allocation.  A scan-sized slice
     /// that lies within one segment becomes that segment's ordinary vector,
     /// so scalar and aggregate kernels retain their existing flat fast paths.
-    Chunks(Arc<[Vector]>, Arc<[usize]>),
+    Chunks(Arc<Vec<Vector>>, Arc<Vec<usize>>),
+}
+
+/// Borrowed physical row for recursive built-in consumers. Selected and
+/// chunked vectors resolve to their owning row before this view is returned.
+pub(crate) enum NestedRowRef<'a> {
+    Null,
+    Struct {
+        children: &'a [Vector],
+        index: usize,
+    },
+    List {
+        child: &'a Vector,
+        range: Range<usize>,
+    },
+    Scalar(&'a NestedPayload),
+}
+
+/// One immutable physical VARCHAR encoding layer after exact bound-type
+/// validation. Comparison planning may retain these borrows for one batch;
+/// callers still own SQL NULL and bounds semantics.
+pub(crate) enum ValidatedVarcharEncodingRef<'a> {
+    Direct {
+        base: ValidatedVarcharBaseRef<'a>,
+        offset: usize,
+        count: usize,
+    },
+    Dictionary {
+        parent: &'a Vector,
+        selection: &'a [usize],
+        offset: usize,
+        count: usize,
+    },
+    Chunks {
+        chunks: &'a [Vector],
+        offsets: &'a [usize],
+        offset: usize,
+        count: usize,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ValidatedVarcharBaseRef<'a> {
+    Values(&'a [Value]),
+    Utf8(&'a str, &'a [Option<Range<usize>>]),
+    Constant(Option<&'a str>),
+}
+
+impl<'a> ValidatedVarcharBaseRef<'a> {
+    pub(crate) fn get(self, index: usize) -> Option<Option<&'a str>> {
+        match self {
+            Self::Values(values) => match values.get(index)? {
+                Value::Varchar(value) => Some(Some(value)),
+                Value::Null => Some(None),
+                _ => None,
+            },
+            Self::Utf8(arena, ranges) => ranges
+                .get(index)
+                .map(|range| range.as_ref().map(|range| &arena[range.clone()])),
+            Self::Constant(value) => Some(value),
+        }
+    }
+}
+
+/// One immutable physical nested encoding layer after exact recursive
+/// validation. Scalar materialized parents intentionally have no view.
+pub(crate) enum ValidatedNestedEncodingRef<'a> {
+    Direct {
+        base: ValidatedNestedBaseRef<'a>,
+        offset: usize,
+        count: usize,
+    },
+    Dictionary {
+        parent: &'a Vector,
+        selection: &'a [usize],
+        offset: usize,
+        count: usize,
+    },
+    Chunks {
+        chunks: &'a [Vector],
+        offsets: &'a [usize],
+        offset: usize,
+        count: usize,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ValidatedNestedBaseRef<'a> {
+    Struct {
+        validity: Option<&'a [u64]>,
+        children: &'a [Vector],
+    },
+    List {
+        validity: Option<&'a [u64]>,
+        offsets: &'a [usize],
+        child: &'a Vector,
+    },
+}
+
+impl<'a> ValidatedNestedBaseRef<'a> {
+    pub(crate) fn is_null(self, index: usize) -> Option<bool> {
+        let validity = match self {
+            Self::Struct { validity, .. } | Self::List { validity, .. } => validity,
+        };
+        Some(validity.is_some_and(|validity| !validity_is_set(validity, index)))
+    }
+}
+
+/// Private proof that newly allocated vector metadata was admitted before its
+/// allocation. Callers cannot substitute an unrelated reservation token.
+pub(crate) struct MetadataAdmission {
+    reservations: Vec<crate::parallel::Reservation>,
+    admitted: usize,
+}
+
+impl MetadataAdmission {
+    pub(crate) fn new() -> Self {
+        Self {
+            reservations: Vec::new(),
+            admitted: 0,
+        }
+    }
+
+    pub(crate) fn try_reserve_vec<T>(
+        &mut self,
+        values: &mut Vec<T>,
+        additional: usize,
+        query: &crate::parallel::QueryContext,
+        message: &'static str,
+    ) -> Result<()> {
+        let needed = values
+            .len()
+            .checked_add(additional)
+            .ok_or_else(|| Error::Resource(message.into()))?;
+        if needed <= values.capacity() {
+            return Ok(());
+        }
+        let old = values.capacity();
+        // Repeated append producers must not allocate and retain one new guard
+        // per element. Keep the first known-size allocation exact, then grow
+        // geometrically while charging the complete chosen spare capacity
+        // before asking the allocator for it.
+        let target = if old == 0 {
+            needed
+        } else {
+            old.checked_mul(2).unwrap_or(needed).max(needed)
+        };
+        let requested = target
+            .checked_sub(old)
+            .and_then(|slots| slots.checked_mul(std::mem::size_of::<T>()))
+            .ok_or_else(|| Error::Resource(message.into()))?;
+        let initial = query.memory_pool().reserve(requested, query)?;
+        values
+            .try_reserve_exact(target - values.len())
+            .map_err(|_| Error::Resource(message.into()))?;
+        let actual = values
+            .capacity()
+            .checked_sub(old)
+            .and_then(|slots| slots.checked_mul(std::mem::size_of::<T>()))
+            .ok_or_else(|| Error::Resource(message.into()))?;
+        self.reservations.push(initial);
+        self.admitted = self
+            .admitted
+            .checked_add(requested)
+            .ok_or_else(|| Error::Resource(message.into()))?;
+        if actual > requested {
+            let rounding = query.memory_pool().reserve(actual - requested, query)?;
+            self.reservations.push(rounding);
+            self.admitted = self
+                .admitted
+                .checked_add(actual - requested)
+                .ok_or_else(|| Error::Resource(message.into()))?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn try_reserve_string(
+        &mut self,
+        value: &mut String,
+        additional: usize,
+        query: &crate::parallel::QueryContext,
+        message: &'static str,
+    ) -> Result<()> {
+        let needed = value
+            .len()
+            .checked_add(additional)
+            .ok_or_else(|| Error::Resource(message.into()))?;
+        if needed <= value.capacity() {
+            return Ok(());
+        }
+        let old = value.capacity();
+        let target = if old == 0 {
+            needed
+        } else {
+            old.checked_mul(2).unwrap_or(needed).max(needed)
+        };
+        let requested = target - old;
+        let initial = query.memory_pool().reserve(requested, query)?;
+        value
+            .try_reserve_exact(target - value.len())
+            .map_err(|_| Error::Resource(message.into()))?;
+        let actual = value.capacity() - old;
+        self.reservations.push(initial);
+        self.admitted = self
+            .admitted
+            .checked_add(requested)
+            .ok_or_else(|| Error::Resource(message.into()))?;
+        if actual > requested {
+            let rounding = query.memory_pool().reserve(actual - requested, query)?;
+            self.reservations.push(rounding);
+            self.admitted = self
+                .admitted
+                .checked_add(actual - requested)
+                .ok_or_else(|| Error::Resource(message.into()))?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finish(
+        mut self,
+        actual: usize,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Option<crate::parallel::Reservation>> {
+        if actual > self.admitted {
+            self.reservations
+                .push(query.memory_pool().reserve(actual - self.admitted, query)?);
+            self.admitted = actual;
+        }
+        if self.admitted != actual {
+            return Err(Error::Internal(
+                "vector metadata admission differs from retained capacity".into(),
+            ));
+        }
+        Ok((!self.reservations.is_empty())
+            .then(|| crate::parallel::Reservation::merge(self.reservations)))
+    }
 }
 
 /// The physical width of an all-valid signed column is part of its storage
@@ -163,6 +412,31 @@ fn set_validity_bit(validity: &mut Vec<u64>, index: usize) {
         validity.push(0);
     }
     validity[word] |= 1_u64 << (index % u64::BITS as usize);
+}
+
+fn validate_parent_validity(validity: Option<&[u64]>, count: usize) -> Result<()> {
+    let Some(validity) = validity else {
+        return Ok(());
+    };
+    let words = count.div_ceil(u64::BITS as usize);
+    if validity.len() != words {
+        return Err(Error::Internal(
+            "columnar nested validity length differs from cardinality".into(),
+        ));
+    }
+    if let Some(&last) = validity.last() {
+        let used = count % u64::BITS as usize;
+        if used != 0 && last >> used != 0 {
+            return Err(Error::Internal(
+                "columnar nested validity has set trailing bits".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn parent_all_valid(validity: Option<&[u64]>, count: usize) -> bool {
+    validity.is_none_or(|validity| (0..count).all(|index| validity_is_set(validity, index)))
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -422,6 +696,29 @@ impl SignedLanes {
             _ => false,
         }
     }
+
+    fn retained_bytes(&self, seen: &mut HashSet<usize>) -> Result<usize> {
+        macro_rules! lane_bytes {
+            ($values:expr, $ty:ty) => {{
+                let key = Arc::as_ptr($values) as usize;
+                if seen.insert(key) {
+                    $values
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<$ty>())
+                        .ok_or_else(|| Error::Resource("vector backing size overflow".into()))
+                } else {
+                    Ok(0)
+                }
+            }};
+        }
+        match self {
+            Self::Tiny(values) => lane_bytes!(values, i8),
+            Self::Small(values) => lane_bytes!(values, i16),
+            Self::Integer(values) => lane_bytes!(values, i32),
+            Self::Big(values) => lane_bytes!(values, i64),
+            Self::Huge(values) => lane_bytes!(values, i128),
+        }
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -441,6 +738,43 @@ fn same_flat_backing(left: &Encoding, right: &Encoding) -> bool {
             Encoding::FlatUtf8(left_arena, left_ranges),
             Encoding::FlatUtf8(right_arena, right_ranges),
         ) => Arc::ptr_eq(left_arena, right_arena) && Arc::ptr_eq(left_ranges, right_ranges),
+        (
+            Encoding::FlatStruct {
+                validity: left_validity,
+                children: left_children,
+            },
+            Encoding::FlatStruct {
+                validity: right_validity,
+                children: right_children,
+            },
+        ) => {
+            option_arc_ptr_eq(left_validity, right_validity)
+                && Arc::ptr_eq(left_children, right_children)
+        }
+        (
+            Encoding::FlatList {
+                validity: left_validity,
+                offsets: left_offsets,
+                child: left_child,
+            },
+            Encoding::FlatList {
+                validity: right_validity,
+                offsets: right_offsets,
+                child: right_child,
+            },
+        ) => {
+            option_arc_ptr_eq(left_validity, right_validity)
+                && Arc::ptr_eq(left_offsets, right_offsets)
+                && Arc::ptr_eq(left_child, right_child)
+        }
+        _ => false,
+    }
+}
+
+fn option_arc_ptr_eq<T>(left: &Option<Arc<T>>, right: &Option<Arc<T>>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => Arc::ptr_eq(left, right),
         _ => false,
     }
 }
@@ -472,17 +806,63 @@ impl Vector {
         let mut offsets = Vec::with_capacity(chunks.len().saturating_add(1));
         offsets.push(0);
         let mut count = 0usize;
-        let mut all_valid = true;
-        let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
-        let mut previous = None;
         for chunk in &chunks {
-            if chunk.data_type != data_type {
-                return Err(Error::Internal("chunked vector type differs".into()));
-            }
             count = count
                 .checked_add(chunk.len())
                 .ok_or_else(|| Error::Resource("chunked vector size overflow".into()))?;
             offsets.push(count);
+        }
+        Self::chunked_with_offsets(data_type, chunks, offsets)
+    }
+    pub(crate) fn chunked_with_metadata_admission(
+        data_type: DataType,
+        chunks: Vec<Self>,
+        offsets: Vec<usize>,
+        admission: MetadataAdmission,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Self> {
+        let actual = chunks
+            .capacity()
+            .checked_mul(std::mem::size_of::<Self>())
+            .and_then(|bytes| {
+                offsets
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<usize>())
+                    .and_then(|offsets| bytes.checked_add(offsets))
+            })
+            .ok_or_else(|| Error::Resource("chunked vector metadata overflow".into()))?;
+        let reservation = admission.finish(actual, query)?;
+        let mut result = Self::chunked_with_offsets(data_type, chunks, offsets)?;
+        if let Some(reservation) = reservation {
+            result.retain_reservation(reservation);
+        }
+        Ok(result)
+    }
+
+    fn chunked_with_offsets(
+        data_type: DataType,
+        chunks: Vec<Self>,
+        offsets: Vec<usize>,
+    ) -> Result<Self> {
+        if offsets.len() != chunks.len().saturating_add(1) || offsets.first() != Some(&0) {
+            return Err(Error::Internal("chunked vector offsets differ".into()));
+        }
+        let mut all_valid = true;
+        let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
+        let mut previous = None;
+        let mut count = 0usize;
+        for (index, chunk) in chunks.iter().enumerate() {
+            if chunk.data_type != data_type || offsets[index] != count {
+                return Err(Error::Internal(
+                    "chunked vector type or offsets differ".into(),
+                ));
+            }
+            count = count
+                .checked_add(chunk.len())
+                .ok_or_else(|| Error::Resource("chunked vector size overflow".into()))?;
+            if offsets[index + 1] != count {
+                return Err(Error::Internal("chunked vector offsets differ".into()));
+            }
             all_valid &= chunk.all_valid();
             if numeric_ascending {
                 numeric_ascending &= chunk.numeric_ascending();
@@ -497,7 +877,7 @@ impl Vector {
         Ok(Self {
             reservation: None,
             data_type,
-            encoding: Encoding::Chunks(chunks.into(), offsets.into()),
+            encoding: Encoding::Chunks(Arc::new(chunks), Arc::new(offsets)),
             offset: 0,
             count,
             all_valid,
@@ -816,19 +1196,231 @@ impl Vector {
         Ok(Self {
             reservation: None,
             data_type: DataType::Varchar,
-            encoding: Encoding::FlatUtf8(arena, ranges.into()),
+            encoding: Encoding::FlatUtf8(arena, Arc::new(ranges)),
             offset: 0,
             count,
             all_valid,
             numeric_ascending: false,
         })
     }
+    /// Construct several packed VARCHAR columns sharing one arena and one
+    /// independently admitted backing charge. The shared reservation is a
+    /// lifetime guard, not repeated credit for each child.
+    pub(crate) fn packed_utf8_columns(
+        arena: String,
+        columns: Vec<Vec<Option<Range<usize>>>>,
+        admission: MetadataAdmission,
+        mut column_admission: MetadataAdmission,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<(Vec<Self>, MetadataAdmission)> {
+        let bytes = columns.iter().try_fold(arena.capacity(), |bytes, ranges| {
+            ranges
+                .capacity()
+                .checked_mul(std::mem::size_of::<Option<Range<usize>>>())
+                .and_then(|ranges| bytes.checked_add(ranges))
+                .ok_or_else(|| Error::Resource("packed VARCHAR backing overflow".into()))
+        })?;
+        let reservation = admission.finish(bytes, query)?;
+        let arena = Arc::new(arena);
+        let mut output = Vec::new();
+        column_admission.try_reserve_vec(
+            &mut output,
+            columns.len(),
+            query,
+            "packed VARCHAR column metadata allocation failed",
+        )?;
+        for ranges in columns {
+            let mut vector = Self::packed_utf8(arena.clone(), ranges)?;
+            if let Some(reservation) = reservation.clone() {
+                vector.retain_reservation(reservation);
+            }
+            output.push(vector);
+        }
+        Ok((output, column_admission))
+    }
+    /// Construct a physically columnar plain STRUCT. The constructor validates
+    /// its complete immutable shape and independently admits the metadata it
+    /// retains; child reservation guards are kept only for their own lifetime.
+    pub(crate) fn flat_struct_checked(
+        data_type: DataType,
+        count: usize,
+        validity: Option<Vec<u64>>,
+        children: Vec<Self>,
+        admission: MetadataAdmission,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Self> {
+        let DataType::Nested(metadata) = &data_type else {
+            return Err(Error::Internal(
+                "columnar STRUCT requires nested type".into(),
+            ));
+        };
+        let NestedType::Struct(fields) = metadata.as_ref() else {
+            return Err(Error::Internal(
+                "columnar STRUCT requires STRUCT type".into(),
+            ));
+        };
+        super::type_registry::check_metadata(&data_type)?;
+        if fields.len() != children.len()
+            || fields
+                .iter()
+                .zip(&children)
+                .any(|((_, expected), child)| expected != child.data_type() || child.len() != count)
+        {
+            return Err(Error::Internal(
+                "columnar STRUCT children differ from declared shape".into(),
+            ));
+        }
+        validate_parent_validity(validity.as_deref(), count)?;
+        let metadata_bytes = children
+            .capacity()
+            .checked_mul(std::mem::size_of::<Self>())
+            .and_then(|bytes| {
+                validity
+                    .as_ref()
+                    .and_then(|validity| {
+                        validity
+                            .capacity()
+                            .checked_mul(std::mem::size_of::<u64>())
+                            .and_then(|validity| bytes.checked_add(validity))
+                    })
+                    .or_else(|| validity.is_none().then_some(bytes))
+            })
+            .ok_or_else(|| Error::Resource("columnar STRUCT metadata overflow".into()))?;
+        let metadata_reservation = admission.finish(metadata_bytes, query)?;
+        let all_valid = parent_all_valid(validity.as_deref(), count);
+        let result = Self {
+            reservation: metadata_reservation,
+            data_type,
+            encoding: Encoding::FlatStruct {
+                validity: validity.map(Arc::new),
+                children: Arc::new(children),
+            },
+            offset: 0,
+            count,
+            all_valid,
+            numeric_ascending: false,
+        };
+        result.retained_backing_bytes()?;
+        Ok(result)
+    }
+
+    /// Construct a physically columnar plain LIST after validating every
+    /// offset and independently admitting the retained metadata capacities.
+    pub(crate) fn flat_list_checked(
+        data_type: DataType,
+        count: usize,
+        validity: Option<Vec<u64>>,
+        offsets: Vec<usize>,
+        child: Self,
+        admission: MetadataAdmission,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Self> {
+        let DataType::Nested(metadata) = &data_type else {
+            return Err(Error::Internal("columnar LIST requires nested type".into()));
+        };
+        let NestedType::List(expected_child) = metadata.as_ref() else {
+            return Err(Error::Internal("columnar LIST requires LIST type".into()));
+        };
+        super::type_registry::check_metadata(&data_type)?;
+        if child.data_type() != expected_child
+            || offsets.len()
+                != count
+                    .checked_add(1)
+                    .ok_or_else(|| Error::Resource("columnar LIST cardinality overflow".into()))?
+            || offsets.first() != Some(&0)
+            || offsets.last() != Some(&child.len())
+            || offsets.windows(2).any(|pair| pair[0] > pair[1])
+        {
+            return Err(Error::Internal(
+                "columnar LIST child or offsets differ from declared shape".into(),
+            ));
+        }
+        validate_parent_validity(validity.as_deref(), count)?;
+        if let Some(validity) = validity.as_deref() {
+            for index in 0..count {
+                if !validity_is_set(validity, index) && offsets[index] != offsets[index + 1] {
+                    return Err(Error::Internal(
+                        "columnar LIST NULL row retains child values".into(),
+                    ));
+                }
+            }
+        }
+        let metadata_bytes = offsets
+            .capacity()
+            .checked_mul(std::mem::size_of::<usize>())
+            .and_then(|bytes| {
+                validity
+                    .as_ref()
+                    .and_then(|validity| {
+                        validity
+                            .capacity()
+                            .checked_mul(std::mem::size_of::<u64>())
+                            .and_then(|validity| bytes.checked_add(validity))
+                    })
+                    .or_else(|| validity.is_none().then_some(bytes))
+            })
+            .ok_or_else(|| Error::Resource("columnar LIST metadata overflow".into()))?;
+        let metadata_reservation = admission.finish(metadata_bytes, query)?;
+        let all_valid = parent_all_valid(validity.as_deref(), count);
+        let result = Self {
+            reservation: metadata_reservation,
+            data_type,
+            encoding: Encoding::FlatList {
+                validity: validity.map(Arc::new),
+                offsets: Arc::new(offsets),
+                child: Arc::new(child),
+            },
+            offset: 0,
+            count,
+            all_valid,
+            numeric_ascending: false,
+        };
+        result.retained_backing_bytes()?;
+        Ok(result)
+    }
+
+    /// Select rows while independently charging the retained selection
+    /// capacity. Parent guards are preserved but never credited to this new
+    /// metadata allocation.
+    pub(crate) fn select_with_metadata_admission(
+        self: &Arc<Self>,
+        selection: Vec<usize>,
+        admission: MetadataAdmission,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Self> {
+        let bytes = selection
+            .capacity()
+            .checked_mul(std::mem::size_of::<usize>())
+            .ok_or_else(|| Error::Resource("vector selection metadata overflow".into()))?;
+        let reservation = admission.finish(bytes, query)?;
+        let mut result = self.select(selection)?;
+        if let Some(reservation) = reservation {
+            result.retain_reservation(reservation);
+        }
+        Ok(result)
+    }
     pub fn flat(data_type: DataType, values: Vec<Value>) -> Result<Self> {
         let mut all_valid = true;
         let mut numeric_ascending = data_type.is_decimal() || data_type.is_unsigned_integer();
         let mut previous = None;
+        let mut nested_metadata_validated = false;
         for value in &values {
-            if !value.fits_type(&data_type) {
+            let fits = if matches!(value, Value::Nested(_))
+                && matches!(&data_type, DataType::Nested(_))
+            {
+                if !nested_metadata_validated {
+                    if super::type_registry::check_metadata(&data_type).is_err() {
+                        return Err(Error::Internal(
+                            "vector values require explicit conversion to the declared type".into(),
+                        ));
+                    }
+                    nested_metadata_validated = true;
+                }
+                value.fits_type_with_validated_metadata(&data_type)
+            } else {
+                value.fits_type(&data_type)
+            };
+            if !fits {
                 return Err(Error::Internal(
                     "vector values require explicit conversion to the declared type".into(),
                 ));
@@ -887,7 +1479,14 @@ impl Vector {
         })
     }
     pub fn constant(data_type: DataType, value: Value, count: usize) -> Result<Self> {
-        if !value.fits_type(&data_type) {
+        let fits =
+            if matches!(&value, Value::Nested(_)) && matches!(&data_type, DataType::Nested(_)) {
+                super::type_registry::check_metadata(&data_type).is_ok()
+                    && value.fits_type_with_validated_metadata(&data_type)
+            } else {
+                value.fits_type(&data_type)
+            };
+        if !fits {
             return Err(Error::Internal(
                 "constant vector requires explicit conversion to the declared type".into(),
             ));
@@ -908,7 +1507,7 @@ impl Vector {
             return Err(Error::Internal("vector selection out of bounds".into()));
         }
         let ordered = selection.windows(2).all(|pair| pair[0] <= pair[1]);
-        Ok(self.selected(selection.into(), ordered))
+        Ok(self.selected(Arc::new(selection), ordered))
     }
     /// Transform the immediate parent of a dictionary while retaining this
     /// vector's checked selection and view. The mapper owns only the parent;
@@ -944,7 +1543,7 @@ impl Vector {
     }
     // Only checked Vector/DataChunk selection constructors call this helper.
     // Chunk cardinality establishes the same bounds for every column.
-    fn selected(self: &Arc<Self>, selection: Arc<[usize]>, ordered: bool) -> Self {
+    fn selected(self: &Arc<Self>, selection: Arc<Vec<usize>>, ordered: bool) -> Self {
         if matches!(self.encoding, Encoding::Constant(_)) {
             return Self {
                 offset: 0,
@@ -1009,6 +1608,39 @@ impl Vector {
     pub fn all_valid(&self) -> bool {
         self.all_valid || self.is_empty()
     }
+    /// Resolve SQL NULL without constructing an owned logical value. This is
+    /// the representation-transparent seam used by postcondition checks after
+    /// an adapter has already produced or consumed a vector.
+    pub(crate) fn is_null_at(&self, index: usize) -> Option<bool> {
+        if index >= self.count {
+            return None;
+        }
+        if self.all_valid {
+            return Some(false);
+        }
+        let physical = self.offset + index;
+        Some(match &self.encoding {
+            Encoding::FlatValues(values) => values.get(physical)?.is_null(),
+            Encoding::FlatDouble(_) | Encoding::FlatSigned(_) | Encoding::FlatDecimalI64(_) => {
+                false
+            }
+            Encoding::FlatNullableSigned(_, validity) => !validity_is_set(validity, physical),
+            Encoding::FlatUtf8(_, ranges) => ranges.get(physical)?.is_none(),
+            Encoding::FlatStruct { validity, .. } | Encoding::FlatList { validity, .. } => validity
+                .as_deref()
+                .is_some_and(|validity| !validity_is_set(validity, physical)),
+            Encoding::Constant(value) => value.is_null(),
+            Encoding::Dictionary(parent, selection) => {
+                return parent.is_null_at(*selection.get(physical)?);
+            }
+            Encoding::Chunks(chunks, offsets) => {
+                let segment = offsets
+                    .partition_point(|&end| end <= physical)
+                    .saturating_sub(1);
+                return chunks.get(segment)?.is_null_at(physical - offsets[segment]);
+            }
+        })
+    }
     /// Constructor-established physical unsigned/decimal order with no NULLs.
     /// This is not a promise about an adapter's comparison semantics. Only an
     /// adapter that uses physical numeric order may use this proof to search.
@@ -1018,6 +1650,133 @@ impl Vector {
     /// Resolve a logical value by ownership. Typed physical lanes cannot
     /// synthesize a borrowed `Value`, so all encoding-transparent consumers
     /// use this single owned seam.
+    pub(crate) fn nested_row_at(&self, index: usize) -> Option<NestedRowRef<'_>> {
+        if index >= self.count || !matches!(self.data_type, DataType::Nested(_)) {
+            return None;
+        }
+        let physical = self.offset + index;
+        match &self.encoding {
+            Encoding::FlatStruct { validity, children } => {
+                if validity
+                    .as_deref()
+                    .is_some_and(|validity| !validity_is_set(validity, physical))
+                {
+                    Some(NestedRowRef::Null)
+                } else {
+                    Some(NestedRowRef::Struct {
+                        children,
+                        index: physical,
+                    })
+                }
+            }
+            Encoding::FlatList {
+                validity,
+                offsets,
+                child,
+            } => {
+                if validity
+                    .as_deref()
+                    .is_some_and(|validity| !validity_is_set(validity, physical))
+                {
+                    Some(NestedRowRef::Null)
+                } else {
+                    Some(NestedRowRef::List {
+                        child,
+                        range: offsets[physical]..offsets[physical + 1],
+                    })
+                }
+            }
+            Encoding::FlatValues(values) => match values.get(physical)? {
+                Value::Null => Some(NestedRowRef::Null),
+                Value::Nested(value) => Some(NestedRowRef::Scalar(&value.payload)),
+                _ => None,
+            },
+            Encoding::Constant(Value::Null) => Some(NestedRowRef::Null),
+            Encoding::Constant(Value::Nested(value)) => Some(NestedRowRef::Scalar(&value.payload)),
+            Encoding::Dictionary(parent, selection) => {
+                parent.nested_row_at(*selection.get(physical)?)
+            }
+            Encoding::Chunks(chunks, offsets) => {
+                let segment = offsets
+                    .partition_point(|&end| end <= physical)
+                    .saturating_sub(1);
+                chunks
+                    .get(segment)?
+                    .nested_row_at(physical - offsets[segment])
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn validated_nested_encoding(&self) -> Option<ValidatedNestedEncodingRef<'_>> {
+        if !matches!(self.data_type, DataType::Nested(_)) {
+            return None;
+        }
+        Some(match &self.encoding {
+            Encoding::FlatStruct { validity, children } => ValidatedNestedEncodingRef::Direct {
+                base: ValidatedNestedBaseRef::Struct {
+                    validity: validity.as_deref().map(Vec::as_slice),
+                    children,
+                },
+                offset: self.offset,
+                count: self.count,
+            },
+            Encoding::FlatList {
+                validity,
+                offsets,
+                child,
+            } => ValidatedNestedEncodingRef::Direct {
+                base: ValidatedNestedBaseRef::List {
+                    validity: validity.as_deref().map(Vec::as_slice),
+                    offsets,
+                    child,
+                },
+                offset: self.offset,
+                count: self.count,
+            },
+            Encoding::Dictionary(parent, selection) => ValidatedNestedEncodingRef::Dictionary {
+                parent,
+                selection,
+                offset: self.offset,
+                count: self.count,
+            },
+            Encoding::Chunks(chunks, offsets) => ValidatedNestedEncodingRef::Chunks {
+                chunks,
+                offsets,
+                offset: self.offset,
+                count: self.count,
+            },
+            _ => return None,
+        })
+    }
+
+    /// Whether every row in this immutable encoding can be borrowed through
+    /// `nested_row_at`. Complete vector validation still owns logical payload
+    /// checks; this only avoids probing each row once before an ordered batch
+    /// comparison probes it again.
+    pub(crate) fn has_nested_row_access(&self) -> bool {
+        let DataType::Nested(metadata) = &self.data_type else {
+            return false;
+        };
+        if !matches!(
+            metadata.as_ref(),
+            NestedType::Struct(_) | NestedType::List(_)
+        ) {
+            return false;
+        }
+        match &self.encoding {
+            Encoding::FlatStruct { .. } => matches!(metadata.as_ref(), NestedType::Struct(_)),
+            Encoding::FlatList { .. } => matches!(metadata.as_ref(), NestedType::List(_)),
+            Encoding::FlatValues(values) => values
+                .iter()
+                .all(|value| matches!(value, Value::Null | Value::Nested(_))),
+            Encoding::Constant(value) => matches!(value, Value::Null | Value::Nested(_)),
+            Encoding::Dictionary(parent, _) => parent.has_nested_row_access(),
+            Encoding::Chunks(chunks, _) => chunks.iter().all(Vector::has_nested_row_access),
+            _ => false,
+        }
+    }
+
     pub fn value(&self, index: usize) -> Option<Value> {
         if index >= self.count {
             return None;
@@ -1049,6 +1808,43 @@ impl Vector {
                     Value::Varchar(arena[range.clone()].to_owned())
                 })
             }),
+            Encoding::FlatStruct { validity, children } => {
+                if validity
+                    .as_deref()
+                    .is_some_and(|validity| !validity_is_set(validity, index))
+                {
+                    Some(Value::Null)
+                } else {
+                    let values = children
+                        .iter()
+                        .map(|child| child.value(index))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(Value::Nested(Arc::new(NestedValue {
+                        data_type: self.data_type.clone(),
+                        payload: NestedPayload::Struct(values),
+                    })))
+                }
+            }
+            Encoding::FlatList {
+                validity,
+                offsets,
+                child,
+            } => {
+                if validity
+                    .as_deref()
+                    .is_some_and(|validity| !validity_is_set(validity, index))
+                {
+                    Some(Value::Null)
+                } else {
+                    let values = (offsets[index]..offsets[index + 1])
+                        .map(|child_index| child.value(child_index))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(Value::Nested(Arc::new(NestedValue {
+                        data_type: self.data_type.clone(),
+                        payload: NestedPayload::Sequence(values),
+                    })))
+                }
+            }
             Encoding::Constant(v) => Some(v.clone()),
             Encoding::Dictionary(v, s) => s.get(index).and_then(|&i| v.value(i)),
             Encoding::Chunks(chunks, offsets) => {
@@ -1071,6 +1867,178 @@ impl Vector {
         })
     }
 
+    /// Bytes retained by the immutable physical backing, without constructing
+    /// scalar Values. Shared arenas, children and view parents are counted once.
+    pub(crate) fn retained_backing_bytes(&self) -> Result<usize> {
+        self.retained_backing_bytes_inner(&mut HashSet::new())
+    }
+
+    fn retained_backing_bytes_inner(&self, seen: &mut HashSet<usize>) -> Result<usize> {
+        let add = |left: usize, right: usize| {
+            left.checked_add(right)
+                .ok_or_else(|| Error::Resource("vector backing size overflow".into()))
+        };
+        let arc_slice = |key: usize, bytes: usize, seen: &mut HashSet<usize>| {
+            if seen.insert(key) { Ok(bytes) } else { Ok(0) }
+        };
+        match &self.encoding {
+            Encoding::FlatValues(values) => arc_slice(
+                Arc::as_ptr(values) as usize,
+                values
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<Value>())
+                    .ok_or_else(|| Error::Resource("vector backing size overflow".into()))?,
+                seen,
+            )
+            .and_then(|mut bytes| {
+                if bytes != 0 {
+                    for value in values.iter() {
+                        bytes = add(bytes, retained_value_backing_bytes(value, seen)?)?;
+                    }
+                }
+                Ok(bytes)
+            }),
+            Encoding::FlatDouble(values) => arc_slice(
+                Arc::as_ptr(values) as usize,
+                values
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<f64>())
+                    .ok_or_else(|| Error::Resource("vector backing size overflow".into()))?,
+                seen,
+            ),
+            Encoding::FlatSigned(values) => values.retained_bytes(seen),
+            Encoding::FlatNullableSigned(values, validity) => add(
+                values.retained_bytes(seen)?,
+                arc_slice(
+                    Arc::as_ptr(validity) as usize,
+                    validity
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<u64>())
+                        .ok_or_else(|| Error::Resource("vector backing size overflow".into()))?,
+                    seen,
+                )?,
+            ),
+            Encoding::FlatDecimalI64(values) => arc_slice(
+                Arc::as_ptr(values) as usize,
+                values
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<i64>())
+                    .ok_or_else(|| Error::Resource("vector backing size overflow".into()))?,
+                seen,
+            ),
+            Encoding::FlatUtf8(arena, ranges) => add(
+                arc_slice(Arc::as_ptr(arena) as usize, arena.capacity(), seen)?,
+                arc_slice(
+                    Arc::as_ptr(ranges) as *const () as usize,
+                    ranges
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<Option<Range<usize>>>())
+                        .ok_or_else(|| Error::Resource("vector backing size overflow".into()))?,
+                    seen,
+                )?,
+            ),
+            Encoding::FlatStruct { validity, children } => {
+                let mut bytes = arc_slice(
+                    Arc::as_ptr(children) as usize,
+                    children
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<Self>())
+                        .ok_or_else(|| Error::Resource("vector backing size overflow".into()))?,
+                    seen,
+                )?;
+                if let Some(validity) = validity {
+                    bytes = add(
+                        bytes,
+                        arc_slice(
+                            Arc::as_ptr(validity) as usize,
+                            validity
+                                .capacity()
+                                .checked_mul(std::mem::size_of::<u64>())
+                                .ok_or_else(|| {
+                                    Error::Resource("vector backing size overflow".into())
+                                })?,
+                            seen,
+                        )?,
+                    )?;
+                }
+                for child in children.iter() {
+                    bytes = add(bytes, child.retained_backing_bytes_inner(seen)?)?;
+                }
+                Ok(bytes)
+            }
+            Encoding::FlatList {
+                validity,
+                offsets,
+                child,
+            } => {
+                let mut bytes = arc_slice(
+                    Arc::as_ptr(offsets) as usize,
+                    offsets
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<usize>())
+                        .ok_or_else(|| Error::Resource("vector backing size overflow".into()))?,
+                    seen,
+                )?;
+                if let Some(validity) = validity {
+                    bytes = add(
+                        bytes,
+                        arc_slice(
+                            Arc::as_ptr(validity) as usize,
+                            validity
+                                .capacity()
+                                .checked_mul(std::mem::size_of::<u64>())
+                                .ok_or_else(|| {
+                                    Error::Resource("vector backing size overflow".into())
+                                })?,
+                            seen,
+                        )?,
+                    )?;
+                }
+                add(bytes, child.retained_backing_bytes_inner(seen)?)
+            }
+            Encoding::Constant(value) => retained_value_backing_bytes(value, seen),
+            Encoding::Dictionary(parent, selection) => add(
+                arc_slice(
+                    Arc::as_ptr(selection) as *const () as usize,
+                    selection
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<usize>())
+                        .ok_or_else(|| Error::Resource("vector backing size overflow".into()))?,
+                    seen,
+                )?,
+                parent.retained_backing_bytes_inner(seen)?,
+            ),
+            Encoding::Chunks(chunks, offsets) => {
+                let mut bytes = add(
+                    arc_slice(
+                        Arc::as_ptr(chunks) as *const () as usize,
+                        chunks
+                            .capacity()
+                            .checked_mul(std::mem::size_of::<Self>())
+                            .ok_or_else(|| {
+                                Error::Resource("vector backing size overflow".into())
+                            })?,
+                        seen,
+                    )?,
+                    arc_slice(
+                        Arc::as_ptr(offsets) as *const () as usize,
+                        offsets
+                            .capacity()
+                            .checked_mul(std::mem::size_of::<usize>())
+                            .ok_or_else(|| {
+                                Error::Resource("vector backing size overflow".into())
+                            })?,
+                        seen,
+                    )?,
+                )?;
+                for chunk in chunks.iter() {
+                    bytes = add(bytes, chunk.retained_backing_bytes_inner(seen)?)?;
+                }
+                Ok(bytes)
+            }
+        }
+    }
+
     fn materialized_value_bytes(&self, index: usize) -> Result<usize> {
         let physical = self.offset + index;
         match &self.encoding {
@@ -1079,6 +2047,46 @@ impl Vector {
             Encoding::FlatUtf8(_, ranges) => std::mem::size_of::<Value>()
                 .checked_add(ranges[physical].as_ref().map_or(0, |range| range.len()))
                 .ok_or_else(|| Error::Resource("materialized string size overflow".into())),
+            Encoding::FlatStruct { validity, children } => {
+                if validity
+                    .as_deref()
+                    .is_some_and(|validity| !validity_is_set(validity, physical))
+                {
+                    return Ok(std::mem::size_of::<Value>());
+                }
+                children.iter().try_fold(
+                    std::mem::size_of::<Value>()
+                        .checked_add(std::mem::size_of::<NestedValue>())
+                        .ok_or_else(|| Error::Resource("materialized STRUCT overflow".into()))?,
+                    |bytes, child| {
+                        bytes
+                            .checked_add(child.materialized_value_bytes(physical)?)
+                            .ok_or_else(|| Error::Resource("materialized STRUCT overflow".into()))
+                    },
+                )
+            }
+            Encoding::FlatList {
+                validity,
+                offsets,
+                child,
+            } => {
+                if validity
+                    .as_deref()
+                    .is_some_and(|validity| !validity_is_set(validity, physical))
+                {
+                    return Ok(std::mem::size_of::<Value>());
+                }
+                (offsets[physical]..offsets[physical + 1]).try_fold(
+                    std::mem::size_of::<Value>()
+                        .checked_add(std::mem::size_of::<NestedValue>())
+                        .ok_or_else(|| Error::Resource("materialized LIST overflow".into()))?,
+                    |bytes, child_index| {
+                        bytes
+                            .checked_add(child.materialized_value_bytes(child_index)?)
+                            .ok_or_else(|| Error::Resource("materialized LIST overflow".into()))
+                    },
+                )
+            }
             Encoding::Dictionary(parent, selection) => {
                 parent.materialized_value_bytes(selection[physical])
             }
@@ -1101,6 +2109,49 @@ impl Vector {
                 Some(range) => try_materialized_string(&arena[range.clone()]).map(Value::Varchar),
                 None => Ok(Value::Null),
             },
+            Encoding::FlatStruct { validity, children } => {
+                if validity
+                    .as_deref()
+                    .is_some_and(|validity| !validity_is_set(validity, physical))
+                {
+                    return Ok(Value::Null);
+                }
+                let mut values = Vec::new();
+                values
+                    .try_reserve_exact(children.len())
+                    .map_err(|_| Error::Resource("cannot allocate materialized STRUCT".into()))?;
+                for child in children.iter() {
+                    values.push(child.try_materialized_value(physical)?);
+                }
+                Ok(Value::Nested(Arc::new(NestedValue {
+                    data_type: self.data_type.clone(),
+                    payload: NestedPayload::Struct(values),
+                })))
+            }
+            Encoding::FlatList {
+                validity,
+                offsets,
+                child,
+            } => {
+                if validity
+                    .as_deref()
+                    .is_some_and(|validity| !validity_is_set(validity, physical))
+                {
+                    return Ok(Value::Null);
+                }
+                let range = offsets[physical]..offsets[physical + 1];
+                let mut values = Vec::new();
+                values
+                    .try_reserve_exact(range.len())
+                    .map_err(|_| Error::Resource("cannot allocate materialized LIST".into()))?;
+                for child_index in range {
+                    values.push(child.try_materialized_value(child_index)?);
+                }
+                Ok(Value::Nested(Arc::new(NestedValue {
+                    data_type: self.data_type.clone(),
+                    payload: NestedPayload::Sequence(values),
+                })))
+            }
             Encoding::Dictionary(parent, selection) => {
                 parent.try_materialized_value(selection[physical])
             }
@@ -1121,6 +2172,16 @@ impl Vector {
         if self.data_type != DataType::Varchar || index >= self.count {
             return None;
         }
+        self.varchar_at_validated(index)
+    }
+
+    /// Borrow VARCHAR after an exact bound type has validated this vector.
+    /// The caller supplies the physical-type proof; bounds and SQL NULL remain
+    /// checked here, including through immutable views.
+    pub(crate) fn varchar_at_validated(&self, index: usize) -> Option<Option<&str>> {
+        if index >= self.count {
+            return None;
+        }
         let index = self.offset + index;
         match &self.encoding {
             Encoding::FlatValues(values) => match values.get(index)? {
@@ -1133,15 +2194,60 @@ impl Vector {
                 .map(|range| range.as_ref().map(|range| &arena[range.clone()])),
             Encoding::Constant(Value::Varchar(value)) => Some(Some(value.as_str())),
             Encoding::Constant(Value::Null) => Some(None),
-            Encoding::Dictionary(parent, selection) => parent.varchar_at(*selection.get(index)?),
+            Encoding::Dictionary(parent, selection) => {
+                parent.varchar_at_validated(*selection.get(index)?)
+            }
             Encoding::Chunks(chunks, offsets) => {
                 let segment = offsets
                     .partition_point(|&end| end <= index)
                     .saturating_sub(1);
-                chunks.get(segment)?.varchar_at(index - offsets[segment])
+                chunks
+                    .get(segment)?
+                    .varchar_at_validated(index - offsets[segment])
             }
             _ => None,
         }
+    }
+
+    pub(crate) fn validated_varchar_encoding(&self) -> Option<ValidatedVarcharEncodingRef<'_>> {
+        if self.data_type != DataType::Varchar {
+            return None;
+        }
+        Some(match &self.encoding {
+            Encoding::FlatValues(values) => ValidatedVarcharEncodingRef::Direct {
+                base: ValidatedVarcharBaseRef::Values(values),
+                offset: self.offset,
+                count: self.count,
+            },
+            Encoding::FlatUtf8(arena, ranges) => ValidatedVarcharEncodingRef::Direct {
+                base: ValidatedVarcharBaseRef::Utf8(arena, ranges),
+                offset: self.offset,
+                count: self.count,
+            },
+            Encoding::Constant(Value::Varchar(value)) => ValidatedVarcharEncodingRef::Direct {
+                base: ValidatedVarcharBaseRef::Constant(Some(value)),
+                offset: 0,
+                count: self.count,
+            },
+            Encoding::Constant(Value::Null) => ValidatedVarcharEncodingRef::Direct {
+                base: ValidatedVarcharBaseRef::Constant(None),
+                offset: 0,
+                count: self.count,
+            },
+            Encoding::Dictionary(parent, selection) => ValidatedVarcharEncodingRef::Dictionary {
+                parent,
+                selection,
+                offset: self.offset,
+                count: self.count,
+            },
+            Encoding::Chunks(chunks, offsets) => ValidatedVarcharEncodingRef::Chunks {
+                chunks,
+                offsets,
+                offset: self.offset,
+                count: self.count,
+            },
+            _ => return None,
+        })
     }
     /// Compatibility spelling for the owned scalar access seam.  This is not
     /// a borrowed accessor: callers which need a `&Value` must keep the owned
@@ -1207,9 +2313,11 @@ impl Vector {
                     output.extend(self.values());
                 }
             }
-            Encoding::FlatSigned(_) | Encoding::FlatDecimalI64(_) | Encoding::Chunks(_, _) => {
-                output.extend(self.values())
-            }
+            Encoding::FlatSigned(_)
+            | Encoding::FlatDecimalI64(_)
+            | Encoding::FlatStruct { .. }
+            | Encoding::FlatList { .. }
+            | Encoding::Chunks(_, _) => output.extend(self.values()),
         }
     }
     /// A borrowed contiguous physical view when this encoding provides one.
@@ -1352,9 +2460,11 @@ impl Vector {
                         chunk.signed_i64_at(index - offsets[segment])
                     })
             }
-            Encoding::FlatDouble(_) | Encoding::FlatDecimalI64(_) | Encoding::FlatUtf8(_, _) => {
-                SignedI64At::Unsupported
-            }
+            Encoding::FlatDouble(_)
+            | Encoding::FlatDecimalI64(_)
+            | Encoding::FlatUtf8(_, _)
+            | Encoding::FlatStruct { .. }
+            | Encoding::FlatList { .. } => SignedI64At::Unsupported,
         }
     }
     /// Read one logical BOOLEAN without constructing or cloning a `Value`.
@@ -1380,7 +2490,9 @@ impl Vector {
             | Encoding::FlatSigned(_)
             | Encoding::FlatNullableSigned(_, _)
             | Encoding::FlatDecimalI64(_)
-            | Encoding::FlatUtf8(_, _) => None,
+            | Encoding::FlatUtf8(_, _)
+            | Encoding::FlatStruct { .. }
+            | Encoding::FlatList { .. } => None,
         }
     }
     /// Borrow the compact physical coefficients for a flat DECIMAL(1..=18)
@@ -1436,6 +2548,57 @@ fn boolean_value(value: Option<&Value>) -> Option<Option<bool>> {
     }
 }
 
+fn retained_value_backing_bytes(value: &Value, seen: &mut HashSet<usize>) -> Result<usize> {
+    let add = |left: usize, right: usize| {
+        left.checked_add(right)
+            .ok_or_else(|| Error::Resource("value backing size overflow".into()))
+    };
+    match value {
+        Value::Varchar(value) => Ok(value.capacity()),
+        Value::Blob(value) => Ok(value.capacity()),
+        Value::Extension(value) => Ok(value.bytes.capacity()),
+        Value::Nested(value) => {
+            let key = Arc::as_ptr(value) as usize;
+            if !seen.insert(key) {
+                return Ok(0);
+            }
+            let mut bytes = std::mem::size_of::<NestedValue>();
+            match &value.payload {
+                NestedPayload::Sequence(values) | NestedPayload::Struct(values) => {
+                    bytes = add(
+                        bytes,
+                        values
+                            .capacity()
+                            .checked_mul(std::mem::size_of::<Value>())
+                            .ok_or_else(|| Error::Resource("value backing size overflow".into()))?,
+                    )?;
+                    for value in values {
+                        bytes = add(bytes, retained_value_backing_bytes(value, seen)?)?;
+                    }
+                }
+                NestedPayload::Map(entries) => {
+                    bytes = add(
+                        bytes,
+                        entries
+                            .capacity()
+                            .checked_mul(std::mem::size_of::<(Value, Value)>())
+                            .ok_or_else(|| Error::Resource("value backing size overflow".into()))?,
+                    )?;
+                    for (key, value) in entries {
+                        bytes = add(bytes, retained_value_backing_bytes(key, seen)?)?;
+                        bytes = add(bytes, retained_value_backing_bytes(value, seen)?)?;
+                    }
+                }
+                NestedPayload::Union { value, .. } | NestedPayload::Variant { value, .. } => {
+                    bytes = add(bytes, retained_value_backing_bytes(value, seen)?)?;
+                }
+            }
+            Ok(bytes)
+        }
+        _ => Ok(0),
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn numeric_le(left: &Value, right: &Value) -> bool {
     match (left, right) {
@@ -1448,6 +2611,66 @@ fn numeric_le(left: &Value, right: &Value) -> bool {
 #[cfg(test)]
 mod physical_tests {
     use super::*;
+
+    fn struct_type() -> DataType {
+        NestedType::Struct(vec![
+            ("a".into(), DataType::Varchar),
+            ("b".into(), DataType::Varchar),
+        ])
+        .data_type()
+    }
+
+    fn checked_struct(
+        children: [Vector; 2],
+        count: usize,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Vector> {
+        let mut admission = MetadataAdmission::new();
+        let mut output = Vec::new();
+        admission.try_reserve_vec(&mut output, children.len(), query, "test STRUCT metadata")?;
+        output.extend(children);
+        Vector::flat_struct_checked(struct_type(), count, None, output, admission, query)
+    }
+
+    fn checked_list(
+        data_type: DataType,
+        validity: Option<&[u64]>,
+        offsets: &[usize],
+        child: Vector,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Vector> {
+        let mut admission = MetadataAdmission::new();
+        let validity = validity
+            .map(|validity| {
+                let mut output = Vec::new();
+                admission.try_reserve_vec(
+                    &mut output,
+                    validity.len(),
+                    query,
+                    "test LIST validity",
+                )?;
+                output.extend_from_slice(validity);
+                Ok::<Vec<u64>, Error>(output)
+            })
+            .transpose()?;
+        let mut output_offsets = Vec::new();
+        admission.try_reserve_vec(
+            &mut output_offsets,
+            offsets.len(),
+            query,
+            "test LIST offsets",
+        )?;
+        output_offsets.extend_from_slice(offsets);
+        Vector::flat_list_checked(
+            data_type,
+            offsets.len().saturating_sub(1),
+            validity,
+            output_offsets,
+            child,
+            admission,
+            query,
+        )
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
@@ -1497,6 +2720,8 @@ mod physical_tests {
                 Value::Varchar("é".into()),
             ]
         );
+        assert_eq!(packed.varchar_at(0), Some(Some("suffix")));
+        assert_eq!(packed.varchar_at(1), Some(None));
 
         let sliced = packed.slice(1, 4)?;
         assert_eq!(
@@ -1518,6 +2743,8 @@ mod physical_tests {
                 Value::Varchar("é".into()),
             ]
         );
+        assert_eq!(selected.varchar_at(0), Some(Some("a\0🦆")));
+        assert_eq!(selected.varchar_at(2), Some(None));
 
         let contiguous = Vector::concatenate(
             DataType::Varchar,
@@ -1539,6 +2766,8 @@ mod physical_tests {
             chunked.values().collect::<Vec<_>>(),
             packed.values().collect::<Vec<_>>()
         );
+        assert_eq!(chunked.varchar_at(2), Some(Some("é")));
+        assert_eq!(chunked.varchar_at(4), Some(Some("a\0🦆")));
 
         let primary = Vector::packed_utf8(
             arena.clone(),
@@ -1559,6 +2788,388 @@ mod physical_tests {
         assert!(Vector::packed_utf8(utf8.clone(), vec![Some(2..1)]).is_err());
         assert!(Vector::packed_utf8(utf8.clone(), vec![Some(0..3)]).is_err());
         assert!(Vector::packed_utf8(utf8, vec![Some(1..2)]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn columnar_nested_materializes_and_resolves_views_without_losing_null_or_empty() -> Result<()>
+    {
+        let query = crate::parallel::QueryContext::background();
+        let arena = Arc::new(String::from("a0b0a1b1"));
+        let structs = checked_struct(
+            [
+                Vector::packed_utf8(arena.clone(), vec![Some(0..2), Some(4..6)])?,
+                Vector::packed_utf8(arena, vec![Some(2..4), Some(6..8)])?,
+            ],
+            2,
+            &query,
+        )?;
+        let selected = Arc::new(structs.clone()).select(vec![1, 0])?;
+        let sliced = selected.slice(1, 1)?;
+        assert!(matches!(
+            sliced.nested_row_at(0),
+            Some(NestedRowRef::Struct { .. })
+        ));
+        assert_eq!(sliced.value(0), structs.value(0));
+
+        let list_type = NestedType::List(struct_type()).data_type();
+        let lists = checked_list(
+            list_type.clone(),
+            Some(&[0b101]),
+            &[0, 1, 1, 2],
+            structs,
+            &query,
+        )?;
+        assert!(matches!(
+            lists.nested_row_at(0),
+            Some(NestedRowRef::List { .. })
+        ));
+        assert!(matches!(lists.nested_row_at(1), Some(NestedRowRef::Null)));
+        assert!(matches!(
+            lists.nested_row_at(2),
+            Some(NestedRowRef::List { .. })
+        ));
+        assert_eq!(lists.value(1), Some(Value::Null));
+
+        let empty_child = Vector::flat(struct_type(), Vec::new())?;
+        let empty = checked_list(list_type, None, &[0, 0], empty_child, &query)?;
+        assert!(matches!(
+            empty.value(0),
+            Some(Value::Nested(value)) if matches!(&value.payload, NestedPayload::Sequence(values) if values.is_empty())
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn null_access_resolves_physical_views_without_materializing_nested_values() -> Result<()> {
+        let query = crate::parallel::QueryContext::background();
+        let child = checked_struct(
+            [
+                Vector::packed_utf8(Arc::new("ab".into()), vec![Some(0..1), Some(1..2)])?,
+                Vector::packed_utf8(Arc::new("cd".into()), vec![Some(0..1), Some(1..2)])?,
+            ],
+            2,
+            &query,
+        )?;
+        let list_type = NestedType::List(struct_type()).data_type();
+        let parent = checked_list(
+            list_type.clone(),
+            Some(&[0b101]),
+            &[0, 1, 1, 2],
+            child,
+            &query,
+        )?;
+        assert!(parent.has_nested_row_access());
+        assert_eq!(parent.is_null_at(0), Some(false));
+        assert_eq!(parent.is_null_at(1), Some(true));
+        assert_eq!(parent.is_null_at(2), Some(false));
+        assert_eq!(parent.is_null_at(3), None);
+        assert_eq!(parent.slice(1, 2)?.is_null_at(0), Some(true));
+
+        let selected = Arc::new(parent.clone()).select(vec![2, 1, 0])?;
+        assert!(selected.has_nested_row_access());
+        assert_eq!(selected.is_null_at(0), Some(false));
+        assert_eq!(selected.is_null_at(1), Some(true));
+        assert_eq!(selected.is_null_at(2), Some(false));
+        let chunked = Vector::chunked(
+            list_type.clone(),
+            vec![parent.slice(0, 2)?, parent.slice(2, 1)?],
+        )?;
+        assert!(chunked.has_nested_row_access());
+        assert_eq!(chunked.is_null_at(0), Some(false));
+        assert_eq!(chunked.is_null_at(1), Some(true));
+        assert_eq!(chunked.is_null_at(2), Some(false));
+        assert_eq!(chunked.is_null_at(3), None);
+        let constant = Vector::constant(list_type, Value::Null, 2)?;
+        assert!(constant.has_nested_row_access());
+        assert_eq!(constant.is_null_at(1), Some(true));
+        assert!(!Vector::flat(DataType::Integer, vec![Value::Integer(1)])?.has_nested_row_access());
+        Ok(())
+    }
+
+    #[test]
+    fn exact_nested_compare_and_render_recurse_without_parent_materialization() -> Result<()> {
+        use crate::common::{
+            cast::{CastMode, CastRegistry},
+            type_registry::TypeRegistry,
+        };
+
+        let query = crate::parallel::QueryContext::background();
+        let strings = |text: &str, ranges: Vec<Option<Range<usize>>>| {
+            Vector::packed_utf8(Arc::new(text.into()), ranges)
+        };
+        let left_structs = checked_struct(
+            [
+                strings("a0a1", vec![Some(0..2), Some(2..4)])?,
+                strings("b0b1", vec![Some(0..2), Some(2..4)])?,
+            ],
+            2,
+            &query,
+        )?;
+        let right_structs = checked_struct(
+            [
+                strings("a0a1", vec![Some(0..2), Some(2..4)])?,
+                strings("b0b2", vec![Some(0..2), Some(2..4)])?,
+            ],
+            2,
+            &query,
+        )?;
+        let list_type = NestedType::List(struct_type()).data_type();
+        let left = checked_list(list_type.clone(), None, &[0, 1, 2], left_structs, &query)?;
+        let right = checked_list(list_type.clone(), None, &[0, 1, 2], right_structs, &query)?;
+        let bound = TypeRegistry::builtins().bind(&list_type)?;
+        assert_eq!(
+            bound.compare_batch(&left, &right, &query)?,
+            vec![
+                Some(std::cmp::Ordering::Equal),
+                Some(std::cmp::Ordering::Less)
+            ]
+        );
+        assert!(
+            matches!(left.nested_row_at(0), Some(NestedRowRef::List { child, .. }) if matches!(child.nested_row_at(0), Some(NestedRowRef::Struct { .. })))
+        );
+        assert_eq!(
+            bound.select_comparison(
+                &left,
+                &right,
+                crate::common::type_registry::ComparisonPredicate {
+                    less: true,
+                    equal: false,
+                    greater: false,
+                },
+                &query,
+            )?,
+            vec![1]
+        );
+
+        let scalar_struct = NestedValue::value(
+            struct_type(),
+            NestedPayload::Struct(vec![
+                Value::Varchar("a0".into()),
+                Value::Varchar("b0".into()),
+            ]),
+        )?;
+        let scalar_list = NestedValue::value(
+            list_type.clone(),
+            NestedPayload::Sequence(vec![scalar_struct]),
+        )?;
+        let scalar = Vector::flat(list_type.clone(), vec![scalar_list, Value::Null])?;
+        let nullable_child = match left.nested_row_at(0) {
+            Some(NestedRowRef::List { child, .. }) => child.slice(0, 1)?,
+            _ => panic!("columnar LIST child"),
+        };
+        let nullable = checked_list(
+            list_type.clone(),
+            Some(&[0b01]),
+            &[0, 1, 1],
+            nullable_child,
+            &query,
+        )?;
+        assert_eq!(
+            bound.compare_batch(&nullable, &scalar, &query)?,
+            vec![Some(std::cmp::Ordering::Equal), None]
+        );
+        assert!(
+            matches!(nullable.nested_row_at(0), Some(NestedRowRef::List { child, .. }) if matches!(child.nested_row_at(0), Some(NestedRowRef::Struct { .. })))
+        );
+
+        let cast = CastRegistry::builtins().bind(
+            &list_type,
+            &DataType::Varchar,
+            CastMode::Explicit,
+            query.types(),
+        )?;
+        let rendered = cast.apply_batch(&left, &query)?;
+        assert_eq!(rendered.varchar_at(0), Some(Some("[{'a': a0, 'b': b0}]")));
+        assert_eq!(rendered.varchar_at(1), Some(Some("[{'a': a1, 'b': b1}]")));
+        assert!(
+            matches!(left.nested_row_at(1), Some(NestedRowRef::List { child, .. }) if matches!(child.nested_row_at(1), Some(NestedRowRef::Struct { .. })))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn columnar_nested_rejects_malformed_shape_and_accounts_shared_backing_once() -> Result<()> {
+        let query = crate::parallel::QueryContext::background();
+        let arena = Arc::new(String::from("aabb"));
+        let left = Vector::packed_utf8(arena.clone(), vec![Some(0..1), Some(1..2)])?;
+        let right = Vector::packed_utf8(arena.clone(), vec![Some(2..3), Some(3..4)])?;
+        let mut struct_admission = MetadataAdmission::new();
+        let mut children = Vec::new();
+        struct_admission.try_reserve_vec(&mut children, 4, &query, "test STRUCT spare metadata")?;
+        children.push(left);
+        children.push(right);
+        let child_capacity = children.capacity();
+        let structs = Vector::flat_struct_checked(
+            struct_type(),
+            2,
+            None,
+            children,
+            struct_admission,
+            &query,
+        )?;
+        let expected = arena.capacity()
+            + 4 * std::mem::size_of::<Option<Range<usize>>>()
+            + child_capacity * std::mem::size_of::<Vector>();
+        assert_eq!(structs.retained_backing_bytes()?, expected);
+        assert!(
+            checked_list(
+                NestedType::List(struct_type()).data_type(),
+                None,
+                &[0, 1, 1],
+                structs.clone(),
+                &query,
+            )
+            .is_err()
+        );
+        assert!(
+            checked_list(
+                NestedType::List(struct_type()).data_type(),
+                Some(&[0b10]),
+                &[0, 1, 2],
+                structs,
+                &query,
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn retained_backing_counts_mixed_scalar_payloads_and_deduplicates_nested_arcs() -> Result<()> {
+        let mut text = String::with_capacity(31);
+        text.push_str("payload");
+        let text_capacity = text.capacity();
+        let mut payload = Vec::with_capacity(3);
+        payload.push(Value::Varchar(text));
+        let payload_capacity = payload.capacity();
+        let nested_type = NestedType::List(DataType::Varchar).data_type();
+        let shared = Arc::new(NestedValue {
+            data_type: nested_type.clone(),
+            payload: NestedPayload::Sequence(payload),
+        });
+        let mut values = Vec::with_capacity(4);
+        values.push(Value::Nested(shared.clone()));
+        values.push(Value::Nested(shared));
+        let values_capacity = values.capacity();
+        let vector = Vector::flat(nested_type, values)?;
+        assert_eq!(
+            vector.retained_backing_bytes()?,
+            values_capacity * std::mem::size_of::<Value>()
+                + std::mem::size_of::<NestedValue>()
+                + payload_capacity * std::mem::size_of::<Value>()
+                + text_capacity
+        );
+
+        let mut constant = String::with_capacity(47);
+        constant.push('x');
+        let capacity = constant.capacity();
+        let vector = Vector::constant(DataType::Varchar, Value::Varchar(constant), 100)?;
+        assert_eq!(vector.retained_backing_bytes()?, capacity);
+        Ok(())
+    }
+
+    #[test]
+    fn columnar_metadata_admission_is_atomic_and_views_retain_the_charge() -> Result<()> {
+        use crate::parallel::{MemoryPool, QueryContext};
+
+        let pool = Arc::new(MemoryPool::default());
+        let query = QueryContext::background().with_memory_pool(pool.clone());
+        let children = [
+            Vector::flat(DataType::Varchar, vec![Value::Varchar("x".into())])?,
+            Vector::flat(DataType::Varchar, vec![Value::Varchar("y".into())])?,
+        ];
+        let bytes = children.len() * std::mem::size_of::<Vector>();
+        pool.publish_limit(Some(bytes.saturating_sub(1)))?;
+        let mut rejected_admission = MetadataAdmission::new();
+        let mut rejected_children = Vec::<Vector>::new();
+        assert!(
+            rejected_admission
+                .try_reserve_vec(
+                    &mut rejected_children,
+                    children.len(),
+                    &query,
+                    "test rejected STRUCT metadata",
+                )
+                .is_err()
+        );
+        assert_eq!(pool.used()?, 0);
+
+        pool.publish_limit(Some(bytes))?;
+        let mut admission = MetadataAdmission::new();
+        let mut admitted_children = Vec::new();
+        admission.try_reserve_vec(
+            &mut admitted_children,
+            children.len(),
+            &query,
+            "test STRUCT metadata",
+        )?;
+        admitted_children.extend(children);
+        let parent = Vector::flat_struct_checked(
+            struct_type(),
+            1,
+            None,
+            admitted_children,
+            admission,
+            &query,
+        )?;
+        assert_eq!(pool.used()?, bytes);
+        let view = Arc::new(parent.clone()).select(vec![0])?;
+        drop(parent);
+        assert_eq!(pool.used()?, bytes);
+        drop(view);
+        assert_eq!(pool.used()?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn metadata_admission_geometric_growth_charges_spare_capacity_before_allocation() -> Result<()>
+    {
+        use crate::parallel::{MemoryPool, QueryContext};
+
+        let pool = Arc::new(MemoryPool::default());
+        let query = QueryContext::background().with_memory_pool(pool.clone());
+        let mut admission = MetadataAdmission::new();
+        let mut values = Vec::<u64>::new();
+        admission.try_reserve_vec(&mut values, 1, &query, "test vector growth")?;
+        values.push(1);
+        let first = values.capacity() * std::mem::size_of::<u64>();
+        assert_eq!(pool.used()?, first);
+
+        pool.publish_limit(Some(first + std::mem::size_of::<u64>() - 1))?;
+        assert!(
+            admission
+                .try_reserve_vec(&mut values, 1, &query, "test vector growth")
+                .is_err()
+        );
+        assert_eq!(values.capacity() * std::mem::size_of::<u64>(), first);
+        assert_eq!(pool.used()?, first);
+
+        pool.publish_limit(Some(first * 2))?;
+        admission.try_reserve_vec(&mut values, 1, &query, "test vector growth")?;
+        assert!(values.capacity() >= 2);
+        let bytes = values.capacity() * std::mem::size_of::<u64>();
+        assert_eq!(pool.used()?, bytes);
+        let guard = admission.finish(bytes, &query)?.expect("growth charge");
+        drop(values);
+        assert_eq!(pool.used()?, bytes);
+        drop(guard);
+        assert_eq!(pool.used()?, 0);
+
+        let mut admission = MetadataAdmission::new();
+        let mut text = String::new();
+        admission.try_reserve_string(&mut text, 3, &query, "test string growth")?;
+        text.push_str("abc");
+        admission.try_reserve_string(&mut text, 1, &query, "test string growth")?;
+        assert!(text.capacity() >= 6);
+        let bytes = text.capacity();
+        assert_eq!(pool.used()?, bytes);
+        let guard = admission
+            .finish(bytes, &query)?
+            .expect("string growth charge");
+        drop(text);
+        drop(guard);
+        assert_eq!(pool.used()?, 0);
         Ok(())
     }
 
@@ -2590,7 +4201,7 @@ impl DataChunk {
             return Ok(self.clone());
         }
         let ordered = selection.windows(2).all(|pair| pair[0] <= pair[1]);
-        let selection: Arc<[usize]> = selection.into();
+        let selection = Arc::new(selection.to_vec());
         let columns = self
             .columns
             .iter()

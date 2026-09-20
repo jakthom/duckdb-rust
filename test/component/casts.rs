@@ -201,6 +201,128 @@ impl duckdb_rust::common::type_registry::TypeAdapter for RejectTwoText {
     }
 }
 
+#[derive(Debug)]
+struct CountedTextType(Arc<AtomicUsize>);
+
+impl duckdb_rust::common::type_registry::TypeAdapter for CountedTextType {
+    fn name(&self) -> &'static str {
+        "counted-text-type"
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        duckdb_rust::common::type_registry::PrimitiveTypes.validate_type(data_type)
+    }
+    fn validate_value(&self, _: &DataType, _: &Value, query: &QueryContext) -> Result<()> {
+        query.check()?;
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+    fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        Ok(DataType::common(left, right).ok())
+    }
+    fn compare(
+        &self,
+        _: &DataType,
+        left: &Value,
+        right: &Value,
+        _: &QueryContext,
+    ) -> Result<std::cmp::Ordering> {
+        left.compare(right)
+    }
+    fn write_key(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        output: &mut duckdb_rust::common::type_registry::KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        duckdb_rust::common::type_registry::PrimitiveTypes
+            .write_key(data_type, value, output, query)
+    }
+}
+
+#[derive(Debug)]
+struct RejectInnerStructText(Arc<AtomicUsize>);
+
+impl duckdb_rust::common::type_registry::TypeAdapter for RejectInnerStructText {
+    fn name(&self) -> &'static str {
+        "reject-inner-struct-text"
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        duckdb_rust::common::type_registry::PrimitiveTypes.validate_type(data_type)
+    }
+    fn validate_value(&self, _: &DataType, value: &Value, query: &QueryContext) -> Result<()> {
+        query.check()?;
+        self.0.fetch_add(1, Ordering::SeqCst);
+        if value == &Value::Varchar("{'v': 1}".into()) {
+            Err(Error::Conversion(
+                "logical target rejects inner STRUCT text".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+    fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        Ok(DataType::common(left, right).ok())
+    }
+    fn compare(
+        &self,
+        _: &DataType,
+        left: &Value,
+        right: &Value,
+        _: &QueryContext,
+    ) -> Result<std::cmp::Ordering> {
+        left.compare(right)
+    }
+    fn write_key(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        output: &mut duckdb_rust::common::type_registry::KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        duckdb_rust::common::type_registry::PrimitiveTypes
+            .write_key(data_type, value, output, query)
+    }
+}
+
+#[derive(Debug)]
+struct CountedNestedFamily(Arc<AtomicUsize>);
+
+impl duckdb_rust::common::type_registry::TypeAdapter for CountedNestedFamily {
+    fn name(&self) -> &'static str {
+        "counted-nested-family"
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        duckdb_rust::common::type_registry::nested::NestedTypes::default().validate_type(data_type)
+    }
+    fn validate_value(&self, _: &DataType, _: &Value, query: &QueryContext) -> Result<()> {
+        query.check()?;
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+    fn common_type(&self, _: &DataType, _: &DataType) -> Result<Option<DataType>> {
+        Ok(None)
+    }
+    fn compare(
+        &self,
+        _: &DataType,
+        left: &Value,
+        right: &Value,
+        _: &QueryContext,
+    ) -> Result<std::cmp::Ordering> {
+        left.compare(right)
+    }
+    fn write_key(
+        &self,
+        _: &DataType,
+        _: &Value,
+        _: &mut duckdb_rust::common::type_registry::KeyWriter<'_>,
+        _: &QueryContext,
+    ) -> Result<()> {
+        Err(Error::Unsupported("counted nested key".into()))
+    }
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
 fn total_converter_does_not_bypass_selected_logical_target_in_lazy_case() -> Result<()> {
@@ -215,6 +337,23 @@ fn total_converter_does_not_bypass_selected_logical_target_in_lazy_case() -> Res
         &types,
     )?;
     assert!(!cast.is_total());
+    let structure =
+        duckdb_rust::common::NestedType::Struct(vec![("v".into(), DataType::Varchar)]).data_type();
+    let invalid = duckdb_rust::common::NestedValue::value(
+        structure.clone(),
+        duckdb_rust::common::NestedPayload::Struct(vec![Value::Varchar("2".into())]),
+    )?;
+    let invalid = Vector::flat(structure.clone(), vec![invalid])?;
+    let nested_cast = CastRegistry::builtins().bind(
+        &structure,
+        &DataType::Varchar,
+        CastMode::Explicit,
+        &types,
+    )?;
+    assert!(matches!(
+        nested_cast.apply_batch(&invalid, &QueryContext::background().with_types(Arc::new(types.clone()))),
+        Err(Error::Conversion(message)) if message == "logical target rejects two"
+    ));
     for evaluator in [
         Arc::new(ScalarEvaluator) as Arc<dyn ExpressionEvaluator>,
         Arc::new(BatchedEvaluator),
@@ -292,6 +431,177 @@ impl CastFunction for OwnedIdentity {
     fn cast(&self, value: &Value, _: &CastSpec, _: &QueryContext) -> Result<Value> {
         Ok(value.clone())
     }
+}
+
+#[derive(Debug)]
+struct ObservedVarcharIdentity(Arc<AtomicUsize>);
+
+impl CastFunction for ObservedVarcharIdentity {
+    fn name(&self) -> &'static str {
+        "observed-varchar-identity"
+    }
+    fn supports(&self, spec: &CastSpec) -> bool {
+        spec.source == DataType::Varchar && spec.target == DataType::Varchar
+    }
+    fn cast(&self, value: &Value, _: &CastSpec, query: &QueryContext) -> Result<Value> {
+        query.check()?;
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(value.clone())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn nested_text_batch_retains_custom_child_cast_and_temporal_failure() -> Result<()> {
+    use duckdb_rust::{
+        TemporalValue,
+        common::{NestedPayload, NestedType, NestedValue},
+    };
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut casts = CastRegistry::builtins();
+    casts.replace(
+        CastSpec {
+            source: DataType::Varchar,
+            target: DataType::Varchar,
+            mode: CastMode::Explicit,
+        },
+        Arc::new(ObservedVarcharIdentity(calls.clone())),
+    )?;
+    let structure = NestedType::Struct(vec![
+        ("a".into(), DataType::Varchar),
+        ("b".into(), DataType::Varchar),
+    ])
+    .data_type();
+    let mut values = Vec::new();
+    for index in 0..300 {
+        values.push(NestedValue::value(
+            structure.clone(),
+            NestedPayload::Struct(vec![
+                Value::Varchar(index.to_string()),
+                Value::Varchar("x".into()),
+            ]),
+        )?);
+    }
+    let input = Vector::flat(structure.clone(), values)?;
+    let query = QueryContext::background();
+    let cast = casts.bind(
+        &structure,
+        &DataType::Varchar,
+        CastMode::Explicit,
+        query.types(),
+    )?;
+    let output = cast.apply_batch(&input, &query)?;
+    assert_eq!(calls.load(Ordering::SeqCst), 600);
+    assert_eq!(
+        output.get(0),
+        Some(Value::Varchar("{'a': 0, 'b': x}".into()))
+    );
+
+    // A built-in recursive shape with a custom logical grandchild cannot
+    // transfer the parent's validation proof to an independently bound child.
+    let logical_calls = Arc::new(AtomicUsize::new(0));
+    let mut types = duckdb_rust::common::type_registry::TypeRegistry::builtins();
+    types.replace(
+        DataType::Varchar.family(),
+        Arc::new(CountedTextType(logical_calls.clone())),
+    )?;
+    let list = NestedType::List(structure.clone()).data_type();
+    let record = |a: &str, b: &str| {
+        NestedValue::value(
+            structure.clone(),
+            NestedPayload::Struct(vec![Value::Varchar(a.into()), Value::Varchar(b.into())]),
+        )
+    };
+    let input = Vector::flat(
+        list.clone(),
+        vec![NestedValue::value(
+            list.clone(),
+            NestedPayload::Sequence(vec![record("a", "b")?]),
+        )?],
+    )?;
+    let cast =
+        CastRegistry::builtins().bind(&list, &DataType::Varchar, CastMode::Explicit, &types)?;
+    cast.apply_batch(
+        &input,
+        &QueryContext::background().with_types(Arc::new(types)),
+    )?;
+    // Source, child-source and both retained VARCHAR source/target boundaries
+    // account for ten logical validations. Skipping the independently bound
+    // STRUCT source would reduce this to eight.
+    assert_eq!(logical_calls.load(Ordering::SeqCst), 10);
+
+    // A replacement for the nested family owns validation itself. The private
+    // built-in proof is absent, so both the outer LIST and its STRUCT child are
+    // validated by the retained replacement.
+    let nested_calls = Arc::new(AtomicUsize::new(0));
+    let mut types = duckdb_rust::common::type_registry::TypeRegistry::builtins();
+    types.replace(
+        structure.family(),
+        Arc::new(CountedNestedFamily(nested_calls.clone())),
+    )?;
+    let input = Vector::flat(
+        list.clone(),
+        vec![NestedValue::value(
+            list.clone(),
+            NestedPayload::Sequence(vec![record("a", "b")?, record("c", "d")?]),
+        )?],
+    )?;
+    let cast =
+        CastRegistry::builtins().bind(&list, &DataType::Varchar, CastMode::Explicit, &types)?;
+    cast.apply_batch(
+        &input,
+        &QueryContext::background().with_types(Arc::new(types)),
+    )?;
+    // The retained replacement observes the outer value and both independently
+    // bound STRUCT children (plus the selected nested cast's checked boundary).
+    assert_eq!(nested_calls.load(Ordering::SeqCst), 4);
+
+    let temporal = NestedType::List(DataType::TimestampS).data_type();
+    let raw = TemporalValue::TimestampS(i64::MAX - 1);
+    raw.validate()?;
+    let value = NestedValue::value(
+        temporal.clone(),
+        NestedPayload::Sequence(vec![Value::Temporal(raw)]),
+    )?;
+    let input = Vector::flat(temporal.clone(), vec![value])?;
+    let cast = CastRegistry::builtins().bind(
+        &temporal,
+        &DataType::Varchar,
+        CastMode::Explicit,
+        query.types(),
+    )?;
+    assert!(matches!(
+        cast.apply_batch(&input, &query),
+        Err(Error::Internal(_))
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn recursive_nested_text_lane_retains_child_target_validation() -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut types = duckdb_rust::common::type_registry::TypeRegistry::builtins();
+    types.replace(
+        DataType::Varchar.family(),
+        Arc::new(RejectInnerStructText(calls.clone())),
+    )?;
+    let mut connection = DatabaseBuilder::new()
+        .types(Arc::new(types))
+        .build()?
+        .connect();
+    let result =
+        connection.query("SELECT list_value(struct_pack(v := i))::VARCHAR FROM range(1, 2) t(i)");
+    assert!(
+        matches!(
+        &result,
+        Err(Error::Internal(message)) if message == "cast adapter returned an invalid logical value"
+        ),
+        "{result:?}"
+    );
+    assert!(calls.load(Ordering::SeqCst) > 0);
+    Ok(())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

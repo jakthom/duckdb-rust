@@ -5,9 +5,12 @@
 //! selected regex crate is deliberately pinned alongside the reference's
 //! Unicode version; do not replace this with a C-string based adapter.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    ops::Range,
+    sync::{Arc, Mutex},
+};
 
-use regex::{Regex, RegexBuilder};
+use regex::{CaptureLocations, Regex, RegexBuilder};
 
 use super::{BigintBatch, VarcharBatch};
 use crate::{
@@ -15,7 +18,7 @@ use crate::{
         DataType, Error, NestedPayload, NestedType, NestedValue, Result, Value,
         cast::CastMode,
         type_registry::TypeRegistry,
-        vector::{DataChunk, Vector},
+        vector::{DataChunk, MetadataAdmission, Vector},
     },
     function::{FunctionRegistry, ScalarBindArguments, ScalarFunction},
     parallel::QueryContext,
@@ -472,29 +475,169 @@ impl RegexValueFunction {
         ) else {
             return Ok(None);
         };
-        let mut output = Vec::new();
-        output
-            .try_reserve_exact(arguments.len())
-            .map_err(|_| Error::Resource("cannot allocate named regexp result".into()))?;
+        let names = self
+            .named_groups
+            .as_ref()
+            .ok_or_else(|| Error::Internal("missing regexp named groups".into()))?;
+        let mut arena = String::new();
+        let mut packed_admission = MetadataAdmission::new();
+        let mut struct_admission = MetadataAdmission::new();
+        let mut list_admission = MetadataAdmission::new();
+        let mut temporary_admission = MetadataAdmission::new();
+        let mut ranges = Vec::new();
+        temporary_admission.try_reserve_vec(
+            &mut ranges,
+            names.len(),
+            query,
+            "cannot allocate named regexp range columns",
+        )?;
+        for _ in names {
+            let mut field = Vec::new();
+            packed_admission.try_reserve_vec(
+                &mut field,
+                arguments.len(),
+                query,
+                "cannot allocate named regexp ranges",
+            )?;
+            ranges.push(field);
+        }
+        let range_column_bytes = ranges
+            .capacity()
+            .checked_mul(std::mem::size_of::<Vec<Option<Range<usize>>>>())
+            .ok_or_else(|| Error::Resource("named regexp range columns overflow".into()))?;
+        let _range_column_guard = temporary_admission.finish(range_column_bytes, query)?;
+        let validity_admission = if self.name == "regexp_extract_all" {
+            &mut list_admission
+        } else {
+            &mut struct_admission
+        };
+        let validity_words = arguments.len().div_ceil(u64::BITS as usize);
+        let mut validity = Vec::new();
+        validity_admission.try_reserve_vec(
+            &mut validity,
+            validity_words,
+            query,
+            "cannot allocate named regexp validity",
+        )?;
+        validity.resize(validity_words, 0);
+        let mut list_offsets = Vec::new();
+        let mut match_count = 0usize;
+        // Reuse the pattern-sized capture slots across rows and matches. The
+        // extract-all helper below reproduces the pinned iterator's full-input
+        // overlap progression rather than searching sliced subjects.
+        let mut capture_locations = regex.capture_locations();
+        if self.name == "regexp_extract_all" {
+            list_admission.try_reserve_vec(
+                &mut list_offsets,
+                arguments
+                    .len()
+                    .checked_add(1)
+                    .ok_or_else(|| Error::Resource("named regexp row count overflow".into()))?,
+                query,
+                "cannot allocate named regexp offsets",
+            )?;
+            list_offsets.push(0);
+        }
         for index in 0..arguments.len() {
             if index % 1024 == 0 {
                 query.check()?;
             }
-            output.push(match input.get(index)? {
-                Value::Null => Value::Null,
-                Value::Varchar(subject) if self.name == "regexp_extract_all" => {
-                    self.extract_all_named(subject, regex)?
+            match input.get(index)? {
+                Value::Null => {
+                    if self.name == "regexp_extract_all" {
+                        list_offsets.push(*list_offsets.last().expect("initial regexp offset"));
+                    } else {
+                        for field in &mut ranges {
+                            field.push(None);
+                        }
+                    }
                 }
-                Value::Varchar(subject) => self.extract_named(subject, regex)?,
+                Value::Varchar(subject) if self.name == "regexp_extract_all" => {
+                    match_count = match_count
+                        .checked_add(append_named_matches(
+                            subject,
+                            regex,
+                            &mut capture_locations,
+                            &mut arena,
+                            &mut ranges,
+                            &mut packed_admission,
+                            query,
+                        )?)
+                        .ok_or_else(|| {
+                            Error::Resource("named regexp match count overflow".into())
+                        })?;
+                    list_offsets.push(match_count);
+                    set_named_validity(&mut validity, index);
+                }
+                Value::Varchar(subject) => {
+                    let matched = regex
+                        .captures_read(&mut capture_locations, subject)
+                        .is_some();
+                    for (group, field) in ranges.iter_mut().enumerate() {
+                        let text = if matched {
+                            capture_locations
+                                .get(group + 1)
+                                .map_or("", |(start, end)| &subject[start..end])
+                        } else {
+                            ""
+                        };
+                        field.push(Some(append_named_text(
+                            &mut arena,
+                            text,
+                            &mut packed_admission,
+                            query,
+                        )?));
+                    }
+                    set_named_validity(&mut validity, index);
+                }
                 _ => {
                     return Err(Error::Internal(
                         "named regexp subject is not VARCHAR".into(),
                     ));
                 }
-            });
+            }
         }
         query.check()?;
-        Vector::flat(self.result_type(), output).map(Some)
+        let (children, struct_admission) =
+            Vector::packed_utf8_columns(arena, ranges, packed_admission, struct_admission, query)?;
+        let validity = Some(validity);
+        let result_type = self.result_type();
+        if self.name != "regexp_extract_all" {
+            return Vector::flat_struct_checked(
+                result_type,
+                arguments.len(),
+                validity,
+                children,
+                struct_admission,
+                query,
+            )
+            .map(Some);
+        }
+        let DataType::Nested(list) = &result_type else {
+            return Err(Error::Internal("named regexp list result type".into()));
+        };
+        let NestedType::List(struct_type) = list.as_ref() else {
+            return Err(Error::Internal("named regexp list result metadata".into()));
+        };
+        let matches = match_count;
+        let structs = Vector::flat_struct_checked(
+            struct_type.clone(),
+            matches,
+            None,
+            children,
+            struct_admission,
+            query,
+        )?;
+        Vector::flat_list_checked(
+            result_type,
+            arguments.len(),
+            validity,
+            list_offsets,
+            structs,
+            list_admission,
+            query,
+        )
+        .map(Some)
     }
     fn extract_all_batch(
         &self,
@@ -645,10 +788,9 @@ impl RegexValueFunction {
             return Ok(None);
         }
         let columns = arguments.columns();
-        let (Some(input), Some(pattern), Some(needle)) = (
+        let (Some(input), Some(pattern)) = (
             columns.first().and_then(VarcharBatch::new),
             columns.get(1).and_then(VarcharBatch::new),
-            VarcharBatch::new(needle),
         ) else {
             return Ok(None);
         };
@@ -689,8 +831,10 @@ impl RegexValueFunction {
             if index % 1024 == 0 {
                 query.check()?;
             }
-            let (input, pattern, needle) =
-                (input.get(index)?, pattern.get(index)?, needle.get(index)?);
+            let (input, pattern) = (input.get(index)?, pattern.get(index)?);
+            let needle = needle.varchar_at(index).ok_or_else(|| {
+                Error::Internal("regexp list position needle encoding is out of bounds".into())
+            })?;
             if input.is_null() || pattern.is_null() {
                 output.push(Value::Null);
                 continue;
@@ -699,15 +843,6 @@ impl RegexValueFunction {
                 return Err(Error::Internal(
                     "regexp list position arguments are not VARCHAR".into(),
                 ));
-            };
-            let needle = match needle {
-                Value::Varchar(needle) => Some(needle.as_str()),
-                Value::Null => None,
-                _ => {
-                    return Err(Error::Internal(
-                        "regexp list position needle is not VARCHAR".into(),
-                    ));
-                }
             };
             let group = group.map_or(Ok(0_i128), |group| group.get(index).map(i128::from))?;
             if group < 0 {
@@ -891,6 +1026,19 @@ impl RegexValueFunction {
     }
 
     fn extract_named(&self, input: &str, regex: &Regex) -> Result<Value> {
+        self.extract_named_with_validation(input, regex, true)
+    }
+
+    /// The named batch callback owns a fixed result type retained at binding,
+    /// and the speculative expression boundary validates the complete returned
+    /// vector with that selected `BoundType`. Avoid validating each freshly
+    /// constructed value before the vector and bound-type boundaries do so.
+    fn extract_named_with_validation(
+        &self,
+        input: &str,
+        regex: &Regex,
+        validate: bool,
+    ) -> Result<Value> {
         let names = self
             .named_groups
             .as_ref()
@@ -910,10 +1058,25 @@ impl RegexValueFunction {
                     .collect()
             })
             .unwrap_or_else(|| vec![Value::Varchar(String::new()); names.len()]);
-        NestedValue::value(self.result_type(), NestedPayload::Struct(fields))
+        let data_type = self.result_type();
+        let payload = NestedPayload::Struct(fields);
+        if validate {
+            NestedValue::value(data_type, payload)
+        } else {
+            Ok(Value::Nested(Arc::new(NestedValue { data_type, payload })))
+        }
     }
 
     fn extract_all_named(&self, input: &str, regex: &Regex) -> Result<Value> {
+        self.extract_all_named_with_validation(input, regex, true)
+    }
+
+    fn extract_all_named_with_validation(
+        &self,
+        input: &str,
+        regex: &Regex,
+        validate: bool,
+    ) -> Result<Value> {
         let names = self
             .named_groups
             .as_ref()
@@ -937,10 +1100,13 @@ impl RegexValueFunction {
                         .map_or(Value::Null, |found| Value::Varchar(found.as_str().into()))
                 })
                 .collect();
-            values.push(NestedValue::value(
-                struct_type.clone(),
-                NestedPayload::Struct(fields),
-            )?);
+            let data_type = struct_type.clone();
+            let payload = NestedPayload::Struct(fields);
+            values.push(if validate {
+                NestedValue::value(data_type, payload)?
+            } else {
+                Value::Nested(Arc::new(NestedValue { data_type, payload }))
+            });
             let matched = captures
                 .get(0)
                 .ok_or_else(|| Error::Internal("regexp capture has no full match".into()))?;
@@ -958,7 +1124,15 @@ impl RegexValueFunction {
                     .len_utf8();
             }
         }
-        NestedValue::value(list_type, NestedPayload::Sequence(values))
+        let payload = NestedPayload::Sequence(values);
+        if validate {
+            NestedValue::value(list_type, payload)
+        } else {
+            Ok(Value::Nested(Arc::new(NestedValue {
+                data_type: list_type,
+                payload,
+            })))
+        }
     }
 
     fn extract_all_group(
@@ -1580,6 +1754,99 @@ fn parse_options_for(value: Value, allow_global: bool, allow_keep: bool) -> Resu
     Ok(parsed)
 }
 
+fn set_named_validity(validity: &mut [u64], index: usize) {
+    validity[index / u64::BITS as usize] |= 1_u64 << (index % u64::BITS as usize);
+}
+
+fn append_named_text(
+    arena: &mut String,
+    text: &str,
+    admission: &mut MetadataAdmission,
+    query: &QueryContext,
+) -> Result<Range<usize>> {
+    let end = arena
+        .len()
+        .checked_add(text.len())
+        .ok_or_else(|| Error::Resource("named regexp arena overflow".into()))?;
+    if end > arena.capacity() {
+        admission.try_reserve_string(
+            arena,
+            text.len(),
+            query,
+            "cannot allocate named regexp arena",
+        )?;
+    }
+    let start = arena.len();
+    arena.push_str(text);
+    Ok(start..end)
+}
+
+fn append_named_matches(
+    subject: &str,
+    regex: &Regex,
+    locations: &mut CaptureLocations,
+    arena: &mut String,
+    ranges: &mut [Vec<Option<Range<usize>>>],
+    admission: &mut MetadataAdmission,
+    query: &QueryContext,
+) -> Result<usize> {
+    walk_capture_locations(subject, regex, locations, query, |locations| {
+        for (group, field) in ranges.iter_mut().enumerate() {
+            admission.try_reserve_vec(field, 1, query, "cannot grow named regexp ranges")?;
+            field.push(
+                locations
+                    .get(group + 1)
+                    .map(|(start, end)| {
+                        append_named_text(arena, &subject[start..end], admission, query)
+                    })
+                    .transpose()?,
+            );
+        }
+        Ok(())
+    })
+}
+
+fn walk_capture_locations(
+    subject: &str,
+    regex: &Regex,
+    locations: &mut CaptureLocations,
+    query: &QueryContext,
+    mut visit: impl FnMut(&CaptureLocations) -> Result<()>,
+) -> Result<usize> {
+    let mut count = 0usize;
+    let mut start = 0usize;
+    let mut last_match_end = None;
+    let mut steps = 0usize;
+    while let Some(matched) = regex.captures_read_at(locations, subject, start) {
+        if steps.is_multiple_of(1024) {
+            query.check()?;
+        }
+        steps = steps
+            .checked_add(1)
+            .ok_or_else(|| Error::Resource("named regexp iteration overflow".into()))?;
+        // regex 1.10.6 suppresses an empty match overlapping the end of the
+        // preceding accepted match, advances the full-haystack input by one
+        // byte, then lets the UTF-8-aware engine find the next boundary.
+        if matched.start() == matched.end() && last_match_end == Some(matched.end()) {
+            if matched.end() == subject.len() {
+                break;
+            }
+            start = matched
+                .end()
+                .checked_add(1)
+                .ok_or_else(|| Error::Resource("named regexp offset overflow".into()))?;
+            continue;
+        }
+        visit(locations)?;
+        count = count
+            .checked_add(1)
+            .ok_or_else(|| Error::Resource("named regexp match count overflow".into()))?;
+        last_match_end = Some(matched.end());
+        start = matched.end();
+    }
+    Ok(count)
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn compile(pattern: &str, options: RegexOptions, kind: MatchKind) -> Result<Regex> {
     if !options.literal {
@@ -1942,6 +2209,137 @@ mod tests {
                 row(vec![("é", Some("3"))])?
             ]
         );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn named_extract_reuses_captures_across_mixed_encoded_rows() -> Result<()> {
+        let fields = vec!["word".to_owned(), "number".to_owned()];
+        let struct_type = NestedType::Struct(
+            fields
+                .iter()
+                .cloned()
+                .map(|name| (name, DataType::Varchar))
+                .collect(),
+        )
+        .data_type();
+        let function = RegexValueFunction {
+            name: "regexp_extract",
+            signature: Some(vec![
+                DataType::Varchar,
+                DataType::Varchar,
+                NestedType::List(DataType::Varchar).data_type(),
+            ]),
+            options: RegexOptions::default(),
+            constant: Some(compile(
+                "([^:]+):([0-9]+)?",
+                RegexOptions::default(),
+                MatchKind::Partial,
+            )?),
+            extract_group: None,
+            extract_group_is_null: false,
+            named_groups: Some(fields),
+            named_result_type: Some(struct_type.clone()),
+            constant_replacement: None,
+            dynamic_cache: Arc::new(Mutex::new(Vec::new())),
+        };
+        let input = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("a:1".into()),
+                Value::Varchar("miss".into()),
+                Value::Varchar("é:".into()),
+                Value::Varchar("x:9".into()),
+                Value::Null,
+            ],
+        )?);
+        let row = |word: &str, number: &str| {
+            NestedValue::value(
+                struct_type.clone(),
+                NestedPayload::Struct(vec![
+                    Value::Varchar(word.into()),
+                    Value::Varchar(number.into()),
+                ]),
+            )
+        };
+        let dictionary_input = input.select(vec![0, 1, 2, 4, 3, 1])?;
+        let arguments = DataChunk::new(
+            vec![
+                dictionary_input,
+                Vector::constant(
+                    DataType::Varchar,
+                    Value::Varchar("([^:]+):([0-9]+)?".into()),
+                    6,
+                )?,
+                Vector::constant(
+                    NestedType::List(DataType::Varchar).data_type(),
+                    strings(&["word", "number"])?,
+                    6,
+                )?,
+            ],
+            6,
+        )?;
+        let selected = arguments.select(&[0, 1, 2, 3, 4, 5])?;
+        assert_eq!(
+            function
+                .evaluate_batch(&selected, &QueryContext::background())?
+                .expect("selected named extract batch")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![
+                row("a", "1")?,
+                row("", "")?,
+                row("é", "")?,
+                Value::Null,
+                row("x", "9")?,
+                row("", "")?,
+            ]
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn reusable_capture_walk_matches_pinned_iterator_offsets() -> Result<()> {
+        let query = QueryContext::background();
+        for (pattern, subjects) in [
+            ("(a)?(b*)", &["ab", "miss", "", "bbb", "éa", "none"][..]),
+            ("(^)|([a-z]+)|($)", &["abc", "", "éx", "x\ny"]),
+            ("()|([a-z]+)", &["abc", "é", "", "a\0b"]),
+            ("([a-z]+)|()", &["abc", "é", "", "a\0b"]),
+            ("(?m)^(.*)$", &["a\nb", "", "é\n", "\0"]),
+            (r"\b|(\w+)", &["abc xyz", "éclair", "", "!a"]),
+            ("(a)?(\0b)?", &["a\0b", "none", "", "\0b"]),
+            ("(z)", &["z", "miss", "z", ""]),
+        ] {
+            let regex = Regex::new(pattern).map_err(|error| Error::Internal(error.to_string()))?;
+            let mut locations = regex.capture_locations();
+            for subject in subjects {
+                let expected = regex
+                    .captures_iter(subject)
+                    .map(|captures| {
+                        (0..regex.captures_len())
+                            .map(|group| {
+                                captures
+                                    .get(group)
+                                    .map(|matched| (matched.start(), matched.end()))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                let mut actual = Vec::new();
+                walk_capture_locations(subject, &regex, &mut locations, &query, |locations| {
+                    actual.push(
+                        (0..regex.captures_len())
+                            .map(|group| locations.get(group))
+                            .collect::<Vec<_>>(),
+                    );
+                    Ok(())
+                })?;
+                assert_eq!(actual, expected, "pattern {pattern:?}, subject {subject:?}");
+            }
+        }
         Ok(())
     }
 }

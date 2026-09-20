@@ -1,12 +1,71 @@
 use duckdb_rust::{
-    DataType, Database, DatabaseBuilder, Result, Value,
+    DataType, Database, DatabaseBuilder, Error, Result, Value,
     common::{
-        NestedPayload, NestedType, NestedValue, type_registry::builtin_types, vector::Vector,
+        NestedPayload, NestedType, NestedValue,
+        type_registry::{KeyWriter, PrimitiveTypes, TypeAdapter, TypeRegistry, builtin_types},
+        vector::Vector,
     },
     parallel::QueryContext,
     storage::{checkpoint::FileCheckpoint, filesystem::OpenMode, format::JsonSnapshotFormat},
 };
-use std::{cmp::Ordering, sync::Arc};
+use std::{
+    cmp::Ordering,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+    },
+};
+
+#[derive(Debug)]
+struct ObservedNestedText {
+    validations: Arc<AtomicUsize>,
+    comparisons: Arc<AtomicUsize>,
+    rejected: Option<&'static str>,
+}
+
+impl TypeAdapter for ObservedNestedText {
+    fn name(&self) -> &'static str {
+        "observed-nested-text"
+    }
+    fn validate_type(&self, data_type: &DataType) -> Result<()> {
+        PrimitiveTypes.validate_type(data_type)
+    }
+    fn validate_value(&self, _: &DataType, value: &Value, query: &QueryContext) -> Result<()> {
+        query.check()?;
+        self.validations.fetch_add(1, AtomicOrdering::SeqCst);
+        if self
+            .rejected
+            .is_some_and(|text| value == &Value::Varchar(text.into()))
+        {
+            Err(Error::Conversion("observed nested text rejection".into()))
+        } else {
+            Ok(())
+        }
+    }
+    fn common_type(&self, left: &DataType, right: &DataType) -> Result<Option<DataType>> {
+        Ok(DataType::common(left, right).ok())
+    }
+    fn compare(
+        &self,
+        _: &DataType,
+        left: &Value,
+        right: &Value,
+        query: &QueryContext,
+    ) -> Result<Ordering> {
+        query.check()?;
+        self.comparisons.fetch_add(1, AtomicOrdering::SeqCst);
+        left.compare(right)
+    }
+    fn write_key(
+        &self,
+        data_type: &DataType,
+        value: &Value,
+        output: &mut KeyWriter<'_>,
+        query: &QueryContext,
+    ) -> Result<()> {
+        PrimitiveTypes.write_key(data_type, value, output, query)
+    }
+}
 
 #[path = "nested/accessors.rs"]
 mod accessors;
@@ -175,6 +234,18 @@ fn nested_shape_null_keys_and_vector_encodings() -> Result<()> {
         NestedPayload::Sequence(vec![Value::Integer(1), Value::Integer(2)]),
     )?;
     let bound = builtin_types().bind(&ty)?;
+    assert!(!bound.requires_logical_validation());
+    assert!(
+        builtin_types()
+            .bind(
+                &NestedType::Map {
+                    key: DataType::Varchar,
+                    value: DataType::Integer,
+                }
+                .data_type()
+            )?
+            .requires_logical_validation()
+    );
     let query = QueryContext::background();
     assert_eq!(bound.compare(&a, &b, &query)?, Ordering::Greater);
     let mut keys = Vec::new();
@@ -193,6 +264,85 @@ fn nested_shape_null_keys_and_vector_encodings() -> Result<()> {
         selected.values().collect::<Vec<_>>(),
         vec![Value::Null, a.clone(), a, b]
     );
+
+    // The vector boundary may reuse one validated target metadata tree, but
+    // every later row must still carry that exact declared type and payload.
+    let malformed_later = Value::Nested(Arc::new(NestedValue {
+        data_type: NestedType::List(DataType::extension("Invalid.Name", vec![])).data_type(),
+        payload: NestedPayload::Sequence(vec![Value::Integer(2)]),
+    }));
+    let valid_first =
+        NestedValue::value(ty.clone(), NestedPayload::Sequence(vec![Value::Integer(1)]))?;
+    assert!(Vector::flat(ty.clone(), vec![valid_first, malformed_later]).is_err());
+
+    let nested_list_type = NestedType::List(ty.clone()).data_type();
+    let nested_list = |child_type: DataType| {
+        Value::Nested(Arc::new(NestedValue {
+            data_type: nested_list_type.clone(),
+            payload: NestedPayload::Sequence(vec![Value::Nested(Arc::new(NestedValue {
+                data_type: child_type,
+                payload: NestedPayload::Sequence(vec![Value::Integer(1)]),
+            }))]),
+        }))
+    };
+    assert!(
+        Vector::flat(
+            nested_list_type.clone(),
+            vec![
+                nested_list(ty.clone()),
+                nested_list(NestedType::List(DataType::BigInt).data_type())
+            ]
+        )
+        .is_err()
+    );
+
+    let array_type = NestedType::Array {
+        element: DataType::Integer,
+        length: 2,
+    }
+    .data_type();
+    let short_array = Value::Nested(Arc::new(NestedValue {
+        data_type: array_type.clone(),
+        payload: NestedPayload::Sequence(vec![Value::Integer(1)]),
+    }));
+    assert!(Vector::constant(array_type, short_array, 3).is_err());
+
+    let union_type = NestedType::Union(vec![
+        ("number".into(), DataType::Integer),
+        ("text".into(), DataType::Varchar),
+    ])
+    .data_type();
+    let bad_tag = Value::Nested(Arc::new(NestedValue {
+        data_type: union_type.clone(),
+        payload: NestedPayload::Union {
+            tag: 2,
+            value: Value::Integer(1),
+        },
+    }));
+    assert!(Vector::flat(union_type, vec![bad_tag]).is_err());
+
+    let variant_type = NestedType::Variant.data_type();
+    let invalid_dynamic_metadata = Value::Nested(Arc::new(NestedValue {
+        data_type: variant_type.clone(),
+        payload: NestedPayload::Variant {
+            data_type: DataType::extension("Invalid.Name", vec![]),
+            value: Value::Null,
+        },
+    }));
+    assert!(Vector::flat(variant_type, vec![invalid_dynamic_metadata]).is_err());
+
+    assert!(
+        Vector::flat(
+            DataType::Integer,
+            vec![
+                Value::Integer(1),
+                Value::Null,
+                Value::Integer(i32::MAX.into())
+            ]
+        )
+        .is_ok()
+    );
+    assert!(Vector::flat(DataType::Integer, vec![Value::Varchar("1".into())]).is_err());
     assert!(
         NestedValue::value(
             NestedType::Array {
@@ -211,6 +361,116 @@ fn nested_shape_null_keys_and_vector_encodings() -> Result<()> {
         )
         .is_err()
     );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn nested_batch_comparison_retains_selected_child_validation_and_errors() -> Result<()> {
+    let validations = Arc::new(AtomicUsize::new(0));
+    let comparisons = Arc::new(AtomicUsize::new(0));
+    let mut types = TypeRegistry::builtins();
+    types.replace(
+        DataType::Varchar.family(),
+        Arc::new(ObservedNestedText {
+            validations: validations.clone(),
+            comparisons: comparisons.clone(),
+            rejected: Some("bad"),
+        }),
+    )?;
+    let list_type = NestedType::List(DataType::Varchar).data_type();
+    let bound = types.bind(&list_type)?;
+    assert!(bound.requires_logical_validation());
+
+    // Later registry replacement cannot change the retained child adapter.
+    let replacement_calls = Arc::new(AtomicUsize::new(0));
+    types.replace(
+        DataType::Varchar.family(),
+        Arc::new(ObservedNestedText {
+            validations: replacement_calls.clone(),
+            comparisons: replacement_calls.clone(),
+            rejected: None,
+        }),
+    )?;
+    let list = |text: &str| {
+        NestedValue::value(
+            list_type.clone(),
+            NestedPayload::Sequence(vec![Value::Varchar(text.into())]),
+        )
+    };
+    let left = Vector::flat(list_type.clone(), vec![list("a")?, list("z")?])?;
+    let right = Vector::flat(list_type.clone(), vec![list("b")?, list("z")?])?;
+    assert_eq!(
+        bound.compare_batch(&left, &right, &QueryContext::background())?,
+        vec![Some(Ordering::Less), Some(Ordering::Equal)]
+    );
+    assert_eq!(validations.load(AtomicOrdering::SeqCst), 4);
+    assert_eq!(comparisons.load(AtomicOrdering::SeqCst), 2);
+    assert_eq!(replacement_calls.load(AtomicOrdering::SeqCst), 0);
+
+    let invalid = Vector::flat(list_type.clone(), vec![list("bad")?])?;
+    let valid = Vector::flat(invalid.data_type().clone(), vec![list("ok")?])?;
+    assert!(matches!(
+        bound.compare_batch(&invalid, &valid, &QueryContext::background()),
+        Err(Error::Conversion(message)) if message == "observed nested text rejection"
+    ));
+    assert_eq!(comparisons.load(AtomicOrdering::SeqCst), 2);
+    Ok(())
+}
+
+#[test]
+fn columnar_nested_varchar_comparison_preserves_nulls_and_lexicographic_order() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    assert_eq!(
+        connection
+            .query(
+                "SELECT struct_pack(a := v, b := 'z') > struct_pack(a := 'a', b := 'z'), list_value(v, 'z') > list_value('a', 'z') FROM (VALUES (NULL::VARCHAR), ('b'), ('a')) t(v) ORDER BY v NULLS FIRST",
+            )?
+            .rows,
+        vec![
+            vec![Value::Boolean(true), Value::Boolean(true)],
+            vec![Value::Boolean(false), Value::Boolean(false)],
+            vec![Value::Boolean(true), Value::Boolean(true)],
+        ]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn batched_nested_selection_retains_custom_children_and_row_error_order() -> Result<()> {
+    let validations = Arc::new(AtomicUsize::new(0));
+    let comparisons = Arc::new(AtomicUsize::new(0));
+    let mut types = TypeRegistry::builtins();
+    types.replace(
+        DataType::Varchar.family(),
+        Arc::new(ObservedNestedText {
+            validations: validations.clone(),
+            comparisons: comparisons.clone(),
+            rejected: Some("bad"),
+        }),
+    )?;
+    let mut connection = DatabaseBuilder::new()
+        .types(Arc::new(types))
+        .build()?
+        .connect();
+    assert_eq!(
+        connection
+            .query(
+                "SELECT i FROM (SELECT i, regexp_extract('ab' || i::VARCHAR, '([a-z])([a-z])', ['a','b']) AS x FROM range(2) t(i)) q WHERE x = struct_pack(a := 'a', b := 'b') ORDER BY i"
+            )?
+            .rows,
+        vec![vec![Value::Integer(0)], vec![Value::Integer(1)]]
+    );
+    assert_eq!(comparisons.load(AtomicOrdering::SeqCst), 4);
+
+    assert!(matches!(
+        connection.query(
+            "SELECT i FROM (VALUES (0,'ab'),(1,'bad')) t(i,v) WHERE regexp_extract(v, '([a-z]+)', ['a']) = struct_pack(a := v)"
+        ),
+        Err(Error::Conversion(message)) if message == "observed nested text rejection"
+    ));
+    assert!(validations.load(AtomicOrdering::SeqCst) > 0);
     Ok(())
 }
 
