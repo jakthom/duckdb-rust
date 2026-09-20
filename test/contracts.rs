@@ -64,6 +64,80 @@ fn integers(values: &[i128]) -> Vec<Value> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn b2_scalar_macros_expand_named_default_qualified_and_nested_calls() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    connection.execute("CREATE MACRO main.b2_add(x, y := 2) AS x + y")?;
+    connection.execute("CREATE MACRO b2_wrap(value) AS main.b2_add(value, y := 4)")?;
+    assert_eq!(connection.query("SELECT b2_add(3), main.b2_add(y := 5, x := 1), b2_wrap(6)")?.rows, vec![integers(&[5, 6, 10])]);
+    assert!(connection.query("SELECT b2_add(1, x := 2)").is_err());
+    assert!(connection.query("SELECT b2_add(z := 2)").is_err());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn b2_scalar_macro_indirect_recursion_fails_at_call_binding() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    connection.execute("CREATE MACRO b2_left(x) AS b2_right(x); CREATE MACRO b2_right(x) AS b2_left(x)")?;
+    assert!(connection.query("SELECT b2_left(1)").is_err());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn b2_scalar_macro_replace_drop_and_rollback_are_catalog_lifecycle_changes() -> Result<()> {
+    let database = Database::memory()?;
+    let mut first = database.connect();
+    first.execute("CREATE MACRO b2_lifecycle(x, y := 1) AS x + y")?;
+    assert_eq!(first.query("SELECT b2_lifecycle(4)")?.rows, vec![integers(&[5])]);
+    first.execute("CREATE OR REPLACE MACRO b2_lifecycle(x, y := 2) AS x * y")?;
+    assert_eq!(first.query("SELECT b2_lifecycle(4)")?.rows, vec![integers(&[8])]);
+    first.execute("DROP MACRO main.b2_lifecycle")?;
+    assert!(first.query("SELECT b2_lifecycle(4)").is_err());
+    assert!(first.execute("DROP MACRO b2_lifecycle").is_err());
+    first.execute("DROP MACRO IF EXISTS b2_lifecycle")?;
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn b2_scalar_macro_native_checkpoint_wal_replace_drop_and_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("scalar-macros.duckdb");
+    {
+        let mut connection = Database::open_logged(&path)?.connect();
+        connection.execute("CREATE MACRO b2_durable(x, y := 2) AS x + y")?;
+    }
+    {
+        let mut connection = Database::open_logged(&path)?.connect();
+        assert_eq!(connection.query("SELECT b2_durable(3)")?.rows, vec![integers(&[5])]);
+        connection.execute("CREATE OR REPLACE MACRO b2_durable(x, y := 3) AS x * y; CHECKPOINT")?;
+    }
+    {
+        let mut connection = Database::open_logged(&path)?.connect();
+        assert_eq!(connection.query("SELECT b2_durable(3)")?.rows, vec![integers(&[9])]);
+        connection.execute("DROP MACRO b2_durable")?;
+    }
+    assert!(Database::open_logged(&path)?.connect().query("SELECT b2_durable(3)").is_err());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn b2_scalar_macro_unsupported_native_body_leaves_checkpoint_unchanged() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("unsupported-scalar-macro.duckdb");
+    let mut connection = Database::open(&path)?.connect();
+    connection.execute("CREATE TABLE b2_guard(i INTEGER)")?;
+    let before = std::fs::read(&path)?;
+    assert!(connection.execute("CREATE MACRO b2_cast(x) AS CAST(x AS INTEGER)").is_err());
+    assert_eq!(std::fs::read(&path)?, before);
+    assert!(connection.query("SELECT b2_cast(1)").is_err());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn scalar_catalog_resolution_precedes_unsupported_argument_binding() -> Result<()> {
     let mut connection = Database::memory()?.connect();
     for sql in [

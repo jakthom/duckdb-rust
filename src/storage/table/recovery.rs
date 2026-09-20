@@ -81,6 +81,10 @@ impl RecoveryTarget for Snapshot {
             match change {
                 RecoveredChange::CreateSchema(name) => next.create_schema(name, false)?,
                 RecoveredChange::DropSchema(name) => next.drop_schema(name, false)?,
+                RecoveredChange::CreateScalarMacro { definition, conflict } => {
+                    next.create_scalar_macro(definition.clone(), *conflict)?;
+                }
+                RecoveredChange::DropScalarMacro(name) => next.drop_scalar_macro(name, false)?,
                 RecoveredChange::CreateTable(definition) => {
                     next.create_table(definition.clone(), false)?
                 }

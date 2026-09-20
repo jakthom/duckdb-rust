@@ -18,6 +18,7 @@ pub enum Statement {
         name: ast::ObjectName,
         scope: Option<ast::ContextModifier>,
     },
+    DropScalarMacro { name: ast::ObjectName, if_exists: bool },
 }
 
 #[cfg(feature = "dev")]
@@ -36,6 +37,7 @@ impl Statement {
                     .unwrap_or_default();
                 format!("RESET {scope}{name}")
             }
+            Self::DropScalarMacro { name, if_exists } => format!("DROP MACRO{} {name}", if *if_exists { " IF EXISTS" } else { "" }),
         }
     }
 }
@@ -107,6 +109,12 @@ impl Parser for DuckDbParser {
                         .map_err(|e| Error::Parse(e.to_string()))?,
                     scope,
                 }
+            } else if matches!(parser.peek_nth_token(1).token, Token::Word(ref word) if word.keyword == sqlparser::keywords::Keyword::MACRO) {
+                parser.expect_keyword(sqlparser::keywords::Keyword::DROP).map_err(|e| Error::Parse(e.to_string()))?;
+                use sqlparser::keywords::Keyword;
+                parser.expect_keyword(Keyword::MACRO).map_err(|e| Error::Parse(e.to_string()))?;
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                Statement::DropScalarMacro { name: parser.parse_object_name(false).map_err(|e| Error::Parse(e.to_string()))?, if_exists }
             } else {
                 Statement::Sql(Box::new(
                     parser
@@ -129,6 +137,13 @@ impl Parser for DuckDbParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drop_macro_preserves_regular_drop_statements_for_sqlparser() {
+        let statements = DuckDbParser.parse("DROP MACRO IF EXISTS main.m; DROP TABLE IF EXISTS t").unwrap();
+        assert!(matches!(statements[0], Statement::DropScalarMacro { if_exists: true, .. }));
+        assert!(matches!(statements[1], Statement::Sql(_)));
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]

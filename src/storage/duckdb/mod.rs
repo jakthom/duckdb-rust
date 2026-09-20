@@ -1,5 +1,6 @@
 mod binary;
 mod catalog;
+mod macro_definition;
 mod columns;
 pub mod compression;
 mod nested;

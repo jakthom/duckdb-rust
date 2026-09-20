@@ -24,6 +24,7 @@ impl SqlBinder {
             view_stack: Vec::new(),
             view_schema: None,
             view_dependencies: RefCell::new(BTreeSet::new()),
+            macro_stack: RefCell::new(Vec::new()),
         };
         let expression = state.capture_stored_expression(expression)?;
         expression.validate(context.query)?;

@@ -22,6 +22,8 @@ pub enum TransactionChange {
     DropSchema(String),
     CreateTable(TableDefinition),
     DropTable(TableName),
+    CreateScalarMacro { definition: crate::catalog::macro_definition::ScalarMacroDefinition, conflict: CreateConflictPolicy },
+    DropScalarMacro(TableName),
     CreateView {
         definition: ViewDefinition,
         conflict: CreateConflictPolicy,

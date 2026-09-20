@@ -39,6 +39,7 @@ struct TableState {
 struct Session {
     tables: BTreeMap<TableName, TableState>,
     views: BTreeMap<TableName, ViewDefinition>,
+    macros: BTreeMap<TableName, crate::catalog::macro_definition::ScalarMacroDefinition>,
     types: BTreeMap<TypeName, TypeDefinition>,
     entries: usize,
     storage_version: Option<u64>,
@@ -153,6 +154,9 @@ impl DuckDbTransactionLog {
         for definition in snapshot.views()? {
             session.views.insert(definition.name.clone(), definition);
         }
+        for definition in snapshot.scalar_macros()? {
+            session.macros.insert(definition.name.clone(), definition);
+        }
         Ok(LogStart {
             header: vec![100, 0, 98, 101, 0, 2, 255, 255],
             session: Box::new(session),
@@ -238,6 +242,13 @@ impl LogSession for Session {
         {
             return Err(invalid("checkpoint view catalog changed"));
         }
+        let logical_macros: BTreeMap<_, _> = checkpoint.logical.scalar_macros()?.into_iter()
+            .map(|definition| (definition.name.clone(), definition)).collect();
+        let physical_macros: BTreeMap<_, _> = checkpoint.physical.scalar_macros()?.into_iter()
+            .map(|definition| (definition.name.clone(), definition)).collect();
+        if logical_macros != next.macros || physical_macros != logical_macros {
+            return Err(invalid("checkpoint scalar-macro catalog changed"));
+        }
         let mut logical_layout = CheckpointLayout::default();
         if checkpoint.logical.tables()?.len() != next.tables.len()
             || checkpoint.layout.tables.len() != next.tables.len()
@@ -304,6 +315,24 @@ impl LogSession for Session {
         for change in changes {
             context.check()?;
             match change {
+                TransactionChange::CreateScalarMacro { definition, conflict } => {
+                    let existing = next.macros.contains_key(&definition.name);
+                    match (existing, conflict) {
+                        (true, CreateConflictPolicy::Error) => return Err(invalid("duplicate macro")),
+                        (true, CreateConflictPolicy::Ignore) => return Err(invalid("no-op macro creation in journal")),
+                        (true, CreateConflictPolicy::Replace) => output.push(named(12, &definition.name)?)?,
+                        (false, _) => {}
+                    }
+                    let mut entry = record(11);
+                    entry.field(101); entry.boolean(true);
+                    super::super::macro_definition::write(&mut entry, definition, next.storage_version.unwrap_or(64), context)?;
+                    output.push(entry)?;
+                    next.macros.insert(definition.name.clone(), definition.clone());
+                }
+                TransactionChange::DropScalarMacro(name) => {
+                    if next.macros.remove(name).is_none() { return Err(invalid("drops missing macro")); }
+                    output.push(named(12, name)?)?;
+                }
                 TransactionChange::CreateView {
                     definition,
                     conflict,

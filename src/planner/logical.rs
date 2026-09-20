@@ -7,7 +7,7 @@ use super::{
 use crate::{
     catalog::{
         CreateConflictPolicy, DropBehavior, TableBinding, TableDefinition, TypeBinding,
-        TypeDefinition, ViewBinding, ViewDefinition,
+        TypeDefinition, ViewBinding, ViewDefinition, macro_definition::ScalarMacroDefinition,
     },
     common::{DataType, Result, Row},
     function::AggregateFunction,
@@ -460,6 +460,11 @@ pub enum BoundStatement {
         definition: ViewDefinition,
         conflict: CreateConflictPolicy,
     },
+    CreateScalarMacro {
+        definition: ScalarMacroDefinition,
+        conflict: CreateConflictPolicy,
+    },
+    DropScalarMacro { name: crate::catalog::TableName, if_exists: bool },
     DropView {
         views: Vec<ViewBinding>,
         if_exists: bool,

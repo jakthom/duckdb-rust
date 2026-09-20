@@ -443,6 +443,14 @@ impl Services {
                     .create_view(definition, conflict)?;
                 Ok(QueryResult::command(0))
             }
+            BoundStatement::CreateScalarMacro { definition, conflict } => {
+                transaction.catalog_mut()?.create_scalar_macro(definition, conflict)?;
+                Ok(QueryResult::command(0))
+            }
+            BoundStatement::DropScalarMacro { name, if_exists } => {
+                transaction.catalog_mut()?.drop_scalar_macro(&name, if_exists)?;
+                Ok(QueryResult::command(0))
+            }
             BoundStatement::DropView {
                 views,
                 if_exists,

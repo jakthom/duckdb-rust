@@ -23,6 +23,7 @@ use crate::{
         PreparedCatalogInsert, ResolvedTable, ResolvedType, ResolvedView, TableBinding,
         TableDefinition, TableName, TypeBinding, TypeDefinition, TypeName, ViewBinding,
         ViewDefinition,
+        macro_definition::ScalarMacroDefinition,
     },
     common::{DataType, Error, Result, Row, Value, vector::DataChunk},
     execution::index::{HashIndexFactory, IndexFactory, IndexSpec, KeyIndex},
@@ -35,6 +36,8 @@ pub struct Snapshot {
     tables: BTreeMap<String, Arc<TableData>>,
     views: BTreeMap<String, Arc<ViewDefinition>>,
     named_types: BTreeMap<String, TypeDefinition>,
+    #[serde(default)]
+    pub(crate) scalar_macros: BTreeMap<String, ScalarMacroDefinition>,
     #[serde(skip)]
     registry: CatalogRegistry,
     #[serde(skip)]
@@ -67,6 +70,7 @@ impl Snapshot {
             tables: BTreeMap::new(),
             views: BTreeMap::new(),
             named_types: BTreeMap::new(),
+            scalar_macros: BTreeMap::new(),
             registry: CatalogRegistry::rebuild_with_types(["main".into()], [], [])?,
             indexes: Arc::new(HashIndexFactory),
             types,
@@ -341,6 +345,8 @@ struct SnapshotState {
     views: BTreeMap<String, ViewDefinition>,
     #[serde(default)]
     named_types: BTreeMap<String, TypeDefinition>,
+    #[serde(default)]
+    scalar_macros: BTreeMap<String, ScalarMacroDefinition>,
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<'de> Deserialize<'de> for Snapshot {
@@ -409,6 +415,7 @@ impl Snapshot {
                 .map(|(key, definition)| (key, Arc::new(definition)))
                 .collect(),
             named_types: state.named_types,
+            scalar_macros: state.scalar_macros,
             registry,
             indexes: Arc::new(HashIndexFactory),
             types: types.clone(),
@@ -721,6 +728,12 @@ impl Catalog for Snapshot {
     fn tables(&self) -> Result<Vec<TableDefinition>> {
         Ok(self.tables.values().map(|t| t.definition.clone()).collect())
     }
+    fn scalar_macro(&self, name: &TableName) -> Result<ScalarMacroDefinition> {
+        self.scalar_macros.get(&name.key()).cloned().ok_or_else(|| Error::Catalog(format!("scalar macro {name} does not exist")))
+    }
+    fn scalar_macros(&self) -> Result<Vec<ScalarMacroDefinition>> {
+        Ok(self.scalar_macros.values().cloned().collect())
+    }
     fn view(&self, name: &TableName) -> Result<ViewDefinition> {
         self.views
             .get(&name.key())
@@ -898,6 +911,30 @@ fn validate_definition(
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CatalogMut for Snapshot {
+    fn create_scalar_macro(
+        &mut self,
+        definition: ScalarMacroDefinition,
+        conflict: CreateConflictPolicy,
+    ) -> Result<()> {
+        definition.validate()?;
+        if !self.schemas.contains(&definition.name.schema) {
+            return Err(Error::Catalog(format!("schema {} does not exist", definition.name.schema)));
+        }
+        let key = definition.name.key();
+        if self.scalar_macros.contains_key(&key) && !matches!(conflict, CreateConflictPolicy::Replace) {
+            return Err(Error::Catalog(format!("scalar macro {} already exists", definition.name)));
+        }
+        self.scalar_macros.insert(key, definition);
+        self.registry.touch()?;
+        Ok(())
+    }
+    fn drop_scalar_macro(&mut self, name: &TableName, if_exists: bool) -> Result<()> {
+        if self.scalar_macros.remove(&name.key()).is_none() {
+            return if if_exists { Ok(()) } else { Err(Error::Catalog(format!("scalar macro {name} does not exist"))) };
+        }
+        self.registry.touch()?;
+        Ok(())
+    }
     fn alter_table(
         &mut self,
         name: &TableName,

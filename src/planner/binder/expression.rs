@@ -707,6 +707,10 @@ impl State<'_, '_> {
                     ));
                 }
                 let name = function_name(&function.name)?;
+                if let Some(macro_name) = scalar_macro_name(&function.name)
+                    && let Ok(definition) = self.context.catalog.scalar_macro(&macro_name) {
+                    return self.expand_scalar_macro(&definition, function, fields, grouping);
+                }
                 if name.eq_ignore_ascii_case("grouping") || name.eq_ignore_ascii_case("grouping_id")
                 {
                     if !function.within_group.is_empty() {
@@ -1042,6 +1046,97 @@ impl State<'_, '_> {
             nulls_first,
         })
     }
+
+    fn expand_scalar_macro(
+        &self,
+        definition: &crate::catalog::macro_definition::ScalarMacroDefinition,
+        function: &ast::Function,
+        fields: &Scope,
+        grouping: Option<&GroupScope>,
+    ) -> Result<BoundExpr> {
+        const MAX_MACRO_EXPANSION_DEPTH: usize = 64;
+        let mut stack = self.macro_stack.borrow_mut();
+        if stack.len() >= MAX_MACRO_EXPANSION_DEPTH || stack.iter().any(|name| name == &definition.name) {
+            return Err(Error::Bind(format!("recursive macro {}", definition.name)));
+        }
+        stack.push(definition.name.clone());
+        drop(stack);
+        let result = self.expand_scalar_macro_inner(definition, function, fields, grouping);
+        self.macro_stack.borrow_mut().pop();
+        result
+    }
+
+    fn expand_scalar_macro_inner(
+        &self,
+        definition: &crate::catalog::macro_definition::ScalarMacroDefinition,
+        function: &ast::Function,
+        fields: &Scope,
+        grouping: Option<&GroupScope>,
+    ) -> Result<BoundExpr> {
+        let parsed = super::nested::scalar_arguments(function)?;
+        if parsed.expressions.len() > definition.parameters.len() {
+            return Err(Error::Bind(format!("macro {} has too many arguments", definition.name)));
+        }
+        let mut values = std::collections::BTreeMap::new();
+        let mut next_positional = 0usize;
+        let mut named_seen = false;
+        for (name, expression) in parsed.names.iter().zip(&parsed.expressions) {
+            let parameter = if let Some(name) = name {
+                named_seen = true;
+                definition.parameters.iter().find(|parameter| parameter.name.eq_ignore_ascii_case(name)).ok_or_else(|| Error::Bind(format!("unknown macro argument {name}")))?
+            } else {
+                if named_seen { return Err(Error::Bind("positional macro argument follows named argument".into())); }
+                let parameter = definition.parameters.get(next_positional).ok_or_else(|| Error::Bind(format!("macro {} has too many arguments", definition.name)))?;
+                next_positional += 1;
+                parameter
+            };
+            if values.insert(parameter.name.to_ascii_lowercase(), (*expression).clone()).is_some() { return Err(Error::Bind(format!("duplicate macro argument {}", parameter.name))); }
+        }
+        for parameter in &definition.parameters {
+            if !values.contains_key(&parameter.name.to_ascii_lowercase()) {
+                let default = parameter.default_sql.as_ref().ok_or_else(|| Error::Bind(format!("missing macro argument {}", parameter.name)))?;
+                let statements = self.context.parser.parse(&format!("SELECT {default}"))?;
+                let mut expression = macro_select_expression(statements)?;
+                substitute_macro_parameters(&mut expression, &values);
+                values.insert(parameter.name.to_ascii_lowercase(), expression);
+            }
+        }
+        let mut body = macro_select_expression(self.context.parser.parse(&format!("SELECT {}", definition.body_sql))?)?;
+        substitute_macro_parameters(&mut body, &values);
+        self.expr(&body, fields, grouping)
+    }
+}
+
+fn scalar_macro_name(name: &ast::ObjectName) -> Option<crate::catalog::TableName> {
+    let parts = name.0.iter().map(|part| part.as_ident().map(|part| part.value.clone())).collect::<Option<Vec<_>>>()?;
+    match parts.as_slice() {
+        [name] => Some(crate::catalog::TableName::main(name)),
+        [schema, name] => Some(crate::catalog::TableName::new(schema, name)),
+        _ => None,
+    }
+}
+
+fn substitute_macro_parameters(
+    expression: &mut ast::Expr,
+    values: &std::collections::BTreeMap<String, ast::Expr>,
+) {
+    use std::ops::ControlFlow;
+    // Only unqualified identifiers are macro placeholders. Qualified names
+    // retain their relation/column binding and cannot be captured by a caller
+    // parameter with the same spelling.
+    sqlparser::ast::visit_expressions_mut(expression, |expression| {
+        if let ast::Expr::Identifier(identifier) = expression
+            && let Some(value) = values.get(&identifier.value.to_ascii_lowercase()) { *expression = value.clone(); }
+        ControlFlow::<()>::Continue(())
+    });
+}
+
+fn macro_select_expression(statements: Vec<crate::parser::Statement>) -> Result<ast::Expr> {
+    let [crate::parser::Statement::Sql(statement)] = statements.as_slice() else { return Err(Error::Parse("macro expression parse".into())); };
+    let ast::Statement::Query(query) = statement.as_ref() else { return Err(Error::Parse("macro expression query".into())); };
+    let ast::SetExpr::Select(select) = query.body.as_ref() else { return Err(Error::Parse("macro expression select".into())); };
+    let [ast::SelectItem::UnnamedExpr(expression)] = select.projection.as_slice() else { return Err(Error::Parse("macro expression projection".into())); };
+    Ok(expression.clone())
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

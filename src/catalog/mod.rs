@@ -7,6 +7,7 @@ mod alter;
 mod dependency;
 pub mod expression;
 mod identity;
+pub mod macro_definition;
 mod registry;
 mod search_path;
 pub use alter::TableAlteration;
@@ -241,6 +242,16 @@ pub trait Catalog: Send {
     fn schemas(&self) -> Result<Vec<String>>;
     fn table(&self, name: &TableName) -> Result<TableDefinition>;
     fn tables(&self) -> Result<Vec<TableDefinition>>;
+
+    /// Scalar macros are catalog objects, intentionally resolved before the
+    /// built-in function registry at call binding time.
+    fn scalar_macro(&self, _name: &TableName) -> Result<macro_definition::ScalarMacroDefinition> {
+        Err(Error::Catalog("scalar macro does not exist".into()))
+    }
+
+    fn scalar_macros(&self) -> Result<Vec<macro_definition::ScalarMacroDefinition>> {
+        Ok(Vec::new())
+    }
 
     fn view(&self, _name: &TableName) -> Result<ViewDefinition> {
         Err(Error::Unsupported("views on this catalog".into()))
@@ -577,6 +588,18 @@ pub trait CatalogMut: Catalog {
     fn drop_schema(&mut self, name: &str, if_exists: bool) -> Result<()>;
     fn create_table(&mut self, definition: TableDefinition, if_not_exists: bool) -> Result<()>;
     fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()>;
+
+    fn create_scalar_macro(
+        &mut self,
+        _definition: macro_definition::ScalarMacroDefinition,
+        _conflict: CreateConflictPolicy,
+    ) -> Result<()> {
+        Err(Error::Unsupported("scalar macro creation on this catalog".into()))
+    }
+
+    fn drop_scalar_macro(&mut self, _name: &TableName, _if_exists: bool) -> Result<()> {
+        Err(Error::Unsupported("scalar macro drop on this catalog".into()))
+    }
 
     fn create_view(
         &mut self,

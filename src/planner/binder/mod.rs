@@ -62,6 +62,7 @@ impl Binder for SqlBinder {
             view_stack: Vec::new(),
             view_schema: None,
             view_dependencies: RefCell::new(BTreeSet::new()),
+            macro_stack: RefCell::new(Vec::new()),
         };
         let bound = state.stored_expression(expression)?;
         if !closed_expression(&bound) {
@@ -86,6 +87,7 @@ impl Binder for SqlBinder {
             view_stack: Vec::new(),
             view_schema: None,
             view_dependencies: RefCell::new(BTreeSet::new()),
+            macro_stack: RefCell::new(Vec::new()),
         };
         match statement {
             crate::parser::Statement::Sql(statement) => state.statement(statement),
@@ -93,6 +95,9 @@ impl Binder for SqlBinder {
             crate::parser::Statement::ResetSetting { name, scope } => {
                 state.setting(name, *scope, None)
             }
+            crate::parser::Statement::DropScalarMacro { name, if_exists } => Ok(BoundStatement::DropScalarMacro {
+                name: state.resolve_create_target(name)?, if_exists: *if_exists,
+            }),
         }
     }
 }
@@ -105,6 +110,9 @@ struct State<'a, 'b> {
     view_stack: Vec<TableName>,
     view_schema: Option<String>,
     view_dependencies: RefCell<BTreeSet<ViewDependency>>,
+    // Expansion is lexical to one bind.  A RefCell permits recursive calls to
+    // share the stack without leaking it into prepared plans or connections.
+    macro_stack: RefCell<Vec<TableName>>,
 }
 
 #[derive(Clone)]

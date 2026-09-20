@@ -84,6 +84,11 @@ pub(super) fn load(context: &columns::ReadContext<'_>) -> Result<Snapshot> {
                 }
                 reader.end()?;
             }
+            30 => {
+                let definition = super::macro_definition::read(&mut reader, name, blocks.storage_version, context.query)?;
+                snapshot.create_scalar_macro(definition, CreateConflictPolicy::Error)?;
+                reader.end()?;
+            }
             _ => {
                 return Err(Error::Unsupported(format!(
                     "DuckDB catalog entry type {kind}"

@@ -114,6 +114,16 @@ impl State<'_, '_> {
                     conflict,
                 })
             }
+            S::CreateMacro { or_replace, temporary, name, args, definition } => {
+                if *temporary { return Err(unsupported("temporary macros")); }
+                let ast::MacroDefinition::Expr(body) = definition else { return Err(unsupported("table macros")); };
+                let parameters = args.as_ref().unwrap_or(&Vec::new()).iter().map(|parameter| {
+                    Ok(crate::catalog::macro_definition::ScalarMacroParameter { name: parameter.name.value.clone(), default_sql: parameter.default_expr.as_ref().map(ToString::to_string), native_default: parameter.default_expr.as_ref().map(|expression| self.capture_stored_expression(expression)).transpose()? })
+                }).collect::<Result<Vec<_>>>()?;
+                let definition = crate::catalog::macro_definition::ScalarMacroDefinition { name: self.resolve_create_target(name)?, parameters, body_sql: body.to_string(), native_body: Some(self.capture_stored_expression(body)?), dependencies: Vec::new() };
+                definition.validate()?;
+                Ok(BoundStatement::CreateScalarMacro { definition, conflict: if *or_replace { CreateConflictPolicy::Replace } else { CreateConflictPolicy::Error } })
+            }
             S::Call(function)
                 if matches!(function.parameters, ast::FunctionArguments::None)
                     && function.over.is_none()

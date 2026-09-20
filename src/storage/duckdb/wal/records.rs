@@ -20,6 +20,7 @@ pub(super) struct RecordState {
     tables: BTreeMap<TableName, TableDefinition>,
     types: BTreeMap<TypeName, TypeDefinition>,
     views: BTreeMap<TableName, ViewDefinition>,
+    macros: BTreeMap<TableName, crate::catalog::macro_definition::ScalarMacroDefinition>,
     selected: Option<TableName>,
     storage_version: u64,
 }
@@ -43,6 +44,7 @@ impl RecordState {
                 .into_iter()
                 .map(|definition| (definition.name.clone(), definition))
                 .collect(),
+            macros: catalog.scalar_macros()?.into_iter().map(|definition| (definition.name.clone(), definition)).collect(),
             selected: None,
             storage_version,
         })
@@ -54,6 +56,19 @@ impl RecordState {
         context: &QueryContext,
     ) -> Result<Option<Change>> {
         let change = match kind {
+            11 => {
+                reader.field(101)?;
+                if !reader.boolean()? { return Err(corrupt("NULL WAL create macro")); }
+                let qualified = catalog::create_base(reader, 30)?;
+                let definition = super::super::macro_definition::read(reader, qualified, self.storage_version, context)?;
+                self.macros.insert(definition.name.clone(), definition.clone());
+                Some(Change::CreateScalarMacro { definition, conflict: CreateConflictPolicy::Replace })
+            }
+            12 => {
+                let macro_name = name(reader)?;
+                if self.macros.remove(&macro_name).is_none() { return Err(corrupt("WAL drops missing macro")); }
+                Some(Change::DropScalarMacro(macro_name))
+            }
             5 => {
                 reader.field(101)?;
                 if !reader.boolean()? {

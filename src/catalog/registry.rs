@@ -219,6 +219,14 @@ pub struct CatalogRegistry {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CatalogRegistry {
+    /// Advance the complete catalog generation for an object family which has
+    /// durable metadata but no stable object binding of its own.  Scalar macro
+    /// expansion is resolved at bind time, so a create/replace/drop must still
+    /// invalidate already prepared plans that observed this catalog.
+    pub fn touch(&mut self) -> Result<()> {
+        self.advance_version()
+    }
+
     pub fn new() -> Result<Self> {
         Ok(Self {
             catalog: CatalogId::allocate()?,

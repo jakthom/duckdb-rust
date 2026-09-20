@@ -103,6 +103,8 @@ impl BoundStatement {
                 Ok(())
             }
             Self::CreateType { definition, .. } => definition.validate(),
+            Self::CreateScalarMacro { definition, .. } => definition.validate(),
+            Self::DropScalarMacro { .. } => Ok(()),
             Self::CreateView { definition, .. } => {
                 require(
                     definition.names.len() == definition.types.len(),

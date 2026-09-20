@@ -1,0 +1,13 @@
+{
+  "schema": "b2-scalar-macro-v1",
+  "samples": 21,
+  "warmups": 3,
+  "workloads": [
+    {"id": "simple_call", "macro_sql": "CREATE MACRO m(x) AS x + 1", "call_sql": "SELECT m(i) FROM range(10000) t(i)", "control_sql": "SELECT i + 1 FROM range(10000) t(i)"},
+    {"id": "nested_chain", "macro_sql": "CREATE MACRO a(x) AS x + 1; CREATE MACRO b(x) AS a(x) + 1", "call_sql": "SELECT b(i) FROM range(10000) t(i)", "control_sql": "SELECT i + 2 FROM range(10000) t(i)"},
+    {"id": "default_named", "macro_sql": "CREATE MACRO m(x, y := 2) AS x + y", "call_sql": "SELECT m(y := 2, x := i) FROM range(10000) t(i)", "control_sql": "SELECT i + 2 FROM range(10000) t(i)"},
+    {"id": "caller_row", "macro_sql": "CREATE MACRO m(x) AS x * 2", "call_sql": "SELECT m(i) FROM range(100000) t(i)", "control_sql": "SELECT i * 2 FROM range(100000) t(i)"},
+    {"id": "ddl", "macro_sql": "CREATE MACRO m(x) AS x + 1; CREATE OR REPLACE MACRO m(x) AS x + 2; DROP MACRO m", "call_sql": "SELECT 1", "control_sql": "SELECT 1"},
+    {"id": "durable_reopen", "macro_sql": "CREATE MACRO m(x) AS x + 1", "call_sql": "SELECT m(41)", "control_sql": "SELECT 42"}
+  ]
+}

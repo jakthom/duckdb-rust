@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     catalog::{
         CreateConflictPolicy, DropBehavior, ResolvedType, TableDefinition, TypeBinding,
-        TypeDefinition, TypeName, ViewBinding, ViewDefinition,
+        TypeDefinition, TypeName, ViewBinding, ViewDefinition, macro_definition::ScalarMacroDefinition,
     },
     storage::UpdateMetadata,
 };
@@ -15,6 +15,12 @@ impl Catalog for SnapshotTransaction {
     }
     fn schemas(&self) -> Result<Vec<String>> {
         self.snapshot.schemas()
+    }
+    fn scalar_macro(&self, name: &TableName) -> Result<crate::catalog::macro_definition::ScalarMacroDefinition> {
+        self.snapshot.scalar_macro(name)
+    }
+    fn scalar_macros(&self) -> Result<Vec<crate::catalog::macro_definition::ScalarMacroDefinition>> {
+        self.snapshot.scalar_macros()
     }
     fn table(&self, name: &TableName) -> Result<TableDefinition> {
         self.snapshot.table(name)
@@ -95,6 +101,36 @@ impl Catalog for SnapshotTransaction {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl CatalogMut for SnapshotTransaction {
+    fn create_scalar_macro(
+        &mut self,
+        definition: crate::catalog::macro_definition::ScalarMacroDefinition,
+        conflict: CreateConflictPolicy,
+    ) -> Result<()> {
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        snapshot.create_scalar_macro(definition.clone(), conflict)?;
+        basis.create_scalar_macro(definition.clone(), conflict)?;
+        ensure_catalog_views_match(&snapshot, &basis)?;
+        self.snapshot = snapshot;
+        self.catalog_basis = basis;
+        if self.journal.is_some() {
+            self.record(TransactionChange::CreateScalarMacro { definition, conflict });
+        }
+        Ok(())
+    }
+
+    fn drop_scalar_macro(&mut self, name: &TableName, if_exists: bool) -> Result<()> {
+        let existed = self.snapshot.scalar_macro(name).is_ok();
+        let mut snapshot = self.snapshot.clone();
+        let mut basis = self.catalog_basis.clone();
+        snapshot.drop_scalar_macro(name, if_exists)?;
+        basis.drop_scalar_macro(name, if_exists)?;
+        ensure_catalog_views_match(&snapshot, &basis)?;
+        self.snapshot = snapshot;
+        self.catalog_basis = basis;
+        if existed && self.journal.is_some() { self.record(TransactionChange::DropScalarMacro(name.clone())); }
+        Ok(())
+    }
     fn alter_table(
         &mut self,
         name: &TableName,
