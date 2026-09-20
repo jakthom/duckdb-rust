@@ -206,18 +206,6 @@ pub trait TypeAdapter: Debug + Send + Sync {
     ) -> Option<BoundValidationIdentity> {
         None
     }
-    /// Private exact-adapter proof for prepared recursive comparison. `Some`
-    /// promises the built-in row-major lexicographic semantics through these
-    /// retained children. Registry replacements cannot call this capability;
-    /// `None` preserves ordinary selected-adapter comparison.
-    #[doc(hidden)]
-    #[allow(private_interfaces)]
-    fn retained_nested_comparison_children(
-        &self,
-        _access: TypeAdapterAccess,
-    ) -> Option<&[BoundType]> {
-        None
-    }
     /// SQL index admissibility is separate from comparison/canonical-key
     /// support: INTERVAL and nested values can group/join but have no native
     /// DuckDB index key. Retained adapters own this policy for their family.

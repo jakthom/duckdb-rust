@@ -96,96 +96,6 @@ pub(crate) enum NestedRowRef<'a> {
     Scalar(&'a NestedPayload),
 }
 
-/// One immutable physical VARCHAR encoding layer after exact bound-type
-/// validation. Comparison planning may retain these borrows for one batch;
-/// callers still own SQL NULL and bounds semantics.
-pub(crate) enum ValidatedVarcharEncodingRef<'a> {
-    Direct {
-        base: ValidatedVarcharBaseRef<'a>,
-        offset: usize,
-        count: usize,
-    },
-    Dictionary {
-        parent: &'a Vector,
-        selection: &'a [usize],
-        offset: usize,
-        count: usize,
-    },
-    Chunks {
-        chunks: &'a [Vector],
-        offsets: &'a [usize],
-        offset: usize,
-        count: usize,
-    },
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum ValidatedVarcharBaseRef<'a> {
-    Values(&'a [Value]),
-    Utf8(&'a str, &'a [Option<Range<usize>>]),
-    Constant(Option<&'a str>),
-}
-
-impl<'a> ValidatedVarcharBaseRef<'a> {
-    pub(crate) fn get(self, index: usize) -> Option<Option<&'a str>> {
-        match self {
-            Self::Values(values) => match values.get(index)? {
-                Value::Varchar(value) => Some(Some(value)),
-                Value::Null => Some(None),
-                _ => None,
-            },
-            Self::Utf8(arena, ranges) => ranges
-                .get(index)
-                .map(|range| range.as_ref().map(|range| &arena[range.clone()])),
-            Self::Constant(value) => Some(value),
-        }
-    }
-}
-
-/// One immutable physical nested encoding layer after exact recursive
-/// validation. Scalar materialized parents intentionally have no view.
-pub(crate) enum ValidatedNestedEncodingRef<'a> {
-    Direct {
-        base: ValidatedNestedBaseRef<'a>,
-        offset: usize,
-        count: usize,
-    },
-    Dictionary {
-        parent: &'a Vector,
-        selection: &'a [usize],
-        offset: usize,
-        count: usize,
-    },
-    Chunks {
-        chunks: &'a [Vector],
-        offsets: &'a [usize],
-        offset: usize,
-        count: usize,
-    },
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum ValidatedNestedBaseRef<'a> {
-    Struct {
-        validity: Option<&'a [u64]>,
-        children: &'a [Vector],
-    },
-    List {
-        validity: Option<&'a [u64]>,
-        offsets: &'a [usize],
-        child: &'a Vector,
-    },
-}
-
-impl<'a> ValidatedNestedBaseRef<'a> {
-    pub(crate) fn is_null(self, index: usize) -> Option<bool> {
-        let validity = match self {
-            Self::Struct { validity, .. } | Self::List { validity, .. } => validity,
-        };
-        Some(validity.is_some_and(|validity| !validity_is_set(validity, index)))
-    }
-}
-
 /// Private proof that newly allocated vector metadata was admitted before its
 /// allocation. Callers cannot substitute an unrelated reservation token.
 pub(crate) struct MetadataAdmission {
@@ -1708,48 +1618,6 @@ impl Vector {
         }
     }
 
-    pub(crate) fn validated_nested_encoding(&self) -> Option<ValidatedNestedEncodingRef<'_>> {
-        if !matches!(self.data_type, DataType::Nested(_)) {
-            return None;
-        }
-        Some(match &self.encoding {
-            Encoding::FlatStruct { validity, children } => ValidatedNestedEncodingRef::Direct {
-                base: ValidatedNestedBaseRef::Struct {
-                    validity: validity.as_deref().map(Vec::as_slice),
-                    children,
-                },
-                offset: self.offset,
-                count: self.count,
-            },
-            Encoding::FlatList {
-                validity,
-                offsets,
-                child,
-            } => ValidatedNestedEncodingRef::Direct {
-                base: ValidatedNestedBaseRef::List {
-                    validity: validity.as_deref().map(Vec::as_slice),
-                    offsets,
-                    child,
-                },
-                offset: self.offset,
-                count: self.count,
-            },
-            Encoding::Dictionary(parent, selection) => ValidatedNestedEncodingRef::Dictionary {
-                parent,
-                selection,
-                offset: self.offset,
-                count: self.count,
-            },
-            Encoding::Chunks(chunks, offsets) => ValidatedNestedEncodingRef::Chunks {
-                chunks,
-                offsets,
-                offset: self.offset,
-                count: self.count,
-            },
-            _ => return None,
-        })
-    }
-
     /// Whether every row in this immutable encoding can be borrowed through
     /// `nested_row_at`. Complete vector validation still owns logical payload
     /// checks; this only avoids probing each row once before an ordered batch
@@ -2209,46 +2077,6 @@ impl Vector {
         }
     }
 
-    pub(crate) fn validated_varchar_encoding(&self) -> Option<ValidatedVarcharEncodingRef<'_>> {
-        if self.data_type != DataType::Varchar {
-            return None;
-        }
-        Some(match &self.encoding {
-            Encoding::FlatValues(values) => ValidatedVarcharEncodingRef::Direct {
-                base: ValidatedVarcharBaseRef::Values(values),
-                offset: self.offset,
-                count: self.count,
-            },
-            Encoding::FlatUtf8(arena, ranges) => ValidatedVarcharEncodingRef::Direct {
-                base: ValidatedVarcharBaseRef::Utf8(arena, ranges),
-                offset: self.offset,
-                count: self.count,
-            },
-            Encoding::Constant(Value::Varchar(value)) => ValidatedVarcharEncodingRef::Direct {
-                base: ValidatedVarcharBaseRef::Constant(Some(value)),
-                offset: 0,
-                count: self.count,
-            },
-            Encoding::Constant(Value::Null) => ValidatedVarcharEncodingRef::Direct {
-                base: ValidatedVarcharBaseRef::Constant(None),
-                offset: 0,
-                count: self.count,
-            },
-            Encoding::Dictionary(parent, selection) => ValidatedVarcharEncodingRef::Dictionary {
-                parent,
-                selection,
-                offset: self.offset,
-                count: self.count,
-            },
-            Encoding::Chunks(chunks, offsets) => ValidatedVarcharEncodingRef::Chunks {
-                chunks,
-                offsets,
-                offset: self.offset,
-                count: self.count,
-            },
-            _ => return None,
-        })
-    }
     /// Compatibility spelling for the owned scalar access seam.  This is not
     /// a borrowed accessor: callers which need a `&Value` must keep the owned
     /// result alive locally.
