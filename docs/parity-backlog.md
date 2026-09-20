@@ -1246,6 +1246,12 @@ No new batch label waives an outstanding acceptance obligation.
   through native block scans. Own a dedicated storage-buffer module and tests;
   lead integrates native readers, E1 reservations and H1.1 I/O. Cover pinned
   blocks, read/write/eviction failure and transaction/result ownership.
+- F3 draft feedback at sibling `f36788e` plus its five-file patch stops at
+  compilation: `ReadCsv::scan_impl` is inside the trait implementation instead
+  of an inherent implementation, and `source_columns` lacks a concrete type.
+  Evidence: sibling `target/batch5/f3/feedback1/`; source hashes stayed fixed.
+  The draft currently accepts only direct projections, not filters or limits.
+  Missing residual/zero-column coverage and performance gates remain open.
 - F3.1: add projection/filter pushdown with correct residual predicates to the
   accepted CSV/table-source path. Own table-function scan negotiation and CSV
   consumers; lead integrates binder/physical-plan seams. Preserve custom
