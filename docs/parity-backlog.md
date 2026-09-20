@@ -1145,8 +1145,8 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Accepted at Rust `31a878c` / Python `ebe5cfb`: scoped verification, unchanged functional cases and all 23 performance stages pass. Durable B1/A2 use explicitly accepted equivalent full-sync references. Combined receipt `target/batch2/native-followup4-equivalent-fullsync-acceptance.json` retains exact stage-report hashes. Original weaker-sync failures and unrelated hexadecimal/DOUBLE ordered SUM gaps stay explicit. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | A4 accepted at `18cfc2b`. E1 candidate `058e9a7` passes independent verification (594 scoped tests, lint, coverage and trace); final 21/3 native latency passes all unlimited/fitting cases against both pins; resource acceptance fails RSS for eight sort cases and wall/CPU for reject/reuse; expanded ownership acceptance remains open. C1 formatter fix `5278a85` passes 114 scoped tests, integrated trace and fresh release replay; four of eight native cases fail and performance repair is active. Memory-limit file passes 38/38 on both pins. GROUP BY ALL external execution remains open. Evidence under `target/batch3/integrated-e1-c1/`. |
-| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1 `aec9819` remains in conflict-contract repair. H1 `2855d1d` passes scoped verification but fails the joint resource/performance gate. F2 COPY draft needs review corrections. All acceptance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
-| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1, E2 and F3.1 have uncommitted source in isolated worktrees. B2.1 integration depends on D1 acceptance; E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. All three acceptance gates remain open. |
+| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1 `b77d5d0` passes owner-state feedback and remains in conflict-contract repair. H1 `2855d1d` passes scoped verification but fails the joint resource/performance gate. F2 COPY draft needs review corrections. All acceptance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
+| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1 and E2 have uncommitted source; F3.1 draft `664b7fd` passes scoped feedback in its isolated worktree. B2.1 integration depends on D1 acceptance; E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. All three acceptance gates remain open. |
 
 **Immediate work across Batches 3/4/5:** Batch2 acceptance is complete. Its final
 regex process gate passes at 0.022917 of the faster reference latency, with CPU,
@@ -1181,7 +1181,7 @@ No new batch label waives an outstanding acceptance obligation.
   formatting). Its unsuccessful inline hints are removed; retained private
   validation-capability caching is implemented in attempt 16, whose short run
   still fails the four nested cases against prior final references.
-  Batch-bound borrowed comparison views are under profile/design review.
+  Batch-bound borrowed comparison views are implemented in attempt 17. Author feedback passes four plan units and 61 nested tests, including recursive chunk/slice offsets, custom fallback and admission/cancellation; further checks, final verification and measurement remain open.
   These short runs do not replace final acceptance. Source/profiles remain in the sibling worktree's
   `target/batch3/c1-performance1/`; the corrected provisional independent scope
   is in `target/batch3/c1-verifier-prep15/`.
@@ -1284,12 +1284,16 @@ No new batch label waives an outstanding acceptance obligation.
   through native block scans. Own a dedicated storage-buffer module and tests;
   lead integrates native readers, E1 reservations and H1.1 I/O. Cover pinned
   blocks, read/write/eviction failure and transaction/result ownership.
-- F3 draft feedback at sibling `f36788e` plus its five-file patch stops at
-  compilation: `ReadCsv::scan_impl` is inside the trait implementation instead
-  of an inherent implementation, and `source_columns` lacks a concrete type.
-  Evidence: sibling `target/batch5/f3/feedback1/`; source hashes stayed fixed.
-  The draft currently accepts only direct projections, not filters or limits.
-  Missing residual/zero-column coverage and performance gates remain open.
+- F3 isolated draft `664b7fd` repairs helper placement, type inference and
+  column-vector ownership. `target/batch5/f3/feedback3/` records 19 table-function
+  tests, two execution consumers, scoped Clippy and changed-file formatting
+  passing with stable inputs. Earlier compile failures remain preserved.
+  Four accidental extra formatting changes were reconstructed from the original
+  WIP and proven formatting-only before review/adoption; evidence is in
+  `target/batch5/f3/format-scope-audit/`. The draft currently accepts only direct
+  projections, not filters or limits. Missing residual/zero-column coverage,
+  final instrumentation/replay and performance gates remain open. Concrete
+  acceptance workloads are prepared under `target/batch5/f3/acceptance-prep4/`; `target/batch5/f3/direct-oracles5/` adds exact ordered frames for subset, duplicate/reordered and LIMIT results. Runtime measurement adapters and preflight remain open.
 - F3.1: add projection/filter pushdown with correct residual predicates to the
   accepted CSV/table-source path. Own table-function scan negotiation and CSV
   consumers; lead integrates binder/physical-plan seams. Preserve custom
