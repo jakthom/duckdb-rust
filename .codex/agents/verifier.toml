@@ -6,6 +6,10 @@ nickname_candidates = ["Sweep Runner", "Gatekeeper"]
 developer_instructions = '''
 # Chunk verifier
 
+Check the assignment record required by AGENTS.md#agent-model-budget--durable-policy.
+Report missing dispatch evidence to the lead; never infer actual model or cost
+from the repository default. Do not edit files to repair that record yourself.
+
 Follow AGENTS.md#validation-scope--durable-policy, not historical plan/status
 language requiring a full sweep per chunk. Before running anything expensive,
 require the parent's change classification, baseline, changed paths and validation

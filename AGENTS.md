@@ -26,6 +26,77 @@ engine contracts and engine-required built-in capabilities remain in scope.
 Foreign ABI/client/binary-extension compatibility is a separate final acceptance
 phase, not a circular prerequisite for declaring the core engine complete.
 
+## Agent model budget — durable policy
+
+Accepted user direction, 2026-09-19: use lower-cost agents for routine work;
+reserve Astra for consequential design and demonstrated escalation. This section
+is authoritative for model allocation; backlog assignments must follow it.
+
+| Role | Requested model | Reasoning effort | Scope |
+| --- | --- | --- | --- |
+| Mechanical assistant | `gpt-5.6-luna` | `medium` | Case mapping, report packaging and reconciliation after contracts are fixed; owner reviews semantic conclusions. |
+| Bounded implementer/reviewer | `gpt-5.6-terra` | `medium` | Isolated implementations, reference cases, focused fixes and independent leaf review. |
+| Cross-module implementer | `gpt-5.6-sol` | `high` | Ownership, buffer/spill, binder/catalog, codecs and execution integration. |
+| Architecture/escalation owner | `gpt-6-astra` | `high` | Transaction conflict design, consequential publication/state-machine decisions, or documented escalation. Delegate routine follow-through after the contract is fixed. |
+| Independent verifier | `gpt-5.6-terra` | `low` | Exact impact-scoped checks, as configured in `.codex/agents/verifier.toml`. |
+| Measurement runner | `gpt-5.6-terra` | `low` | Execute prescribed campaigns and retain evidence; escalate substantive diagnosis separately. |
+
+### Required dispatch gate
+
+Before spawning **or assigning new work to an existing agent**, the lead must:
+
+1. Classify the task using the table and the backlog chunk assignment. Split
+   mechanical execution from semantic design when useful independent work exists.
+2. Fill `.codex/dispatch-template.md` into
+   `target/agent-dispatches/<unique-assignment-id>.md`. Declare the requested
+   model/effort, bounded brief, owned paths, baseline, acceptance scope and any
+   escalation reason. Do not copy the entire conversation into a worker brief.
+3. For new agents, explicitly supply `model` and `reasoning_effort` in the spawn
+   request, with `fork_turns="none"` or a small positive turn count. Do not use a
+   full-history fork for lower-cost work: it inherits the parent and does not
+   accept overrides. The repository default is only a fallback, not evidence.
+4. Record the returned agent ID and the actual dispatch arguments. For reused
+   agents, link the original explicit dispatch record; follow-up messages do not
+   change their model. If the assignment requires a different model, dispatch a
+   correctly configured replacement when a slot is available. Do not repeatedly
+   attempt spawns when the runtime has no capacity.
+5. Distinguish **requested configuration** from **observed runtime metadata**.
+   Record unavailable observed model/effort and token/cost data as `unknown`.
+   Never infer serving model, measured savings or billing from defaults, agent
+   self-identification, model labels in prose, or elapsed command time.
+
+An existing agent without an auditable explicit dispatch may finish its current
+bounded handoff, but must not receive new lower-cost work represented as compliant.
+Preserve its work and record the legacy assignment as `unknown`; do not fabricate
+past dispatch evidence. Runtime limitations must be reported, not worked around by
+silently moving routine work to Astra. These instructions do not grant permission
+to spawn agents where the user or higher-priority instructions prohibit delegation.
+
+### Escalation and acceptance gates
+
+Start with the chunk's assigned role. Escalate Terra to Sol or Sol to Astra only
+for a concrete unresolved contract or two documented failed correction cycles.
+Record the failing case, attempts, reason, bounded escalated task and destination
+model **before** dispatch. A direct Astra assignment for transaction/conflict
+architecture must still state that reason. Command duration, a large log, or a
+worker saying work is difficult is not an escalation justification. Return
+mechanical follow-up to Terra/Luna after the contract is settled. Never upgrade
+the configured independent verifier silently.
+
+The worker must check its assignment record before work and flag missing/mismatched
+configuration to the lead. Its handoff links that record, names the actual owned
+changes and validation evidence, and reports model/usage metadata only when exposed.
+The lead must review dispatch compliance alongside functional acceptance. Record
+`pass`, `violation`, or `unknown`; unknown legacy usage remains unknown even when
+code passes tests. Fix prospective routing without discarding valid source/test
+evidence or rerunning checks just to obtain a compliant model label.
+
+These are repository instructions and review gates, not a runtime interceptor or
+billing cap. `.codex/config.toml` supplies a default; it cannot force an explicit
+spawn or change a running lead/worker's model. Do not claim hard enforcement unless
+the execution platform independently provides it. Model-policy/configuration edits
+receive artifact checks only, never engine tests or benchmarks.
+
 ## Validation scope — durable policy
 
 Accepted user clarification, 2026-09-18: **impact-scoped validation is the default
