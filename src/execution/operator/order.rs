@@ -7,9 +7,25 @@ pub use radix::RadixSort;
 use crate::{
     common::{Result, Row},
     execution::{ExecutionContext, stream::BatchStream},
+    parallel::Reservation,
     planner::logical::OrderExpr,
 };
 use std::fmt::Debug;
+
+#[derive(Debug)]
+pub struct SortedRows {
+    pub rows: Vec<Row>,
+    pub reservation: Option<Reservation>,
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl SortedRows {
+    pub fn plain(rows: Vec<Row>) -> Self {
+        Self {
+            rows,
+            reservation: None,
+        }
+    }
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 /// Consume a validated input stream once, evaluate each sort expression once
@@ -26,5 +42,5 @@ pub trait SortAlgorithm: Debug + Send + Sync {
         input: &mut dyn BatchStream,
         order: &[OrderExpr],
         context: &ExecutionContext<'_>,
-    ) -> Result<Vec<Row>>;
+    ) -> Result<SortedRows>;
 }

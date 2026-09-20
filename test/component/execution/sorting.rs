@@ -95,7 +95,9 @@ fn sort(
         batch: input,
         position: 0,
     };
-    algorithm.sort(&mut stream, order, &context)
+    algorithm
+        .sort(&mut stream, order, &context)
+        .map(|sorted| sorted.rows)
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]

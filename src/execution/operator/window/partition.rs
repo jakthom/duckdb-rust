@@ -193,7 +193,8 @@ pub(super) fn sort_indices(
             DataChunk::new(columns, count).map(Some)
         }
     });
-    let rows = algorithm.sort(source.as_mut(), &order, context)?;
+    let sorted = algorithm.sort(source.as_mut(), &order, context)?;
+    let rows = &sorted.rows;
     if rows.len() != indices.len() {
         return Err(Error::Internal("window sort changed cardinality".into()));
     }
@@ -202,7 +203,7 @@ pub(super) fn sort_indices(
     for &index in indices {
         allowed[index] = true;
     }
-    rows.into_iter()
+    rows.iter()
         .map(|row| {
             if row.len() != schema.len() {
                 return Err(Error::Internal("window sort changed row width".into()));

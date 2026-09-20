@@ -397,7 +397,7 @@ impl duckdb_rust::execution::operator::order::SortAlgorithm for InvalidPermutati
         input: &mut dyn BatchStream,
         _: &[duckdb_rust::planner::logical::OrderExpr],
         context: &ExecutionContext<'_>,
-    ) -> Result<Vec<Row>> {
+    ) -> Result<duckdb_rust::execution::operator::order::SortedRows> {
         let mut rows = Vec::new();
         while let Some(batch) = input.next(context.query.batch_size())? {
             rows.extend(batch.rows());
@@ -407,7 +407,9 @@ impl duckdb_rust::execution::operator::order::SortAlgorithm for InvalidPermutati
         } else if rows.len() > 1 {
             rows[1] = rows[0].clone();
         }
-        Ok(rows)
+        Ok(duckdb_rust::execution::operator::order::SortedRows::plain(
+            rows,
+        ))
     }
 }
 

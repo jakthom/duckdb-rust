@@ -21,6 +21,7 @@ pub struct DatabaseBuilder {
     types: Option<Arc<crate::common::type_registry::TypeRegistry>>,
     batch_size: usize,
     max_intermediate_rows: usize,
+    memory_limit_base: settings::host_memory::MemoryLimitBaseRef,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -46,6 +47,7 @@ impl Default for DatabaseBuilder {
             types: None,
             batch_size: 2048,
             max_intermediate_rows: 10_000_000,
+            memory_limit_base: Arc::new(settings::host_memory::HostMemoryLimitBase),
         }
     }
 }
@@ -131,6 +133,10 @@ impl DatabaseBuilder {
         self.max_intermediate_rows = count;
         self
     }
+    pub fn memory_limit_base(mut self, base: settings::host_memory::MemoryLimitBaseRef) -> Self {
+        self.memory_limit_base = base;
+        self
+    }
     pub fn build(self) -> Result<Database> {
         if self.batch_size == 0 || self.max_intermediate_rows == 0 {
             return Err(Error::Resource(
@@ -157,11 +163,35 @@ impl DatabaseBuilder {
             self.functions.clone(),
             self.expressions.clone(),
         ));
+        let memory_pool = Arc::new(crate::parallel::MemoryPool::default());
         let query = QueryContext::background()
             .with_types(types)
+            .with_memory_pool(memory_pool.clone())
             .with_stored_expressions(stored_expressions.clone());
         // Validate initial configuration before recovery can publish any files.
-        let settings = self.configuration.connect().snapshot(&query)?;
+        let mut configuration = self.configuration.connect();
+        let mut settings = configuration.snapshot(&query)?;
+        if settings.registry().definition("max_memory").is_ok() {
+            let limit = if settings
+                .overrides()
+                .iter()
+                .any(|(_, name, _)| name == "max_memory")
+            {
+                settings::builtin_max_memory_bytes(
+                    settings.get("max_memory", &query)?,
+                    self.memory_limit_base.as_ref(),
+                )?
+            } else {
+                settings::default_memory_limit(self.memory_limit_base.as_ref())?
+            };
+            let value =
+                Value::Varchar(limit.map_or_else(|| "-1".into(), |bytes| format!("{bytes}B")));
+            let change = settings
+                .registry()
+                .bind("max_memory", None, Some(value), &query)?;
+            memory_pool.publish_with(limit, || configuration.apply(&change, &query))?;
+            settings = configuration.snapshot(&query)?;
+        }
         settings.ordering(None, None, &query)?;
         let query = query.with_settings(settings);
         let transactions = match self.transactions {
@@ -192,6 +222,8 @@ impl DatabaseBuilder {
                 operators: self.operators,
                 batch_size: self.batch_size,
                 max_intermediate_rows: self.max_intermediate_rows,
+                memory_pool,
+                memory_limit_base: self.memory_limit_base,
             }),
         })
     }

@@ -1,6 +1,9 @@
 use super::{DataSet, ExecutionContext, physical_plan::PhysicalOperator};
 use crate::{
-    common::{Error, Result, Row, vector::DataChunk},
+    common::{
+        Error, Result, Row, Value,
+        vector::{DataChunk, Vector},
+    },
     parallel::QueryContext,
     planner::Schema,
 };
@@ -212,6 +215,74 @@ pub(crate) fn deferred_owned<'a>(
             .take(max_rows)
             .collect();
         owned_chunk(schema, next)
+    })
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Publish blocking-sort rows while retaining the sort's quota token in every
+/// emitted batch. The stream owns one clone until exhaustion; retained caller
+/// batches keep their own clone after the cursor and connection are dropped.
+pub(crate) fn deferred_sorted<'a>(
+    schema: &'a Schema,
+    context: &'a ExecutionContext<'a>,
+    load: impl FnOnce() -> Result<super::operator::order::SortedRows> + 'a,
+) -> Stream<'a> {
+    let mut load = Some(load);
+    let mut rows = None;
+    let mut reservation = None;
+    from_fn(move |max_rows| {
+        if let Some(load) = load.take() {
+            let sorted = load()?;
+            context.query.check_rows(sorted.rows.len())?;
+            reservation = sorted.reservation;
+            rows = Some(sorted.rows.into_iter());
+        }
+        let count = rows
+            .as_ref()
+            .expect("loaded sorted rows")
+            .len()
+            .min(max_rows);
+        if count == 0 {
+            rows.take();
+            reservation.take();
+            return Ok(None);
+        }
+        // Row payload ownership transfers to columns, but their new slot arrays
+        // coexist with the old row arrays during transposition. Admit that
+        // temporary peak before allocating the batch carrier or columns.
+        let temporary = if reservation.is_some() {
+            let column_slots = schema
+                .len()
+                .checked_mul(count)
+                .and_then(|n| n.checked_mul(std::mem::size_of::<Value>()))
+                .and_then(|n| n.checked_mul(2))
+                .ok_or_else(|| Error::Resource("sorted batch size overflow".into()))?;
+            let bytes = count
+                .checked_mul(std::mem::size_of::<Row>())
+                .and_then(|n| n.checked_add(column_slots))
+                .and_then(|n| {
+                    schema
+                        .len()
+                        .checked_mul(std::mem::size_of::<Vector>())
+                        .and_then(|columns| n.checked_add(columns))
+                })
+                .ok_or_else(|| Error::Resource("sorted batch size overflow".into()))?;
+            Some(context.query.memory_pool().reserve(bytes, context.query)?)
+        } else {
+            None
+        };
+        let mut next = Vec::new();
+        next.try_reserve_exact(count)
+            .map_err(|_| Error::Resource("sorted batch allocation failed".into()))?;
+        next.extend(rows.as_mut().expect("loaded sorted rows").take(count));
+        let Some(batch) = owned_chunk(schema, next)? else {
+            return Ok(None);
+        };
+        drop(temporary);
+        Ok(Some(match reservation.as_ref() {
+            Some(token) => batch.with_reservation(token.clone()),
+            None => batch,
+        }))
     })
 }
 

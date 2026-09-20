@@ -1,13 +1,140 @@
 use std::{
     collections::HashMap,
     sync::{
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use crate::common::{Error, Result};
+
+/// Database-wide requested-owned-storage admission control.  The pool records
+/// only reservations made by participating execution paths; it deliberately
+/// does not pretend to account for allocator overhead or uninstrumented
+/// operators.
+#[derive(Debug, Default)]
+pub struct MemoryPool {
+    state: Mutex<MemoryPoolState>,
+}
+
+#[derive(Debug, Default)]
+struct MemoryPoolState {
+    limit: Option<usize>,
+    used: usize,
+}
+
+#[derive(Clone, Debug)]
+pub enum Reservation {
+    Single(Arc<ReservationInner>),
+    /// Aggregating existing charges never re-admits bytes or creates a gap in
+    /// accounting. Drop recursively releases the original pool charges.
+    Many(Arc<[Reservation]>),
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Reservation {
+    pub fn bytes(&self) -> usize {
+        match self {
+            Self::Single(inner) => inner.bytes,
+            Self::Many(tokens) => tokens
+                .iter()
+                .fold(0usize, |bytes, token| bytes.saturating_add(token.bytes())),
+        }
+    }
+    pub fn merge(tokens: Vec<Reservation>) -> Self {
+        Self::Many(tokens.into())
+    }
+}
+
+#[derive(Debug)]
+pub struct ReservationInner {
+    pool: Arc<MemoryPool>,
+    bytes: usize,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl Drop for ReservationInner {
+    fn drop(&mut self) {
+        // A poisoned accounting lock must not make destruction panic. The
+        // process is already unable to make reliable admission decisions.
+        if let Ok(mut state) = self.pool.state.lock() {
+            state.used = state.used.saturating_sub(self.bytes);
+        }
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl MemoryPool {
+    /// Serialize a configuration publication with its cap update. The caller
+    /// performs no externally visible write before this method checks the
+    /// proposed cap; reservations cannot interleave the commit.
+    pub fn publish_with<T>(
+        &self,
+        limit: Option<usize>,
+        publish: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal("memory pool lock poisoned".into()))?;
+        if limit.is_some_and(|limit| state.used > limit) {
+            return Err(Error::Resource(
+                "cannot lower memory limit below retained reservations".into(),
+            ));
+        }
+        let value = publish()?;
+        state.limit = limit;
+        Ok(value)
+    }
+    pub fn reserve(self: &Arc<Self>, bytes: usize, query: &QueryContext) -> Result<Reservation> {
+        query.check()?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal("memory pool lock poisoned".into()))?;
+        let next = state
+            .used
+            .checked_add(bytes)
+            .ok_or_else(|| Error::Resource("memory reservation accounting overflow".into()))?;
+        if state.limit.is_some_and(|limit| next > limit) {
+            return Err(Error::Resource("memory limit exceeded".into()));
+        }
+        state.used = next;
+        Ok(Reservation::Single(Arc::new(ReservationInner {
+            pool: self.clone(),
+            bytes,
+        })))
+    }
+
+    pub fn publish_limit(&self, limit: Option<usize>) -> Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal("memory pool lock poisoned".into()))?;
+        if limit.is_some_and(|limit| state.used > limit) {
+            return Err(Error::Resource(
+                "cannot lower memory limit below retained reservations".into(),
+            ));
+        }
+        state.limit = limit;
+        Ok(())
+    }
+
+    pub fn limit(&self) -> Result<Option<usize>> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal("memory pool lock poisoned".into()))?
+            .limit)
+    }
+    pub fn used(&self) -> Result<usize> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal("memory pool lock poisoned".into()))?
+            .used)
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct InterruptHandle(Arc<AtomicBool>);
@@ -34,6 +161,7 @@ pub struct QueryContext {
     settings: crate::main::settings::SettingsSnapshot,
     stored_expressions: Option<Arc<dyn crate::catalog::expression::StoredExpressionEvaluator>>,
     transaction_timestamp_micros: Option<i64>,
+    memory_pool: Arc<MemoryPool>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -115,6 +243,13 @@ impl QueryContext {
         self.bound_types = Arc::new(RwLock::new(HashMap::new()));
         self
     }
+    pub fn with_memory_pool(mut self, memory_pool: Arc<MemoryPool>) -> Self {
+        self.memory_pool = memory_pool;
+        self
+    }
+    pub fn memory_pool(&self) -> &Arc<MemoryPool> {
+        &self.memory_pool
+    }
 
     pub fn batch_size(&self) -> usize {
         self.batch_size
@@ -142,6 +277,7 @@ impl QueryContext {
             settings: crate::main::settings::SettingsSnapshot::default(),
             stored_expressions: None,
             transaction_timestamp_micros: None,
+            memory_pool: Arc::new(MemoryPool::default()),
         }
     }
     pub fn new(
@@ -165,6 +301,7 @@ impl QueryContext {
             settings: crate::main::settings::SettingsSnapshot::default(),
             stored_expressions: None,
             transaction_timestamp_micros: None,
+            memory_pool: Arc::new(MemoryPool::default()),
         })
     }
     pub fn check(&self) -> Result<()> {

@@ -768,19 +768,19 @@ impl PhysicalOperator for Operator {
                 targets,
                 order,
                 algorithm,
-            } => stream::deferred(schema, context, move || {
+            } => stream::deferred_sorted(schema, context, move || {
                 let mut input = stream::open(input.as_ref(), context)?;
                 if targets.iter().all(BoundExpr::is_pure_and_total)
                     && order.iter().all(|item| item.expression.is_pure_and_total())
                 {
                     let rows = grouped_distinct_on(input.as_mut(), targets, order, context)?;
                     if order.is_empty() {
-                        return Ok(rows);
+                        return Ok(crate::execution::operator::order::SortedRows::plain(rows));
                     }
                     let mut survivors = stream::deferred(schema, context, move || Ok(rows));
                     return algorithm.sort(survivors.as_mut(), order, context);
                 }
-                let rows = if order.is_empty() {
+                let sorted = if order.is_empty() {
                     let mut rows = Vec::new();
                     while let Some(batch) = input.next(context.query.batch_size())? {
                         context
@@ -788,11 +788,18 @@ impl PhysicalOperator for Operator {
                             .check_rows(rows.len().saturating_add(batch.len()))?;
                         rows.extend(batch.rows());
                     }
-                    rows
+                    crate::execution::operator::order::SortedRows::plain(rows)
                 } else {
                     algorithm.sort(input.as_mut(), order, context)?
                 };
-                distinct_on(rows, targets, context)
+                let rows = distinct_on(sorted.rows, targets, context)?;
+                // distinct_on moves its chosen row values into its output, so
+                // retain the sort token alongside that output until batches
+                // take ownership at deferred_sorted.
+                Ok(crate::execution::operator::order::SortedRows {
+                    rows,
+                    reservation: sorted.reservation,
+                })
             }),
             Node::SetOperation {
                 left,
@@ -858,7 +865,7 @@ impl PhysicalOperator for Operator {
                 input,
                 order,
                 algorithm,
-            } => stream::deferred(schema, context, move || {
+            } => stream::deferred_sorted(schema, context, move || {
                 let mut input = stream::open(input.as_ref(), context)?;
                 algorithm.sort(input.as_mut(), order, context)
             }),

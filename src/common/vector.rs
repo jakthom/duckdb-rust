@@ -417,10 +417,17 @@ pub struct Vector {
     count: usize,
     all_valid: bool,
     numeric_ascending: bool,
+    reservation: Option<crate::parallel::Reservation>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Vector {
+    fn retain_reservation(&mut self, reservation: crate::parallel::Reservation) {
+        self.reservation = Some(match self.reservation.take() {
+            Some(existing) => crate::parallel::Reservation::merge(vec![existing, reservation]),
+            None => reservation,
+        });
+    }
     /// Combine same-typed immutable input batches without copying their
     /// payloads.  This is storage-facing: execution still observes ordinary
     /// vectors after a scan slices a segment-sized batch.
@@ -451,6 +458,7 @@ impl Vector {
             }
         }
         Ok(Self {
+            reservation: None,
             data_type,
             encoding: Encoding::Chunks(chunks.into(), offsets.into()),
             offset: 0,
@@ -491,7 +499,13 @@ impl Vector {
                 end = column.offset + column.count;
                 contiguous
             }) {
+                let reservations = columns
+                    .iter()
+                    .filter_map(|column| column.reservation.clone())
+                    .collect::<Vec<_>>();
                 return Ok(Self {
+                    reservation: (!reservations.is_empty())
+                        .then(|| crate::parallel::Reservation::merge(reservations)),
                     count,
                     ..first.clone()
                 });
@@ -548,6 +562,7 @@ impl Vector {
             Encoding::FlatNullableSigned(lanes, Arc::new(validity))
         };
         Ok(Self {
+            reservation: None,
             data_type: DataType::BigInt,
             offset: 0,
             count,
@@ -569,6 +584,7 @@ impl Vector {
     ) -> Self {
         let count = values.len();
         Self {
+            reservation: None,
             data_type: DataType::BigInt,
             offset: 0,
             count,
@@ -614,6 +630,7 @@ impl Vector {
             Encoding::FlatNullableSigned(lanes, Arc::new(validity))
         };
         Ok(Self {
+            reservation: None,
             data_type: DataType::HugeInt,
             count,
             offset: 0,
@@ -653,6 +670,7 @@ impl Vector {
             });
         }
         Ok(Self {
+            reservation: None,
             data_type,
             count: output.len(),
             offset: 0,
@@ -693,6 +711,7 @@ impl Vector {
         }
         let count = coefficients.len();
         Ok(Self {
+            reservation: None,
             data_type: DataType::Decimal { width, scale },
             encoding: Encoding::FlatDecimalI64(Arc::new(coefficients)),
             offset: 0,
@@ -711,6 +730,7 @@ impl Vector {
     ) -> Self {
         debug_assert!(matches!(data_type, DataType::Decimal { width: 1..=18, .. }));
         Self {
+            reservation: None,
             data_type,
             count: coefficients.len(),
             encoding: Encoding::FlatDecimalI64(Arc::new(coefficients)),
@@ -726,6 +746,7 @@ impl Vector {
     /// DOUBLE payloads.  IEEE special values are valid SQL DOUBLE values.
     pub(crate) fn try_doubles(values: Vec<f64>) -> Result<Self> {
         Ok(Self {
+            reservation: None,
             data_type: DataType::Double,
             count: values.len(),
             encoding: Encoding::FlatDouble(Arc::new(values)),
@@ -756,6 +777,7 @@ impl Vector {
         let all_valid = ranges.iter().all(Option::is_some);
         let count = ranges.len();
         Ok(Self {
+            reservation: None,
             data_type: DataType::Varchar,
             encoding: Encoding::FlatUtf8(arena, ranges.into()),
             offset: 0,
@@ -818,6 +840,7 @@ impl Vector {
             Encoding::FlatValues(Arc::new(values))
         };
         Ok(Self {
+            reservation: None,
             data_type,
             offset: 0,
             count,
@@ -833,6 +856,7 @@ impl Vector {
             ));
         }
         Ok(Self {
+            reservation: None,
             numeric_ascending: !value.is_null()
                 && (data_type.is_decimal() || data_type.is_unsigned_integer()),
             data_type,
@@ -870,6 +894,7 @@ impl Vector {
         }
         let mapped = Arc::new(mapped);
         Ok(Self {
+            reservation: self.reservation.clone(),
             data_type,
             encoding: Encoding::Dictionary(mapped.clone(), selection.clone()),
             offset: self.offset,
@@ -891,6 +916,7 @@ impl Vector {
             };
         }
         Self {
+            reservation: self.reservation.clone(),
             numeric_ascending: self.numeric_ascending && ordered,
             data_type: self.data_type.clone(),
             offset: 0,
@@ -914,10 +940,15 @@ impl Vector {
             if let Some(chunk) = chunks.get(segment)
                 && end <= offsets[segment + 1]
             {
-                return chunk.slice(start - offsets[segment], count);
+                let mut result = chunk.slice(start - offsets[segment], count)?;
+                if let Some(token) = &self.reservation {
+                    result.retain_reservation(token.clone());
+                }
+                return Ok(result);
             }
         }
         Ok(Self {
+            reservation: self.reservation.clone(),
             data_type: self.data_type.clone(),
             encoding: self.encoding.clone(),
             offset: self.offset + offset,
@@ -991,6 +1022,34 @@ impl Vector {
                     .get(segment)
                     .and_then(|chunk| chunk.value(index - offsets[segment]))
             }
+        }
+    }
+    /// Borrow a VARCHAR through any validated physical encoding. Outer None
+    /// means wrong type/out of bounds; inner None is SQL NULL.
+    pub(crate) fn varchar_at(&self, index: usize) -> Option<Option<&str>> {
+        if self.data_type != DataType::Varchar || index >= self.count {
+            return None;
+        }
+        let index = self.offset + index;
+        match &self.encoding {
+            Encoding::FlatValues(values) => match values.get(index)? {
+                Value::Varchar(value) => Some(Some(value.as_str())),
+                Value::Null => Some(None),
+                _ => None,
+            },
+            Encoding::FlatUtf8(arena, ranges) => ranges
+                .get(index)
+                .map(|range| range.as_ref().map(|range| &arena[range.clone()])),
+            Encoding::Constant(Value::Varchar(value)) => Some(Some(value.as_str())),
+            Encoding::Constant(Value::Null) => Some(None),
+            Encoding::Dictionary(parent, selection) => parent.varchar_at(*selection.get(index)?),
+            Encoding::Chunks(chunks, offsets) => {
+                let segment = offsets
+                    .partition_point(|&end| end <= index)
+                    .saturating_sub(1);
+                chunks.get(segment)?.varchar_at(index - offsets[segment])
+            }
+            _ => None,
         }
     }
     /// Compatibility spelling for the owned scalar access seam.  This is not
@@ -2202,6 +2261,9 @@ mod physical_tests {
 pub struct DataChunk {
     columns: Vec<Vector>,
     count: usize,
+    // Keep zero-column batches accountable. Columns also retain the charge,
+    // so independently cloned column views cannot outlive their accounting.
+    reservation: Option<crate::parallel::Reservation>,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -2212,7 +2274,18 @@ impl DataChunk {
                 "chunk columns differ in cardinality".into(),
             ));
         }
-        Ok(Self { columns, count })
+        Ok(Self {
+            columns,
+            count,
+            reservation: None,
+        })
+    }
+    pub(crate) fn with_reservation(mut self, reservation: crate::parallel::Reservation) -> Self {
+        for column in &mut self.columns {
+            column.retain_reservation(reservation.clone());
+        }
+        self.reservation = Some(reservation);
+        self
     }
     pub fn from_rows(types: &[DataType], rows: &[Row]) -> Result<Self> {
         if rows.iter().any(|r| r.len() != types.len()) {
@@ -2271,13 +2344,15 @@ impl DataChunk {
         if offset > self.count || count > self.count - offset {
             return Err(Error::Internal("chunk slice out of bounds".into()));
         }
-        Self::new(
+        let mut result = Self::new(
             self.columns
                 .iter()
                 .map(|column| column.slice(offset, count))
                 .collect::<Result<_>>()?,
             count,
-        )
+        )?;
+        result.reservation = self.reservation.clone();
+        Ok(result)
     }
     /// Owns selected column views without copying flat or dictionary payloads.
     /// Reordering and duplicates are allowed; an empty projection preserves
@@ -2292,7 +2367,9 @@ impl DataChunk {
                     .ok_or_else(|| Error::Internal("chunk projection out of bounds".into()))
             })
             .collect::<Result<_>>()?;
-        Self::new(columns, self.count)
+        let mut result = Self::new(columns, self.count)?;
+        result.reservation = self.reservation.clone();
+        Ok(result)
     }
     pub fn select(&self, selection: &[usize]) -> Result<Self> {
         if selection.iter().any(|&index| index >= self.count) {
@@ -2308,7 +2385,9 @@ impl DataChunk {
             .iter()
             .map(|column| Arc::new(column.clone()).selected(selection.clone(), ordered))
             .collect();
-        Self::new(columns, selection.len())
+        let mut result = Self::new(columns, selection.len())?;
+        result.reservation = self.reservation.clone();
+        Ok(result)
     }
     pub fn rows(&self) -> impl Iterator<Item = Row> + '_ {
         (0..self.count).map(|i| {
@@ -2338,6 +2417,70 @@ impl DataChunk {
 mod data_chunk_tests {
     use super::*;
     use crate::common::{NestedPayload, NestedType, NestedValue};
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn retained_chunk_and_column_views_keep_reservations_until_last_owner() -> Result<()> {
+        use crate::parallel::{MemoryPool, QueryContext};
+        let pool = Arc::new(MemoryPool::default());
+        let query = QueryContext::background().with_memory_pool(pool.clone());
+        let charge = pool.reserve(128, &query)?;
+        let original = DataChunk::new(
+            vec![Vector::flat(
+                DataType::Varchar,
+                vec![Value::Varchar("one".into()), Value::Varchar("two".into())],
+            )?],
+            2,
+        )?
+        .with_reservation(charge);
+        let sliced = original.slice(1, 1)?;
+        let projected = original.project(&[0, 0])?;
+        let selected = original.select(&[1, 0, 1])?;
+        let empty_projection = original.project(&[])?;
+        let column = Arc::new(selected.columns()[0].clone());
+        let column_view = column.select(vec![2, 0])?.slice(0, 1)?;
+        drop((
+            original,
+            sliced,
+            projected,
+            selected,
+            empty_projection,
+            column,
+        ));
+        assert_eq!(pool.used()?, 128);
+        assert!(matches!(
+            pool.publish_limit(Some(127)),
+            Err(Error::Resource(_))
+        ));
+        assert_eq!(column_view.value(0), Some(Value::Varchar("two".into())));
+        drop(column_view);
+        assert_eq!(pool.used()?, 0);
+        pool.publish_limit(Some(0))?;
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn chunked_segment_slice_retains_parent_reservation() -> Result<()> {
+        use crate::parallel::{MemoryPool, QueryContext};
+        let pool = Arc::new(MemoryPool::default());
+        let query = QueryContext::background().with_memory_pool(pool.clone());
+        let mut combined = Vector::chunked(
+            DataType::Varchar,
+            vec![
+                Vector::flat(DataType::Varchar, vec![Value::Varchar("a".into())])?,
+                Vector::flat(DataType::Varchar, vec![Value::Varchar("b".into())])?,
+            ],
+        )?;
+        combined.retain_reservation(pool.reserve(32, &query)?);
+        let slice = combined.slice(1, 1)?;
+        drop(combined);
+        assert_eq!(pool.used()?, 32);
+        assert_eq!(slice.value(0), Some(Value::Varchar("b".into())));
+        drop(slice);
+        assert_eq!(pool.used()?, 0);
+        Ok(())
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]

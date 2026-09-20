@@ -283,6 +283,7 @@ impl Connection {
         )?;
         let context = context
             .with_types(self.services.transactions.types())
+            .with_memory_pool(self.services.memory_pool.clone())
             .with_stored_expressions(self.services.stored_expressions.clone());
         let settings = self.configuration.snapshot(&context)?;
         Ok(context.with_settings(settings))
@@ -398,7 +399,24 @@ impl Connection {
             .and_then(|()| {
                 let change = validated
                     .ok_or_else(|| Error::Internal("scheduler did not execute the task".into()))?;
-                self.configuration.apply(&change, &context)
+                if change.name() == "max_memory" {
+                    let limit = if change.value().is_none() {
+                        settings::default_memory_limit(self.services.memory_limit_base.as_ref())?
+                    } else {
+                        settings::builtin_max_memory_bytes(
+                            change.value().expect("configured value"),
+                            self.services.memory_limit_base.as_ref(),
+                        )?
+                    };
+                    let resolved = limit.map(|bytes| Value::Varchar(format!("{bytes}B")));
+                    let change = change.with_value(resolved);
+                    self.services
+                        .memory_pool
+                        .publish_with(limit, || self.configuration.apply(&change, &context))?;
+                } else {
+                    self.configuration.apply(&change, &context)?;
+                }
+                Ok(())
             });
         match result {
             Ok(()) => {

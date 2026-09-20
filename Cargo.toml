@@ -68,6 +68,10 @@ name = "settings"
 path = "test/component/settings.rs"
 
 [[test]]
+name = "resources"
+path = "test/component/resources.rs"
+
+[[test]]
 name = "compatibility"
 path = "test/compatibility.rs"
 

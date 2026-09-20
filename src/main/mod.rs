@@ -56,4 +56,6 @@ struct Services {
     operators: OperatorRegistry,
     batch_size: usize,
     max_intermediate_rows: usize,
+    memory_pool: Arc<crate::parallel::MemoryPool>,
+    memory_limit_base: settings::host_memory::MemoryLimitBaseRef,
 }

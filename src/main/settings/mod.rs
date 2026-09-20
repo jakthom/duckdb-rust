@@ -1,8 +1,11 @@
 //! Configuration definitions, immutable statement views and scoped publication.
 mod builtin;
 mod control;
+pub mod host_memory;
 mod store;
 
+pub(in crate::main) use builtin::default_memory_limit;
+pub(in crate::main) use builtin::max_memory_bytes as builtin_max_memory_bytes;
 pub(in crate::main) use control::{QueryProfile, verify_query_results};
 pub use store::{LockedConfiguration, SnapshotConfiguration};
 
@@ -217,6 +220,10 @@ impl SettingChange {
     pub fn value(&self) -> Option<&Value> {
         self.value.as_ref()
     }
+    pub(in crate::main) fn with_value(mut self, value: Option<Value>) -> Self {
+        self.value = value;
+        self
+    }
     pub fn validate(&self, registry: &SettingRegistry, query: &QueryContext) -> Result<()> {
         query.check()?;
         if !Arc::ptr_eq(registry.entry(self.name())?, &self.entry) {
@@ -402,6 +409,9 @@ impl SettingsSnapshot {
     /// `PRAGMA disable_profiling` remains a disabling override.
     pub(crate) fn current_value(&self, name: &str, query: &QueryContext) -> Result<Value> {
         match name.to_ascii_lowercase().as_str() {
+            "max_memory" | "memory_limit" => {
+                return builtin::format_memory_limit(self.get("max_memory", query)?);
+            }
             "enable_profiling" | "enable_profile" => return self.effective_enable_profiling(query),
             // Both pinned implementations expose profiling_mode from the
             // shared profiler state. Enabling a renderer therefore makes the

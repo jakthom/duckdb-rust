@@ -19,7 +19,7 @@ impl SortAlgorithm for RadixSort {
         input: &mut dyn BatchStream,
         order: &[OrderExpr],
         context: &ExecutionContext<'_>,
-    ) -> Result<Vec<Row>> {
+    ) -> Result<SortedRows> {
         for item in order {
             if !item.expression.is_pure_and_total()
                 || context
@@ -113,7 +113,7 @@ impl SortAlgorithm for RadixSort {
             );
         }
         context.query.check()?;
-        Ok(rows)
+        Ok(SortedRows::plain(rows))
     }
 }
 
