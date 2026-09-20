@@ -180,10 +180,19 @@ fn sorted_batch_and_independent_column_keep_quota_after_connection_drop() -> Res
     let column = retained.columns()[0].clone();
     assert_eq!(column.value(0), Some(Value::Varchar("z".into())));
     let mut observer = database.connect();
+    let previous_limit = observer
+        .query("SELECT current_setting('memory_limit')")?
+        .rows;
     assert!(matches!(
-        observer.execute("SET memory_limit='1B'"),
+        observer.execute("PRAGMA memory_limit='1B'"),
         Err(Error::Resource(_))
     ));
+    assert_eq!(
+        observer
+            .query("SELECT current_setting('memory_limit')")?
+            .rows,
+        previous_limit
+    );
     drop(retained);
     assert!(matches!(
         observer.execute("SET memory_limit='1B'"),
@@ -263,5 +272,61 @@ fn defaults_fallbacks_byte_spellings_and_failed_publication_are_atomic() -> Resu
     assert_eq!(pool.limit()?, Some(100));
     drop(charge);
     assert_eq!(pool.used()?, 0);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn memory_pragmas_share_global_settings_and_preserve_failed_publications() -> Result<()> {
+    let database = DatabaseBuilder::new().build()?;
+    let mut first = database.connect();
+    let mut second = database.connect();
+    for (sql, expected) in [
+        ("PRAGMA memory_limit='2 KiB'", "2.0 KiB"),
+        ("PRAGMA max_memory='1024 bytes'", "1.0 KiB"),
+    ] {
+        first.execute(sql)?;
+        assert_eq!(
+            second.query("SELECT current_setting('memory_limit')")?.rows,
+            vec![vec![Value::Varchar(expected.into())]],
+            "{sql}"
+        );
+        assert_eq!(
+            first.query("SELECT current_setting('max_memory')")?.rows,
+            vec![vec![Value::Varchar(expected.into())]],
+            "{sql}"
+        );
+    }
+    for sql in [
+        "PRAGMA memory_limit",
+        "PRAGMA memory_limit()",
+        "PRAGMA memory_limit('2 KiB')",
+        "PRAGMA max_memory('2 KiB')",
+        "PRAGMA memory_limit(1, 2)",
+        "PRAGMA memory_limit=100",
+        "PRAGMA memory_limit='0.01BG'",
+        "PRAGMA memory_limit=NULL",
+        "PRAGMA memory_limit=?",
+    ] {
+        assert!(first.execute(sql).is_err(), "{sql}");
+        assert_eq!(
+            second.query("SELECT current_setting('max_memory')")?.rows,
+            vec![vec![Value::Varchar("1.0 KiB".into())]],
+            "{sql}"
+        );
+    }
+    for sql in ["PRAGMA memory_limit=-1", "PRAGMA max_memory='none'"] {
+        first.execute(sql)?;
+        let actual = second.query("SELECT current_setting('memory_limit')")?.rows;
+        first.execute("SET max_memory='-1'")?;
+        assert_eq!(
+            actual,
+            second.query("SELECT current_setting('max_memory')")?.rows
+        );
+    }
+    assert!(
+        matches!(first.execute("PRAGMA memory_limit()"), Err(Error::Parse(message))
+        if message.contains("syntax error at or near \")\""))
+    );
     Ok(())
 }

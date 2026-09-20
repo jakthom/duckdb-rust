@@ -67,6 +67,16 @@ impl Dialect for RewriteDialect {
     fn supports_values_as_table_factor(&self) -> bool {
         true
     }
+    fn parse_statement(
+        &self,
+        parser: &mut Parser,
+    ) -> Option<Result<sqlparser::ast::Statement, ParserError>> {
+        if parser.parse_keyword(Keyword::PRAGMA) {
+            Some(super::pragma::parse(parser))
+        } else {
+            DuckDbDialect.parse_statement(parser)
+        }
+    }
     fn parse_infix(
         &self,
         parser: &mut Parser,

@@ -24,7 +24,7 @@ impl State<'_, '_> {
             S::Reset(ast::ResetStatement {
                 reset: ast::Reset::ConfigurationParameter(name),
             }) => self.setting(name, None, None),
-            S::Pragma { name, value, .. } => self.pragma(name, value.as_ref()),
+            S::Pragma { name, value, is_eq } => self.pragma(name, value.as_ref(), *is_eq),
             S::Query(query) => Ok(BoundStatement::Query(self.query(query)?)),
             S::CreateView(view) => {
                 if view.or_alter

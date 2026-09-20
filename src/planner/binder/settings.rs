@@ -65,6 +65,7 @@ impl State<'_, '_> {
         &self,
         name: &ast::ObjectName,
         value: Option<&ast::ValueWithSpan>,
+        is_eq: bool,
     ) -> Result<BoundStatement> {
         let [part] = name.0.as_slice() else {
             return Err(Error::Bind("pragma names must be unqualified".into()));
@@ -74,6 +75,11 @@ impl State<'_, '_> {
             .ok_or_else(|| unsupported("pragma name expression"))?
             .value
             .to_ascii_lowercase();
+        if matches!(name.as_str(), "memory_limit" | "max_memory") && !is_eq {
+            return Err(Error::Bind(format!(
+                "PRAGMA {name} requires assignment syntax"
+            )));
+        }
         let literal = value
             .map(|value| self.literal(&ast::Expr::Value(value.clone())))
             .transpose()?;
@@ -95,6 +101,10 @@ impl State<'_, '_> {
             }
             ("profiling_mode", Some(value)) => ("profiling_mode", Some(value)),
             ("debug_force_external", Some(value)) => ("debug_force_external", Some(value)),
+            ("memory_limit" | "max_memory", Some(value)) => ("max_memory", Some(value)),
+            ("memory_limit" | "max_memory", None) => {
+                return Err(Error::Bind(format!("PRAGMA {name} requires an argument")));
+            }
             (
                 "enable_verification"
                 | "disable_verification"
@@ -115,7 +125,7 @@ impl State<'_, '_> {
             .settings()
             .registry()
             .definition(setting)?;
-        self.setting_value(setting, Some(SettingScope::Session), value, definition)
+        self.setting_value(setting, None, value, definition)
     }
 
     fn setting_value(
