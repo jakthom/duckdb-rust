@@ -1174,7 +1174,10 @@ No new batch label waives an outstanding acceptance obligation.
   `target/batch3/c1-verifier-prep2/` records reviewed partial verification scope.
   C1-only resource inputs are discovery-ready at
   `target/batch3/c1-resource-discovery5/inputs5`, with SQL bytes unchanged and
-  all eight paths under `test/`; engine preflight remains open.
+  all eight paths under `test/`. Both pinned C++ engines pass all eight
+  resource fixtures (16 runs, 17,288 assertions per pin), with stable inputs;
+  evidence is `target/batch3/c1-resource-preflight6/receipt.json`. Rust preflight
+  and final resource measurements remain open.
 
 - E1: introduce fallible byte reservations, ownership/release and memory-setting
   propagation through vectors and one existing operator. Exercise allocation
