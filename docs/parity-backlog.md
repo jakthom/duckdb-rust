@@ -1189,8 +1189,12 @@ No new batch label waives an outstanding acceptance obligation.
 
 **Batch 4 — concurrent writes, local I/O and CSV export.**
 
-- D1 oracle update: `target/batch4/d1-oracle/{run1,run2,run3}/report.json` captures
-  49 deterministic histories per pin. Development rejects UPDATE commits
+- D1 oracle update: `target/batch4/d1-oracle/{run1,run2,run3,run4}/` captures
+  63 deterministic histories per pin. The latest 14 agree across pins: local
+  append updates/deletes affect only their owner after remapping; concurrent
+  duplicate inserts both execute but the second COMMIT fails uniqueness;
+  same-owner updates after one or two relocations target the successor, while
+  a rival update to the retired version does not affect that successor. Development rejects UPDATE commits
   concurrent with RENAME where release accepts; development remains authoritative.
   Stale DELETE fails at mutation for indexed tables and at COMMIT for plain
   tables. Existing implementation remains unaccepted; four new source-only
