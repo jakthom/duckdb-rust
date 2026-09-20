@@ -1204,6 +1204,13 @@ No new batch label waives an outstanding acceptance obligation.
   transaction histories; lead integrates catalog/storage publication seams.
   Cover disjoint and overlapping writers, DDL races, old snapshots, rollback and
   durable publication. Only this track owns transaction state-machine changes.
+- F2 reference byte oracle: `target/batch4/f2-oracle/` covers nine writer
+  cases on both pins with identical bytes and complete explicit readback.
+  Confirmed hash-prefix quoting, distinct quote/escape handling, FORCE_QUOTE
+  on header/data fields, empty-string versus NULL bytes, and zero-row headers.
+  Quote-sensitive readback requires `allow_quoted_nulls=false`; the default
+  reader collapses quoted empty strings to NULL. Rust writer repair and its
+  fault/performance gates remain open.
 - H1.1 verification: sibling `2855d1d` passes 73 scoped functional tests,
   Clippy, adapter checks, coverage and tracing. Both reference measurement
   workers are prepared. Both 21-sample/3-warmup campaigns have valid identities,
