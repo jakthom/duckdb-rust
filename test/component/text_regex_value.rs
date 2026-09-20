@@ -395,7 +395,7 @@ fn regexp_named_empty_fields_keep_development_struct_metadata_and_access() -> Re
             "['x','']",
             vec!["x", ""],
             "{'x': a, '': b}",
-            "STRUCT(x VARCHAR, VARCHAR)",
+            "STRUCT(x VARCHAR,  VARCHAR)",
             Some("x"),
             "a",
         ),
@@ -411,6 +411,12 @@ fn regexp_named_empty_fields_keep_development_struct_metadata_and_access() -> Re
         .data_type();
         assert_eq!(result.columns[0].data_type, expected_type);
         assert_eq!(result.rows[0][0].to_string(), rendered);
+        assert_eq!(
+            connection
+                .query(&format!("SELECT CAST({sql} AS VARCHAR)"))?
+                .rows,
+            vec![vec![Value::Varchar(rendered.into())]]
+        );
         assert_eq!(
             connection.query(&format!("SELECT typeof({sql})"))?.rows,
             vec![vec![Value::Varchar(type_text.into())]]
@@ -438,6 +444,14 @@ fn regexp_named_empty_fields_keep_development_struct_metadata_and_access() -> Re
             "SELECT regexp_extract_all('ab', '(a)(b)', {names})"
         ))?;
         assert_eq!(all.rows[0][0].to_string(), format!("[{rendered}]"));
+        assert_eq!(
+            connection
+                .query(&format!(
+                    "SELECT CAST(regexp_extract_all('ab', '(a)(b)', {names}) AS VARCHAR)"
+                ))?
+                .rows,
+            vec![vec![Value::Varchar(format!("[{rendered}]"))]]
+        );
     }
     assert!(
         connection

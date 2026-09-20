@@ -95,6 +95,22 @@ impl CastFunction for NestedTextCast {
                 }
                 append(&mut output, "]", query)?;
             }
+            (NestedType::Struct(fields), NestedPayload::Struct(values))
+                if self.metadata.is_positional_struct() =>
+            {
+                append(&mut output, "(", query)?;
+                for (index, (ty, value)) in fields.iter().map(|(_, ty)| ty).zip(values).enumerate()
+                {
+                    if index > 0 {
+                        append(&mut output, ", ", query)?;
+                    }
+                    self.child(index, value, quote(ty), &mut output, behavior, query)?;
+                }
+                if fields.len() == 1 {
+                    append(&mut output, ",", query)?;
+                }
+                append(&mut output, ")", query)?;
+            }
             (
                 NestedType::Struct(fields) | NestedType::Object(fields),
                 NestedPayload::Struct(values),

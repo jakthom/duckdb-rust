@@ -132,6 +132,10 @@ impl NestedType {
             Self::Object(_) => "builtin.variant_object",
         }
     }
+
+    pub(crate) fn is_positional_struct(&self) -> bool {
+        matches!(self, Self::Struct(fields) if fields.first().is_some_and(|(name, _)| name.is_empty()))
+    }
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -258,14 +262,17 @@ impl fmt::Display for NestedType {
                         "UNION"
                     }
                 )?;
-                let unnamed = matches!(self, Self::Struct(_))
-                    && fields.first().is_some_and(|(name, _)| name.is_empty());
+                let unnamed = self.is_positional_struct();
                 for (index, (name, ty)) in fields.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
-                    if unnamed || (name.is_empty() && matches!(self, Self::Struct(_))) {
+                    if unnamed {
                         write!(f, "{}", ChildType(ty))?;
+                        continue;
+                    }
+                    if name.is_empty() && matches!(self, Self::Struct(_)) {
+                        write!(f, " {}", ChildType(ty))?;
                         continue;
                     }
                     if keywords::requires_quotes(name) {
@@ -324,9 +331,7 @@ impl fmt::Display for NestedValue {
                 else {
                     return Err(fmt::Error);
                 };
-                if matches!(metadata.as_ref(), NestedType::Struct(_))
-                    && fields.first().is_some_and(|(name, _)| name.is_empty())
-                {
+                if metadata.is_positional_struct() {
                     write!(f, "(")?;
                     for (index, ((_, ty), value)) in fields.iter().zip(values).enumerate() {
                         if index > 0 {
@@ -422,6 +427,31 @@ fn display_quoted(f: &mut fmt::Formatter<'_>, value: &str, key: bool) -> fmt::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn empty_struct_field_names_keep_positional_and_named_type_text() {
+        assert_eq!(
+            NestedType::Struct(vec![(String::new(), DataType::Varchar)]).to_string(),
+            "STRUCT(VARCHAR)"
+        );
+        assert_eq!(
+            NestedType::Struct(vec![
+                (String::new(), DataType::Varchar),
+                ("x".into(), DataType::Varchar),
+            ])
+            .to_string(),
+            "STRUCT(VARCHAR, VARCHAR)"
+        );
+        assert_eq!(
+            NestedType::Struct(vec![
+                ("x".into(), DataType::Varchar),
+                (String::new(), DataType::Varchar),
+            ])
+            .to_string(),
+            "STRUCT(x VARCHAR,  VARCHAR)"
+        );
+    }
 
     #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     #[test]
