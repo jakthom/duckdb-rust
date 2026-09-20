@@ -3,7 +3,7 @@ use super::*;
 pub(super) enum Session {
     Idle,
     Active(ActiveTransaction),
-    Failed,
+    Failed(ActiveTransaction),
 }
 
 pub(super) struct ActiveTransaction {
@@ -93,7 +93,7 @@ impl Connection {
         name: &crate::catalog::TableName,
     ) -> Result<crate::catalog::ResolvedTable> {
         match &self.session {
-            Session::Failed => Err(Error::Transaction(
+            Session::Failed(_) => Err(Error::Transaction(
                 "transaction is aborted; ROLLBACK is required".into(),
             )),
             Session::Active(active) => active.transaction.catalog().table_entry(name),
@@ -151,7 +151,7 @@ impl Connection {
         // non-query statement. A fresh context/transaction is acquired before
         // cache lookup, so a reused physical plan never retains execution or
         // snapshot state.
-        if matches!(self.session, Session::Failed) {
+        if matches!(self.session, Session::Failed(_)) {
             return self.execute_statement(&prepared.syntax, &[]);
         }
         let work = self.begin_work()?;
@@ -295,12 +295,15 @@ impl Connection {
     ) -> Result<QueryResult> {
         #[cfg(feature = "dev")]
         duckdb_dev::statement::parameters(&parameters);
-        if matches!(self.session, Session::Failed) {
+        if matches!(self.session, Session::Failed(_)) {
             if matches!(
                 syntax,
-                crate::parser::Statement::Sql(statement) if matches!(**statement, ast::Statement::Rollback { chain: false, savepoint: None })
+                crate::parser::Statement::Sql(statement) if matches!(**statement, ast::Statement::Rollback { chain: false, savepoint: None } | ast::Statement::Commit { chain: false, modifier: None, .. })
             ) {
-                self.session = Session::Idle;
+                let previous = std::mem::replace(&mut self.session, Session::Idle);
+                if let Session::Failed(active) = previous {
+                    drop(active);
+                }
                 return Ok(QueryResult::command(0));
             }
             return Err(Error::Transaction(
@@ -412,7 +415,16 @@ impl Connection {
             }
             Err(error) => {
                 if explicit {
-                    self.session = Session::Failed;
+                    let active = ActiveTransaction {
+                        transaction,
+                        timestamp_micros,
+                    };
+                    self.session =
+                        if matches!(error, Error::Parse(_) | Error::Bind(_) | Error::Catalog(_)) {
+                            Session::Active(active)
+                        } else {
+                            Session::Failed(active)
+                        };
                 }
                 Err(error)
             }
@@ -424,7 +436,7 @@ impl Connection {
         syntax: &crate::parser::Statement,
         parameters: &[Value],
     ) -> Result<BoundWork> {
-        if matches!(self.session, Session::Failed) {
+        if matches!(self.session, Session::Failed(_)) {
             return Err(Error::Transaction(
                 "transaction is aborted; ROLLBACK is required".into(),
             ));
@@ -550,7 +562,16 @@ impl Connection {
             }
             Err(error) => {
                 if explicit {
-                    self.session = Session::Failed;
+                    let active = ActiveTransaction {
+                        transaction,
+                        timestamp_micros,
+                    };
+                    self.session =
+                        if matches!(error, Error::Parse(_) | Error::Bind(_) | Error::Catalog(_)) {
+                            Session::Active(active)
+                        } else {
+                            Session::Failed(active)
+                        };
                 }
                 Err(error)
             }

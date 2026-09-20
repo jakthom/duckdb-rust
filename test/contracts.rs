@@ -255,10 +255,16 @@ fn d1_row_domains_retain_readers_and_commit_disjoint_writers() -> Result<()> {
     left.execute("BEGIN; UPDATE d1_rows SET v=11 WHERE i=1")?;
     right.execute("BEGIN; UPDATE d1_rows SET v=21 WHERE i=2")?;
     left.execute("COMMIT")?;
-    assert_eq!(reader.query("SELECT v FROM d1_rows WHERE i=1")?.rows, vec![integers(&[10])]);
+    assert_eq!(
+        reader.query("SELECT v FROM d1_rows WHERE i=1")?.rows,
+        vec![integers(&[10])]
+    );
     right.execute("COMMIT")?;
     let mut fresh = db.connect();
-    assert_eq!(fresh.query("SELECT v FROM d1_rows ORDER BY i")?.rows, vec![integers(&[11]), integers(&[21])]);
+    assert_eq!(
+        fresh.query("SELECT v FROM d1_rows ORDER BY i")?.rows,
+        vec![integers(&[11]), integers(&[21])]
+    );
     reader.execute("ROLLBACK")?;
     Ok(())
 }
@@ -275,7 +281,10 @@ fn d1_same_row_winner_is_atomic_and_loser_does_not_publish() -> Result<()> {
     first.execute("COMMIT")?;
     assert!(matches!(second.query("COMMIT"), Err(Error::Conflict)));
     let mut fresh = db.connect();
-    assert_eq!(fresh.query("SELECT v FROM d1_conflict")?.rows, vec![integers(&[11])]);
+    assert_eq!(
+        fresh.query("SELECT v FROM d1_conflict")?.rows,
+        vec![integers(&[11])]
+    );
     Ok(())
 }
 
@@ -304,13 +313,18 @@ fn d1_concurrent_appends_survive() -> Result<()> {
     let db = Database::memory()?;
     let mut first = db.connect();
     let mut second = db.connect();
-    first.execute("CREATE TABLE d1_append(i INTEGER PRIMARY KEY); INSERT INTO d1_append VALUES (1)")?;
+    first.execute(
+        "CREATE TABLE d1_append(i INTEGER PRIMARY KEY); INSERT INTO d1_append VALUES (1)",
+    )?;
     first.execute("BEGIN; INSERT INTO d1_append VALUES (2)")?;
     second.execute("BEGIN; INSERT INTO d1_append VALUES (3)")?;
     first.execute("COMMIT")?;
     second.execute("COMMIT")?;
     let mut verify = db.connect();
-    assert_eq!(verify.query("SELECT i FROM d1_append ORDER BY i")?.rows, vec![integers(&[1]), integers(&[2]), integers(&[3])]);
+    assert_eq!(
+        verify.query("SELECT i FROM d1_append ORDER BY i")?.rows,
+        vec![integers(&[1]), integers(&[2]), integers(&[3])]
+    );
     Ok(())
 }
 
@@ -323,7 +337,10 @@ fn d1_read_only_transaction_never_conflicts_with_newer_publication() -> Result<(
     writer.execute("CREATE TABLE d1_reader(i INTEGER); INSERT INTO d1_reader VALUES (1)")?;
     reader.execute("BEGIN")?;
     writer.execute("INSERT INTO d1_reader VALUES (2)")?;
-    assert_eq!(reader.query("SELECT i FROM d1_reader ORDER BY i")?.rows, vec![integers(&[1])]);
+    assert_eq!(
+        reader.query("SELECT i FROM d1_reader ORDER BY i")?.rows,
+        vec![integers(&[1])]
+    );
     reader.execute("COMMIT")?;
     Ok(())
 }
@@ -338,7 +355,10 @@ fn d1_stale_catalog_binding_cannot_target_recreated_name() -> Result<()> {
     stale.execute("BEGIN; INSERT INTO d1_recreated VALUES (2)")?;
     winner.execute("DROP TABLE d1_recreated; CREATE TABLE d1_recreated(i INTEGER); INSERT INTO d1_recreated VALUES (9)")?;
     assert!(matches!(stale.query("COMMIT"), Err(Error::Conflict)));
-    assert_eq!(winner.query("SELECT i FROM d1_recreated")?.rows, vec![integers(&[9])]);
+    assert_eq!(
+        winner.query("SELECT i FROM d1_recreated")?.rows,
+        vec![integers(&[9])]
+    );
     Ok(())
 }
 
@@ -379,13 +399,20 @@ fn d1_checkpoint_keeps_retained_reader_snapshot() -> Result<()> {
     let db = Database::memory()?;
     let mut reader = db.connect();
     let mut writer = db.connect();
-    writer.execute("CREATE TABLE d1_checkpoint(i INTEGER); INSERT INTO d1_checkpoint VALUES (1)")?;
+    writer
+        .execute("CREATE TABLE d1_checkpoint(i INTEGER); INSERT INTO d1_checkpoint VALUES (1)")?;
     reader.execute("BEGIN")?;
     writer.execute("INSERT INTO d1_checkpoint VALUES (2)")?;
     writer.checkpoint()?;
-    assert_eq!(reader.query("SELECT i FROM d1_checkpoint ORDER BY i")?.rows, vec![integers(&[1])]);
+    assert_eq!(
+        reader.query("SELECT i FROM d1_checkpoint ORDER BY i")?.rows,
+        vec![integers(&[1])]
+    );
     reader.execute("ROLLBACK")?;
-    assert_eq!(writer.query("SELECT i FROM d1_checkpoint ORDER BY i")?.rows, vec![integers(&[1]), integers(&[2])]);
+    assert_eq!(
+        writer.query("SELECT i FROM d1_checkpoint ORDER BY i")?.rows,
+        vec![integers(&[1]), integers(&[2])]
+    );
     Ok(())
 }
 
@@ -393,12 +420,21 @@ fn d1_checkpoint_keeps_retained_reader_snapshot() -> Result<()> {
 #[test]
 fn d1_uncertain_publication_poison_blocks_stale_retry() -> Result<()> {
     let db = DatabaseBuilder::new()
-        .durability(Arc::new(FailingDurability { publications: AtomicUsize::new(0), uncertain: true }))
+        .durability(Arc::new(FailingDurability {
+            publications: AtomicUsize::new(0),
+            uncertain: true,
+        }))
         .build()?;
     let mut writer = db.connect();
     writer.execute("CREATE TABLE d1_poison(i INTEGER)")?;
-    assert!(matches!(writer.execute("INSERT INTO d1_poison VALUES (1)"), Err(Error::CommitUnknown(_))));
-    assert!(matches!(writer.execute("INSERT INTO d1_poison VALUES (2)"), Err(Error::CommitUnknown(_))));
+    assert!(matches!(
+        writer.execute("INSERT INTO d1_poison VALUES (1)"),
+        Err(Error::CommitUnknown(_))
+    ));
+    assert!(matches!(
+        writer.execute("INSERT INTO d1_poison VALUES (2)"),
+        Err(Error::CommitUnknown(_))
+    ));
     Ok(())
 }
 
@@ -407,9 +443,15 @@ fn d1_uncertain_publication_poison_blocks_stale_retry() -> Result<()> {
 fn d1_file_backed_winner_journal_and_reopen_exclude_loser() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("d1-winners.json");
-    let open = || DatabaseBuilder::new().durability(Arc::new(FileCheckpoint::open(
-        &path, OpenMode::ReadWrite, Arc::new(JsonSnapshotFormat),
-    )?)).build();
+    let open = || {
+        DatabaseBuilder::new()
+            .durability(Arc::new(FileCheckpoint::open(
+                &path,
+                OpenMode::ReadWrite,
+                Arc::new(JsonSnapshotFormat),
+            )?))
+            .build()
+    };
     let db = open()?;
     let mut left = db.connect();
     let mut right = db.connect();
@@ -425,11 +467,22 @@ fn d1_file_backed_winner_journal_and_reopen_exclude_loser() -> Result<()> {
     winner.execute("COMMIT")?;
     let winner_bytes = std::fs::read(&path)?;
     assert!(matches!(stale.query("COMMIT"), Err(Error::Conflict)));
-    assert_eq!(std::fs::read(&path)?, winner_bytes, "loser must not publish a journal/checkpoint successor");
-    drop(stale); drop(winner); drop(left); drop(right); drop(db);
+    assert_eq!(
+        std::fs::read(&path)?,
+        winner_bytes,
+        "loser must not publish a journal/checkpoint successor"
+    );
+    drop(stale);
+    drop(winner);
+    drop(left);
+    drop(right);
+    drop(db);
     let reopened = open()?;
     let mut verify = reopened.connect();
-    assert_eq!(verify.query("SELECT i,v FROM d1_winner ORDER BY i")?.rows, vec![integers(&[2,2])]);
+    assert_eq!(
+        verify.query("SELECT i,v FROM d1_winner ORDER BY i")?.rows,
+        vec![integers(&[2, 2])]
+    );
     Ok(())
 }
 
@@ -437,12 +490,17 @@ fn d1_file_backed_winner_journal_and_reopen_exclude_loser() -> Result<()> {
 #[test]
 fn d1_rebase_remaps_inserted_row_updates_away_from_rival_append() -> Result<()> {
     let db = Database::memory()?;
-    let mut local = db.connect(); let mut rival = db.connect();
+    let mut local = db.connect();
+    let mut rival = db.connect();
     local.execute("CREATE TABLE d1_remap(i INTEGER PRIMARY KEY, v INTEGER); INSERT INTO d1_remap VALUES (1,0)")?;
-    local.execute("BEGIN; INSERT INTO d1_remap VALUES (2,0); UPDATE d1_remap SET v=20 WHERE i=2")?;
+    local
+        .execute("BEGIN; INSERT INTO d1_remap VALUES (2,0); UPDATE d1_remap SET v=20 WHERE i=2")?;
     rival.execute("INSERT INTO d1_remap VALUES (3,0)")?;
     local.execute("COMMIT")?;
-    assert_eq!(rival.query("SELECT i,v FROM d1_remap ORDER BY i")?.rows, vec![integers(&[1,0]), integers(&[2,20]), integers(&[3,0])]);
+    assert_eq!(
+        rival.query("SELECT i,v FROM d1_remap ORDER BY i")?.rows,
+        vec![integers(&[1, 0]), integers(&[2, 20]), integers(&[3, 0])]
+    );
     Ok(())
 }
 
@@ -450,14 +508,22 @@ fn d1_rebase_remaps_inserted_row_updates_away_from_rival_append() -> Result<()> 
 #[test]
 fn d1_rebase_remaps_inserted_row_delete_away_from_rival_append() -> Result<()> {
     let db = Database::memory()?;
-    let mut local = db.connect(); let mut rival = db.connect();
+    let mut local = db.connect();
+    let mut rival = db.connect();
     local.execute("CREATE TABLE d1_delete_remap(i INTEGER PRIMARY KEY); INSERT INTO d1_delete_remap VALUES (1)")?;
     // Both transactions initially assign their append the same physical row
     // ID. Rebase must delete local's shifted row, never the winner's append.
-    local.execute("BEGIN; INSERT INTO d1_delete_remap VALUES (2); DELETE FROM d1_delete_remap WHERE i=2")?;
+    local.execute(
+        "BEGIN; INSERT INTO d1_delete_remap VALUES (2); DELETE FROM d1_delete_remap WHERE i=2",
+    )?;
     rival.execute("INSERT INTO d1_delete_remap VALUES (3)")?;
     local.execute("COMMIT")?;
-    assert_eq!(rival.query("SELECT i FROM d1_delete_remap ORDER BY i")?.rows, vec![integers(&[1]), integers(&[3])]);
+    assert_eq!(
+        rival
+            .query("SELECT i FROM d1_delete_remap ORDER BY i")?
+            .rows,
+        vec![integers(&[1]), integers(&[3])]
+    );
     Ok(())
 }
 
@@ -467,17 +533,26 @@ fn d1_rebase_preserves_mutation_context_cancellation() -> Result<()> {
     let manager = SnapshotTransactions::new(Arc::new(MemoryDurability))?;
     let table = TableName::main("d1_context");
     let mut seed = manager.begin()?;
-    seed.catalog_mut()?.create_table(TableDefinition {
-        name: table.clone(), columns: vec![ColumnDefinition::new("i", DataType::Integer)], unique_keys: vec![],
-    }, false)?;
+    seed.catalog_mut()?.create_table(
+        TableDefinition {
+            name: table.clone(),
+            columns: vec![ColumnDefinition::new("i", DataType::Integer)],
+            unique_keys: vec![],
+        },
+        false,
+    )?;
     seed.commit()?;
 
     let interrupt = InterruptHandle::default();
     let context = QueryContext::new(interrupt.clone(), None, 64, 64)?;
     let mut local = manager.begin()?;
-    local.storage_mut()?.insert(&table, vec![integers(&[2])], &context)?;
+    local
+        .storage_mut()?
+        .insert(&table, vec![integers(&[2])], &context)?;
     let mut rival = manager.begin()?;
-    rival.storage_mut()?.insert(&table, vec![integers(&[3])], &QueryContext::background())?;
+    rival
+        .storage_mut()?
+        .insert(&table, vec![integers(&[3])], &QueryContext::background())?;
     rival.commit()?;
     interrupt.interrupt();
     assert!(matches!(local.commit(), Err(Error::Interrupted)));
@@ -488,11 +563,17 @@ fn d1_rebase_preserves_mutation_context_cancellation() -> Result<()> {
 #[test]
 fn d1_relation_ddl_rejects_stale_append_across_drop_and_recreate() -> Result<()> {
     let db = Database::memory()?;
-    let mut stale = db.connect(); let mut ddl = db.connect();
-    stale.execute("CREATE TABLE d1_relation(i INTEGER); BEGIN; INSERT INTO d1_relation VALUES (1)")?;
+    let mut stale = db.connect();
+    let mut ddl = db.connect();
+    stale.execute(
+        "CREATE TABLE d1_relation(i INTEGER); BEGIN; INSERT INTO d1_relation VALUES (1)",
+    )?;
     ddl.execute("DROP TABLE d1_relation; CREATE TABLE d1_relation(i INTEGER)")?;
     assert!(matches!(stale.execute("COMMIT"), Err(Error::Conflict)));
-    assert_eq!(ddl.query("SELECT * FROM d1_relation")?.rows, Vec::<Vec<Value>>::new());
+    assert_eq!(
+        ddl.query("SELECT * FROM d1_relation")?.rows,
+        Vec::<Vec<Value>>::new()
+    );
     Ok(())
 }
 
@@ -500,11 +581,15 @@ fn d1_relation_ddl_rejects_stale_append_across_drop_and_recreate() -> Result<()>
 #[test]
 fn d1_rename_claims_both_old_and_new_relation_names() -> Result<()> {
     let db = Database::memory()?;
-    let mut stale = db.connect(); let mut rename = db.connect();
+    let mut stale = db.connect();
+    let mut rename = db.connect();
     stale.execute("CREATE TABLE d1_rename(i INTEGER); BEGIN; INSERT INTO d1_rename VALUES (1)")?;
     rename.execute("ALTER TABLE d1_rename RENAME TO d1_renamed")?;
     assert!(matches!(stale.execute("COMMIT"), Err(Error::Conflict)));
-    assert_eq!(rename.query("SELECT * FROM d1_renamed")?.rows, Vec::<Vec<Value>>::new());
+    assert_eq!(
+        rename.query("SELECT * FROM d1_renamed")?.rows,
+        Vec::<Vec<Value>>::new()
+    );
     Ok(())
 }
 
@@ -512,7 +597,8 @@ fn d1_rename_claims_both_old_and_new_relation_names() -> Result<()> {
 #[test]
 fn d1_view_dependency_rejects_concurrent_source_relation_change() -> Result<()> {
     let db = Database::memory()?;
-    let mut view_tx = db.connect(); let mut ddl = db.connect();
+    let mut view_tx = db.connect();
+    let mut ddl = db.connect();
     view_tx.execute("CREATE TABLE d1_dependency(i INTEGER); BEGIN; CREATE VIEW d1_dependency_view AS SELECT i FROM d1_dependency")?;
     ddl.execute("ALTER TABLE d1_dependency ADD COLUMN j INTEGER")?;
     assert!(matches!(view_tx.execute("COMMIT"), Err(Error::Conflict)));
@@ -1556,5 +1642,182 @@ fn update_mode_controls_later_volatile_add_order() -> Result<()> {
         nested.query("SELECT id,observed FROM t ORDER BY id")?.rows,
         vec![integers(&[1, 3]), integers(&[2, 1]), integers(&[3, 2])]
     );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn d1_failed_commit_rolls_back_and_catalog_errors_preserve_active_writes() -> Result<()> {
+    let database = Database::memory()?;
+    let mut connection = database.connect();
+    connection.execute("CREATE TABLE failed_owner(i INTEGER PRIMARY KEY)")?;
+    connection.execute("INSERT INTO failed_owner VALUES (1)")?;
+    connection.execute("BEGIN")?;
+    connection.execute("INSERT INTO failed_owner VALUES (2)")?;
+    assert!(matches!(
+        connection.execute("INSERT INTO failed_owner VALUES (1)"),
+        Err(Error::Constraint(_))
+    ));
+    assert!(matches!(
+        connection.query("SELECT * FROM failed_owner"),
+        Err(Error::Transaction(_))
+    ));
+    connection.execute("COMMIT")?;
+    assert_eq!(
+        connection
+            .query("SELECT i FROM failed_owner ORDER BY i")?
+            .rows,
+        vec![vec![Value::Integer(1)]]
+    );
+    connection.execute("BEGIN")?;
+    connection.execute("INSERT INTO failed_owner VALUES (3)")?;
+    assert!(
+        connection
+            .execute("CREATE TABLE failed_owner(i INTEGER)")
+            .is_err()
+    );
+    connection.execute("INSERT INTO failed_owner VALUES (4)")?;
+    connection.execute("COMMIT")?;
+    assert_eq!(
+        connection
+            .query("SELECT i FROM failed_owner ORDER BY i")?
+            .rows,
+        vec![
+            vec![Value::Integer(1)],
+            vec![Value::Integer(3)],
+            vec![Value::Integer(4)]
+        ]
+    );
+    Ok(())
+}
+
+// Oracles: root target/batch4/d1-oracle/run{1,2}/report.json, both pinned engines.
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn d1_active_same_column_conflict_retains_failed_owner_until_end() -> Result<()> {
+    for end in ["ROLLBACK", "COMMIT"] {
+        let database = Database::memory()?;
+        let mut a = database.connect();
+        let mut b = database.connect();
+        a.execute("CREATE TABLE t(i INTEGER PRIMARY KEY, a INTEGER, b INTEGER)")?;
+        a.execute("INSERT INTO t VALUES (1,0,0),(2,0,0)")?;
+        a.execute("BEGIN")?;
+        b.execute("BEGIN")?;
+        a.query("SELECT * FROM t ORDER BY i")?;
+        b.query("SELECT * FROM t ORDER BY i")?;
+        a.execute("UPDATE t SET a=11 WHERE i=1")?;
+        assert!(matches!(
+            a.execute("INSERT INTO t VALUES(1,9,9)"),
+            Err(Error::Constraint(_))
+        ));
+        assert!(matches!(
+            b.execute("UPDATE t SET a=22 WHERE i=1"),
+            Err(Error::Conflict)
+        ));
+        a.execute(end)?;
+        b.execute("ROLLBACK")?;
+        b.execute("UPDATE t SET a=33 WHERE i=1")?;
+        assert_eq!(
+            b.query("SELECT * FROM t ORDER BY i")?.rows,
+            vec![integers(&[1, 33, 0]), integers(&[2, 0, 0])]
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn d1_disjoint_column_replay_preserves_snapshot_expression_values() -> Result<()> {
+    for reverse_commit in [false, true] {
+        let database = Database::memory()?;
+        let mut a = database.connect();
+        let mut b = database.connect();
+        a.execute("CREATE TABLE t(i INTEGER PRIMARY KEY, a INTEGER, b INTEGER)")?;
+        a.execute("INSERT INTO t VALUES (1,0,0),(2,0,0)")?;
+        a.execute("BEGIN")?;
+        b.execute("BEGIN")?;
+        a.query("SELECT * FROM t ORDER BY i")?;
+        b.query("SELECT * FROM t ORDER BY i")?;
+        a.execute("UPDATE t SET a=11 WHERE i=1")?;
+        b.execute("UPDATE t SET b=a+7 WHERE i=1")?;
+        if reverse_commit {
+            b.execute("COMMIT")?;
+            a.execute("COMMIT")?;
+        } else {
+            a.execute("COMMIT")?;
+            b.execute("COMMIT")?;
+        }
+        assert_eq!(
+            a.query("SELECT * FROM t ORDER BY i")?.rows,
+            vec![integers(&[1, 11, 7]), integers(&[2, 0, 0])]
+        );
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn d1_regular_update_and_delete_can_commit_without_resurrection() -> Result<()> {
+    for reverse_acquire in [false, true] {
+        for reverse_commit in [false, true] {
+            let database = Database::memory()?;
+            let mut a = database.connect();
+            let mut b = database.connect();
+            a.execute("CREATE TABLE t(i INTEGER PRIMARY KEY, a INTEGER)")?;
+            a.execute("INSERT INTO t VALUES (1,0),(2,0)")?;
+            a.execute("BEGIN")?;
+            b.execute("BEGIN")?;
+            a.query("SELECT * FROM t ORDER BY i")?;
+            b.query("SELECT * FROM t ORDER BY i")?;
+            if reverse_acquire {
+                b.execute("DELETE FROM t WHERE i=1")?;
+                a.execute("UPDATE t SET a=11 WHERE i=1")?;
+            } else {
+                a.execute("UPDATE t SET a=11 WHERE i=1")?;
+                b.execute("DELETE FROM t WHERE i=1")?;
+            }
+            if reverse_commit {
+                b.execute("COMMIT")?;
+                a.execute("COMMIT")?;
+            } else {
+                a.execute("COMMIT")?;
+                b.execute("COMMIT")?;
+            }
+            assert_eq!(
+                a.query("SELECT * FROM t ORDER BY i")?.rows,
+                vec![integers(&[2, 0])]
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn d1_stale_delete_conflict_phase_depends_on_index_maintenance() -> Result<()> {
+    for keyed in [false, true] {
+        let database = Database::memory()?;
+        let mut a = database.connect();
+        let mut b = database.connect();
+        a.execute(if keyed {
+            "CREATE TABLE t(i INTEGER PRIMARY KEY)"
+        } else {
+            "CREATE TABLE t(i INTEGER)"
+        })?;
+        a.execute("INSERT INTO t VALUES(1),(2)")?;
+        a.execute("BEGIN")?;
+        a.query("SELECT * FROM t ORDER BY i")?;
+        b.execute("DROP TABLE t")?;
+        if keyed {
+            assert!(matches!(
+                a.execute("DELETE FROM t WHERE i=1"),
+                Err(Error::Conflict)
+            ));
+            a.execute("COMMIT")?;
+        } else {
+            a.execute("DELETE FROM t WHERE i=1")?;
+            assert!(matches!(a.execute("COMMIT"), Err(Error::Conflict)));
+        }
+    }
     Ok(())
 }

@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::{Arc, Mutex}};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     catalog::{Catalog, CatalogMut, TableName},
@@ -67,9 +70,15 @@ impl Committed {
     fn release(&mut self, generation: u64) {
         if let Some(count) = self.active_generations.get_mut(&generation) {
             *count -= 1;
-            if *count == 0 { self.active_generations.remove(&generation); }
+            if *count == 0 {
+                self.active_generations.remove(&generation);
+            }
         }
-        let oldest = self.active_generations.first_key_value().map(|(generation, _)| *generation).unwrap_or(self.generation);
+        let oldest = self
+            .active_generations
+            .first_key_value()
+            .map(|(generation, _)| *generation)
+            .unwrap_or(self.generation);
         self.history.retain(|(generation, _)| *generation > oldest);
     }
     fn check(&self) -> Result<()> {
@@ -213,7 +222,8 @@ impl TransactionManager for SnapshotTransactions {
             .lock()
             .map_err(|_| Error::Internal("transaction mutex poisoned".into()))?;
         state.check()?;
-        state.activate(state.generation);
+        let generation = state.generation;
+        state.activate(generation);
         Ok(Box::new(SnapshotTransaction {
             state: self.state.clone(),
             durability: self.durability.clone(),
@@ -289,7 +299,10 @@ impl Transaction for SnapshotTransaction {
         let publication = match self.durability.publish(Commit {
             before: &state.snapshot,
             snapshot: &snapshot,
-            changes: self.durability.requires_journal().then_some(publication_journal.as_slice()),
+            changes: self
+                .durability
+                .requires_journal()
+                .then_some(publication_journal.as_slice()),
         }) {
             Ok(publication) => publication,
             Err(error) => {
@@ -300,7 +313,12 @@ impl Transaction for SnapshotTransaction {
         state.snapshot = match publication {
             crate::storage::checkpoint::PublishOutcome::Published => snapshot,
             crate::storage::checkpoint::PublishOutcome::CheckpointedBefore => snapshot
-                .reclaim_checkpointed_basis(&state.snapshot, self.durability.requires_journal().then_some(publication_journal.as_slice())),
+                .reclaim_checkpointed_basis(
+                    &state.snapshot,
+                    self.durability
+                        .requires_journal()
+                        .then_some(publication_journal.as_slice()),
+                ),
         };
         state.generation = generation;
         state.history.push((generation, publication_domains));
@@ -312,7 +330,9 @@ impl Transaction for SnapshotTransaction {
 
 impl SnapshotTransaction {
     fn release(&mut self) {
-        if !self.active { return; }
+        if !self.active {
+            return;
+        }
         if let Ok(mut state) = self.state.lock() {
             self.active = false;
             state.release(self.generation);
@@ -379,7 +399,14 @@ mod tests {
             active_generations: BTreeMap::from([(2, 1), (6, 1)]),
         };
         committed.release(6);
-        assert_eq!(committed.history.iter().map(|(generation, _)| *generation).collect::<Vec<_>>(), vec![3, 6, 9]);
+        assert_eq!(
+            committed
+                .history
+                .iter()
+                .map(|(generation, _)| *generation)
+                .collect::<Vec<_>>(),
+            vec![3, 6, 9]
+        );
         committed.release(2);
         assert!(committed.history.is_empty());
     }
