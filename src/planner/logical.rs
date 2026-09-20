@@ -438,6 +438,11 @@ pub enum BoundStatement {
     Noop,
     Configure(crate::main::settings::SettingChange),
     Checkpoint,
+    CopyToCsv {
+        source: LogicalPlan,
+        path: String,
+        options: crate::function::csv_writer::CsvWriterOptions,
+    },
     Query(LogicalPlan),
     CreateSchema {
         name: String,

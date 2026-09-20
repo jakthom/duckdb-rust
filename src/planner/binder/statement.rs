@@ -26,6 +26,56 @@ impl State<'_, '_> {
             }) => self.setting(name, None, None),
             S::Pragma { name, value, .. } => self.pragma(name, value.as_ref()),
             S::Query(query) => Ok(BoundStatement::Query(self.query(query)?)),
+            S::Copy {
+                source,
+                to: true,
+                target: ast::CopyTarget::File { filename },
+                options,
+                legacy_options,
+                values,
+            } if legacy_options.is_empty() && values.is_empty() => {
+                let source = match source {
+                    ast::CopySource::Query(query) => self.query(query)?,
+                    ast::CopySource::Table {
+                        table_name,
+                        columns,
+                    } => {
+                        // Re-enter the ordinary SELECT binder so COPY table and COPY
+                        // (SELECT ...) retain the same catalog, view, qualification,
+                        // projection, and selected-cast contracts. The text is rendered
+                        // only from parser-owned identifiers, never user interpolation.
+                        let projection = if columns.is_empty() {
+                            "*".to_owned()
+                        } else {
+                            columns
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        };
+                        let sql = format!("SELECT {projection} FROM {table_name}");
+                        let statements = self.context.parser.parse(&sql)?;
+                        let [crate::parser::Statement::Sql(statement)] = statements.as_slice() else {
+                            return Err(Error::Internal("COPY table source did not render one SELECT".into()));
+                        };
+                        let ast::Statement::Query(query) = statement.as_ref() else {
+                            return Err(Error::Internal("COPY table source did not render a SELECT".into()));
+                        };
+                        self.query(query)?
+                    }
+                };
+                let options = crate::function::csv_writer::CsvWriterOptions::bind(
+                    options,
+                    &source.schema,
+                )?;
+                Ok(BoundStatement::CopyToCsv {
+                    source,
+                    path: filename.clone(),
+                    options,
+                })
+            }
+            S::Copy { to: false, .. } => Err(unsupported("COPY FROM")),
+            S::Copy { .. } => Err(unsupported("COPY TO target or option")),
             S::CreateView(view) => {
                 if view.or_alter
                     || view.materialized

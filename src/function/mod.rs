@@ -2,6 +2,7 @@ mod aggregate;
 pub mod bignum;
 mod binary_scalar;
 mod bit;
+pub(crate) mod csv_writer;
 mod enumeration;
 mod expansion;
 pub use expansion::{ScalarExpansion, ScalarExpansionNode};

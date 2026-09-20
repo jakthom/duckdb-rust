@@ -63,6 +63,7 @@ impl BoundStatement {
         let (catalog, query) = (scope.catalog, scope.query);
         match self {
             Self::Configure(change) => change.validate(query.settings().registry(), query),
+            Self::CopyToCsv { source, .. } => source.validate_at(scope, level + 1),
             Self::Query(plan) => plan.validate_at(scope, level + 1),
             Self::AlterTable { table, alteration } => {
                 let table = catalog.resolve_table_binding(table)?;

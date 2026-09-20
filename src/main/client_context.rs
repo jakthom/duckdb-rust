@@ -342,6 +342,48 @@ impl Services {
         })
     }
 
+    /// Stream a bound COPY source directly into the local CSV sink. COPY is a
+    /// side-effecting statement, so it deliberately does not materialize a
+    /// second verification result or emit a query profile; the source still
+    /// goes through the normal optimizer and physical planner.
+    fn copy_to_csv(
+        &self,
+        plan: LogicalPlan,
+        path: &str,
+        options: crate::function::csv_writer::CsvWriterOptions,
+        transaction: &dyn Transaction,
+        query: &QueryContext,
+    ) -> Result<usize> {
+        query.check()?;
+        if query.settings().force_external(query)? {
+            return Err(Error::Unsupported(
+                "debug_force_external requires an external/spill-capable physical operator".into(),
+            ));
+        }
+        let plan = self
+            .physical_planner
+            .plan(&self.optimize(plan, transaction, query)?)?;
+        let mut writer = crate::function::csv_writer::CsvWriter::create(path, options, plan.schema())?;
+        writer.write_header()?;
+        let subquery_plans = PreparedSubqueries::new(self.physical_planner.as_ref());
+        let context = self.execution_context(transaction, query, &subquery_plans);
+        let mut rows = 0usize;
+        self.executor.execute(plan.as_ref(), &context, &mut |chunk| {
+            query.check()?;
+            rows = rows
+                .checked_add(chunk.len())
+                .ok_or_else(|| Error::Resource("COPY output row count overflow".into()))?;
+            writer.write_chunk(&chunk)?;
+            query.check()?;
+            Ok(StreamControl::Continue)
+        })?;
+        // No check after finish: rename is the visibility boundary and a late
+        // cancellation must not turn a completed output into a false failure.
+        query.check()?;
+        writer.finish()?;
+        Ok(rows)
+    }
+
     pub(super) fn execute(
         &self,
         statement: BoundStatement,
@@ -355,6 +397,17 @@ impl Services {
                 "configuration requires the session runtime".into(),
             )),
             BoundStatement::Noop => Ok(QueryResult::command(0)),
+            BoundStatement::CopyToCsv {
+                source,
+                path,
+                options,
+            } => Ok(QueryResult::command(self.copy_to_csv(
+                source,
+                &path,
+                options,
+                transaction,
+                query,
+            )?)),
             BoundStatement::AlterTable { table, alteration } => {
                 transaction
                     .catalog_mut()?

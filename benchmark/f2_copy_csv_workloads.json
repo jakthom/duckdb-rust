@@ -1,0 +1,1 @@
+{"schema":"f2-copy-csv-v1","warmups":3,"samples":21,"rows":50000,"cases":[{"name":"default_csv","options":""},{"name":"dialect_csv","options":" WITH (DELIMITER '|', HEADER false, NULL '\\N')"}]}
