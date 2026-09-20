@@ -46,10 +46,13 @@ impl<'a> TableFunctionScan<'a> {
             }
         };
         let state = self.state.as_mut().expect("live table function state");
-        let result =
-            self.source
-                .function()
-                .scan(self.source.bind(), state.as_mut(), max_rows, self.context);
+        let result = self.source.function().scan_with_request(
+            self.source.bind(),
+            state.as_mut(),
+            self.source.request(),
+            max_rows,
+            self.context,
+        );
         let chunk = match result {
             Ok(Some(chunk)) => chunk,
             Ok(None) => {

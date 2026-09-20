@@ -21,7 +21,7 @@ use crate::{
     },
     function::table::{
         TableFunction, TableFunctionArgument, TableFunctionBind, TableFunctionBindContext,
-        TableFunctionState,
+        TableFunctionScanAcceptance, TableFunctionScanRequest, TableFunctionState,
     },
     parallel::QueryContext,
     planner::Field,
@@ -483,6 +483,150 @@ struct CsvState {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl ReadCsv {
+    fn scan_impl(
+        &self,
+        bind: &TableFunctionBind,
+        state: &mut dyn TableFunctionState,
+        projection: Option<&[usize]>,
+        max_rows: usize,
+        context: &QueryContext,
+    ) -> Result<Option<DataChunk>> {
+        if max_rows == 0 {
+            return Ok(None);
+        }
+        let data = bind
+            .data()
+            .downcast_ref::<CsvBindData>()
+            .ok_or_else(|| Error::Internal("read_csv bind data type mismatch".into()))?;
+        let state = state
+            .downcast_mut::<CsvState>()
+            .ok_or_else(|| Error::Internal("read_csv state type mismatch".into()))?;
+        // A completed batch leaves the reader at a record boundary. Reclaim
+        // its allocation only after every output owner has released the arena.
+        if let Some(arena) = state.reusable_arena.take()
+            && let Ok(arena) = std::sync::Arc::try_unwrap(arena)
+        {
+            debug_assert!(state.reader.arena.is_empty());
+            state.reader.arena = arena.into_bytes();
+            state.reader.arena.clear();
+        }
+        let Some(CsvBatch {
+            arena,
+            mut fields,
+            row_ends,
+        }) = state.reader.next_rows(max_rows, context)?
+        else {
+            return Ok(None);
+        };
+        let count = row_ends.len();
+        let preserve = data
+            .casts
+            .iter()
+            .map(BoundCast::can_preserve_plain_varchar_storage)
+            .collect::<Vec<_>>();
+        // A source column may appear more than once in the requested order.
+        // Retain one vector per source column and clone it only while assembling
+        // the output, while still visiting every field/cast below.
+        let selected = projection.map_or_else(
+            || {
+                (0..data.casts.len())
+                    .map(|column| vec![column])
+                    .collect::<Vec<_>>()
+            },
+            |projection| {
+                let mut selected = vec![Vec::new(); data.casts.len()];
+                for (output, &source) in projection.iter().enumerate() {
+                    selected[source].push(output);
+                }
+                selected
+            },
+        );
+        let mut values = data
+            .casts
+            .iter()
+            .zip(preserve.iter().zip(&selected))
+            .map(|(_, (preserve, selected))| {
+                if !*preserve && !selected.is_empty() {
+                    Vec::with_capacity(count)
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut ranges = data
+            .casts
+            .iter()
+            .zip(preserve.iter().zip(&selected))
+            .map(|(_, (preserve, selected))| {
+                if *preserve && !selected.is_empty() {
+                    Vec::with_capacity(count)
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect::<Vec<_>>();
+        let arena = std::sync::Arc::new(arena);
+        {
+            let mut drained = fields.drain(..);
+            let mut previous_end = 0;
+            for (row_number, end) in row_ends.into_iter().enumerate() {
+                context.check()?;
+                let width = end - previous_end;
+                previous_end = end;
+                if width != data.casts.len() {
+                    return Err(Error::Conversion(format!(
+                        "CSV record {} has {} columns; expected {}",
+                        row_number + 1,
+                        width,
+                        data.casts.len()
+                    )));
+                }
+                for (column, (field, cast)) in
+                    drained.by_ref().take(width).zip(&data.casts).enumerate()
+                {
+                    if preserve[column] {
+                        if !selected[column].is_empty() {
+                            ranges[column].push(field.value);
+                        }
+                    } else {
+                        let input = field.value.map(|range| &arena[range]);
+                        let value = cast.apply_borrowed_varchar(input, context)?;
+                        if !selected[column].is_empty() {
+                            values[column].push(value);
+                        }
+                    }
+                }
+            }
+        }
+        let source_columns: Vec<Vector> = data
+            .types
+            .iter()
+            .zip(values.into_iter().zip(ranges))
+            .zip(preserve)
+            .map(|((data_type, (values, ranges)), preserve)| {
+                if preserve {
+                    Vector::packed_utf8(arena.clone(), ranges)
+                } else {
+                    Vector::flat(data_type.clone(), values)
+                }
+            })
+            .collect::<Result<_>>()?;
+        let columns = match projection {
+            None => source_columns,
+            Some(projection) => projection
+                .iter()
+                .map(|&column| source_columns[column].clone())
+                .collect(),
+        };
+        let chunk = DataChunk::new(columns, count)?;
+        state.reader.fields = fields;
+        state.reusable_arena = Some(arena);
+        Ok(Some(chunk))
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl TableFunction for ReadCsv {
     fn name(&self) -> &str {
         "read_csv"
@@ -605,6 +749,29 @@ impl TableFunction for ReadCsv {
         }))
     }
 
+    fn negotiate_scan(
+        &self,
+        bind: &TableFunctionBind,
+        request: &TableFunctionScanRequest,
+    ) -> TableFunctionScanAcceptance {
+        // CSV still lexes every field and applies every cast before any output
+        // remap. That keeps malformed unprojected fields and lazy cast errors
+        // observable exactly as in the unoptimized source.
+        let projection = request.projection.as_ref().and_then(|columns| {
+            columns
+                .iter()
+                .all(|&column| column < bind.schema().len())
+                .then(|| columns.clone())
+        });
+        // Predicate IDs are intentionally not accepted until the physical
+        // filter bridge can remove exactly those residual conjuncts.
+        TableFunctionScanAcceptance {
+            projection,
+            limit: None,
+            predicate_ids: Vec::new(),
+        }
+    }
+
     fn scan(
         &self,
         bind: &TableFunctionBind,
@@ -612,108 +779,24 @@ impl TableFunction for ReadCsv {
         max_rows: usize,
         context: &QueryContext,
     ) -> Result<Option<DataChunk>> {
-        if max_rows == 0 {
-            return Ok(None);
-        }
-        let data = bind
-            .data()
-            .downcast_ref::<CsvBindData>()
-            .ok_or_else(|| Error::Internal("read_csv bind data type mismatch".into()))?;
-        let state = state
-            .downcast_mut::<CsvState>()
-            .ok_or_else(|| Error::Internal("read_csv state type mismatch".into()))?;
-        // A completed batch leaves the reader at a record boundary. Reclaim
-        // its allocation only after every output owner has released the arena.
-        if let Some(arena) = state.reusable_arena.take()
-            && let Ok(arena) = std::sync::Arc::try_unwrap(arena)
-        {
-            debug_assert!(state.reader.arena.is_empty());
-            state.reader.arena = arena.into_bytes();
-            state.reader.arena.clear();
-        }
-        let Some(CsvBatch {
-            arena,
-            mut fields,
-            row_ends,
-        }) = state.reader.next_rows(max_rows, context)?
-        else {
-            return Ok(None);
-        };
-        let count = row_ends.len();
-        let preserve = data
-            .casts
-            .iter()
-            .map(BoundCast::can_preserve_plain_varchar_storage)
-            .collect::<Vec<_>>();
-        let mut values = data
-            .casts
-            .iter()
-            .zip(&preserve)
-            .map(|(_, preserve)| {
-                if !*preserve {
-                    Vec::with_capacity(count)
-                } else {
-                    Vec::new()
-                }
-            })
-            .collect::<Vec<_>>();
-        let mut ranges = data
-            .casts
-            .iter()
-            .zip(&preserve)
-            .map(|(_, preserve)| {
-                if *preserve {
-                    Vec::with_capacity(count)
-                } else {
-                    Vec::new()
-                }
-            })
-            .collect::<Vec<_>>();
-        let arena = std::sync::Arc::new(arena);
-        {
-            let mut drained = fields.drain(..);
-            let mut previous_end = 0;
-            for (row_number, end) in row_ends.into_iter().enumerate() {
-                context.check()?;
-                let width = end - previous_end;
-                previous_end = end;
-                if width != data.casts.len() {
-                    return Err(Error::Conversion(format!(
-                        "CSV record {} has {} columns; expected {}",
-                        row_number + 1,
-                        width,
-                        data.casts.len()
-                    )));
-                }
-                for (column, (field, cast)) in
-                    drained.by_ref().take(width).zip(&data.casts).enumerate()
-                {
-                    if preserve[column] {
-                        ranges[column].push(field.value);
-                    } else {
-                        let input = field.value.map(|range| &arena[range]);
-                        values[column].push(cast.apply_borrowed_varchar(input, context)?);
-                    }
-                }
-            }
-        }
-        let columns = data
-            .types
-            .iter()
-            .zip(values.into_iter().zip(ranges))
-            .zip(preserve)
-            .map(|((data_type, (values, ranges)), preserve)| {
-                if preserve {
-                    Vector::packed_utf8(arena.clone(), ranges)
-                } else {
-                    Vector::flat(data_type.clone(), values)
-                }
-            })
-            .collect::<Result<_>>()?;
-        let chunk = DataChunk::new(columns, count)?;
-        state.reader.fields = fields;
-        state.reusable_arena = Some(arena);
-        Ok(Some(chunk))
+        self.scan_impl(bind, state, None, max_rows, context)
+    }
+
+    fn scan_with_request(
+        &self,
+        bind: &TableFunctionBind,
+        state: &mut dyn TableFunctionState,
+        request: &TableFunctionScanAcceptance,
+        max_rows: usize,
+        context: &QueryContext,
+    ) -> Result<Option<DataChunk>> {
+        self.scan_impl(
+            bind,
+            state,
+            request.projection.as_deref(),
+            max_rows,
+            context,
+        )
     }
 }
 

@@ -83,6 +83,43 @@ fn explicit_schema_csv_reads_quotes_nulls_boundaries_and_prepared_reopens() -> R
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn accepted_projection_reorders_duplicates_and_retains_csv_errors() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    file.write_all(b"1,good\n2,bad\n")?;
+    let path = sql_path(file.path());
+    let mut connection = DatabaseBuilder::new().batch_size(1).build()?.connect();
+    let source = format!(
+        "read_csv('{path}', columns={{'id':'INTEGER','note':'VARCHAR'}}, auto_detect=false)"
+    );
+    assert_eq!(
+        connection
+            .query(&format!("SELECT note,id,note FROM {source}"))?
+            .rows,
+        vec![
+            vec![
+                Value::Varchar("good".into()),
+                Value::Integer(1),
+                Value::Varchar("good".into())
+            ],
+            vec![
+                Value::Varchar("bad".into()),
+                Value::Integer(2),
+                Value::Varchar("bad".into())
+            ],
+        ]
+    );
+    // Projection does not make an invalid required source field disappear.
+    let mut invalid = tempfile::NamedTempFile::new()?;
+    invalid.write_all(b"ok,not-an-int\n")?;
+    assert!(connection.query(&format!(
+        "SELECT a FROM read_csv('{}', columns={{'a':'VARCHAR','b':'INTEGER'}}, auto_detect=false)",
+        sql_path(invalid.path())
+    )).is_err());
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn explicit_schema_csv_reports_open_parse_and_shape_failures() -> Result<()> {
     let missing = DatabaseBuilder::new().build()?.connect().query(
         "SELECT * FROM read_csv('/definitely/not/a/duckdb-rust-csv-file.csv', columns={'id':'INTEGER'}, auto_detect=false)",

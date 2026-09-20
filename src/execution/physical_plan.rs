@@ -315,7 +315,44 @@ impl PhysicalPlanner for NativePhysicalPlanner {
                 }
             }
             PlanNode::Projection { input, expressions } => {
-                if let Some((base, stages)) = projection_chain(logical) {
+                // Give table sources a bounded, inspectable request before the
+                // existing physical remap. Until a source has a representation
+                // that can carry accepted columns into its open state, the
+                // ordinary ColumnProjection remains the residual consumer.
+                if let PlanNode::TableFunction(source) = &input.node {
+                    let requested = expressions
+                        .iter()
+                        .map(|expression| match expression.kind {
+                            ExprKind::Column(ordinal) => Some(ordinal),
+                            _ => None,
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    if let Some(projection) = requested {
+                        let accepted = source.with_scan_request(
+                            crate::function::table::TableFunctionScanRequest {
+                                projection: Some(projection),
+                                limit: None,
+                                predicates: Vec::new(),
+                            },
+                        );
+                        if accepted.request().projection.is_some() {
+                            Node::TableFunction(accepted)
+                        } else {
+                            Node::ColumnProjection(
+                                self.plan(input)?,
+                                expressions
+                                    .iter()
+                                    .map(|expression| match expression.kind {
+                                        ExprKind::Column(ordinal) => ordinal,
+                                        _ => unreachable!(),
+                                    })
+                                    .collect(),
+                            )
+                        }
+                    } else {
+                        Node::Projection(self.plan(input)?, expressions.clone())
+                    }
+                } else if let Some((base, stages)) = projection_chain(logical) {
                     Node::ProjectionChain(self.plan(base)?, stages)
                 } else {
                     let columns = expressions

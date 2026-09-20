@@ -67,6 +67,44 @@ pub trait TableFunctionState: Debug + Send {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
+/// A planner request is advisory until the adapter explicitly accepts it.  The
+/// residual stays in the ordinary plan, so a source can never evaluate a
+/// predicate twice by accident.
+#[derive(Clone, Debug, Default)]
+pub struct TableFunctionScanRequest {
+    pub projection: Option<Vec<usize>>,
+    pub limit: Option<usize>,
+    pub predicates: Vec<ScanPredicate>,
+}
+
+/// Deliberately small scan predicate language. The binder/physical bridge may
+/// create it only for a pure, total primitive column/literal comparison.
+#[derive(Clone, Debug)]
+pub struct ScanPredicate {
+    pub id: usize,
+    pub source_column: usize,
+    pub comparison: ScanComparison,
+    pub constant: Value,
+    pub data_type: crate::common::type_registry::BoundType,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScanComparison {
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableFunctionScanAcceptance {
+    pub projection: Option<Vec<usize>>,
+    pub limit: Option<usize>,
+    pub predicate_ids: Vec<usize>,
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<T: Debug + Send + 'static> TableFunctionState for T {
     fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -135,6 +173,17 @@ pub trait TableFunction: Send + Sync {
         context: &QueryContext,
     ) -> Result<Box<dyn TableFunctionState>>;
 
+    /// Negotiate only capabilities the adapter can prove safe. Predicates are
+    /// deliberately absent: they remain residual unless a future typed,
+    /// effect-aware contract can preserve SQL error and volatility semantics.
+    fn negotiate_scan(
+        &self,
+        _bind: &TableFunctionBind,
+        _request: &TableFunctionScanRequest,
+    ) -> TableFunctionScanAcceptance {
+        TableFunctionScanAcceptance::default()
+    }
+
     fn scan(
         &self,
         bind: &TableFunctionBind,
@@ -142,6 +191,18 @@ pub trait TableFunction: Send + Sync {
         max_rows: usize,
         context: &QueryContext,
     ) -> Result<Option<DataChunk>>;
+
+    fn scan_with_request(
+        &self,
+        bind: &TableFunctionBind,
+        state: &mut dyn TableFunctionState,
+        request: &TableFunctionScanAcceptance,
+        max_rows: usize,
+        context: &QueryContext,
+    ) -> Result<Option<DataChunk>> {
+        let _ = request;
+        self.scan(bind, state, max_rows, context)
+    }
 
     fn cleanup(
         &self,
@@ -159,6 +220,8 @@ pub trait TableFunction: Send + Sync {
 pub struct BoundTableFunction {
     function: Arc<dyn TableFunction>,
     bind: TableFunctionBind,
+    schema: Schema,
+    request: TableFunctionScanAcceptance,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -175,7 +238,13 @@ impl Debug for BoundTableFunction {
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl BoundTableFunction {
     pub fn new(function: Arc<dyn TableFunction>, bind: TableFunctionBind) -> Self {
-        Self { function, bind }
+        let schema = bind.schema().clone();
+        Self {
+            function,
+            bind,
+            schema,
+            request: TableFunctionScanAcceptance::default(),
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -183,7 +252,7 @@ impl BoundTableFunction {
     }
 
     pub fn schema(&self) -> &Schema {
-        self.bind.schema()
+        &self.schema
     }
 
     pub fn function(&self) -> &Arc<dyn TableFunction> {
@@ -192,5 +261,28 @@ impl BoundTableFunction {
 
     pub fn bind(&self) -> &TableFunctionBind {
         &self.bind
+    }
+
+    pub fn request(&self) -> &TableFunctionScanAcceptance {
+        &self.request
+    }
+
+    pub fn with_scan_request(&self, request: TableFunctionScanRequest) -> Self {
+        let acceptance = self.function.negotiate_scan(&self.bind, &request);
+        let schema = acceptance.projection.as_ref().map_or_else(
+            || self.bind.schema().clone(),
+            |columns| {
+                columns
+                    .iter()
+                    .map(|&column| self.bind.schema()[column].clone())
+                    .collect()
+            },
+        );
+        Self {
+            function: self.function.clone(),
+            bind: self.bind.clone(),
+            schema,
+            request: acceptance,
+        }
     }
 }
