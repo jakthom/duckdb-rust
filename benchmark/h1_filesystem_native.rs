@@ -115,6 +115,7 @@ impl FileFaultInjector for CleanupFault {
         Ok(())
     }
 }
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn checksum(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0_u64, |sum, byte| {
         sum.wrapping_mul(257).wrapping_add(u64::from(*byte))

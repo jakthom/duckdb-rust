@@ -296,7 +296,6 @@ pub(super) fn write_exact_at(
     result
 }
 
-#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +321,7 @@ mod tests {
         ));
     }
     struct ZeroWriter;
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Write for ZeroWriter {
         fn write(&mut self, _: &[u8]) -> io::Result<usize> {
             Ok(0)
@@ -338,6 +338,7 @@ mod tests {
         );
     }
     struct InterruptingWriter(InterruptHandle);
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Write for InterruptingWriter {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
             self.0.interrupt();
@@ -359,6 +360,7 @@ mod tests {
         Ok(())
     }
     struct InterruptingReader(InterruptHandle);
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
     impl Read for InterruptingReader {
         fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
             self.0.interrupt();
