@@ -2082,7 +2082,16 @@ all query populations and ordered oracles, places fixtures beneath discoverable
 `test/performance/e1`, and uses a preflighted 1 MB query rejection followed by
 16 MB recovery. Original fixture failures remain retained: bare expected-error
 syntax and release rejecting the original 1-byte SET itself. This is not a
-claim of 1-byte SET parity. CSV/feedback consumer and expanded
+claim of 1-byte SET parity. CSV native latency passes both pins at unlimited
+and a verified fitting 64 MB (`target/batch3/e1-csv-acceptance5/`); both CSV
+resource cases pass 21/3 strict gates (`target/batch3/e1-csv-resources7/`), with
+wall ratios 0.861/0.865, CPU 0.75 and RSS 0.886/0.857. Original 16 MB CSV
+configuration passes development but release cannot allocate its default reader
+block; that non-fitting result is preserved, not called comparable acceptance.
+A partial resource run stopped on temporary-directory FileExists; a fresh shared
+TMPDIR passed all-engine preflight and the complete replacement campaign. The
+runner's PID/counter scratch-name collision limitation remains unfixed; exact
+failed PID was unavailable. Host-default feedback and expanded
 retained/COW/eager/mutation acceptance remain open. Current-source original
 memory-limit (38 records per pin), three regex files and all 21 empty-field
 expressions pass in `target/batch3/e1-consumer-replay4/`, without skips. Author feedback lacked
