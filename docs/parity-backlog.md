@@ -476,6 +476,11 @@ the integration owner maintains the queue below.
 
 ### Roles, concurrency and model selection
 
+Model allocation and dispatch compliance must follow
+[AGENTS.md](../AGENTS.md#agent-model-budget--durable-policy). Use the
+[assignment template](../.codex/dispatch-template.md) before every new assignment;
+the defaults below do not attest a running agent's model.
+
 One integration lead plus at most three workers can run in this environment.
 Use separate implementation worktrees with local build caches. The lead owns
 `DataType`/`Value`, shared registries, logical/physical plan interfaces,
@@ -518,6 +523,17 @@ running a long test command.
 ### Dispatch order and acceptance queue
 
 #### Active run and next three-batch queue — 2026-09-19
+
+Latest user dispatch: finish the currently open Batch 3 acceptance boundary,
+then execute Batches 4 and 5 with appropriately priced parallel workers.
+Earlier Batches 6/7 remain planned; prerequisites needed to close an earlier
+batch must be named explicitly, not bypassed to claim that batch complete.
+The C1 whole-file GROUP BY ALL gate currently requires genuine external
+execution. New worker requests are explicit Sol/high (ownership review) and
+Terra/low (scoped verification), with records under `target/agent-dispatches/`.
+Legacy inherited workers have unknown model usage and receive no new assignments
+represented as lower-cost compliant work. Runtime thread capacity currently
+allows two explicitly configured workers; a third request was rejected.
 
 User authorization: execute batches 1, 2 and 3 sequentially, with parallel
 tracks inside each batch; checkpoint here between batches and continue without
@@ -1128,9 +1144,9 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Accepted at Rust `31a878c` / Python `ebe5cfb`: scoped verification, unchanged functional cases and all 23 performance stages pass. Durable B1/A2 use explicitly accepted equivalent full-sync references. Combined receipt `target/batch2/native-followup4-equivalent-fullsync-acceptance.json` retains exact stage-report hashes. Original weaker-sync failures and unrelated hexadecimal/DOUBLE ordered SUM gaps stay explicit. |
-| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | Implementing three isolated parallel tracks from `ebe5cfb` under explicit user direction to retain Batch2 open gates without blocking new implementation. Manifests in `target/batch3/{e1,a4,c1}-preparation/`; source-only work during ROOT timing, then serialized scoped feedback/verification and acceptance. |
-| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1/H1 source is under review in isolated worktrees at `ebe5cfb`; F2 COPY implementation has started. All functional/performance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
-| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1 source implementation started in isolation; integration depends on D1 acceptance. E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. E2/F3 remain queued. No earlier acceptance gate is waived. |
+| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | A4 accepted at `18cfc2b`. E1 ownership repair `1f3e99f` passes 470 scoped tests but all four native latency gates fail; performance repair is active. C1 formatter fix `5278a85` passes 114 scoped tests and integrated trace; fresh release replay and performance remain open. Memory-limit file passes 38/38 on both pins. GROUP BY ALL external execution remains open. Evidence under `target/batch3/integrated-e1-c1/`. |
+| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1 `aec9819` remains in conflict-contract repair. H1 `2855d1d` passes scoped verification but fails the joint resource/performance gate. F2 COPY draft needs review corrections. All acceptance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
+| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1, E2 and F3.1 have uncommitted source in isolated worktrees. B2.1 integration depends on D1 acceptance; E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. All three acceptance gates remain open. |
 
 **Immediate work across Batches 3/4/5:** Batch2 acceptance is complete. Its final
 regex process gate passes at 0.022917 of the faster reference latency, with CPU,
@@ -1139,8 +1155,9 @@ RSS, I/O and throughput passing; compiled A2's five latency ratios are
 Retain ordinary Rust493/Python199 verification and functional evidence at their
 tested identities; no full sweep is justified by this documentation update.
 Keep new implementations isolated until reviewed integration, then invalidate
-only affected evidence. User paused activity; leave apps running. No new batch
-label waives an outstanding acceptance obligation.
+only affected evidence. User authorized continuation through Batch 7 on 2026-09-19. Preserve existing
+worktrees and finish open acceptance before increasing the implementation queue.
+No new batch label waives an outstanding acceptance obligation.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 
@@ -1172,11 +1189,24 @@ label waives an outstanding acceptance obligation.
 
 **Batch 4 — concurrent writes, local I/O and CSV export.**
 
+- D1 oracle update: `target/batch4/d1-oracle/{run1,run2,run3}/report.json` captures
+  49 deterministic histories per pin. Development rejects UPDATE commits
+  concurrent with RENAME where release accepts; development remains authoritative.
+  Stale DELETE fails at mutation for indexed tables and at COMMIT for plain
+  tables. Existing implementation remains unaccepted; four new source-only
+  contract tests encode observed ownership/merge/delete behavior.
 - D1: replace blanket intervening-writer conflicts with the pinned row/catalog
   conflict and visibility contracts. Own `src/transaction/` and deterministic
   transaction histories; lead integrates catalog/storage publication seams.
   Cover disjoint and overlapping writers, DDL races, old snapshots, rollback and
   durable publication. Only this track owns transaction state-machine changes.
+- H1.1 verification: sibling `2855d1d` passes 73 scoped functional tests,
+  Clippy, adapter checks, coverage and tracing. Both reference measurement
+  workers are prepared. Both 21-sample/3-warmup campaigns have valid identities,
+  but the joint gate fails positioned-read and publication latency/throughput,
+  sequential-read RSS (1.012x), and release cleanup latency. Performance remains
+  in repair; failed reports are retained as `process-*.json`.
+  Evidence: `../duckdb-rust-batch4-h1/target/batch4/h1/`; Windows is unexecuted.
 - H1.1: generalize local sequential/range I/O, cancellation and failure contracts
   through an existing native-storage consumer. Own `src/storage/filesystem/`
   and its module/tests; lead integrates native callers and publication overlap
@@ -1732,6 +1762,8 @@ deliverables, not claims that those files or commands already exist.
 | 3 | E1: byte reservations and failure contracts, S | A4: incremental regression accounting, T | C1.1: named-group STRUCT extraction, T | A4 needs A1. Table-valued splitting remains a later leaf after its engine prerequisites. |
 | 4 | D1: row/catalog conflict semantics, A | H1.1: filesystem contract on an existing native consumer, S | F2.2: local COPY CSV writer, S | D1 is the only transaction/publication owner; H1.1 proposes I/O seams for lead integration. F2.2 uses the existing local adapter until H1 integration. |
 | 5 | E2: buffer ownership, S | F3.1: scan pushdown/residuals, S | B2.1: persistent scalar macros, S | E2 needs E1; F3.1 needs F2.1; B2.1 follows D1/B1. Multi-file/glob work waits for H1.2. |
+| 6 | E3.1: external sort under memory limits, S | H1.2: CSV filesystem migration, then glob/compression adapter leaves, S | C1.2: scalar regex splitting, T | E3.1 needs accepted E1/E2 and local temporary-file contracts; H1.2 follows H1.1/F2.1; C1.2 follows C1.1. Lead integrates shared I/O/vector seams serially. |
+| 7 | D3.1: index DDL/dependencies/native lifecycle, S | F3.2: multi-file CSV/schema union, S | C3.1: lambda capture plus list transform, S | D3.1 needs accepted D1/B1; F3.2 follows accepted H1.2 and F3.1 scan contracts; separate binder proposals integrate serially. |
 | Remaining engine work | Highest unlocked B/C/D step | Highest unlocked E/F step | Highest unlocked engine-only H/A step | A1 results can reorder independent engine work; do not pull deferred foreign compatibility into an idle slot. |
 | Absolute final phase — blocked until core-engine exit gate | G1, then dependent G2/G3 leaves | G4/G5 after their foreign-API prerequisites | ABI-dependent H4/H5 and client acceptance | No ABI/client preparation or implementation before engine completion. This is last, not a concurrent capability lane. |
 
@@ -1940,19 +1972,6 @@ numeric, nested and aggregate work.
 | Step / goals | Action and dependency | Model | Continuous and final functional evidence | Performance workload |
 | --- | --- | --- | --- | --- |
 | C1 / G06.2 | Add C1.1 named-group STRUCT extraction, C1.2 scalar regex splitting, then C1.3 table-valued splitting after F1 and C6.1 correlated/lateral source support; retain extract-all/replacement contracts. | T; S binding review | `text_regex_value`, `text_regex`, `nested`; pinned extraction/split files, names/types, optional groups, zero-width/NULL/NUL and vector encodings. | Constant/dynamic pattern extraction/split; existing extract-all, replacement and nested consumers. |
-C1.1 source is under scoped verification in `../duckdb-rust-batch3-c1`.
-Named STRUCT/LIST(STRUCT) extraction and required GROUP BY ALL binding are
-implemented. `target/batch3/c1-verifier2` passed 89 grouping/regex cases, lint,
-coverage and trace checks; subsequent empty-field metadata edits need refreshed
-affected checks. Both unchanged regex_capture files pass (13 development/14
-release records) and legacy extract-all passes (91/92) in `c1-upstream2`.
-Named-list error diagnostics remain under correction. Both additional
-`group_by_all.test` files remain open on existing spill-verification support;
-do not disable their settings or count them as passes. Development-first empty
-field metadata/access/format and snapshot/native-WAL reopen witnesses passed
-focused feedback; ordinary acceptance, both-pin edge receipts and performance
-are still open. Evidence stays under that worktree's `target/batch3/`.
-
 | C2 / G08.1 | Add STRING_AGG first, then histogram/mode, statistical/regression, quantile and sketch families as separate leaves. | T simple aggregates; S distribution/state families | `grouping`; empty/all-NULL, overflow, ORDER/DISTINCT/FILTER, partition equivalence and exact result types. | Few/many groups, ordered/distinct inputs, skew, state sizes and current SUM/LIST consumers. |
 | C3 / G05.2 | Add lambda binding/capture, then transform/filter/reduce, each with mixed child types and selected adapters. | S | `nested`, `types`, execution contracts; shadowing, nested captures, errors/effects, empty and NULL lists. | Flat/nested list lengths, captured values and existing list batch consumers. |
 | C4 / G04/G06.2 | Finish core date/time boundaries and calendar catalog; provision pinned ICU, then named zones/DST and collations as separate leaves. | T core functions; S ICU/collation | `temporal`, `settings`, `grouping`, `indexes`; gaps/folds, infinities, prepared setting changes, sort/join/key consistency and native exchange. | Temporal casts/calendar calls, timezone conversion, collated sorting/grouping/index lookup. |
@@ -1960,6 +1979,15 @@ are still open. Evidence stays under that worktree's `target/batch3/`.
 | C6 / G07 | Add lateral/UNNEST (F1/C3 as needed), then ASOF/positional joins, richer recursive/materialized CTEs, BY NAME/GROUP BY ALL, PIVOT/UNPIVOT and sampling as separate leaves. | S | `execution`, `subqueries`, `recursive`, `grouping`; empty/NULL/cardinality, correlated scope, recurrence, schema discovery and seeded behavior. | Join distributions, recursive growth, reshaping and existing relation consumers. |
 | C7 / G08.2/G08.3/G08.4 | Finish aggregate signatures/grouping masks and window RANGE/dynamic/exclusion/order semantics; connect combination/spill only after E3/E5. | S | `grouping`, `execution`; peers/ties, invalid bounds, effects, scalar/batch/partition agreement. | Many/few partitions, peer-heavy frames, ordered aggregates and eventual spill. |
 | C8 / G05.4/G05.5 | Add core GEOMETRY/WKB/CRS and remaining logical type constructors, with native metadata/codecs. Needs D4 format contract. | S | New geometry tests plus `types`/`compatibility`; malformed payloads, exact metadata, both producer directions. | Construction/casts, mixed nested values, native scan/write; opaque bytes alone cannot pass. |
+
+C1.1 STRUCT/LIST(STRUCT) extraction and GROUP BY ALL binding are integrated.
+The selected original regex files pass on both pins at the pre-formatter state
+(`target/batch3/integrated-e1-c1/preparation2/upstream3.json`). Empty-field
+formatting repair `5278a85` passes 114 scoped tests, lint, coverage and the
+integrated helper trace. Fresh release replay and affected performance remain
+open. Both original `group_by_all.test` files require real external execution;
+settings and assertions remain unchanged. Evidence and remaining obligations
+are in the Batch 3 integrated manifests; no whole-file pass is claimed.
 
 #### Track D — transactions, indexes and durable storage
 
@@ -1983,25 +2011,60 @@ pipeline designs must exercise an existing consumer before acceptance.
 | Step / goals | Action and dependency | Model | Continuous and final functional evidence | Performance workload |
 | --- | --- | --- | --- | --- |
 | E1 / G17.1 | Add byte ownership/reservations and fallible query budgets through vectors and one existing operator; propagate memory settings. | S | `contracts`, `execution`, `adversarial`; reserve/release/overflow/cancel failures and retained-result ownership. | Existing scan/group/format paths with accounting enabled, peak allocations and failure cleanup. |
-E1 source is under scoped verification in `../duckdb-rust-batch3-e1`.
-Initial seven resource tests pass: alias/global publication, defaults/percentages,
-injected Linux precedence, cancellation, failure atomicity and retained sorted
-batch/column ownership. `e1-verifier1` stopped during compilation on a window
-sort test adapter's old return type; that consumer is adapted and the exact
-partial sweep reported 308 integration and19vector passes in the verifier2
-transcript, then stopped on a lint finding. Those turns failed to preserve raw
-filesystem artifacts; a captured `e1-verifier3` run is required after the lint
-fix. No zero-test pass or missing-artifact completion is claimed.
-The manifest includes vector and comparison/radix/window consumers; full-engine,
-recovery and Kani suites are not applicable under [AGENTS.md](../AGENTS.md).
-Native/process performance and unchanged memory-setting upstream acceptance
-remain open. E2 remains queued until these ownership/I/O seams are integrated.
-
 | E2 / G17.2 | Add buffer pin/evict/dirty lifecycle and I/O attribution with native block scan integration. Needs E1. | S | Storage/compatibility/fault targets; read/write/eviction failures, pinned blocks and transaction lifetime. | Working sets below/above cache, sequential/random blocks, CPU/RSS/I/O. |
 | E3 / G17.3/G17.4 | Implement external sort first, then hash join/group/window spilling as separate leaves. Needs E1/E2 and local temp-file contract. | S | `execution`, `grouping`, `adversarial`; exact in-memory/spill equivalence, disk-full, early stop, restart cleanup. | Datasets larger than budget, spill partitions/skew, temp bytes and current in-memory consumers. |
 | E4 / G16 | Add ANALYZE/statistics lifecycle; then measured transformations, join ordering and cost-based physical selection as separate leaves. Algorithms need relevant C/D/E capabilities. | T statistics/output; S transformations/cost | `optimizer`, SQL/execution; optimizer on/off differential cases, volatile/lazy-error counterexamples and invalidation. | Selectivity/join distributions, planning latency, existing 34-case baseline and actual plan metrics. |
 | E5 / G18.1/G18.2 | Add task/pipeline state machine, then parallel scans/joins/aggregation/sort as separate leaves. Needs E1 and D1 ownership/visibility contracts. | A scheduler; S operators | Deterministic scheduler target plus execution; exactly-once/barriers, 1 vs many threads, cancellation and mutation atomicity. | Scaling at fixed thread counts, contention, skew and memory pressure; single-thread consumers must also pass. |
 | E6 / G18.3/G18.4 | Add pending readiness/backpressure and real wait/step/cancel progress through safe Rust engine interfaces. Needs E5; G3 foreign-handle integration is deferred, not a prerequisite. | A state contract; S adapters | Blocked source, WAITING/CHUNK/FINISHED/CANCELLED, concurrent close and owner destruction. | Time to first chunk, throughput, blocked CPU and cancellation latency. |
+
+E1 source is integrated at `4655582`; the combined E1/C1 tree is `89040c8`.
+Captured isolated `e1-verifier3` evidence passes 308 integration and 19 vector
+cases plus lint/coverage/trace. ROOT `target/batch3/integrated-e1-c1/verifier1`
+passes 7 resource, 5 regex, 19 vector and 1 encoded-regex tests plus targeted
+Clippy, with unchanged before/after source hashes. Full-engine/recovery/Kani
+checks are not applicable to this partial scope under [AGENTS.md](../AGENTS.md).
+
+The both-pin memory-limit file previously failed at unsupported PRAGMA dispatch.
+Repair `af92867` preserves global assignment semantics, rejects function-call
+forms, supports signed numeric literals and preserves failed publication. The
+scoped verifier retained 8 resource/71 settings feedback passes and passed 8
+parser tests, targeted Clippy, formatting, instrumentation coverage and the
+trace-aware library check. Evidence is under
+`target/batch3/integrated-e1-c1/memory-pragma/verifier2/`; unchanged source/input
+hashes were checked before/after. The subsequent unchanged full memory-limit replay passes 38/38 on both pins
+(`preparation2/upstream3.json`); performance remains open.
+Both full memory-limit files reached 35/38 records at `af92867`; the next
+failure was an extra parser-library diagnostic prefix. Repair `0b774f9` passes
+the exact-message focused witness; the subsequent full replay passes both pins.
+
+Review also found that CollectingSink copied charged sorted batches into an
+uncharged ordinary QueryResult. Repair `1f3e99f` covers materialized-copy
+admission, shared retained backing/COW, and preserving ownership until internal
+storage insertion completes. Source storage remains the original unbudgeted
+storage domain; this is not complete engine allocator accounting. Manifest and
+evidence: `target/batch3/integrated-e1-c1/materialized-ownership/`.
+The independent scoped verifier passes 470 tests, Clippy, coverage and trace
+(`verifier4/receipt.md`). The valid 21-sample/3-warmup native campaign fails
+latency parity for every unlimited case: direct 1.744x, scan 1.728x, group
+5.466x and format 2.856x the fastest pinned reference. Reports are retained in
+`materialized-ownership/acceptance-extra/` as
+`e1-native-unlimited-release1.json`, `e1-native-unlimited-development1.json`
+and `e1-native-unlimited-fastest1.json`.
+Outputs and identities passed. E1 remains in performance implementation;
+Sol/high owns diagnosis under `target/agent-dispatches/e1-performance1-sol.md`.
+The initial unsupported-lpad fixture failure remains retained; corrected
+`acceptance-extra/inputs3` produces the same validated 50,000 input strings.
+
+C1 empty-field STRUCT formatting is repaired at `5278a85`; 114 scoped tests,
+Clippy and coverage pass in the sibling verifier. Integrated helper trace
+also passes (`target/batch3/c1-integrated-trace1/receipt.md`). Fresh-binary
+expression replay and affected performance remain open. The original
+GROUP BY ALL file still requires real external execution; no assertions were skipped.
+
+Native/process performance remains open, including scan/group/format/CSV sort
+and the compiled host-default consumer. Exact expanded inputs and commands are
+under `integrated-e1-c1/preparation2/`. E2 work already exists in isolation;
+acceptance still depends on accepted E1/H1.1 contracts.
 
 #### Track F — table sources and external formats
 
