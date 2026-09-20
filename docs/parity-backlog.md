@@ -1170,8 +1170,10 @@ rejected comparison plan passed four plan tests, 61 nested tests and author
 Clippy/build, but its exact-output diagnostic regressed named STRUCT/LIST
 medians by 10.82%/9.82% versus attempt16. The bounded rollback is pushed at
 `68eba74`; three targeted comparison/selection tests and scoped Clippy pass.
-Terra's frozen independent ordinary sweep is active under
-`target/batch3/c1-independent-verifier18/`; final performance/resource acceptance
+Terra's frozen independent ordinary sweep passes 270 tests, changed-file
+formatting and scoped Clippy, then fails required instrumentation coverage;
+trace is unrun. Evidence is `target/batch3/c1-independent-verifier18/receipt-final.json`.
+A bounded annotation repair is active; final performance/resource acceptance
 remains open. Sol is diagnosing E1 process RSS and reject/reuse source lifetimes
 under `target/batch3/e1-resource-source-diagnosis1/`, without mutating C1. Raw evidence remains local
 under the cited `target/` paths. Continue C1 acceptance, E1 resource repair and
@@ -1203,7 +1205,9 @@ existing Batch4/5 drafts against their recorded contracts.
   named STRUCT/LIST to 11.351/26.730 ms (10.82%/9.82% slower than attempt16).
   The plan is rejected and removed at pushed checkpoint `68eba74`; its earlier
   checkpoint and raw evidence remain preserved. Independent ordinary
-  verification is active; no final acceptance is claimed.
+  verification passes 270 tests, formatting and scoped Clippy but stops at
+  missing instrumentation coverage; trace is unrun and annotation repair is
+  active. No final acceptance is claimed.
   These short runs do not replace final acceptance. Source/profiles remain in the sibling worktree's
   `target/batch3/c1-performance1/`; the corrected provisional independent scope
   is in `target/batch3/c1-verifier-prep15/`.
