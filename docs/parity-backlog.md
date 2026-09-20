@@ -1876,6 +1876,24 @@ deliver reports and status recommendations.
 | A2 / G01.2 | Close remaining runner gaps one at a time: max-thread routing, load-version selection, variable-dependent loops and proxy sibling-stop semantics. Select first from A1. Engine variable functions require B4. | T; S for concurrent/session semantics | `sqllogic_runner`, affected Python tests; exact directive/concurrency files, wrong-result and skipped/unknown controls. | Matched runner loops, sessions, restart and failed-assertion consumers; warm/cold cache costs explicit. |
 | A3 / G01.1/G01.3 | Map native engine/safe Rust assertions and runtime-generated/configuration instances to executed Rust contracts. Foreign symbol/client mapping is deferred with G. | L mapping; T review | Unique source assertion IDs, unmapped counts, actual Rust artifact identity and engine ownership negative controls. | New engine adapters need paired launch/mapping workloads; inventory alone does not prove engine parity. |
 | A4 / G01.4/G24.4 | Add an incremental regression view keyed by case + pin + configuration; include fresh failures, lost passes, stale results and elapsed stages. Depends on A1. | T | Runner/summarizer mutation tests; zero/duplicate/omitted selections fail. Validate snapshot refresh without summing overlapping campaigns. | Large/small report inputs and selected-feedback consumers; gate tool runtime/resources. |
+
+A4 implementation integrated at `18cfc2b` (identical implementation to isolated
+`f0a73db`). Configured partial verifier evidence in
+`../duckdb-rust-batch3-a4/target/batch3/a4-verifier{1,2,3,4}` covers 50 distinct
+Python cases, syntax and both pinned C++ helper headers. Earlier failed test and
+adapter warmup evidence is retained. Small/large fixed reports (2/10001 cases
+per pin) pass 21-sample/3-warmup complete-output and independent performance
+gates in that worktree's `target/batch3/a4-measure2/{small,large}.json`: latency
+65.848167/91.448375 ms and 536.204/1085.800083 ms respectively; CPU, RSS, I/O
+and throughput all pass. Actual one-file report producer replay passes both
+pins in ROOT `target/batch3/a4-consumer-review2/producer-{release,development}.json`.
+The 21/3 feedback consumer campaign `feedback-21.json` passes: Rust wall ratios
+0.80457/0.80038, CPU0.75, RSS0.28069/0.28010 and zero-I/O gates pass with
+matching source/binary/inputs before and after. Controller post-run assertions
+are retained separately in its receipt; no measurements were repeated or
+invented. A4 is accepted at source `18cfc2b`; unchanged Rust implementation
+identity is in the campaign receipt. Rust engine/full sweep/recovery/Kani are
+not applicable to this Python/tooling scope under [AGENTS.md](../AGENTS.md).
 | A5 / G24.4/G24.5 | At each capability round, refresh whole SQL accounting and performance coverage; expand faults/fuzz/slow/platform populations as dependencies arrive. | T | Both pins, current revision, all source IDs and dispositions; prior-pass regression diff, reproducible failures. | Add cold/warm storage, durable commit/recovery, API and concurrent workloads as those capabilities land. |
 
 A1 commands (fresh report destinations; run campaigns serially in its frozen
@@ -1922,6 +1940,19 @@ numeric, nested and aggregate work.
 | Step / goals | Action and dependency | Model | Continuous and final functional evidence | Performance workload |
 | --- | --- | --- | --- | --- |
 | C1 / G06.2 | Add C1.1 named-group STRUCT extraction, C1.2 scalar regex splitting, then C1.3 table-valued splitting after F1 and C6.1 correlated/lateral source support; retain extract-all/replacement contracts. | T; S binding review | `text_regex_value`, `text_regex`, `nested`; pinned extraction/split files, names/types, optional groups, zero-width/NULL/NUL and vector encodings. | Constant/dynamic pattern extraction/split; existing extract-all, replacement and nested consumers. |
+C1.1 source is under scoped verification in `../duckdb-rust-batch3-c1`.
+Named STRUCT/LIST(STRUCT) extraction and required GROUP BY ALL binding are
+implemented. `target/batch3/c1-verifier2` passed 89 grouping/regex cases, lint,
+coverage and trace checks; subsequent empty-field metadata edits need refreshed
+affected checks. Both unchanged regex_capture files pass (13 development/14
+release records) and legacy extract-all passes (91/92) in `c1-upstream2`.
+Named-list error diagnostics remain under correction. Both additional
+`group_by_all.test` files remain open on existing spill-verification support;
+do not disable their settings or count them as passes. Development-first empty
+field metadata/access/format and snapshot/native-WAL reopen witnesses passed
+focused feedback; ordinary acceptance, both-pin edge receipts and performance
+are still open. Evidence stays under that worktree's `target/batch3/`.
+
 | C2 / G08.1 | Add STRING_AGG first, then histogram/mode, statistical/regression, quantile and sketch families as separate leaves. | T simple aggregates; S distribution/state families | `grouping`; empty/all-NULL, overflow, ORDER/DISTINCT/FILTER, partition equivalence and exact result types. | Few/many groups, ordered/distinct inputs, skew, state sizes and current SUM/LIST consumers. |
 | C3 / G05.2 | Add lambda binding/capture, then transform/filter/reduce, each with mixed child types and selected adapters. | S | `nested`, `types`, execution contracts; shadowing, nested captures, errors/effects, empty and NULL lists. | Flat/nested list lengths, captured values and existing list batch consumers. |
 | C4 / G04/G06.2 | Finish core date/time boundaries and calendar catalog; provision pinned ICU, then named zones/DST and collations as separate leaves. | T core functions; S ICU/collation | `temporal`, `settings`, `grouping`, `indexes`; gaps/folds, infinities, prepared setting changes, sort/join/key consistency and native exchange. | Temporal casts/calendar calls, timezone conversion, collated sorting/grouping/index lookup. |
@@ -1952,6 +1983,20 @@ pipeline designs must exercise an existing consumer before acceptance.
 | Step / goals | Action and dependency | Model | Continuous and final functional evidence | Performance workload |
 | --- | --- | --- | --- | --- |
 | E1 / G17.1 | Add byte ownership/reservations and fallible query budgets through vectors and one existing operator; propagate memory settings. | S | `contracts`, `execution`, `adversarial`; reserve/release/overflow/cancel failures and retained-result ownership. | Existing scan/group/format paths with accounting enabled, peak allocations and failure cleanup. |
+E1 source is under scoped verification in `../duckdb-rust-batch3-e1`.
+Initial seven resource tests pass: alias/global publication, defaults/percentages,
+injected Linux precedence, cancellation, failure atomicity and retained sorted
+batch/column ownership. `e1-verifier1` stopped during compilation on a window
+sort test adapter's old return type; that consumer is adapted and the exact
+partial sweep reported 308 integration and19vector passes in the verifier2
+transcript, then stopped on a lint finding. Those turns failed to preserve raw
+filesystem artifacts; a captured `e1-verifier3` run is required after the lint
+fix. No zero-test pass or missing-artifact completion is claimed.
+The manifest includes vector and comparison/radix/window consumers; full-engine,
+recovery and Kani suites are not applicable under [AGENTS.md](../AGENTS.md).
+Native/process performance and unchanged memory-setting upstream acceptance
+remain open. E2 remains queued until these ownership/I/O seams are integrated.
+
 | E2 / G17.2 | Add buffer pin/evict/dirty lifecycle and I/O attribution with native block scan integration. Needs E1. | S | Storage/compatibility/fault targets; read/write/eviction failures, pinned blocks and transaction lifetime. | Working sets below/above cache, sequential/random blocks, CPU/RSS/I/O. |
 | E3 / G17.3/G17.4 | Implement external sort first, then hash join/group/window spilling as separate leaves. Needs E1/E2 and local temp-file contract. | S | `execution`, `grouping`, `adversarial`; exact in-memory/spill equivalence, disk-full, early stop, restart cleanup. | Datasets larger than budget, spill partitions/skew, temp bytes and current in-memory consumers. |
 | E4 / G16 | Add ANALYZE/statistics lifecycle; then measured transformations, join ordering and cost-based physical selection as separate leaves. Algorithms need relevant C/D/E capabilities. | T statistics/output; S transformations/cost | `optimizer`, SQL/execution; optimizer on/off differential cases, volatile/lazy-error counterexamples and invalidation. | Selectivity/join distributions, planning latency, existing 34-case baseline and actual plan metrics. |
