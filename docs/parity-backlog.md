@@ -1144,7 +1144,7 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Accepted at Rust `31a878c` / Python `ebe5cfb`: scoped verification, unchanged functional cases and all 23 performance stages pass. Durable B1/A2 use explicitly accepted equivalent full-sync references. Combined receipt `target/batch2/native-followup4-equivalent-fullsync-acceptance.json` retains exact stage-report hashes. Original weaker-sync failures and unrelated hexadecimal/DOUBLE ordered SUM gaps stay explicit. |
-| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | A4 accepted at `18cfc2b`. E1 candidate `058e9a7` passes independent verification (594 scoped tests, lint, coverage and trace); short diagnostics improve all four prior latency failures, but final native/resource acceptance remains open. C1 formatter fix `5278a85` passes 114 scoped tests, integrated trace and fresh release replay; four of eight native cases fail and performance repair is active. Memory-limit file passes 38/38 on both pins. GROUP BY ALL external execution remains open. Evidence under `target/batch3/integrated-e1-c1/`. |
+| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | A4 accepted at `18cfc2b`. E1 candidate `058e9a7` passes independent verification (594 scoped tests, lint, coverage and trace); final 21/3 native latency passes all unlimited/fitting cases against both pins; resource and expanded ownership acceptance remain open. C1 formatter fix `5278a85` passes 114 scoped tests, integrated trace and fresh release replay; four of eight native cases fail and performance repair is active. Memory-limit file passes 38/38 on both pins. GROUP BY ALL external execution remains open. Evidence under `target/batch3/integrated-e1-c1/`. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1 `aec9819` remains in conflict-contract repair. H1 `2855d1d` passes scoped verification but fails the joint resource/performance gate. F2 COPY draft needs review corrections. All acceptance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1, E2 and F3.1 have uncommitted source in isolated worktrees. B2.1 integration depends on D1 acceptance; E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. All three acceptance gates remain open. |
 
@@ -2068,8 +2068,13 @@ direct/scan/group/format; these are not acceptance. Terra/low independently veri
 formatting, Clippy, coverage and trace all pass. Eleven owned source hashes
 match before/after. Raw stage logs and the receipt are under
 `target/batch3/e1-performance-verifier1/`; dispatch is
-`target/agent-dispatches/e1-performance-verifier1-terra.md`. Final 21/3 both-pin
-native and independent resource campaigns remain open. Author feedback lacked
+`target/agent-dispatches/e1-performance-verifier1-terra.md`. Final 21/3 both-pin native latency now passes all four unlimited and all four
+fitting cases with exact ordered outputs and unchanged identities. Joint ratios
+to the fastest reference are unlimited 0.531/0.560/0.969/0.809 and fitting
+0.525/0.569/0.964/0.770 for direct/scan/group/format. Raw samples and receipts
+are in `target/batch3/e1-native-acceptance3/`; fresh build attestation is in
+`target/batch3/e1-acceptance-prepare2/`. Independent resource, CSV/feedback
+consumer and expanded retained/COW/eager/mutation acceptance remain open. Author feedback lacked
 raw per-stage artifacts in its handoff directory, so final scoped checks are
 captured independently rather than reconstructed.
 The initial unsupported-lpad fixture failure remains retained; corrected
