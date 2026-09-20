@@ -2091,8 +2091,10 @@ block; that non-fitting result is preserved, not called comparable acceptance.
 A partial resource run stopped on temporary-directory FileExists; a fresh shared
 TMPDIR passed all-engine preflight and the complete replacement campaign. The
 runner's PID/counter scratch-name collision limitation remains unfixed; exact
-failed PID was unavailable. Host-default feedback and expanded
-retained/COW/eager/mutation acceptance remain open. Current-source original
+failed PID was unavailable. Host-default feedback passes strict 21/3 gates
+(`target/batch3/e1-feedback-acceptance4/`): wall 0.856, CPU 0.75, RSS 0.280
+and higher throughput. Expanded retained/COW/eager/mutation acceptance remains
+open alongside the VALUES-heavy RSS and reject/reuse time/CPU failures. Current-source original
 memory-limit (38 records per pin), three regex files and all 21 empty-field
 expressions pass in `target/batch3/e1-consumer-replay4/`, without skips. Author feedback lacked
 raw per-stage artifacts in its handoff directory, so final scoped checks are
