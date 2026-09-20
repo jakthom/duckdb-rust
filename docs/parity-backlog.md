@@ -1145,8 +1145,8 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Accepted at Rust `31a878c` / Python `ebe5cfb`: scoped verification, unchanged functional cases and all 23 performance stages pass. Durable B1/A2 use explicitly accepted equivalent full-sync references. Combined receipt `target/batch2/native-followup4-equivalent-fullsync-acceptance.json` retains exact stage-report hashes. Original weaker-sync failures and unrelated hexadecimal/DOUBLE ordered SUM gaps stay explicit. |
 | 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | A4 accepted at `18cfc2b`. E1 candidate `058e9a7` passes independent verification (594 scoped tests, lint, coverage and trace); final 21/3 native latency passes all unlimited/fitting cases against both pins; resource acceptance fails RSS for eight sort cases and wall/CPU for reject/reuse; expanded ownership acceptance remains open. C1 formatter fix `5278a85` passes 114 scoped tests, integrated trace and fresh release replay; four of eight native cases fail and performance repair is active. Memory-limit file passes 38/38 on both pins. GROUP BY ALL external execution remains open. Evidence under `target/batch3/integrated-e1-c1/`. |
-| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1 `b77d5d0` passes owner-state feedback and remains in conflict-contract repair. H1 `2855d1d` passes scoped verification but fails the joint resource/performance gate. F2 COPY draft needs review corrections. All acceptance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
-| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1 and E2 have uncommitted source; F3.1 draft `664b7fd` passes scoped feedback in its isolated worktree. B2.1 integration depends on D1 acceptance; E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. All three acceptance gates remain open. |
+| 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1 `b77d5d0` passes owner-state feedback and remains in conflict-contract repair. H1 `2855d1d` passes scoped verification but fails the joint resource/performance gate. F2 COPY draft `1ce223a` needs review corrections. All acceptance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
+| 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1 `132c1af` and E2 `b84846a` are isolated unfinished checkpoints; F3.1 draft `664b7fd` passes scoped feedback in its isolated worktree. B2.1 integration depends on D1 acceptance; E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. All three acceptance gates remain open. |
 
 **Immediate work across Batches 3/4/5:** Batch2 acceptance is complete. Its final
 regex process gate passes at 0.022917 of the faster reference latency, with CPU,
@@ -1160,6 +1160,18 @@ worktrees and finish open acceptance before increasing the implementation queue.
 No new batch label waives an outstanding acceptance obligation.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
+
+Remote checkpoints (2026-09-20): `codex/batch3-c1-performance` at `078cef7`,
+`codex/batch4-d1` at `b77d5d0`, `codex/batch4-h1` at `2855d1d`,
+`codex/batch4-f2` at `1ce223a`, `codex/batch5-b2` at `132c1af`,
+`codex/batch5-e2` at `b84846a`, and `codex/batch5-f3` at `664b7fd`.
+These preserve ongoing work; all open gates below still apply. The C1 checkpoint
+includes attempt17's comparison plan, with four author plan tests and 61 nested
+tests passing; remaining author checks, independent sweep and strict final
+performance/resource acceptance are still required. Raw evidence remains local
+under the cited `target/` paths. Continue C1 acceptance, E1 resource repair and
+the external-execution prerequisite before closing Batch3; then finish the
+existing Batch4/5 drafts against their recorded contracts.
 
 - C1 performance repair remains isolated at baseline `058e9a7`. The latest
   candidate measured in a final campaign (attempt 13) adds columnar nested consumers, retained

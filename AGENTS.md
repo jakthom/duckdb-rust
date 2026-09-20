@@ -26,6 +26,17 @@ engine contracts and engine-required built-in capabilities remain in scope.
 Foreign ABI/client/binary-extension compatibility is a separate final acceptance
 phase, not a circular prerequisite for declaring the core engine complete.
 
+## Frequent remote checkpoints
+
+Accepted user direction, 2026-09-20: snapshot and push task work frequently,
+especially near usage limits. At each cohesive source/check boundary, coordinate
+with the owning worker, commit the task files on their named worktree branch and
+push that branch to `origin`. Preserve unfinished work as explicitly labeled
+checkpoints; a commit or push is not acceptance. Record branch/revision and open
+gates in `docs/parity-backlog.md`. Keep raw validation evidence under `target/`;
+do not add it to Git. Do not rerun unchanged engine checks merely for a checkpoint.
+Use normal pushes without force and resolve any remote divergence before retrying.
+
 ## Agent model budget — durable policy
 
 Accepted user direction, 2026-09-19: use lower-cost agents for routine work;
