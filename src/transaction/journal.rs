@@ -519,7 +519,7 @@ impl SnapshotTransaction {
     /// snapshot. Conflict domains have already excluded overlapping rows and
     /// catalog names; replay failure is therefore a conservative conflict and
     /// cannot publish a partial successor.
-    fn rebase(
+    pub(super) fn rebase(
         &self,
         basis: Snapshot,
         context: &QueryContext,
@@ -535,7 +535,7 @@ impl SnapshotTransaction {
             rebase_context: context.clone(),
             // Replay is an internal candidate and never registers an external
             // reader generation. Its enclosing transaction owns that lease.
-            active: false,
+            owner: OwnerState::Replay,
         };
         let mut remap = std::collections::BTreeMap::<(String, RowId), RowId>::new();
         for change in &self.journal {

@@ -56,6 +56,21 @@ struct Committed {
     /// can no longer affect a commit and are reclaimed on release.
     history: Vec<(u64, Vec<journal::ConflictDomain>)>,
     active_generations: BTreeMap<u64, usize>,
+    next_owner: u64,
+    owners: BTreeMap<OwnerId, u64>,
+}
+
+/// An owner identifies a live transaction, not its shared snapshot generation.
+/// Runtime-only identities never enter the durable publication journal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct OwnerId(u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OwnerState {
+    Active(OwnerId),
+    /// Internal replay inherits its caller's lease and cannot release it.
+    Replay,
+    Released,
 }
 
 enum Failure {
@@ -64,10 +79,28 @@ enum Failure {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Committed {
-    fn activate(&mut self, generation: u64) {
-        *self.active_generations.entry(generation).or_default() += 1;
+    fn activate(&mut self, generation: u64) -> Result<OwnerId> {
+        let next = self
+            .next_owner
+            .checked_add(1)
+            .ok_or_else(|| Error::Resource("transaction owner identity exhausted".into()))?;
+        let count = self
+            .active_generations
+            .get(&generation)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| Error::Resource("active transaction count exhausted".into()))?;
+        let owner = OwnerId(self.next_owner);
+        self.next_owner = next;
+        self.owners.insert(owner, generation);
+        self.active_generations.insert(generation, count);
+        Ok(owner)
     }
-    fn release(&mut self, generation: u64) {
+    fn release(&mut self, owner: OwnerId) {
+        let Some(generation) = self.owners.remove(&owner) else {
+            return;
+        };
         if let Some(count) = self.active_generations.get_mut(&generation) {
             *count -= 1;
             if *count == 0 {
@@ -154,6 +187,8 @@ impl SnapshotTransactions {
                 failure: None,
                 history: Vec::new(),
                 active_generations: BTreeMap::new(),
+                next_owner: 0,
+                owners: BTreeMap::new(),
             })),
             durability,
             indexes,
@@ -179,7 +214,7 @@ struct SnapshotTransaction {
     // Rebase remains within the caller transaction: retain cancellation,
     // deadline, row limit, services, and type bindings.
     rebase_context: QueryContext,
-    active: bool,
+    owner: OwnerState,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -223,7 +258,7 @@ impl TransactionManager for SnapshotTransactions {
             .map_err(|_| Error::Internal("transaction mutex poisoned".into()))?;
         state.check()?;
         let generation = state.generation;
-        state.activate(generation);
+        let owner = state.activate(generation)?;
         Ok(Box::new(SnapshotTransaction {
             state: self.state.clone(),
             durability: self.durability.clone(),
@@ -233,7 +268,7 @@ impl TransactionManager for SnapshotTransactions {
             dirty: false,
             journal: Vec::new(),
             rebase_context: QueryContext::background().with_types(self.types.clone()),
-            active: true,
+            owner: OwnerState::Active(owner),
         }))
     }
 }
@@ -322,20 +357,22 @@ impl Transaction for SnapshotTransaction {
         };
         state.generation = generation;
         state.history.push((generation, publication_domains));
-        self.active = false;
-        state.release(self.generation);
+        if let OwnerState::Active(owner) = self.owner {
+            self.owner = OwnerState::Released;
+            state.release(owner);
+        }
         Ok(())
     }
 }
 
 impl SnapshotTransaction {
     fn release(&mut self) {
-        if !self.active {
+        let OwnerState::Active(owner) = self.owner else {
             return;
-        }
+        };
         if let Ok(mut state) = self.state.lock() {
-            self.active = false;
-            state.release(self.generation);
+            self.owner = OwnerState::Released;
+            state.release(owner);
         }
     }
 }
@@ -396,9 +433,13 @@ mod tests {
             snapshot: Snapshot::default(),
             failure: None,
             history: vec![(3, vec![]), (6, vec![]), (9, vec![])],
-            active_generations: BTreeMap::from([(2, 1), (6, 1)]),
+            active_generations: BTreeMap::new(),
+            next_owner: 0,
+            owners: BTreeMap::new(),
         };
-        committed.release(6);
+        let older = committed.activate(2).unwrap();
+        let newer = committed.activate(6).unwrap();
+        committed.release(newer);
         assert_eq!(
             committed
                 .history
@@ -407,7 +448,50 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![3, 6, 9]
         );
-        committed.release(2);
+        committed.release(older);
         assert!(committed.history.is_empty());
+    }
+
+    #[test]
+    fn distinct_owners_at_one_snapshot_release_only_their_own_lease() {
+        let mut committed = Committed {
+            generation: 4,
+            snapshot: Snapshot::default(),
+            failure: None,
+            history: vec![(4, vec![])],
+            active_generations: BTreeMap::new(),
+            next_owner: 0,
+            owners: BTreeMap::new(),
+        };
+        let first = committed.activate(2).unwrap();
+        let second = committed.activate(2).unwrap();
+        assert_ne!(first, second);
+        committed.release(first);
+        committed.release(first);
+        assert_eq!(committed.active_generations.get(&2), Some(&1));
+        assert_eq!(committed.owners.get(&second), Some(&2));
+        assert_eq!(committed.history.len(), 1);
+        committed.release(second);
+        assert!(committed.active_generations.is_empty());
+        assert!(committed.history.is_empty());
+        let third = committed.activate(2).unwrap();
+        assert!(third > second);
+    }
+
+    #[test]
+    fn owner_exhaustion_does_not_register_a_partial_lease() {
+        let mut committed = Committed {
+            generation: 0,
+            snapshot: Snapshot::default(),
+            failure: None,
+            history: Vec::new(),
+            active_generations: BTreeMap::new(),
+            next_owner: u64::MAX,
+            owners: BTreeMap::new(),
+        };
+        assert!(matches!(committed.activate(0), Err(Error::Resource(_))));
+        assert!(committed.owners.is_empty());
+        assert!(committed.active_generations.is_empty());
+        assert_eq!(committed.next_owner, u64::MAX);
     }
 }
