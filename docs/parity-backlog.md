@@ -1162,7 +1162,7 @@ No new batch label waives an outstanding acceptance obligation.
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 
 - C1 performance repair remains isolated at baseline `058e9a7`. The latest
-  measured candidate (attempt 13) adds columnar nested consumers, retained
+  candidate measured in a final campaign (attempt 13) adds columnar nested consumers, retained
   adapter proofs, bounded cancellation, charged geometric buffer growth,
   capture-state reuse and packed BIGINT-to-VARCHAR output. Independent final
   verification remains open. The first current-source final native campaign
@@ -1174,10 +1174,17 @@ No new batch label waives an outstanding acceptance obligation.
   completion-flag prose, superseded by the raw-data audit in
   `target/batch3/c1-native-final12-audit/`. The raw report is complete and shared
   before/after inputs are identical; no engine rerun or result rewrite occurred.
-  Profile-supported decimal/quoted-text repairs and packed-needle compatibility
-  are in progress. Source/profiles remain in the sibling worktree's
-  `target/batch3/c1-performance1/`; the provisional independent scope is in
-  `target/batch3/c1-verifier-prep11/`, with reviewed corrections in the handoff.
+  Later diagnostics preserve all eight exact outputs: decimal/quoted-text
+  repairs and packed-needle compatibility recover a scalar consumer regression.
+  Attempt 15 caches fixed field-name rendering but still misses four nested
+  historical final references (1.0417x/1.0305x comparison, 1.0025x/1.0009x
+  formatting). Its unsuccessful inline hints are removed; retained private
+  validation-capability caching is implemented in attempt 16, whose short run
+  still fails the four nested cases against prior final references.
+  Batch-bound borrowed comparison views are under profile/design review.
+  These short runs do not replace final acceptance. Source/profiles remain in the sibling worktree's
+  `target/batch3/c1-performance1/`; the corrected provisional independent scope
+  is in `target/batch3/c1-verifier-prep15/`.
   Both pinned C++ engines pass all eight immutable resource fixtures (16 runs,
   17,288 assertions per pin), recorded in
   `target/batch3/c1-resource-preflight6/receipt.json`. Discovery-correct inputs
@@ -1221,7 +1228,15 @@ No new batch label waives an outstanding acceptance obligation.
   concurrent with RENAME where release accepts; development remains authoritative.
   Stale DELETE fails at mutation for indexed tables and at COMMIT for plain
   tables. Existing implementation remains unaccepted; four new source-only
-  contract tests encode observed ownership/merge/delete behavior.
+  contract tests encode observed ownership/merge/delete behavior. A bounded
+  owner-state repair at isolated `b77d5d0` gives live transactions distinct checked IDs and
+  distinguishes active ownership, internal replay and released ownership;
+  three owner/history units pass in `target/batch4/d1-owner-state-feedback2/`
+  after fixing draft replay-method visibility. The benchmark type-inference
+  blocker is repaired; `target/batch4/d1-owner-state-feedback3/` records the
+  selected failed-session lifecycle test passing (one test), with unchanged
+  transaction hashes. Active write claims and version-aware reconciliation
+  remain open; this is feedback, not D1 completion.
 - D1: replace blanket intervening-writer conflicts with the pinned row/catalog
   conflict and visibility contracts. Own `src/transaction/` and deterministic
   transaction histories; lead integrates catalog/storage publication seams.
