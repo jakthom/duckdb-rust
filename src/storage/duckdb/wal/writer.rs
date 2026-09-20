@@ -511,7 +511,7 @@ impl LogSession for Session {
                     state.definition = definition;
                     next.tables.insert(state.definition.name.clone(), state);
                 }
-                TransactionChange::Insert { table, rows } => {
+                TransactionChange::Insert { table, rows, .. } => {
                     let state = next
                         .tables
                         .get_mut(table)
@@ -520,6 +520,23 @@ impl LogSession for Session {
                     for row in rows {
                         context.check()?;
                         pending.insert(advance(&mut state.logical_next)?, row.clone());
+                    }
+                }
+                // The transaction/rebase path keeps vectors intact. WAL is
+                // deliberately the encoding boundary: it consumes one row at
+                // a time without forcing the producer or journal to build a
+                // second transaction-wide row payload.
+                TransactionChange::InsertChunks { table, chunks, .. } => {
+                    let state = next
+                        .tables
+                        .get_mut(table)
+                        .ok_or_else(|| invalid("missing insert table"))?;
+                    let pending = pending.entry(table.clone()).or_default();
+                    for chunk in chunks {
+                        for row in chunk.rows() {
+                            context.check()?;
+                            pending.insert(advance(&mut state.logical_next)?, row);
+                        }
                     }
                 }
                 TransactionChange::Update {

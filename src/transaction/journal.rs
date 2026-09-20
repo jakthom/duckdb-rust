@@ -8,6 +8,72 @@ use crate::{
 };
 use std::collections::BTreeSet;
 
+/// Compact conflict domains retained by the transaction manager after a winner
+/// publishes. They intentionally name logical rows/objects, never a snapshot
+/// generation: readers therefore remain valid and disjoint writers can rebase.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum ConflictDomain {
+    Row(TableName, RowId),
+    Append(TableName),
+    /// Tables and views share the relation namespace.  DDL on either blocks
+    /// stale row/append writes and replacement of the same relation name.
+    Relation(TableName),
+    /// A retained view definition depends on this relation's catalog shape.
+    Dependency(TableName),
+    Type(TypeName),
+    Schema(String),
+}
+
+pub(super) fn conflict_domains(changes: &[TransactionChange]) -> Vec<ConflictDomain> {
+    let mut domains = BTreeSet::new();
+    for change in changes {
+        match change {
+            TransactionChange::Insert { table, .. } | TransactionChange::InsertChunks { table, .. } => { domains.insert(ConflictDomain::Append(table.clone())); }
+            TransactionChange::Update { table, rows, .. } => for (id, _) in rows { domains.insert(ConflictDomain::Row(table.clone(), *id)); },
+            TransactionChange::Delete { table, ids } => for id in ids { domains.insert(ConflictDomain::Row(table.clone(), *id)); },
+            TransactionChange::CreateTable(definition) => { domains.insert(ConflictDomain::Relation(definition.name.clone())); },
+            TransactionChange::DropTable(table) => { domains.insert(ConflictDomain::Relation(table.clone())); },
+            TransactionChange::AlterTable { table, alteration, .. } => {
+                domains.insert(ConflictDomain::Relation(table.clone()));
+                if let crate::catalog::TableAlteration::RenameTable(name) = alteration {
+                    domains.insert(ConflictDomain::Relation(TableName::new(&table.schema, name)));
+                }
+            }
+            TransactionChange::CreateSchema(name) | TransactionChange::DropSchema(name) => { domains.insert(ConflictDomain::Schema(name.clone())); },
+            TransactionChange::CreateView { definition, .. } => {
+                domains.insert(ConflictDomain::Relation(definition.name.clone()));
+                for dependency in &definition.dependencies {
+                    let relation = match dependency {
+                        crate::catalog::ViewDependency::Table(name) | crate::catalog::ViewDependency::View(name) => name,
+                    };
+                    domains.insert(ConflictDomain::Dependency(relation.clone()));
+                }
+            }
+            TransactionChange::DropView(name) => { domains.insert(ConflictDomain::Relation(name.clone())); },
+            TransactionChange::CreateType { definition, .. } => { domains.insert(ConflictDomain::Type(definition.name.clone())); },
+            TransactionChange::DropType(name) => { domains.insert(ConflictDomain::Type(name.clone())); },
+        }
+    }
+    domains.into_iter().collect()
+}
+
+pub(super) fn domains_conflict(left: &[ConflictDomain], right: &[ConflictDomain]) -> bool {
+    left.iter().any(|a| right.iter().any(|b| match (a, b) {
+        (ConflictDomain::Row(table_a, row_a), ConflictDomain::Row(table_b, row_b)) => table_a == table_b && row_a == row_b,
+        (ConflictDomain::Relation(a), ConflictDomain::Relation(b)) | (ConflictDomain::Dependency(a), ConflictDomain::Dependency(b)) => a == b,
+        (ConflictDomain::Relation(relation), ConflictDomain::Row(table, _)) | (ConflictDomain::Row(table, _), ConflictDomain::Relation(relation)) => relation == table,
+        (ConflictDomain::Relation(relation), ConflictDomain::Append(table)) | (ConflictDomain::Append(table), ConflictDomain::Relation(relation)) => relation == table,
+        (ConflictDomain::Relation(relation), ConflictDomain::Dependency(dependency)) | (ConflictDomain::Dependency(dependency), ConflictDomain::Relation(relation)) => relation == dependency,
+        (ConflictDomain::Type(a), ConflictDomain::Type(b)) => a == b,
+        (ConflictDomain::Schema(schema), domain) | (domain, ConflictDomain::Schema(schema)) => match domain {
+            ConflictDomain::Schema(other) => schema == other,
+            ConflictDomain::Row(table, _) | ConflictDomain::Append(table) | ConflictDomain::Relation(table) | ConflictDomain::Dependency(table) => schema == &table.schema,
+            ConflictDomain::Type(name) => schema == &name.schema,
+        },
+        _ => false,
+    }))
+}
+
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Catalog for SnapshotTransaction {
     fn identity(&self) -> Option<crate::catalog::CatalogIdentity> {
@@ -102,7 +168,7 @@ impl CatalogMut for SnapshotTransaction {
         context: &QueryContext,
     ) -> Result<bool> {
         let prepared = self.snapshot.prepare_alter(name, alteration, context)?;
-        let materialized_rows = if self.journal.is_some() {
+        let materialized_rows = if self.durability.requires_journal() {
             self.snapshot.prepared_add_rows(name, &prepared, context)?
         } else {
             None
@@ -143,14 +209,11 @@ impl CatalogMut for SnapshotTransaction {
         ensure_catalog_views_match(&snapshot, &basis)?;
         self.snapshot = snapshot;
         self.catalog_basis = basis;
-        if self.journal.is_some() {
-            self.record(TransactionChange::CreateSchema(name.to_ascii_lowercase()));
-        }
+        self.record(TransactionChange::CreateSchema(name.to_ascii_lowercase()));
         Ok(())
     }
     fn drop_schema(&mut self, name: &str, if_exists: bool) -> Result<()> {
-        let record = self.journal.is_some()
-            && self
+        let record = self
                 .snapshot
                 .schemas()?
                 .contains(&name.to_ascii_lowercase());
@@ -189,13 +252,11 @@ impl CatalogMut for SnapshotTransaction {
         ensure_catalog_views_match(&snapshot, &basis)?;
         self.snapshot = snapshot;
         self.catalog_basis = basis;
-        if self.journal.is_some() {
-            self.record(TransactionChange::CreateTable(definition));
-        }
+        self.record(TransactionChange::CreateTable(definition));
         Ok(())
     }
     fn drop_table(&mut self, name: &TableName, if_exists: bool) -> Result<()> {
-        let record = self.journal.is_some() && self.snapshot.table(name).is_ok();
+        let record = self.snapshot.table(name).is_ok();
         let mut snapshot = self.snapshot.clone();
         let mut basis = self.catalog_basis.clone();
         snapshot.drop_table(name, if_exists)?;
@@ -228,12 +289,7 @@ impl CatalogMut for SnapshotTransaction {
             ensure_catalog_views_match(&snapshot, &basis)?;
             self.snapshot = snapshot;
             self.catalog_basis = basis;
-            if self.journal.is_some() {
-                self.record(TransactionChange::CreateView {
-                    definition: definition.as_ref().clone(),
-                    conflict,
-                });
-            }
+            self.record(TransactionChange::CreateView { definition: definition.as_ref().clone(), conflict });
         }
         Ok(changed)
     }
@@ -257,9 +313,7 @@ impl CatalogMut for SnapshotTransaction {
             ensure_catalog_views_match(&snapshot, &basis)?;
             self.snapshot = snapshot;
             self.catalog_basis = basis;
-            if self.journal.is_some() {
-                self.record(TransactionChange::DropView(name.clone()));
-            }
+            self.record(TransactionChange::DropView(name.clone()));
         }
         Ok(changed)
     }
@@ -302,12 +356,7 @@ impl CatalogMut for SnapshotTransaction {
             ensure_catalog_views_match(&snapshot, &basis)?;
             self.snapshot = snapshot;
             self.catalog_basis = basis;
-            if self.journal.is_some() {
-                self.record(TransactionChange::CreateType {
-                    definition,
-                    conflict,
-                });
-            }
+            self.record(TransactionChange::CreateType { definition, conflict });
         }
         Ok(changed)
     }
@@ -331,9 +380,7 @@ impl CatalogMut for SnapshotTransaction {
             ensure_catalog_views_match(&snapshot, &basis)?;
             self.snapshot = snapshot;
             self.catalog_basis = basis;
-            if self.journal.is_some() {
-                self.record(TransactionChange::DropType(name.clone()));
-            }
+            self.record(TransactionChange::DropType(name.clone()));
         }
         Ok(changed)
     }
@@ -407,9 +454,75 @@ fn ensure_catalog_views_match(snapshot: &Snapshot, basis: &Snapshot) -> Result<(
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl SnapshotTransaction {
     fn record(&mut self, change: TransactionChange) {
-        if let Some(journal) = &mut self.journal {
-            journal.push(change);
+        self.journal.push(change);
+    }
+
+    fn retain_rebase_context(&mut self, context: &QueryContext) {
+        self.rebase_context = context.clone();
+    }
+
+    /// Replay this transaction's validated operations on a newer committed
+    /// snapshot. Conflict domains have already excluded overlapping rows and
+    /// catalog names; replay failure is therefore a conservative conflict and
+    /// cannot publish a partial successor.
+    fn rebase(&self, basis: Snapshot, context: &QueryContext) -> Result<(Snapshot, Vec<TransactionChange>)> {
+        let mut rebased = SnapshotTransaction {
+            state: self.state.clone(), durability: self.durability.clone(), generation: 0,
+            snapshot: basis.clone(), catalog_basis: basis, dirty: true, journal: Vec::new(),
+            rebase_context: context.clone(),
+            // Replay is an internal candidate and never registers an external
+            // reader generation. Its enclosing transaction owns that lease.
+            active: false,
+        };
+        let mut remap = std::collections::BTreeMap::<(String, RowId), RowId>::new();
+        for change in &self.journal {
+            let applied = match change {
+                TransactionChange::CreateSchema(name) => rebased.create_schema(name, false),
+                TransactionChange::DropSchema(name) => rebased.drop_schema(name, false),
+                TransactionChange::CreateTable(definition) => rebased.create_table(definition.clone(), false),
+                TransactionChange::DropTable(name) => rebased.drop_table(name, false),
+                TransactionChange::CreateView { definition, conflict } => rebased.create_view(definition.clone(), conflict.clone()).map(|_| ()),
+                TransactionChange::DropView(name) => rebased.drop_view(name, false, DropBehavior::Restrict).map(|_| ()),
+                TransactionChange::CreateType { definition, conflict } => rebased.create_type(definition.clone(), conflict.clone()).map(|_| ()),
+                TransactionChange::DropType(name) => rebased.drop_type(name, false, DropBehavior::Restrict).map(|_| ()),
+                TransactionChange::AlterTable { table, alteration, .. } => rebased.alter_table(table, alteration, context).map(|_| ()),
+                TransactionChange::Insert { table, first_id, rows } => {
+                    let new_first = rebased.snapshot.next_row_id(table)?;
+                    for offset in 0..rows.len() { remap.insert((table.to_string(), first_id.saturating_add(offset as RowId)), new_first.saturating_add(offset as RowId)); }
+                    rebased.insert(table, rows.clone(), context).map(|_| ())
+                }
+                TransactionChange::InsertChunks { table, first_id, chunks } => {
+                    let new_first = rebased.snapshot.next_row_id(table)?;
+                    let count = chunks.iter().try_fold(0usize, |count, chunk| {
+                        let count = count.checked_add(chunk.len()).ok_or_else(|| Error::Resource("insert chunk row count overflow".into()))?;
+                        context.check_rows(count)?;
+                        Ok::<_, Error>(count)
+                    })?;
+                    for offset in 0..count {
+                        remap.insert((table.to_string(), first_id.saturating_add(offset as RowId)), new_first.saturating_add(offset as RowId));
+                    }
+                    rebased.insert_chunks(table, chunks.clone(), context).map(|_| ())
+                }
+                TransactionChange::Update { table, metadata, rows } => {
+                    let rows = rows.iter().map(|(id, row)| (remap.get(&(table.to_string(), *id)).copied().unwrap_or(*id), row.clone())).collect();
+                    rebased.update(table, metadata, rows, context).map(|_| ())
+                }
+                TransactionChange::Delete { table, ids } => {
+                    let ids = ids.iter().map(|id| remap.get(&(table.to_string(), *id)).copied().unwrap_or(*id)).collect::<Vec<_>>();
+                    rebased.delete(table, &ids, context).map(|_| ())
+                }
+            };
+            // Cancellation and resource limits belong to the caller.  A
+            // semantic replay mismatch is the only condition converted to a
+            // serialization conflict.
+            if let Err(error) = applied {
+                match error {
+                    Error::Interrupted | Error::Resource(_) => return Err(error),
+                    _ => return Err(Error::Conflict),
+                }
+            }
         }
+        Ok((rebased.snapshot, rebased.journal))
     }
 }
 
@@ -421,16 +534,15 @@ impl TableStorageMut for SnapshotTransaction {
         rows: Vec<Row>,
         context: &QueryContext,
     ) -> Result<usize> {
-        let record = self.journal.as_ref().map(|_| TransactionChange::Insert {
+        self.retain_rebase_context(context);
+        let first_id = self.snapshot.next_row_id(table)?;
+        let record = TransactionChange::Insert {
             table: table.clone(),
+            first_id,
             rows: rows.clone(),
-        });
+        };
         let count = self.snapshot.insert(table, rows, context)?;
-        if count != 0
-            && let Some(change) = record
-        {
-            self.record(change);
-        }
+        if count != 0 { self.record(record); }
         Ok(count)
     }
     fn insert_chunks(
@@ -439,16 +551,24 @@ impl TableStorageMut for SnapshotTransaction {
         chunks: Vec<crate::common::vector::DataChunk>,
         context: &QueryContext,
     ) -> Result<usize> {
-        if self.journal.is_some() {
-            let mut rows = Vec::new();
-            for chunk in chunks {
-                context.check_rows(rows.len().saturating_add(chunk.len()))?;
-                rows.extend(chunk.rows());
-            }
-            self.insert(table, rows, context)
-        } else {
-            self.snapshot.insert_chunks(table, chunks, context)
+        self.retain_rebase_context(context);
+        let first_id = self.snapshot.next_row_id(table)?;
+        let count = chunks.iter().try_fold(0usize, |count, chunk| {
+            let count = count.checked_add(chunk.len()).ok_or_else(|| Error::Resource("insert chunk row count overflow".into()))?;
+            context.check_rows(count)?;
+            Ok::<_, Error>(count)
+        })?;
+        let record = TransactionChange::InsertChunks {
+            table: table.clone(),
+            first_id,
+            chunks: chunks.clone(),
+        };
+        let inserted = self.snapshot.insert_chunks(table, chunks, context)?;
+        if inserted != 0 {
+            debug_assert_eq!(inserted, count);
+            self.record(record);
         }
+        Ok(inserted)
     }
     fn update(
         &mut self,
@@ -457,18 +577,15 @@ impl TableStorageMut for SnapshotTransaction {
         rows: Vec<(RowId, Row)>,
         context: &QueryContext,
     ) -> Result<usize> {
-        let record = self.journal.as_ref().map(|_| TransactionChange::Update {
+        self.retain_rebase_context(context);
+        let record = TransactionChange::Update {
             table: table.clone(),
             metadata: metadata.clone(),
             // Statement validation observes the last replacement of each row.
             rows: crate::storage::normalize_update_rows(rows.clone()),
-        });
+        };
         let count = self.snapshot.update(table, metadata, rows, context)?;
-        if count != 0
-            && let Some(change) = record
-        {
-            self.record(change);
-        }
+        if count != 0 { self.record(record); }
         Ok(count)
     }
     fn delete(
@@ -477,7 +594,8 @@ impl TableStorageMut for SnapshotTransaction {
         ids: &[RowId],
         context: &QueryContext,
     ) -> Result<usize> {
-        let record = if self.journal.is_some() {
+        self.retain_rebase_context(context);
+        let record = {
             let ids: Vec<_> = ids
                 .iter()
                 .copied()
@@ -493,15 +611,9 @@ impl TableStorageMut for SnapshotTransaction {
                     .filter_map(|(id, row)| row.map(|_| id))
                     .collect(),
             })
-        } else {
-            None
         };
         let count = self.snapshot.delete(table, ids, context)?;
-        if count != 0
-            && let Some(change) = record
-        {
-            self.record(change);
-        }
+        if count != 0 && let Some(change) = record { self.record(change); }
         Ok(count)
     }
 }

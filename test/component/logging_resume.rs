@@ -304,6 +304,7 @@ fn continuation_accepts_only_complete_committed_prefixes_and_retains_limits() ->
     .unwrap();
     let change = TransactionChange::Insert {
         table: TableName::new("main", "t"),
+        first_id: 2,
         rows: vec![vec![Value::Integer(3), Value::Varchar("limit".into())]],
     };
     assert!(matches!(

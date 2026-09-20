@@ -127,6 +127,26 @@ fn logging_and_checkpoint_adapters_share_transaction_contracts() -> Result<()> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
+fn wal_replay_preserves_rebased_insert_delete_against_rival_append() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("case.duckdb");
+    seed(&path)?;
+    let database = Database::open_logged(&path)?;
+    let mut local = database.connect();
+    let mut rival = database.connect();
+    // INSERT SELECT takes the relational chunk path; recovery must see the
+    // same rebased delete/winner state after WAL encoding.
+    local.execute("BEGIN; INSERT INTO t SELECT 2,'local'; DELETE FROM t WHERE i=2")?;
+    rival.execute("INSERT INTO t VALUES(3,'rival')")?;
+    local.execute("COMMIT")?;
+    assert!(!log(&path).is_empty(), "logged winner must publish a WAL record");
+    drop(local); drop(rival); drop(database);
+    assert_eq!(values(&path)?, vec![vec![Value::Integer(1), Value::Varchar("base".into())], vec![Value::Integer(3), Value::Varchar("rival".into())]]);
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
 fn chained_relocations_keep_statement_order_after_wal_recovery() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("case.duckdb");

@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::{collections::BTreeMap, sync::{Arc, Mutex}};
 
 use crate::{
     catalog::{Catalog, CatalogMut, TableName},
@@ -48,6 +48,11 @@ struct Committed {
     generation: u64,
     snapshot: Snapshot,
     failure: Option<Failure>,
+    /// Domains retained only while an active transaction can still have begun
+    /// before their winner.  Entries at/before the oldest active generation
+    /// can no longer affect a commit and are reclaimed on release.
+    history: Vec<(u64, Vec<journal::ConflictDomain>)>,
+    active_generations: BTreeMap<u64, usize>,
 }
 
 enum Failure {
@@ -56,6 +61,17 @@ enum Failure {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Committed {
+    fn activate(&mut self, generation: u64) {
+        *self.active_generations.entry(generation).or_default() += 1;
+    }
+    fn release(&mut self, generation: u64) {
+        if let Some(count) = self.active_generations.get_mut(&generation) {
+            *count -= 1;
+            if *count == 0 { self.active_generations.remove(&generation); }
+        }
+        let oldest = self.active_generations.first_key_value().map(|(generation, _)| *generation).unwrap_or(self.generation);
+        self.history.retain(|(generation, _)| *generation > oldest);
+    }
     fn check(&self) -> Result<()> {
         match self.failure {
             None => Ok(()),
@@ -127,6 +143,8 @@ impl SnapshotTransactions {
                 generation: 0,
                 snapshot,
                 failure: None,
+                history: Vec::new(),
+                active_generations: BTreeMap::new(),
             })),
             durability,
             indexes,
@@ -145,7 +163,14 @@ struct SnapshotTransaction {
     // New constraints must also hold for committed versions still visible to
     // other readers and native recovery's catalog phase.
     catalog_basis: Snapshot,
-    journal: Option<Vec<TransactionChange>>,
+    // Keep a local replay journal even for memory durability. It is both the
+    // exact publication payload when required and the deterministic rebase
+    // input for a disjoint writer that began from an older snapshot.
+    journal: Vec<TransactionChange>,
+    // Rebase remains within the caller transaction: retain cancellation,
+    // deadline, row limit, services, and type bindings.
+    rebase_context: QueryContext,
+    active: bool,
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
@@ -183,11 +208,12 @@ impl TransactionManager for SnapshotTransactions {
         adapters
     }
     fn begin(&self) -> Result<Box<dyn Transaction>> {
-        let state = self
+        let mut state = self
             .state
             .lock()
             .map_err(|_| Error::Internal("transaction mutex poisoned".into()))?;
         state.check()?;
+        state.activate(state.generation);
         Ok(Box::new(SnapshotTransaction {
             state: self.state.clone(),
             durability: self.durability.clone(),
@@ -195,7 +221,9 @@ impl TransactionManager for SnapshotTransactions {
             snapshot: state.snapshot.clone(),
             catalog_basis: state.snapshot.clone(),
             dirty: false,
-            journal: self.durability.requires_journal().then(Vec::new),
+            journal: Vec::new(),
+            rebase_context: QueryContext::background().with_types(self.types.clone()),
+            active: true,
         }))
     }
 }
@@ -226,8 +254,9 @@ impl Transaction for SnapshotTransaction {
         self.dirty = true;
         Ok(self)
     }
-    fn commit(self: Box<Self>) -> Result<()> {
+    fn commit(mut self: Box<Self>) -> Result<()> {
         if !self.dirty {
+            self.release();
             return Ok(());
         }
         let mut state = self
@@ -235,17 +264,32 @@ impl Transaction for SnapshotTransaction {
             .lock()
             .map_err(|_| Error::Internal("transaction mutex poisoned".into()))?;
         state.check()?;
-        if state.generation != self.generation {
+        let domains = journal::conflict_domains(&self.journal);
+        if state.history.iter().any(|(generation, prior)| {
+            *generation > self.generation && journal::domains_conflict(&domains, prior)
+        }) {
             return Err(Error::Conflict);
         }
+        // A disjoint writer is rebased onto the current published snapshot.
+        // This preserves old reader snapshots while making its writes visible
+        // alongside the committed winner rather than replacing that winner.
+        let (snapshot, publication_journal) = if state.generation == self.generation {
+            (self.snapshot.clone(), self.journal.clone())
+        } else {
+            self.rebase(state.snapshot.clone(), &self.rebase_context)?
+        };
+        // Rebase can shift locally inserted logical IDs. Retain domains from
+        // the journal that is actually made visible, so later writers compare
+        // against the winner's IDs rather than its abandoned basis IDs.
+        let publication_domains = journal::conflict_domains(&publication_journal);
         let generation = state
             .generation
             .checked_add(1)
             .ok_or_else(|| Error::Resource("transaction identity exhausted".into()))?;
         let publication = match self.durability.publish(Commit {
             before: &state.snapshot,
-            snapshot: &self.snapshot,
-            changes: self.journal.as_deref(),
+            snapshot: &snapshot,
+            changes: self.durability.requires_journal().then_some(publication_journal.as_slice()),
         }) {
             Ok(publication) => publication,
             Err(error) => {
@@ -254,13 +298,31 @@ impl Transaction for SnapshotTransaction {
             }
         };
         state.snapshot = match publication {
-            crate::storage::checkpoint::PublishOutcome::Published => self.snapshot,
-            crate::storage::checkpoint::PublishOutcome::CheckpointedBefore => self
-                .snapshot
-                .reclaim_checkpointed_basis(&state.snapshot, self.journal.as_deref()),
+            crate::storage::checkpoint::PublishOutcome::Published => snapshot,
+            crate::storage::checkpoint::PublishOutcome::CheckpointedBefore => snapshot
+                .reclaim_checkpointed_basis(&state.snapshot, self.durability.requires_journal().then_some(publication_journal.as_slice())),
         };
         state.generation = generation;
+        state.history.push((generation, publication_domains));
+        self.active = false;
+        state.release(self.generation);
         Ok(())
+    }
+}
+
+impl SnapshotTransaction {
+    fn release(&mut self) {
+        if !self.active { return; }
+        if let Ok(mut state) = self.state.lock() {
+            self.active = false;
+            state.release(self.generation);
+        }
+    }
+}
+
+impl Drop for SnapshotTransaction {
+    fn drop(&mut self) {
+        self.release();
     }
 }
 
@@ -300,5 +362,25 @@ impl TableStorage for SnapshotTransaction {
         context: &QueryContext,
     ) -> Result<Vec<(RowId, Row)>> {
         self.snapshot.lookup(table, columns, key, context)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn committed_history_reclaims_only_generations_no_active_snapshot_can_observe() {
+        let mut committed = Committed {
+            generation: 9,
+            snapshot: Snapshot::default(),
+            failure: None,
+            history: vec![(3, vec![]), (6, vec![]), (9, vec![])],
+            active_generations: BTreeMap::from([(2, 1), (6, 1)]),
+        };
+        committed.release(6);
+        assert_eq!(committed.history.iter().map(|(generation, _)| *generation).collect::<Vec<_>>(), vec![3, 6, 9]);
+        committed.release(2);
+        assert!(committed.history.is_empty());
     }
 }

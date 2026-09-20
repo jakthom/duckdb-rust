@@ -1,0 +1,12 @@
+{
+  "schema": "d1-transaction-v1",
+  "samples": 21,
+  "warmups": 3,
+  "threads": 2,
+  "workloads": [
+    {"id": "d1-disjoint-row-writers", "rows": 10000, "writers": [2, 8], "expected": "both commits and every distinct update survive"},
+    {"id": "d1-contended-row-writers", "rows": 10000, "writers": [2], "expected": "one update/delete winner and one conflict"},
+    {"id": "d1-catalog-disjoint-and-contended", "rows": 0, "writers": [2], "expected": "unrelated objects commit; same object rejects stale writer"},
+    {"id": "d1-retained-reader-publication", "rows": 10000, "writers": [1], "expected": "old reader snapshot, winner reopen and checkpoint identity remain valid"}
+  ]
+}

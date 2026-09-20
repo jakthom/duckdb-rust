@@ -41,7 +41,19 @@ pub enum TransactionChange {
     },
     Insert {
         table: TableName,
+        /// Logical ID of the first row in the transaction's original
+        /// snapshot. Rebase remaps later update/delete references when a
+        /// concurrent append has claimed this range.
+        first_id: RowId,
         rows: Vec<Row>,
+    },
+    /// Vector-preserving append captured from a relational producer. Keeping
+    /// chunks here avoids row materialization merely for rebase/publication.
+    InsertChunks {
+        table: TableName,
+        /// Logical ID of the first original-snapshot row; rebase remaps it.
+        first_id: RowId,
+        chunks: Vec<crate::common::vector::DataChunk>,
     },
     Update {
         table: TableName,
