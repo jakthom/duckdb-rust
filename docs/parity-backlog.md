@@ -1161,20 +1161,23 @@ No new batch label waives an outstanding acceptance obligation.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 
-- C1 performance repair remains isolated at baseline `058e9a7`. Candidate
-  attempt 12 adds columnar nested consumers, bounded cancellation, retained
-  custom-adapter validation, charged geometric buffer growth and capture-state
-  reuse with iterator-equivalence tests. Author feedback passes 23 vector,
-  six regex and 60 nested tests plus scoped strict Clippy; independent final
-  verification remains open. Fresh paired 2-warmup/7-sample diagnostics validate
-  exact outputs and stable identities but fail named STRUCT/LIST comparison
-  (1.3225x/1.2800x) and STRUCT/LIST formatting (1.0929x/1.0856x). Both grouping
-  controls pass fresh paired diagnostics (0.9004x/0.8864x); their earlier
-  historical-reference miss does not justify a grouping code change.
-  Evidence: `target/batch3/c1-{target-run10,control-run9}/`, with source/profiles
-  in the sibling worktree's `target/batch3/c1-performance1/`. This is diagnostic
-  evidence, not final 21/3 acceptance. The reviewed verification scope is in
-  `target/batch3/c1-verifier-prep2/`.
+- C1 performance repair remains isolated at baseline `058e9a7`. The latest
+  measured candidate (attempt 13) adds columnar nested consumers, retained
+  adapter proofs, bounded cancellation, charged geometric buffer growth,
+  capture-state reuse and packed BIGINT-to-VARCHAR output. Independent final
+  verification remains open. The first current-source final native campaign
+  ran all eight cases against both pins with 3 warmups and 21 samples: exact
+  outputs and identities pass, but named STRUCT/LIST comparison still fails
+  at 1.0495x/1.0368x and STRUCT/LIST formatting at 1.0265x/1.0062x. The other
+  four cases pass, including both grouping controls. Evidence is
+  `target/batch3/c1-native-final12/`; its original receipt has incorrect
+  completion-flag prose, superseded by the raw-data audit in
+  `target/batch3/c1-native-final12-audit/`. The raw report is complete and shared
+  before/after inputs are identical; no engine rerun or result rewrite occurred.
+  Profile-supported decimal/quoted-text repairs and packed-needle compatibility
+  are in progress. Source/profiles remain in the sibling worktree's
+  `target/batch3/c1-performance1/`; the provisional independent scope is in
+  `target/batch3/c1-verifier-prep11/`, with reviewed corrections in the handoff.
   Both pinned C++ engines pass all eight immutable resource fixtures (16 runs,
   17,288 assertions per pin), recorded in
   `target/batch3/c1-resource-preflight6/receipt.json`. Discovery-correct inputs
