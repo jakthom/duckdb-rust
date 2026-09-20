@@ -1144,7 +1144,7 @@ hash/label oracles. Diagnostic fresh-process import savings are about3ms;
 | --- | --- | --- |
 | 1 | A1 census; F1 table-function lifecycle; C2.1 STRING_AGG | Complete: A1 evaluation accepted at `44538fb`; F1 accepted through `324878c`; C2.1 accepted through `6d221b8`. Independent partial verification passed, affected dense-offset proof passed, and all affected native/process gates pass (C2 candidate10 plus unchanged five-family final21 evidence). Earlier failed samples remain preserved. Restart at Batch 2, not another Batch 1 sweep. Worker branches/worktrees remain `codex/batch1-{a1,f1,c2-1}` / sibling `../duckdb-rust-batch1-{a1,f1,c2-1}`; integrated root contains accepted follow-ups. |
 | 2 | A2.1 single-iterator comma-value regression; F2.1 explicit-schema CSV read; B1 persistent views | Accepted at Rust `31a878c` / Python `ebe5cfb`: scoped verification, unchanged functional cases and all 23 performance stages pass. Durable B1/A2 use explicitly accepted equivalent full-sync references. Combined receipt `target/batch2/native-followup4-equivalent-fullsync-acceptance.json` retains exact stage-report hashes. Original weaker-sync failures and unrelated hexadecimal/DOUBLE ordered SUM gaps stay explicit. |
-| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | A4 accepted at `18cfc2b`. E1 ownership repair `1f3e99f` passes 470 scoped tests but all four native latency gates fail; performance repair is active. C1 formatter fix `5278a85` passes 114 scoped tests and integrated trace; fresh release replay and performance remain open. Memory-limit file passes 38/38 on both pins. GROUP BY ALL external execution remains open. Evidence under `target/batch3/integrated-e1-c1/`. |
+| 3 | E1 byte reservations; A4 incremental regression accounting; C1.1 STRUCT regex extraction | A4 accepted at `18cfc2b`. E1 candidate `058e9a7` passes independent verification (594 scoped tests, lint, coverage and trace); short diagnostics improve all four prior latency failures, but final native/resource acceptance remains open. C1 formatter fix `5278a85` passes 114 scoped tests, integrated trace and fresh release replay; four of eight native cases fail and performance repair is active. Memory-limit file passes 38/38 on both pins. GROUP BY ALL external execution remains open. Evidence under `target/batch3/integrated-e1-c1/`. |
 | 4 | D1 row/catalog conflict semantics; H1.1 local filesystem contracts; F2.2 COPY CSV writer | D1 `aec9819` remains in conflict-contract repair. H1 `2855d1d` passes scoped verification but fails the joint resource/performance gate. F2 COPY draft needs review corrections. All acceptance gates remain open. One transaction/publication owner; filesystem and writer changes integrate serially at shared I/O boundaries. |
 | 5 | E2 buffer ownership/native scan integration; F3.1 scan pushdown/residuals; B2.1 persistent scalar macros | B2.1, E2 and F3.1 have uncommitted source in isolated worktrees. B2.1 integration depends on D1 acceptance; E2 consumes E1/H1.1; F3.1 consumes accepted F2.1. All three acceptance gates remain open. |
 
@@ -1984,8 +1984,18 @@ C1.1 STRUCT/LIST(STRUCT) extraction and GROUP BY ALL binding are integrated.
 The selected original regex files pass on both pins at the pre-formatter state
 (`target/batch3/integrated-e1-c1/preparation2/upstream3.json`). Empty-field
 formatting repair `5278a85` passes 114 scoped tests, lint, coverage and the
-integrated helper trace. Fresh release replay and affected performance remain
-open. Both original `group_by_all.test` files require real external execution;
+integrated helper trace. Fresh release replay passes all21 empty-field expressions and the three original
+regex files on both pins (170 development/173 release records), with matching
+identities in `target/batch3/c1-release-replay1/`. Native performance in
+`target/batch3/c1-native-measure3/` has valid 21-sample/3-warmup evidence but fails
+named STRUCT/LIST extraction and empty-first formatting (3.12–16.24x ratios).
+Scalar extract-all, replacement and both grouping cases pass native latency.
+Independent resource gates and source performance repair remain open.
+Sol/high owns the repair under `target/agent-dispatches/c1-performance1-sol.md`
+in `../duckdb-rust-batch3-c1-performance`. Corrected non-NULL predicate fixtures
+were proven equivalent on both pins before timing; all original cases remain.
+Process fixtures, including the two formatter consumers, are prepared under
+`target/batch3/c1-process-fixtures4/inputs4` and have not been timed. Both original `group_by_all.test` files require real external execution;
 settings and assertions remain unchanged. Evidence and remaining obligations
 are in the Batch 3 integrated manifests; no whole-file pass is claimed.
 
@@ -2050,15 +2060,27 @@ latency parity for every unlimited case: direct 1.744x, scan 1.728x, group
 `materialized-ownership/acceptance-extra/` as
 `e1-native-unlimited-release1.json`, `e1-native-unlimited-development1.json`
 and `e1-native-unlimited-fastest1.json`.
-Outputs and identities passed. E1 remains in performance implementation;
-Sol/high owns diagnosis under `target/agent-dispatches/e1-performance1-sol.md`.
+Outputs and identities passed. The subsequent performance candidate `058e9a7`
+is integrated, with explicit byte-order capability, stable ordered-run sorting,
+single-owned-key VARCHAR grouping, identity formatting and independently admitted
+result ownership. Final short diagnostics are 3.707/3.955/7.136/7.071 ms for
+direct/scan/group/format; these are not acceptance. Terra/low independently verified the frozen candidate: 594 scoped tests,
+formatting, Clippy, coverage and trace all pass. Eleven owned source hashes
+match before/after. Raw stage logs and the receipt are under
+`target/batch3/e1-performance-verifier1/`; dispatch is
+`target/agent-dispatches/e1-performance-verifier1-terra.md`. Final 21/3 both-pin
+native and independent resource campaigns remain open. Author feedback lacked
+raw per-stage artifacts in its handoff directory, so final scoped checks are
+captured independently rather than reconstructed.
 The initial unsupported-lpad fixture failure remains retained; corrected
 `acceptance-extra/inputs3` produces the same validated 50,000 input strings.
 
 C1 empty-field STRUCT formatting is repaired at `5278a85`; 114 scoped tests,
 Clippy and coverage pass in the sibling verifier. Integrated helper trace
 also passes (`target/batch3/c1-integrated-trace1/receipt.md`). Fresh-binary
-expression replay and affected performance remain open. The original
+expression replay now passes in `target/batch3/c1-release-replay1/`; native
+performance fails four of eight cases in `target/batch3/c1-native-measure3/`.
+The original
 GROUP BY ALL file still requires real external execution; no assertions were skipped.
 
 Native/process performance remains open, including scan/group/format/CSV sort
