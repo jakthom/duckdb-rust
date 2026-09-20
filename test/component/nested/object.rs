@@ -34,7 +34,7 @@ fn variant(value: Value) -> Result<Value> {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]
-fn internal_object_names_are_exact_without_weakening_struct_metadata() -> Result<()> {
+fn internal_object_names_are_exact_and_struct_names_remain_case_insensitive() -> Result<()> {
     let value = object(vec![
         ("", DataType::Integer, Value::Integer(1)),
         ("A", DataType::Integer, Value::Integer(2)),
@@ -50,7 +50,7 @@ fn internal_object_names_are_exact_without_weakening_struct_metadata() -> Result
             ("a".into(), DataType::Integer),
             ("a".into(), DataType::Integer),
         ]),
-        NestedType::Struct(vec![("".into(), DataType::Integer)]),
+        NestedType::Union(vec![("".into(), DataType::Integer)]),
         NestedType::Struct(vec![
             ("A".into(), DataType::Integer),
             ("a".into(), DataType::Integer),
@@ -58,6 +58,9 @@ fn internal_object_names_are_exact_without_weakening_struct_metadata() -> Result
     ] {
         assert!(types.bind(&metadata.data_type()).is_err());
     }
+    // Pinned development permits one empty STRUCT field name; duplicate
+    // names still compare case-insensitively, unlike internal OBJECT names.
+    types.bind(&NestedType::Struct(vec![("".into(), DataType::Integer)]).data_type())?;
     let mut c = Database::memory()?.connect();
     let parameter = c.prepare("SELECT variant_typeof($1::VARIANT),variant_extract($1::VARIANT,'')::INTEGER,variant_extract($1::VARIANT,'A')::INTEGER,variant_extract($1::VARIANT,'a')::INTEGER,variant_exists($1::VARIANT,[''])[1],variant_exists($1::VARIANT,['a'])[1],variant_exists($1::VARIANT,['missing'])[1]")?;
     assert_eq!(

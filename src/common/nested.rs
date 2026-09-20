@@ -82,8 +82,8 @@ pub enum NestedType {
     },
     Union(Vec<(String, DataType)>),
     Variant,
-    /// Internal dynamic OBJECT metadata. Unlike SQL STRUCT, names may be empty
-    /// and are compared exactly, including case. It has no SQL declaration.
+    /// Internal dynamic OBJECT metadata. Names are compared exactly, including
+    /// case, unlike case-insensitive SQL STRUCT names. It has no SQL declaration.
     Object(Vec<(String, DataType)>),
 }
 
@@ -258,9 +258,15 @@ impl fmt::Display for NestedType {
                         "UNION"
                     }
                 )?;
+                let unnamed = matches!(self, Self::Struct(_))
+                    && fields.first().is_some_and(|(name, _)| name.is_empty());
                 for (index, (name, ty)) in fields.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
+                    }
+                    if unnamed || (name.is_empty() && matches!(self, Self::Struct(_))) {
+                        write!(f, "{}", ChildType(ty))?;
+                        continue;
                     }
                     if keywords::requires_quotes(name) {
                         write!(f, "\"{}\"", name.replace('"', "\"\""))?;
@@ -318,6 +324,21 @@ impl fmt::Display for NestedValue {
                 else {
                     return Err(fmt::Error);
                 };
+                if matches!(metadata.as_ref(), NestedType::Struct(_))
+                    && fields.first().is_some_and(|(name, _)| name.is_empty())
+                {
+                    write!(f, "(")?;
+                    for (index, ((_, ty), value)) in fields.iter().zip(values).enumerate() {
+                        if index > 0 {
+                            write!(f, ", ")?;
+                        }
+                        display_child(f, ty, value)?;
+                    }
+                    if fields.len() == 1 {
+                        write!(f, ",")?;
+                    }
+                    return write!(f, ")");
+                }
                 write!(f, "{{")?;
                 for (index, ((name, ty), value)) in fields.iter().zip(values).enumerate() {
                     if index > 0 {

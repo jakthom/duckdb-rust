@@ -135,9 +135,12 @@ impl TypeAdapter for NestedTypes {
                 }
                 let mut names = BTreeSet::new();
                 for (name, _) in fields {
-                    if name.is_empty() || !names.insert(name.to_ascii_lowercase()) {
+                    if (name.is_empty() && matches!(metadata.as_ref(), NestedType::Union(_)))
+                        || !names.insert(name.to_ascii_lowercase())
+                    {
                         return Err(Error::Bind(
-                            "nested fields require unique nonempty names".into(),
+                            "nested fields require unique names; UNION names must be nonempty"
+                                .into(),
                         ));
                     }
                 }

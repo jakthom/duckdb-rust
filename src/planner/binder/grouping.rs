@@ -16,8 +16,37 @@ impl State<'_, '_> {
         fields: &Scope,
         items: &[SelectItem],
     ) -> Result<BoundGroups> {
-        let ast::GroupByExpr::Expressions(expressions, modifiers) = clause else {
-            return Err(unsupported("GROUP BY ALL"));
+        let (expressions, modifiers) = match clause {
+            ast::GroupByExpr::All(modifiers) => {
+                if !modifiers.is_empty() {
+                    return Err(unsupported("GROUP BY modifiers"));
+                }
+                let mut groups = Vec::new();
+                for item in items {
+                    self.context.query.check()?;
+                    if self.has_aggregate(&item.expression) {
+                        // No selected group may legalize a bare column inside
+                        // another SELECT entry containing an aggregate.
+                        let aggregate_only = GroupScope {
+                            groups: Vec::new(),
+                            aliases: BTreeMap::new(),
+                            outputs: RefCell::new(Vec::new()),
+                        };
+                        item.bind(self, fields, Some(&aggregate_only))?;
+                        continue;
+                    }
+                    let bound = item.bind(self, fields, None)?;
+                    if has_local_column(&bound) && item.group_index(fields, &groups).is_none() {
+                        groups.push((item.expression.clone(), bound));
+                    }
+                }
+                return Ok(BoundGroups {
+                    explicit: !groups.is_empty(),
+                    sets: vec![GroupingSet::new(0..groups.len())],
+                    groups,
+                });
+            }
+            ast::GroupByExpr::Expressions(expressions, modifiers) => (expressions, modifiers),
         };
         if !modifiers.is_empty() {
             return Err(unsupported("GROUP BY modifiers"));
@@ -311,4 +340,11 @@ fn check_count(count: usize) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn has_local_column(expression: &BoundExpr) -> bool {
+    let mut found = matches!(expression.kind, ExprKind::Column(_));
+    expression.visit_children(&mut |child| found |= has_local_column(child));
+    found
 }

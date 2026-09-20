@@ -12,7 +12,7 @@ use regex::{Regex, RegexBuilder};
 use super::{BigintBatch, VarcharBatch};
 use crate::{
     common::{
-        DataType, Error, Result, Value,
+        DataType, Error, NestedPayload, NestedType, NestedValue, Result, Value,
         cast::CastMode,
         type_registry::TypeRegistry,
         vector::{DataChunk, Vector},
@@ -99,6 +99,8 @@ pub(super) fn register(registry: &mut FunctionRegistry) {
                 constant: None,
                 extract_group: None,
                 extract_group_is_null: false,
+                named_groups: None,
+                named_result_type: None,
                 constant_replacement: None,
                 dynamic_cache: Arc::new(Mutex::new(Vec::new())),
             }))
@@ -116,6 +118,8 @@ struct RegexValueFunction {
     constant: Option<Regex>,
     extract_group: Option<usize>,
     extract_group_is_null: bool,
+    named_groups: Option<Vec<String>>,
+    named_result_type: Option<DataType>,
     constant_replacement: Option<String>,
     dynamic_cache: Arc<Mutex<Vec<(String, Regex)>>>,
 }
@@ -129,7 +133,7 @@ impl ScalarFunction for RegexValueFunction {
         &self,
         _: crate::function::ScalarBatchAccess,
     ) -> Option<crate::function::ScalarBatchKind> {
-        (self.name == "regexp_extract_all").then(|| {
+        (self.name == "regexp_extract_all" && self.named_groups.is_none()).then(|| {
             crate::function::ScalarBatchKind::builtin(
                 crate::function::ScalarBatchIdentity::RegexExtractAll,
             )
@@ -175,9 +179,15 @@ impl ScalarFunction for RegexValueFunction {
         let mut sig = Vec::with_capacity(n);
         for i in 0..n {
             let ty = args.data_type(i)?;
+            let named_list = matches!(self.name, "regexp_extract" | "regexp_extract_all")
+                && i == 2
+                && matches!(&ty, DataType::Nested(metadata) if matches!(metadata.as_ref(), NestedType::List(_)));
             let expect_int = matches!(self.name, "regexp_extract" | "regexp_extract_all")
-                && ((n == 3 && i == 2 && !matches!(ty, DataType::Varchar)) || (n == 4 && i == 2));
-            if expect_int {
+                && ((n == 3 && i == 2 && !matches!(ty, DataType::Varchar)) && !named_list
+                    || (n == 4 && i == 2 && !named_list));
+            if named_list {
+                sig.push(NestedType::List(DataType::Varchar).data_type());
+            } else if expect_int {
                 sig.push(DataType::BigInt);
             } else if matches!(ty, DataType::Varchar | DataType::Null) {
                 sig.push(DataType::Varchar);
@@ -218,7 +228,11 @@ impl ScalarFunction for RegexValueFunction {
             args.constant_if_closed(1)?
                 .map(|v| match v {
                     Value::Null => Ok(None),
-                    Value::Varchar(p) => compile(&p, options, MatchKind::Partial).map(Some),
+                    Value::Varchar(p) => compile(&p, options, MatchKind::Partial).map(Some).map_err(|error| {
+                        if matches!(self.name, "regexp_extract" | "regexp_extract_all") && n >= 3 && matches!(&sig[2], DataType::Nested(metadata) if matches!(metadata.as_ref(), NestedType::List(_))) {
+                            Error::Bind(format!("Pattern failed to parse: {error}"))
+                        } else { error }
+                    }),
                     _ => Err(Error::Internal("regexp pattern not VARCHAR".into())),
                 })
                 .transpose()?
@@ -253,6 +267,76 @@ impl ScalarFunction for RegexValueFunction {
         } else {
             None
         };
+        let named_groups = if matches!(self.name, "regexp_extract" | "regexp_extract_all")
+            && n >= 3
+            && matches!(sig[2], DataType::Nested(ref metadata) if matches!(metadata.as_ref(), NestedType::List(child) if *child == DataType::Varchar))
+        {
+            if !args.is_closed(1)? {
+                return Err(Error::Bind(
+                    "regexp named extraction requires a constant pattern".into(),
+                ));
+            }
+            if !args.is_closed(2)? {
+                return Err(Error::Bind(
+                    "Group specification field must be a constant list; it must be a constant expression".into(),
+                ));
+            }
+            let Some(pattern) = constant.as_ref() else {
+                return Err(Error::Bind(
+                    "regexp named extraction requires a constant pattern".into(),
+                ));
+            };
+            let Value::Nested(names) = args.constant_as(2, &sig[2], CastMode::Implicit)? else {
+                return Err(Error::Bind(
+                    "Group specification must be a non-NULL LIST".into(),
+                ));
+            };
+            let NestedPayload::Sequence(values) = &names.payload else {
+                return Err(Error::Bind(
+                    "regexp named group list has invalid payload".into(),
+                ));
+            };
+            if values.is_empty() {
+                return Err(Error::Bind("Group name list must be non-empty".into()));
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            let mut fields = Vec::with_capacity(values.len());
+            for value in values {
+                let Value::Varchar(field) = value else {
+                    return Err(Error::Bind(format!("NULL group name in {}", self.name)));
+                };
+                if !seen.insert(field.to_ascii_lowercase()) {
+                    return Err(Error::Bind(format!(
+                        "Duplicate group name '{field}' in {}",
+                        self.name
+                    )));
+                }
+                fields.push(field.clone());
+            }
+            if fields.len() >= pattern.captures_len() {
+                return Err(Error::Bind(
+                    "Not enough capturing groups for provided names".into(),
+                ));
+            }
+            Some(fields)
+        } else {
+            None
+        };
+        let named_result_type = named_groups.as_ref().map(|names| {
+            let structure = NestedType::Struct(
+                names
+                    .iter()
+                    .cloned()
+                    .map(|name| (name, DataType::Varchar))
+                    .collect(),
+            )
+            .data_type();
+            if self.name == "regexp_extract_all" {
+                NestedType::List(structure).data_type()
+            } else {
+                structure
+            }
+        });
         let constant_replacement = if self.name == "regexp_replace" {
             match (args.constant_if_closed(2)?, constant.as_ref()) {
                 (Some(Value::Varchar(replacement)), Some(pattern)) => {
@@ -275,6 +359,8 @@ impl ScalarFunction for RegexValueFunction {
             constant,
             extract_group,
             extract_group_is_null,
+            named_groups,
+            named_result_type,
             constant_replacement,
             dynamic_cache: Arc::new(Mutex::new(Vec::new())),
         })))
@@ -287,11 +373,7 @@ impl ScalarFunction for RegexValueFunction {
             .ok_or_else(|| Error::Bind(format!("no overload for {}({arguments:?})", self.name)))
     }
     fn return_type(&self, _: &[DataType], _: &TypeRegistry) -> Result<DataType> {
-        Ok(if self.name == "regexp_extract_all" {
-            crate::common::NestedType::List(DataType::Varchar).data_type()
-        } else {
-            DataType::Varchar
-        })
+        Ok(self.result_type())
     }
     fn is_total(&self, _: &[Option<&Value>]) -> bool {
         self.name == "regexp_escape"
@@ -304,6 +386,9 @@ impl ScalarFunction for RegexValueFunction {
         arguments: &DataChunk,
         query: &QueryContext,
     ) -> Result<Option<Vector>> {
+        if let Some(output) = self.named_extract_batch(arguments, query)? {
+            return Ok(Some(output));
+        }
         if let Some(output) = self.extract_all_batch(arguments, query)? {
             return Ok(Some(output));
         }
@@ -342,11 +427,7 @@ impl ScalarFunction for RegexValueFunction {
                 None => self.apply(&row, &mut local_cache)?,
             });
         }
-        let result_type = if self.name == "regexp_extract_all" {
-            crate::common::NestedType::List(DataType::Varchar).data_type()
-        } else {
-            DataType::Varchar
-        };
+        let result_type = self.result_type();
         Vector::flat(result_type, out).map(Some)
     }
     fn evaluate(&self, arguments: &[Value], query: &QueryContext) -> Result<Value> {
@@ -365,12 +446,62 @@ impl ScalarFunction for RegexValueFunction {
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl RegexValueFunction {
+    fn result_type(&self) -> DataType {
+        self.named_result_type.clone().unwrap_or_else(|| {
+            if self.name == "regexp_extract_all" {
+                NestedType::List(DataType::Varchar).data_type()
+            } else {
+                DataType::Varchar
+            }
+        })
+    }
+    fn named_extract_batch(
+        &self,
+        arguments: &DataChunk,
+        query: &QueryContext,
+    ) -> Result<Option<Vector>> {
+        // Binding validates and retains the closed pattern and field list.
+        // Read only the subject instead of cloning those constants per row.
+        // Explicit options retain the generic evaluator's NULL handling.
+        if self.named_groups.is_none() || arguments.columns().len() != 3 {
+            return Ok(None);
+        }
+        let (Some(regex), Some(input)) = (
+            self.constant.as_ref(),
+            arguments.columns().first().and_then(VarcharBatch::new),
+        ) else {
+            return Ok(None);
+        };
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(arguments.len())
+            .map_err(|_| Error::Resource("cannot allocate named regexp result".into()))?;
+        for index in 0..arguments.len() {
+            if index % 1024 == 0 {
+                query.check()?;
+            }
+            output.push(match input.get(index)? {
+                Value::Null => Value::Null,
+                Value::Varchar(subject) if self.name == "regexp_extract_all" => {
+                    self.extract_all_named(subject, regex)?
+                }
+                Value::Varchar(subject) => self.extract_named(subject, regex)?,
+                _ => {
+                    return Err(Error::Internal(
+                        "named regexp subject is not VARCHAR".into(),
+                    ));
+                }
+            });
+        }
+        query.check()?;
+        Vector::flat(self.result_type(), output).map(Some)
+    }
     fn extract_all_batch(
         &self,
         arguments: &DataChunk,
         query: &QueryContext,
     ) -> Result<Option<Vector>> {
-        if self.name != "regexp_extract_all" {
+        if self.name != "regexp_extract_all" || self.named_groups.is_some() {
             return Ok(None);
         }
         let columns = arguments.columns();
@@ -507,7 +638,10 @@ impl RegexValueFunction {
         needle: &Vector,
         query: &QueryContext,
     ) -> Result<Option<Vector>> {
-        if self.name != "regexp_extract_all" || needle.data_type() != &DataType::Varchar {
+        if self.name != "regexp_extract_all"
+            || self.named_groups.is_some()
+            || needle.data_type() != &DataType::Varchar
+        {
             return Ok(None);
         }
         let columns = arguments.columns();
@@ -717,6 +851,7 @@ impl RegexValueFunction {
                 };
                 Ok(Value::Varchar(result.into_owned()))
             }
+            "regexp_extract" if self.named_groups.is_some() => self.extract_named(input, regex),
             "regexp_extract" => {
                 let group = self.extract_group.unwrap_or(0);
                 if group >= regex.captures_len() {
@@ -738,6 +873,9 @@ impl RegexValueFunction {
     }
 
     fn extract_all(&self, input: &str, regex: &Regex, arguments: &[Value]) -> Result<Value> {
+        if self.named_groups.is_some() {
+            return self.extract_all_named(input, regex);
+        }
         let group = match arguments.get(2) {
             None => 0,
             Some(Value::Integer(group)) => *group,
@@ -750,6 +888,77 @@ impl RegexValueFunction {
         };
         let list_type = crate::common::NestedType::List(DataType::Varchar).data_type();
         self.extract_all_group(input, regex, group, list_type)
+    }
+
+    fn extract_named(&self, input: &str, regex: &Regex) -> Result<Value> {
+        let names = self
+            .named_groups
+            .as_ref()
+            .ok_or_else(|| Error::Internal("missing regexp named groups".into()))?;
+        let fields = regex
+            .captures(input)
+            .map(|captures| {
+                names
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| {
+                        captures.get(index + 1).map_or_else(
+                            || Value::Varchar(String::new()),
+                            |found| Value::Varchar(found.as_str().into()),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(|| vec![Value::Varchar(String::new()); names.len()]);
+        NestedValue::value(self.result_type(), NestedPayload::Struct(fields))
+    }
+
+    fn extract_all_named(&self, input: &str, regex: &Regex) -> Result<Value> {
+        let names = self
+            .named_groups
+            .as_ref()
+            .ok_or_else(|| Error::Internal("missing regexp named groups".into()))?;
+        let list_type = self.result_type();
+        let DataType::Nested(metadata) = &list_type else {
+            return Err(Error::Internal("named regexp result is not nested".into()));
+        };
+        let NestedType::List(struct_type) = metadata.as_ref() else {
+            return Err(Error::Internal("named regexp result is not a list".into()));
+        };
+        let mut values = Vec::new();
+        let mut start = 0;
+        while let Some(captures) = regex.captures_at(input, start) {
+            let fields = names
+                .iter()
+                .enumerate()
+                .map(|(index, _)| {
+                    captures
+                        .get(index + 1)
+                        .map_or(Value::Null, |found| Value::Varchar(found.as_str().into()))
+                })
+                .collect();
+            values.push(NestedValue::value(
+                struct_type.clone(),
+                NestedPayload::Struct(fields),
+            )?);
+            let matched = captures
+                .get(0)
+                .ok_or_else(|| Error::Internal("regexp capture has no full match".into()))?;
+            start = matched.end();
+            if matched.start() == matched.end() {
+                if start == input.len() {
+                    break;
+                }
+                start += input[start..]
+                    .chars()
+                    .next()
+                    .ok_or_else(|| {
+                        Error::Internal("regexp match is not on a character boundary".into())
+                    })?
+                    .len_utf8();
+            }
+        }
+        NestedValue::value(list_type, NestedPayload::Sequence(values))
     }
 
     fn extract_all_group(
@@ -1568,6 +1777,8 @@ mod tests {
             constant: None,
             extract_group: None,
             extract_group_is_null: false,
+            named_groups: None,
+            named_result_type: None,
             constant_replacement: None,
             dynamic_cache: Arc::new(Mutex::new(Vec::new())),
         };
@@ -1602,6 +1813,133 @@ mod tests {
                 strings(&["1", "2"])?,
                 Value::Null,
                 Value::Null
+            ]
+        );
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+    #[test]
+    fn named_extract_all_batches_read_flat_constant_dictionary_and_selected_views() -> Result<()> {
+        let fields = vec!["word".to_owned(), "number".to_owned()];
+        let struct_type = NestedType::Struct(
+            fields
+                .iter()
+                .cloned()
+                .map(|name| (name, DataType::Varchar))
+                .collect(),
+        )
+        .data_type();
+        let list_type = NestedType::List(struct_type.clone()).data_type();
+        let function = RegexValueFunction {
+            name: "regexp_extract_all",
+            signature: Some(vec![
+                DataType::Varchar,
+                DataType::Varchar,
+                NestedType::List(DataType::Varchar).data_type(),
+            ]),
+            options: RegexOptions::default(),
+            constant: Some(compile(
+                "([^ :]+):([0-9]+)",
+                RegexOptions::default(),
+                MatchKind::Partial,
+            )?),
+            extract_group: None,
+            extract_group_is_null: false,
+            named_groups: Some(fields),
+            named_result_type: Some(list_type.clone()),
+            constant_replacement: None,
+            dynamic_cache: Arc::new(Mutex::new(Vec::new())),
+        };
+        let names = strings(&["word", "number"])?;
+        let input = Arc::new(Vector::flat(
+            DataType::Varchar,
+            vec![
+                Value::Varchar("a:1 b:2".into()),
+                Value::Varchar("miss".into()),
+                Value::Varchar("é:3".into()),
+            ],
+        )?);
+        let row = |entries: Vec<(&str, Option<&str>)>| {
+            NestedValue::value(
+                list_type.clone(),
+                NestedPayload::Sequence(
+                    entries
+                        .into_iter()
+                        .map(|(word, number)| {
+                            NestedValue::value(
+                                struct_type.clone(),
+                                NestedPayload::Struct(vec![
+                                    Value::Varchar(word.into()),
+                                    number
+                                        .map_or(Value::Null, |value| Value::Varchar(value.into())),
+                                ]),
+                            )
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                ),
+            )
+        };
+        let flat = DataChunk::new(
+            vec![
+                input.as_ref().clone(),
+                Vector::constant(
+                    DataType::Varchar,
+                    Value::Varchar("([^ :]+):([0-9]+)".into()),
+                    3,
+                )?,
+                Vector::constant(
+                    NestedType::List(DataType::Varchar).data_type(),
+                    names.clone(),
+                    3,
+                )?,
+            ],
+            3,
+        )?;
+        assert_eq!(
+            function
+                .evaluate_batch(&flat, &QueryContext::background())?
+                .expect("flat named batch")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![
+                row(vec![("a", Some("1")), ("b", Some("2"))])?,
+                row(vec![])?,
+                row(vec![("é", Some("3"))])?
+            ]
+        );
+        let pattern = Vector::constant(
+            DataType::Varchar,
+            Value::Varchar("([^ :]+):([0-9]+)".into()),
+            4,
+        )?;
+        let name_list =
+            Vector::constant(NestedType::List(DataType::Varchar).data_type(), names, 4)?;
+        let dictionary =
+            DataChunk::new(vec![input.select(vec![0, 1, 2, 0])?, pattern, name_list], 4)?;
+        let output = function
+            .evaluate_batch(&dictionary, &QueryContext::background())?
+            .expect("dictionary named batch");
+        assert_eq!(
+            output.values().collect::<Vec<_>>(),
+            vec![
+                row(vec![("a", Some("1")), ("b", Some("2"))])?,
+                row(vec![])?,
+                row(vec![("é", Some("3"))])?,
+                row(vec![("a", Some("1")), ("b", Some("2"))])?
+            ]
+        );
+        let selected = dictionary.select(&[3, 0, 2])?;
+        assert_eq!(
+            function
+                .evaluate_batch(&selected, &QueryContext::background())?
+                .expect("selected named batch")
+                .values()
+                .collect::<Vec<_>>(),
+            vec![
+                row(vec![("a", Some("1")), ("b", Some("2"))])?,
+                row(vec![("a", Some("1")), ("b", Some("2"))])?,
+                row(vec![("é", Some("3"))])?
             ]
         );
         Ok(())

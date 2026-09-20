@@ -93,6 +93,11 @@ impl ScalarFunction for NestedFunction {
             let Value::Varchar(name) = arguments.constant(1)? else {
                 return Err(Error::Bind("STRUCT field must be a string".into()));
             };
+            if self.name == "struct_extract" && name.is_empty() {
+                return Err(Error::Bind(
+                    "Key name for struct_extract must not be empty".into(),
+                ));
+            }
             let index = fields
                 .iter()
                 .position(|(field, _)| field.eq_ignore_ascii_case(&name))

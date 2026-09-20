@@ -1,0 +1,13 @@
+# Every field/capture and list order is compared to the complete expected nested value.
+# 128 * 50k = 6.4m input rows for this named output shape.
+statement ok
+CREATE TABLE c1_1_named_regex_process AS SELECT i, i::VARCHAR || '-alpha ' || (i + 1)::VARCHAR || '-beta' AS v FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query I
+SELECT sum(CASE WHEN x IS NOT DISTINCT FROM struct_pack(number := i::VARCHAR, word := 'alpha') THEN 1 ELSE 0 END) FROM (SELECT i, regexp_extract(v, '([0-9]+)-([a-z]+)', ['number','word']) AS x FROM c1_1_named_regex_process) t;
+----
+50000
+
+endloop

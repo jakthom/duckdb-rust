@@ -1826,3 +1826,57 @@ fn aggregate_binding_metadata_rejects_invalid_indices_and_typed_literals() -> Re
     );
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn group_by_all_infers_whole_selected_expressions_and_rejects_mixed_aggregates() -> Result<()> {
+    let mut connection = Database::memory()?.connect();
+    connection.execute("CREATE TABLE inferred_groups(g INTEGER, i INTEGER); INSERT INTO inferred_groups VALUES (0,1),(0,2),(1,3),(1,NULL)")?;
+    for (inferred, explicit) in [
+        (
+            "SELECT g, sum(i) FROM inferred_groups GROUP BY ALL ORDER BY g",
+            "SELECT g, sum(i) FROM inferred_groups GROUP BY g ORDER BY g",
+        ),
+        (
+            "SELECT (g+i)%2 AS k, sum(i) FROM inferred_groups GROUP BY ALL ORDER BY k",
+            "SELECT (g+i)%2 AS k, sum(i) FROM inferred_groups GROUP BY (g+i)%2 ORDER BY k",
+        ),
+        (
+            "SELECT *, count(*) FROM inferred_groups GROUP BY ALL ORDER BY g,i",
+            "SELECT *, count(*) FROM inferred_groups GROUP BY g,i ORDER BY g,i",
+        ),
+        (
+            "SELECT g,g AS duplicate,count(*) FROM inferred_groups GROUP BY ALL ORDER BY g",
+            "SELECT g,g AS duplicate,count(*) FROM inferred_groups GROUP BY g ORDER BY g",
+        ),
+        (
+            "SELECT 1+2 FROM inferred_groups WHERE false GROUP BY ALL",
+            "SELECT 1+2 FROM inferred_groups WHERE false",
+        ),
+        (
+            "SELECT 1+2,count(*) FROM inferred_groups WHERE false GROUP BY ALL",
+            "SELECT 1+2,count(*) FROM inferred_groups WHERE false",
+        ),
+        (
+            "SELECT count(*) FROM inferred_groups GROUP BY ALL",
+            "SELECT count(*) FROM inferred_groups",
+        ),
+    ] {
+        assert_eq!(
+            connection.query(inferred)?.rows,
+            connection.query(explicit)?.rows,
+            "{inferred}"
+        );
+    }
+    for sql in [
+        "SELECT g+sum(i) FROM inferred_groups GROUP BY ALL",
+        "SELECT g,g+sum(i) FROM inferred_groups GROUP BY ALL",
+        "SELECT g FROM inferred_groups GROUP BY ALL ORDER BY i",
+    ] {
+        assert!(
+            matches!(connection.query(sql), Err(Error::Bind(_))),
+            "{sql}"
+        );
+    }
+    Ok(())
+}
