@@ -1166,9 +1166,11 @@ Remote checkpoints (2026-09-20): `codex/batch3-c1-performance` at `078cef7`,
 `codex/batch4-f2` at `1ce223a`, `codex/batch5-b2` at `132c1af`,
 `codex/batch5-e2` at `b84846a`, and `codex/batch5-f3` at `664b7fd`.
 These preserve ongoing work; all open gates below still apply. The C1 checkpoint
-includes attempt17's comparison plan, with four author plan tests and 61 nested
-tests passing; remaining author checks, independent sweep and strict final
-performance/resource acceptance are still required. Raw evidence remains local
+preserves attempt17's rejected comparison plan: four plan tests, 61 nested
+tests and author Clippy/build pass, but its exact-output diagnostic regresses
+named STRUCT/LIST medians by 10.82%/9.82% versus attempt16. A bounded rollback
+is in progress; independent verification and final performance/resource
+acceptance remain open. Raw evidence remains local
 under the cited `target/` paths. Continue C1 acceptance, E1 resource repair and
 the external-execution prerequisite before closing Batch3; then finish the
 existing Batch4/5 drafts against their recorded contracts.
@@ -1193,7 +1195,11 @@ existing Batch4/5 drafts against their recorded contracts.
   formatting). Its unsuccessful inline hints are removed; retained private
   validation-capability caching is implemented in attempt 16, whose short run
   still fails the four nested cases against prior final references.
-  Batch-bound borrowed comparison views are implemented in attempt 17. Author feedback passes four plan units and 61 nested tests, including recursive chunk/slice offsets, custom fallback and admission/cancellation; further checks, final verification and measurement remain open.
+  Attempt17's batch-bound comparison plan passes four plan units, 61 nested
+  tests, Clippy and release build, but its exact-output diagnostic regresses
+  named STRUCT/LIST to 11.351/26.730 ms (10.82%/9.82% slower than attempt16).
+  The plan is rejected and a bounded rollback is in progress. Its pushed
+  checkpoint and raw evidence remain preserved; no final acceptance is claimed.
   These short runs do not replace final acceptance. Source/profiles remain in the sibling worktree's
   `target/batch3/c1-performance1/`; the corrected provisional independent scope
   is in `target/batch3/c1-verifier-prep15/`.
