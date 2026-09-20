@@ -1161,16 +1161,19 @@ No new batch label waives an outstanding acceptance obligation.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 
-Remote checkpoints (2026-09-20): `codex/batch3-c1-performance` at `078cef7`,
+Remote checkpoints (2026-09-20): `codex/batch3-c1-performance` at `68eba74` (rejected plan preserved at `078cef7`),
 `codex/batch4-d1` at `b77d5d0`, `codex/batch4-h1` at `2855d1d`,
 `codex/batch4-f2` at `1ce223a`, `codex/batch5-b2` at `132c1af`,
 `codex/batch5-e2` at `b84846a`, and `codex/batch5-f3` at `664b7fd`.
-These preserve ongoing work; all open gates below still apply. The C1 checkpoint
-preserves attempt17's rejected comparison plan: four plan tests, 61 nested
-tests and author Clippy/build pass, but its exact-output diagnostic regresses
-named STRUCT/LIST medians by 10.82%/9.82% versus attempt16. A bounded rollback
-is in progress; independent verification and final performance/resource
-acceptance remain open. Raw evidence remains local
+These preserve ongoing work; all open gates below still apply. Attempt17's
+rejected comparison plan passed four plan tests, 61 nested tests and author
+Clippy/build, but its exact-output diagnostic regressed named STRUCT/LIST
+medians by 10.82%/9.82% versus attempt16. The bounded rollback is pushed at
+`68eba74`; three targeted comparison/selection tests and scoped Clippy pass.
+Terra's frozen independent ordinary sweep is active under
+`target/batch3/c1-independent-verifier18/`; final performance/resource acceptance
+remains open. Sol is diagnosing E1 process RSS and reject/reuse source lifetimes
+under `target/batch3/e1-resource-source-diagnosis1/`, without mutating C1. Raw evidence remains local
 under the cited `target/` paths. Continue C1 acceptance, E1 resource repair and
 the external-execution prerequisite before closing Batch3; then finish the
 existing Batch4/5 drafts against their recorded contracts.
@@ -1198,8 +1201,9 @@ existing Batch4/5 drafts against their recorded contracts.
   Attempt17's batch-bound comparison plan passes four plan units, 61 nested
   tests, Clippy and release build, but its exact-output diagnostic regresses
   named STRUCT/LIST to 11.351/26.730 ms (10.82%/9.82% slower than attempt16).
-  The plan is rejected and a bounded rollback is in progress. Its pushed
-  checkpoint and raw evidence remain preserved; no final acceptance is claimed.
+  The plan is rejected and removed at pushed checkpoint `68eba74`; its earlier
+  checkpoint and raw evidence remain preserved. Independent ordinary
+  verification is active; no final acceptance is claimed.
   These short runs do not replace final acceptance. Source/profiles remain in the sibling worktree's
   `target/batch3/c1-performance1/`; the corrected provisional independent scope
   is in `target/batch3/c1-verifier-prep15/`.
