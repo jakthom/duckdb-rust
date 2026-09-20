@@ -1161,6 +1161,21 @@ No new batch label waives an outstanding acceptance obligation.
 
 **Batch 3 — memory budgets, regression accounting and structured regex results.**
 
+- C1 performance repair remains isolated at baseline `058e9a7`. The latest
+  columnar nested candidate passes author feedback (22 vector, 59 nested and
+  22 cast tests plus scoped strict Clippy), including recursive NULL access,
+  bounded cancellation and custom child-target validation. Diagnostic attempt 8
+  retains exact outputs but fails named STRUCT/LIST comparison (2.810x/2.248x)
+  and STRUCT/LIST formatting (1.650x/1.947x) against the frozen fastest reference.
+  Profiles identify a separate SQL selection path still materializing STRUCT
+  rows; its retained-adapter repair is in progress. No independent completion
+  or final performance pass is claimed. Candidate evidence is in the sibling
+  worktree's `target/batch3/c1-performance1/`; root
+  `target/batch3/c1-verifier-prep2/` records reviewed partial verification scope.
+  C1-only resource inputs are discovery-ready at
+  `target/batch3/c1-resource-discovery5/inputs5`, with SQL bytes unchanged and
+  all eight paths under `test/`; engine preflight remains open.
+
 - E1: introduce fallible byte reservations, ownership/release and memory-setting
   propagation through vectors and one existing operator. Exercise allocation
   failure, overflow, cancellation and results retained after connection closure.
