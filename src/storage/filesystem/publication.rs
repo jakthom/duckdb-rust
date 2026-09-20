@@ -25,6 +25,7 @@ impl LocalCheckpointStorage {
         bytes: &[u8],
         steps: [PublicationStep; 3],
         retain_lock: bool,
+        context: &QueryContext,
     ) -> Result<StagedFile> {
         if bytes.len() > 512 * 1024 * 1024 {
             return Err(Error::Resource(
@@ -39,6 +40,7 @@ impl LocalCheckpointStorage {
                 TEMP_ID.fetch_add(1, Ordering::Relaxed)
             ),
         );
+        context.check()?;
         self.step(steps[0])?;
         let mut staged = StagedFile {
             file: create_file(&path)?,
@@ -48,14 +50,21 @@ impl LocalCheckpointStorage {
         if retain_lock {
             lock(&staged.file, true)?;
         }
+        context.check()?;
         self.step(steps[1])?;
-        staged.file.write_all(bytes)?;
+        io::write_all(&mut staged.file, bytes, context)?;
+        context.check()?;
         self.step(steps[2])?;
         staged.file.sync_all()?;
         Ok(staged)
     }
 
-    pub(super) fn stage_checkpoint(&self, current: &File, bytes: &[u8]) -> Result<StagedFile> {
+    pub(super) fn stage_checkpoint_with_context(
+        &self,
+        current: &File,
+        bytes: &[u8],
+        context: &QueryContext,
+    ) -> Result<StagedFile> {
         self.stage(
             "checkpoint",
             current.metadata()?.permissions(),
@@ -66,15 +75,34 @@ impl LocalCheckpointStorage {
                 PublicationStep::CheckpointSync,
             ],
             true,
+            context,
         )
     }
 
-    pub(super) fn install_checkpoint(
+    pub(super) fn install_checkpoint_with_context(
         &self,
         current: &mut File,
         mut staged: StagedFile,
+        context: &QueryContext,
+        bridge_visible: bool,
     ) -> Result<()> {
+        // A bridge log may already be visible during recovery. Cancellation at
+        // this last pre-rename point is therefore uncertain, not retryable.
+        context.check().map_err(|error| {
+            if bridge_visible {
+                uncertain(error)
+            } else {
+                error
+            }
+        })?;
         self.step(PublicationStep::CheckpointRename)?;
+        context.check().map_err(|error| {
+            if bridge_visible {
+                uncertain(error)
+            } else {
+                error
+            }
+        })?;
         let path = staged
             .path
             .as_ref()
@@ -103,11 +131,13 @@ impl LocalCheckpointStorage {
         sync_parent(&self.path).map_err(uncertain)
     }
 
-    pub(super) fn publish_recovered(
+    pub(super) fn publish_recovered_with_context(
         &self,
         basis: &RecoveryInput,
         publication: &RecoveryPublication,
+        context: &QueryContext,
     ) -> Result<()> {
+        context.check()?;
         if !self.writable {
             return Err(Error::Unsupported(
                 "recovery publication on a read-only checkpoint".into(),
@@ -124,11 +154,11 @@ impl LocalCheckpointStorage {
         }
         let log_path = sidecar(&self.path, ".wal");
         let log_matches = match File::open(&log_path) {
-            Ok(mut file) => matches(&mut file, &basis.log)?,
+            Ok(mut file) => matches_with_context(&mut file, &basis.log, context)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => basis.log.is_empty(),
             Err(e) => return Err(e.into()),
         };
-        if !matches(&mut current, &basis.checkpoint)? || !log_matches {
+        if !matches_with_context(&mut current, &basis.checkpoint, context)? || !log_matches {
             return Err(Error::Transaction(
                 "recovery input changed after preparation".into(),
             ));
@@ -145,7 +175,7 @@ impl LocalCheckpointStorage {
                 }
                 // Both replacements are completely written and synced before
                 // exposing a bridge or changing the database pathname.
-                let staged = self.stage_checkpoint(&current, checkpoint)?;
+                let staged = self.stage_checkpoint_with_context(&current, checkpoint, context)?;
                 let permissions = match std::fs::metadata(&log_path) {
                     Ok(metadata) => metadata.permissions(),
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -163,8 +193,11 @@ impl LocalCheckpointStorage {
                         PublicationStep::RecoveryLogSync,
                     ],
                     false,
+                    context,
                 )?;
+                context.check()?;
                 self.step(PublicationStep::RecoveryLogRename)?;
+                context.check()?;
                 std::fs::rename(
                     log.path
                         .as_ref()
@@ -174,8 +207,11 @@ impl LocalCheckpointStorage {
                 log.path = None;
                 self.step(PublicationStep::RecoveryLogDirectorySync)?;
                 sync_parent(&self.path)?;
-                self.install_checkpoint(&mut current, staged)?;
-                self.retire_log(&log_path).map_err(uncertain)
+                self.install_checkpoint_with_context(&mut current, staged, context, true)?;
+                // Checkpoint visibility has crossed the commit boundary.
+                // Complete retirement/durability despite late cancellation.
+                self.retire_log(&log_path, &QueryContext::background())
+                    .map_err(uncertain)
             }
             RecoveryPublication::RetireLog => {
                 // A previous attempt may have renamed this checkpoint without
@@ -185,13 +221,15 @@ impl LocalCheckpointStorage {
                 current.sync_all()?;
                 self.step(PublicationStep::CheckpointDirectorySync)?;
                 sync_parent(&self.path)?;
-                self.retire_log(&log_path)
+                self.retire_log(&log_path, context)
             }
         }
     }
 
-    fn retire_log(&self, path: &Path) -> Result<()> {
+    fn retire_log(&self, path: &Path, context: &QueryContext) -> Result<()> {
+        context.check()?;
         self.step(PublicationStep::LogRemove)?;
+        context.check()?;
         match std::fs::remove_file(path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -212,18 +250,22 @@ fn uncertain(error: Error) -> Error {
 }
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
-fn matches(file: &mut File, expected: &[u8]) -> Result<bool> {
+fn matches_with_context(file: &mut File, expected: &[u8], context: &QueryContext) -> Result<bool> {
+    context.check()?;
     if file.metadata()?.len() != expected.len() as u64 {
         return Ok(false);
     }
-    file.seek(SeekFrom::Start(0))?;
+    let mut reader = io::LocalFileReader::new(file, context);
     let mut buffer = [0; 65536];
+    let mut offset = 0;
     for expected in expected.chunks(buffer.len()) {
+        context.check()?;
         let bytes = &mut buffer[..expected.len()];
-        file.read_exact(bytes)?;
+        reader.read_exact_at(offset, bytes)?;
         if bytes != expected {
             return Ok(false);
         }
+        offset += expected.len() as u64;
     }
     Ok(true)
 }

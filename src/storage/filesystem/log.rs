@@ -2,11 +2,13 @@ use super::*;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl LocalCheckpointStorage {
-    pub(super) fn initialize_transaction_log_transaction(
+    pub(super) fn initialize_transaction_log_transaction_with_context(
         &self,
         header: &[u8],
         transaction: &[u8],
+        context: &QueryContext,
     ) -> Result<u64> {
+        context.check()?;
         if !self.writable {
             return Err(Error::Unsupported("logging on read-only storage".into()));
         }
@@ -29,10 +31,15 @@ impl LocalCheckpointStorage {
         // The established initializer treats its nonempty bytes as opaque and
         // already stages, syncs, renames, and parent-syncs with the required
         // pre-publication versus CommitUnknown failure distinction.
-        self.initialize_transaction_log(&bytes)
+        self.initialize_transaction_log_with_context(&bytes, context)
     }
 
-    pub(super) fn initialize_transaction_log(&self, header: &[u8]) -> Result<u64> {
+    pub(super) fn initialize_transaction_log_with_context(
+        &self,
+        header: &[u8],
+        context: &QueryContext,
+    ) -> Result<u64> {
+        context.check()?;
         if !self.writable {
             return Err(Error::Unsupported("logging on read-only storage".into()));
         }
@@ -58,8 +65,11 @@ impl LocalCheckpointStorage {
                 PublicationStep::LogInitializeSync,
             ],
             false,
+            context,
         )?;
+        context.check()?;
         self.step(PublicationStep::LogInitializeRename)?;
+        context.check()?;
         std::fs::rename(
             staged
                 .path
@@ -74,7 +84,13 @@ impl LocalCheckpointStorage {
         Ok(header.len() as u64)
     }
 
-    pub(super) fn append_transaction_log(&self, expected: u64, bytes: &[u8]) -> Result<u64> {
+    pub(super) fn append_transaction_log_with_context(
+        &self,
+        expected: u64,
+        bytes: &[u8],
+        context: &QueryContext,
+    ) -> Result<u64> {
+        context.check()?;
         if !self.writable {
             return Err(Error::Unsupported("logging on read-only storage".into()));
         }
@@ -103,10 +119,11 @@ impl LocalCheckpointStorage {
         if log.metadata()?.len() != expected {
             return Err(Error::Transaction("transaction log length changed".into()));
         }
-        log.seek(SeekFrom::Start(expected))?;
+        context.check()?;
         self.step(PublicationStep::LogAppendWrite)?;
         let result = (|| {
-            log.write_all(bytes)?;
+            io::write_exact_at(&mut log, expected, bytes, context)?;
+            context.check()?;
             self.step(PublicationStep::LogAppendSync)?;
             log.sync_all()?;
             Ok(())

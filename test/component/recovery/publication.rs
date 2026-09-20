@@ -1,8 +1,10 @@
 use super::*;
+use duckdb_rust::parallel::InterruptHandle;
 use duckdb_rust::storage::{
     filesystem::{CheckpointStorage, FileFaultInjector, PublicationStep},
     recovery::RecoveryPublication,
 };
+use std::sync::Arc;
 
 const REPLACE_STEPS: &[PublicationStep] = &[
     PublicationStep::CheckpointCreate,
@@ -24,6 +26,9 @@ const RETIRE_STEPS: &[PublicationStep] = &[
     PublicationStep::LogRemove,
     PublicationStep::LogRetirementDirectorySync,
 ];
+// The mutations fixture has ten physical checkpoint rows and nine live rows
+// after recovery. Keep one-row I/O demand without rejecting valid preparation.
+const MUTATIONS_ROW_LIMIT: usize = 10;
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 fn input(name: &str) -> RecoveryInput {
@@ -482,6 +487,149 @@ fn process_interruption_at_every_publication_boundary_remains_recoverable() -> R
             assert!(!path.with_extension("duckdb.wal").exists());
             verify(&path, "mutations")?;
         }
+    }
+    Ok(())
+}
+
+struct InterruptAfterBridgeRename(InterruptHandle);
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl FileFaultInjector for InterruptAfterBridgeRename {
+    fn before(&self, step: PublicationStep) -> Result<()> {
+        if step == PublicationStep::RecoveryLogDirectorySync {
+            self.0.interrupt();
+        }
+        Ok(())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn cancellation_after_bridge_visibility_is_commit_unknown() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("bridge.duckdb");
+    let original = input("mutations");
+    populate(&path, &original)?;
+    let interrupt = InterruptHandle::default();
+    let storage = LocalCheckpointStorage::open(&path, OpenMode::ReadWrite, || unreachable!())?
+        .with_faults(Arc::new(InterruptAfterBridgeRename(interrupt.clone())));
+    let context = QueryContext::new(interrupt, None, 1, MUTATIONS_ROW_LIMIT)?;
+    let prepared = DuckDbWalRecovery.prepare(original, &DuckDbFormat::default(), &context)?;
+    assert!(matches!(
+        storage.publish_recovery_with_context(&prepared.basis, &prepared.publication, &context),
+        Err(Error::CommitUnknown(_))
+    ));
+    assert!(path.with_extension("duckdb.wal").exists());
+    Ok(())
+}
+
+struct InterruptAtPublicationStep {
+    step: PublicationStep,
+    interrupt: InterruptHandle,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl FileFaultInjector for InterruptAtPublicationStep {
+    fn before(&self, step: PublicationStep) -> Result<()> {
+        if step == self.step {
+            self.interrupt.interrupt();
+        }
+        Ok(())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn recovery_cancellation_distinguishes_bridge_checkpoint_and_retirement_visibility() -> Result<()> {
+    for step in [
+        PublicationStep::RecoveryLogRename,
+        PublicationStep::CheckpointRename,
+        PublicationStep::CheckpointDirectorySync,
+    ] {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("visibility.duckdb");
+        let original = input("mutations");
+        populate(&path, &original)?;
+        let interrupt = InterruptHandle::default();
+        let context = QueryContext::new(interrupt.clone(), None, 1, MUTATIONS_ROW_LIMIT)?;
+        let prepared =
+            DuckDbWalRecovery.prepare(input("mutations"), &DuckDbFormat::default(), &context)?;
+        let storage = LocalCheckpointStorage::open(&path, OpenMode::ReadWrite, || unreachable!())?
+            .with_faults(Arc::new(InterruptAtPublicationStep { step, interrupt }));
+        let result =
+            storage.publish_recovery_with_context(&prepared.basis, &prepared.publication, &context);
+        match step {
+            PublicationStep::RecoveryLogRename => {
+                assert!(matches!(result, Err(Error::Interrupted)));
+                assert_eq!(storage.read()?, original.checkpoint);
+                assert_eq!(storage.read_log()?, original.log);
+            }
+            PublicationStep::CheckpointRename => {
+                assert!(matches!(result, Err(Error::CommitUnknown(_))));
+                assert_eq!(storage.read()?, original.checkpoint);
+                assert_ne!(storage.read_log()?, original.log);
+            }
+            PublicationStep::CheckpointDirectorySync => {
+                result?;
+                assert!(storage.read_log()?.is_empty());
+            }
+            _ => unreachable!(),
+        }
+        drop(storage);
+        verify(&path, "mutations")?;
+        drop(Database::open(&path)?);
+        verify(&path, "mutations")?;
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn recovery_retirement_cancellation_before_removal_keeps_bridge_after_removal_finishes()
+-> Result<()> {
+    for step in [
+        PublicationStep::LogRemove,
+        PublicationStep::LogRetirementDirectorySync,
+    ] {
+        let prepared = DuckDbWalRecovery.prepare(
+            input("mutations"),
+            &DuckDbFormat::default(),
+            &QueryContext::background(),
+        )?;
+        let RecoveryPublication::Replace {
+            checkpoint,
+            bridge_log,
+        } = prepared.publication
+        else {
+            unreachable!()
+        };
+        let basis = RecoveryInput {
+            checkpoint,
+            log: bridge_log,
+        };
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("retirement.duckdb");
+        populate(&path, &basis)?;
+        let interrupt = InterruptHandle::default();
+        let context = QueryContext::new(interrupt.clone(), None, 1, MUTATIONS_ROW_LIMIT)?;
+        let prepared = DuckDbWalRecovery.prepare(basis, &DuckDbFormat::default(), &context)?;
+        assert!(matches!(
+            prepared.publication,
+            RecoveryPublication::RetireLog
+        ));
+        let storage = LocalCheckpointStorage::open(&path, OpenMode::ReadWrite, || unreachable!())?
+            .with_faults(Arc::new(InterruptAtPublicationStep { step, interrupt }));
+        let result =
+            storage.publish_recovery_with_context(&prepared.basis, &prepared.publication, &context);
+        if step == PublicationStep::LogRemove {
+            assert!(matches!(result, Err(Error::Interrupted)));
+            assert!(!storage.read_log()?.is_empty());
+        } else {
+            result?;
+            assert!(storage.read_log()?.is_empty());
+        }
+        drop(storage);
+        verify(&path, "mutations")?;
     }
     Ok(())
 }

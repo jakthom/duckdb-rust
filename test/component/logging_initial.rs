@@ -80,3 +80,65 @@ fn atomic_initial_transaction_faults_distinguish_unpublished_and_unknown() -> Re
     }
     Ok(())
 }
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn interrupted_local_log_initialization_does_not_create_a_wal() -> Result<()> {
+    use duckdb_rust::parallel::{InterruptHandle, QueryContext};
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("interrupted.duckdb");
+    let storage = LocalCheckpointStorage::open(&path, OpenMode::ReadWrite, || Ok(vec![1]))?;
+    let interrupt = InterruptHandle::default();
+    interrupt.interrupt();
+    let context = QueryContext::new(interrupt, None, 1, 1)?;
+    assert!(matches!(
+        storage.initialize_log_with_context(b"header", &context),
+        Err(Error::Interrupted)
+    ));
+    assert!(!path.with_extension("duckdb.wal").exists());
+    Ok(())
+}
+
+struct CancelInitialLog {
+    step: PublicationStep,
+    interrupt: duckdb_rust::parallel::InterruptHandle,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl FileFaultInjector for CancelInitialLog {
+    fn before(&self, step: PublicationStep) -> Result<()> {
+        if step == self.step {
+            self.interrupt.interrupt();
+        }
+        Ok(())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn initial_log_cancellation_before_rename_aborts_after_rename_completes() -> Result<()> {
+    use duckdb_rust::parallel::{InterruptHandle, QueryContext};
+    for step in [
+        PublicationStep::LogInitializeRename,
+        PublicationStep::LogInitializeDirectorySync,
+    ] {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("initial-cancel.duckdb");
+        let interrupt = InterruptHandle::default();
+        let context = QueryContext::new(interrupt.clone(), None, 1, 1)?;
+        let storage = LocalCheckpointStorage::open(&path, OpenMode::ReadWrite, || Ok(vec![1]))?
+            .with_faults(Arc::new(CancelInitialLog { step, interrupt }));
+        let result =
+            storage.initialize_log_transaction_with_context(b"header", b"transaction", &context);
+        if step == PublicationStep::LogInitializeRename {
+            assert!(matches!(result, Err(Error::Interrupted)));
+            assert!(storage.read_log()?.is_empty());
+            assert_eq!(fs::read_dir(directory.path())?.count(), 1);
+        } else {
+            assert_eq!(result?, Some(17));
+            assert_eq!(storage.read_log()?, b"headertransaction");
+            assert_eq!(fs::read_dir(directory.path())?.count(), 2);
+        }
+    }
+    Ok(())
+}

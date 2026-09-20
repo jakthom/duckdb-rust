@@ -39,6 +39,10 @@ name = "duckdb-rust-measure"
 path = "benchmark/native.rs"
 
 [[bin]]
+name = "duckdb-rust-h1-filesystem-measure"
+path = "benchmark/h1_filesystem_native.rs"
+
+[[bin]]
 name = "g01-api-lifecycle"
 path = "benchmark/g01_api_lifecycle.rs"
 

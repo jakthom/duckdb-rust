@@ -1997,6 +1997,13 @@ Engine CLI/platform work can proceed independently.
 | H4 / G23 | Resolve extension refs/ABI classes, add loader/install/load policy, then one required built-in/external capability per leaf. Needs G2/G3/H1/H2 as applicable. | L inventory; S loader/ports | Independent compatible extension, signature/version/platform failures, repeat load, callback ownership; exact pinned extension tests. | Load/startup and actual extension queries/scans, including resource/failure paths. |
 | H5 / G24.2/G24.3 | Finish shell families and package shared/static/client artifacts across the required OS/architecture matrix. Shell can begin independently; libraries need G1/G2. | T behavior/package; L mechanical manifests | CLI process/terminal tests, interrupt/output/exit semantics, clean install/exported symbols and actual target provenance. | CLI startup/rendering/import, library load and package smoke workloads on each supported platform. |
 
+H1.1 isolated source completion now connects bounded positioned reads to native
+checkpoint loading and recovery-basis comparison, adds short-I/O/EINTR/cancellation
+and publication-boundary witnesses, and strengthens publication/cleanup benchmark
+oracles. Its partial manifest is `target/batch4/h1/implementation-manifest.md` in
+`../duckdb-rust-batch4-h1`. Formatting/artifact checks only have run; all engine,
+reference and performance gates remain open. Windows coverage is unexecuted.
+
 ### Ordered leaf boundaries for compound work packages
 
 The 48 rows above are work packages, not 48 promises of single-agent completion.

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "bytes": 52428800,
+  "operations": [
+    {
+      "name": "sequential_read_50m",
+      "operation": "sequential-read"
+    },
+    {
+      "name": "positioned_read_50m",
+      "operation": "positioned-read"
+    },
+    {
+      "name": "staged_publication_50m",
+      "operation": "publication"
+    },
+    {
+      "name": "staged_publication_cleanup_50m",
+      "operation": "publication-cleanup"
+    }
+  ],
+  "validation": "Every worker response must report the configured byte count and the deterministic patterned-byte checksum. Publication samples reopen the resulting file and validate the full payload before the next sample."
+}

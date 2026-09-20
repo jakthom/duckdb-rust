@@ -198,13 +198,13 @@ impl FileCheckpoint {
         let Some(recovery) = &self.recovery else {
             return Ok(None);
         };
-        let log = self.file.read_log()?;
+        let log = self.file.read_log_with_context(context)?;
         if log.is_empty() {
             // Ordinary loading will read and bind the checkpoint. Avoid reading
             // it twice when there is no existing log to continue.
             return Ok(None);
         }
-        let checkpoint = self.file.read()?;
+        let checkpoint = self.file.read_with_context(context)?;
         let Some(recovered) = recovery.resume(
             RecoveryInput {
                 checkpoint: checkpoint.clone(),
@@ -297,8 +297,8 @@ impl Durability for FileCheckpoint {
                 "checkpoint already loaded; share its transaction manager".into(),
             ));
         }
-        let checkpoint = self.file.read()?;
-        let log = self.file.read_log()?;
+        let checkpoint = self.file.read_with_context(context)?;
+        let log = self.file.read_log_with_context(context)?;
         if log.is_empty() {
             let encoder = self.format.checkpoint_encoder(&checkpoint)?;
             let snapshot = self.format.decode_with_context(checkpoint, context)?;
@@ -326,10 +326,11 @@ impl Durability for FileCheckpoint {
             };
             let encoder = self.format.checkpoint_encoder(bytes)?;
             context.check()?;
-            if let Err(error) = self
-                .file
-                .publish_recovery(&prepared.basis, &prepared.publication)
-            {
+            if let Err(error) = self.file.publish_recovery_with_context(
+                &prepared.basis,
+                &prepared.publication,
+                context,
+            ) {
                 if matches!(error, Error::CommitUnknown(_)) {
                     *publication = PublicationState::Uncertain;
                 }
@@ -376,7 +377,7 @@ impl Durability for FileCheckpoint {
         let next = self.format.checkpoint_encoder(&bytes)?;
         context.check()?;
         let context = context.clone();
-        if let Err(error) = self.file.replace(&bytes) {
+        if let Err(error) = self.file.replace_with_context(&bytes, &context) {
             if matches!(error, Error::CommitUnknown(_)) {
                 *publication = PublicationState::Uncertain;
             }

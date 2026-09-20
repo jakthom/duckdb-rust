@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         Mutex, OnceLock,
@@ -10,8 +9,12 @@ use std::{
 };
 
 use super::recovery::{RecoveryInput, RecoveryPublication};
-use crate::common::{Error, Result};
+use crate::{
+    common::{Error, Result},
+    parallel::QueryContext,
+};
 
+mod io;
 mod log;
 mod publication;
 
@@ -117,6 +120,52 @@ pub trait CheckpointStorage: Send + Sync {
         Err(Error::Unsupported(
             "recovery publication on this storage".into(),
         ))
+    }
+
+    /// Context-aware extensions are additive: legacy storage gets one preflight
+    /// check and retains its existing atomicity/error classification.
+    fn read_with_context(&self, context: &QueryContext) -> Result<Vec<u8>> {
+        context.check()?;
+        self.read()
+    }
+    fn read_log_with_context(&self, context: &QueryContext) -> Result<Vec<u8>> {
+        context.check()?;
+        self.read_log()
+    }
+    fn replace_with_context(&self, bytes: &[u8], context: &QueryContext) -> Result<()> {
+        context.check()?;
+        self.replace(bytes)
+    }
+    fn initialize_log_with_context(&self, header: &[u8], context: &QueryContext) -> Result<u64> {
+        context.check()?;
+        self.initialize_log(header)
+    }
+    fn initialize_log_transaction_with_context(
+        &self,
+        header: &[u8],
+        transaction: &[u8],
+        context: &QueryContext,
+    ) -> Result<Option<u64>> {
+        context.check()?;
+        self.initialize_log_transaction(header, transaction)
+    }
+    fn append_log_with_context(
+        &self,
+        expected: u64,
+        bytes: &[u8],
+        context: &QueryContext,
+    ) -> Result<u64> {
+        context.check()?;
+        self.append_log(expected, bytes)
+    }
+    fn publish_recovery_with_context(
+        &self,
+        basis: &RecoveryInput,
+        publication: &RecoveryPublication,
+        context: &QueryContext,
+    ) -> Result<()> {
+        context.check()?;
+        self.publish_recovery(basis, publication)
     }
 }
 
@@ -266,7 +315,7 @@ impl LocalCheckpointStorage {
         }
         if created {
             let result = (|| {
-                file.write_all(&initial()?)?;
+                io::write_all(&mut file, &initial()?, &QueryContext::background())?;
                 file.sync_all()?;
                 sync_parent(&path)
             })();
@@ -307,6 +356,10 @@ impl CheckpointStorage for LocalCheckpointStorage {
         self.writable
     }
     fn read(&self) -> Result<Vec<u8>> {
+        self.read_with_context(&QueryContext::background())
+    }
+    fn read_with_context(&self, context: &QueryContext) -> Result<Vec<u8>> {
+        context.check()?;
         let mut file = self
             .file
             .lock()
@@ -316,31 +369,29 @@ impl CheckpointStorage for LocalCheckpointStorage {
                 "checkpoint reader limits input to 512 MiB".into(),
             ));
         }
-        file.seek(SeekFrom::Start(0))?;
-        let mut bytes = Vec::new();
-        (&mut *file)
-            .take(512 * 1024 * 1024 + 1)
-            .read_to_end(&mut bytes)?;
-        Ok(bytes)
+        io::LocalFileReader::new(&mut file, context).read_all(512 * 1024 * 1024)
     }
     fn read_log(&self) -> Result<Vec<u8>> {
+        self.read_log_with_context(&QueryContext::background())
+    }
+    fn read_log_with_context(&self, context: &QueryContext) -> Result<Vec<u8>> {
+        context.check()?;
         match File::open(sidecar(&self.path, ".wal")) {
-            Ok(file) => {
+            Ok(mut file) => {
                 if file.metadata()?.len() > 512 * 1024 * 1024 {
                     return Err(Error::Resource("WAL reader limits input to 512 MiB".into()));
                 }
-                let mut bytes = Vec::new();
-                file.take(512 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
-                if bytes.len() > 512 * 1024 * 1024 {
-                    return Err(Error::Resource("WAL reader limits input to 512 MiB".into()));
-                }
-                Ok(bytes)
+                io::read_to_end(&mut file, 512 * 1024 * 1024, context)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(e.into()),
         }
     }
     fn replace(&self, bytes: &[u8]) -> Result<()> {
+        self.replace_with_context(bytes, &QueryContext::background())
+    }
+    fn replace_with_context(&self, bytes: &[u8], context: &QueryContext) -> Result<()> {
+        context.check()?;
         if !self.writable {
             return Err(Error::Unsupported("writing a read-only checkpoint".into()));
         }
@@ -353,8 +404,9 @@ impl CheckpointStorage for LocalCheckpointStorage {
                 "recover the active log before checkpoint publication".into(),
             ));
         }
-        let staged = self.stage_checkpoint(&current, bytes)?;
-        self.install_checkpoint(&mut current, staged)
+        let staged = self.stage_checkpoint_with_context(&current, bytes, context)?;
+        context.check()?;
+        self.install_checkpoint_with_context(&mut current, staged, context, false)
     }
     fn supports_recovery_publication(&self) -> bool {
         self.writable
@@ -363,21 +415,52 @@ impl CheckpointStorage for LocalCheckpointStorage {
         self.writable
     }
     fn initialize_log(&self, header: &[u8]) -> Result<u64> {
-        self.initialize_transaction_log(header)
+        self.initialize_log_with_context(header, &QueryContext::background())
+    }
+    fn initialize_log_with_context(&self, header: &[u8], context: &QueryContext) -> Result<u64> {
+        self.initialize_transaction_log_with_context(header, context)
     }
     fn initialize_log_transaction(&self, header: &[u8], transaction: &[u8]) -> Result<Option<u64>> {
-        self.initialize_transaction_log_transaction(header, transaction)
+        self.initialize_log_transaction_with_context(
+            header,
+            transaction,
+            &QueryContext::background(),
+        )
+    }
+    fn initialize_log_transaction_with_context(
+        &self,
+        header: &[u8],
+        transaction: &[u8],
+        context: &QueryContext,
+    ) -> Result<Option<u64>> {
+        self.initialize_transaction_log_transaction_with_context(header, transaction, context)
             .map(Some)
     }
     fn append_log(&self, expected: u64, bytes: &[u8]) -> Result<u64> {
-        self.append_transaction_log(expected, bytes)
+        self.append_log_with_context(expected, bytes, &QueryContext::background())
+    }
+    fn append_log_with_context(
+        &self,
+        expected: u64,
+        bytes: &[u8],
+        context: &QueryContext,
+    ) -> Result<u64> {
+        self.append_transaction_log_with_context(expected, bytes, context)
     }
     fn publish_recovery(
         &self,
         basis: &RecoveryInput,
         publication: &RecoveryPublication,
     ) -> Result<()> {
-        self.publish_recovered(basis, publication)
+        self.publish_recovery_with_context(basis, publication, &QueryContext::background())
+    }
+    fn publish_recovery_with_context(
+        &self,
+        basis: &RecoveryInput,
+        publication: &RecoveryPublication,
+        context: &QueryContext,
+    ) -> Result<()> {
+        self.publish_recovered_with_context(basis, publication, context)
     }
 }
 

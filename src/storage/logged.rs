@@ -103,8 +103,8 @@ impl FileWal {
             return Ok(());
         }
         let input = RecoveryInput {
-            checkpoint: self.checkpoint.storage().read()?,
-            log: self.checkpoint.storage().read_log()?,
+            checkpoint: self.checkpoint.storage().read_with_context(context)?,
+            log: self.checkpoint.storage().read_log_with_context(context)?,
         };
         if input.log.len() as u64 != ready.length {
             return Err(Error::Transaction(
@@ -135,7 +135,7 @@ impl FileWal {
         // require recovery without making that transaction's outcome unknown.
         self.checkpoint
             .storage()
-            .publish_recovery(&prepared.basis, &prepared.publication)
+            .publish_recovery_with_context(&prepared.basis, &prepared.publication, context)
             .map_err(|error| Error::RecoveryRequired(error.to_string()))?;
         ready.session = start.session;
         ready.header = start.header;
@@ -258,7 +258,11 @@ impl Durability for FileWal {
                 if let Some(length) = self
                     .checkpoint
                     .storage()
-                    .initialize_log_transaction(&ready.header, &append.bytes)?
+                    .initialize_log_transaction_with_context(
+                        &ready.header,
+                        &append.bytes,
+                        &ready.context,
+                    )?
                 {
                     ready.length = length;
                     ready.session = append.next;
@@ -272,16 +276,17 @@ impl Durability for FileWal {
                 ready.length = self
                     .checkpoint
                     .storage()
-                    .initialize_log(&ready.header)
+                    .initialize_log_with_context(&ready.header, &ready.context)
                     .map_err(|error| match error {
                         Error::CommitUnknown(message) => Error::RecoveryRequired(message),
                         other => other,
                     })?;
             }
-            ready.length = self
-                .checkpoint
-                .storage()
-                .append_log(ready.length, &append.bytes)?;
+            ready.length = self.checkpoint.storage().append_log_with_context(
+                ready.length,
+                &append.bytes,
+                &ready.context,
+            )?;
             ready.session = append.next;
             ready.commits = commits;
             Ok(if checkpointed {

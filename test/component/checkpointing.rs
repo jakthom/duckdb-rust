@@ -11,7 +11,7 @@ use duckdb_rust::{
     storage::{
         UpdateMetadata,
         checkpoint::{
-            FileCheckpoint,
+            Durability, FileCheckpoint,
             policy::{CheckpointPolicy, CommitCountCheckpoint, LogSizeCheckpoint},
         },
         duckdb::{
@@ -24,6 +24,7 @@ use duckdb_rust::{
         format::SnapshotFormat,
         logged::FileWal,
         recovery::{RecoveryInput, RecoveryPublication},
+        table::Snapshot,
     },
     transaction::{SnapshotTransactions, TransactionManager},
 };
@@ -32,7 +33,7 @@ use std::{
     num::NonZeroU64,
     path::Path,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
@@ -965,6 +966,164 @@ fn process_exits_during_manual_and_automatic_checkpoints_preserve_acknowledged_w
                 .execute("CHECKPOINT; INSERT INTO t VALUES(4,'retry')")?;
             assert_eq!(count(&path)?, expected + 1);
         }
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn interrupted_local_storage_preflight_preserves_checkpoint_and_legacy_adapters() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("interrupted.duckdb");
+    let storage = LocalCheckpointStorage::open(&path, OpenMode::ReadWrite, || Ok(b"old".to_vec()))?;
+    let interrupt = InterruptHandle::default();
+    interrupt.interrupt();
+    let context = QueryContext::new(interrupt, None, 1, 1)?;
+    assert!(matches!(
+        storage.read_with_context(&context),
+        Err(Error::Interrupted)
+    ));
+    assert!(matches!(
+        storage.replace_with_context(b"new", &context),
+        Err(Error::Interrupted)
+    ));
+    assert_eq!(storage.read()?, b"old");
+
+    // The extension's default remains safe for a contextless legacy adapter:
+    // it rejects before calling its unchanged operation.
+    let legacy = LegacyLogStorage(storage);
+    assert!(matches!(
+        legacy.read_with_context(&context),
+        Err(Error::Interrupted)
+    ));
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn local_read_only_contextual_mutation_is_rejected_without_staging() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("readonly.duckdb");
+    fs::write(&path, b"old")?;
+    let storage = LocalCheckpointStorage::open(&path, OpenMode::ReadOnly, || unreachable!())?;
+    assert!(matches!(
+        storage.replace_with_context(b"new", &QueryContext::background()),
+        Err(Error::Unsupported(_))
+    ));
+    assert_eq!(fs::read(&path)?, b"old");
+    Ok(())
+}
+
+struct ContextProbeStorage {
+    bytes: Mutex<Vec<u8>>,
+    contextual_reads: AtomicUsize,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl CheckpointStorage for ContextProbeStorage {
+    fn name(&self) -> &'static str {
+        "context-probe"
+    }
+    fn writable(&self) -> bool {
+        true
+    }
+    fn read(&self) -> Result<Vec<u8>> {
+        Ok(self.bytes.lock().unwrap().clone())
+    }
+    fn replace(&self, bytes: &[u8]) -> Result<()> {
+        *self.bytes.lock().unwrap() = bytes.to_vec();
+        Ok(())
+    }
+    fn read_with_context(&self, context: &QueryContext) -> Result<Vec<u8>> {
+        self.contextual_reads.fetch_add(1, Ordering::Relaxed);
+        context.check()?;
+        self.read()
+    }
+    fn read_log_with_context(&self, context: &QueryContext) -> Result<Vec<u8>> {
+        context.check()?;
+        Ok(Vec::new())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn file_checkpoint_forwards_its_selected_context_to_storage_reads() -> Result<()> {
+    let format = Arc::new(DuckDbFormat::default());
+    let probe = Arc::new(ContextProbeStorage {
+        bytes: Mutex::new(format.encode(&Snapshot::default())?),
+        contextual_reads: AtomicUsize::new(0),
+    });
+    let checkpoint = FileCheckpoint::new(probe.clone(), format);
+    checkpoint.load_with_context(&QueryContext::background())?;
+    assert_eq!(probe.contextual_reads.load(Ordering::Relaxed), 1);
+    Ok(())
+}
+
+struct CancelAtCheckpointStep {
+    step: PublicationStep,
+    interrupt: InterruptHandle,
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl FileFaultInjector for CancelAtCheckpointStep {
+    fn before(&self, step: PublicationStep) -> Result<()> {
+        if step == self.step {
+            self.interrupt.interrupt();
+        }
+        Ok(())
+    }
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn checkpoint_cancellation_before_rename_preserves_old_file_after_rename_completes() -> Result<()> {
+    for step in [
+        PublicationStep::CheckpointRename,
+        PublicationStep::CheckpointDirectorySync,
+    ] {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("cancel-boundary.duckdb");
+        let interrupt = InterruptHandle::default();
+        let context = QueryContext::new(interrupt.clone(), None, 1, 1)?;
+        let storage =
+            LocalCheckpointStorage::open(&path, OpenMode::ReadWrite, || Ok(b"old".to_vec()))?
+                .with_faults(Arc::new(CancelAtCheckpointStep { step, interrupt }));
+        let result = storage.replace_with_context(b"new", &context);
+        if step == PublicationStep::CheckpointRename {
+            assert!(matches!(result, Err(Error::Interrupted)));
+            assert_eq!(storage.read()?, b"old");
+        } else {
+            result?;
+            assert_eq!(storage.read()?, b"new");
+        }
+        assert_eq!(fs::read_dir(directory.path())?.count(), 1);
+    }
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn native_checkpoint_load_uses_bounded_positioned_reads_and_reopens() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("positioned-native.duckdb");
+    {
+        let database = Database::open(&path)?;
+        database.connect().execute("CREATE TABLE h1_positioned AS SELECT range AS i, '0000000000000000' || range::VARCHAR AS v FROM range(6000)")?;
+    }
+    assert!(fs::metadata(&path)?.len() > 64 * 1024);
+    for _ in 0..2 {
+        let database = Database::open_read_only(&path)?;
+        assert_eq!(
+            database
+                .connect()
+                .query("SELECT count(*),sum(i),sum(length(v)) FROM h1_positioned")?
+                .rows,
+            vec![vec![
+                Value::Integer(6000),
+                Value::Integer(17_997_000),
+                Value::Integer(118_890)
+            ]]
+        );
     }
     Ok(())
 }
