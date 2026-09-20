@@ -33,6 +33,12 @@ pub enum Reservation {
 }
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl Reservation {
+    pub(crate) fn memory_pool(&self) -> Option<&Arc<MemoryPool>> {
+        match self {
+            Self::Single(inner) => Some(&inner.pool),
+            Self::Many(tokens) => tokens.iter().find_map(Self::memory_pool),
+        }
+    }
     pub fn bytes(&self) -> usize {
         match self {
             Self::Single(inner) => inner.bytes,

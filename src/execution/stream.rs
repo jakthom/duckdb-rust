@@ -114,6 +114,42 @@ pub fn collect(plan: &dyn PhysicalOperator, context: &ExecutionContext<'_>) -> R
     })
 }
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Finish a plan before publication while retaining its immutable output
+/// batches and any attached reservations. Direct replay consumers use this
+/// instead of copying charged batches through unowned rows.
+pub(crate) fn collect_chunks(
+    plan: &dyn PhysicalOperator,
+    context: &ExecutionContext<'_>,
+) -> Result<DataSet> {
+    collect_stream_chunks(plan.schema(), open(plan, context)?, context.query)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn collect_stream_chunks(
+    schema: &Schema,
+    mut input: Stream<'_>,
+    query: &QueryContext,
+) -> Result<DataSet> {
+    let mut chunks = Vec::new();
+    let mut count = 0usize;
+    while let Some(batch) = input.next(query.batch_size())? {
+        count = count
+            .checked_add(batch.len())
+            .ok_or_else(|| Error::Resource("result row count overflow".into()))?;
+        query.check_rows(count)?;
+        chunks
+            .try_reserve(1)
+            .map_err(|_| Error::Resource("cannot retain materialized batches".into()))?;
+        chunks.push(batch);
+    }
+    Ok(DataSet {
+        schema: schema.clone(),
+        rows: Vec::new(),
+        chunks: Some(chunks),
+    })
+}
+
 struct CallbackStream<F>(Option<F>);
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 impl<F: FnMut(usize) -> Result<Option<DataChunk>>> BatchStream for CallbackStream<F> {

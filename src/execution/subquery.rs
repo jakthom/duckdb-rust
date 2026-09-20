@@ -208,10 +208,16 @@ impl SubqueryExecutor for MaterializingSubqueries {
         context: &ExecutionContext<'_>,
     ) -> Result<Value> {
         let mut reduction = Reduction::new(request, plan.schema().len())?;
-        let rows = stream::collect(plan, context)?.rows;
-        for row in rows {
-            if let Some(result) = reduction.push(&row, context.query)? {
-                return Ok(result);
+        let materialized = stream::collect_chunks(plan, context)?;
+        for chunk in materialized
+            .chunks
+            .as_ref()
+            .expect("chunk-preserving subquery collection")
+        {
+            for row in chunk.rows() {
+                if let Some(result) = reduction.push(&row, context.query)? {
+                    return Ok(result);
+                }
             }
         }
         context.query.check()?;

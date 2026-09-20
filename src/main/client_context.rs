@@ -58,18 +58,22 @@ impl crate::execution::physical_plan::PhysicalOperator for InsertDefaults {
     ) -> Result<crate::execution::stream::Stream<'a>> {
         let mut input = crate::execution::stream::open(self.input.as_ref(), context)?;
         let mut ready = Vec::new();
+        let mut ready_charge = None;
+        let mut ready_pool = None;
         let mut ready_offset = 0;
         let mut source_done = false;
         let mut source_rows = 0usize;
         Ok(crate::execution::stream::from_fn(move |max_rows| {
             if ready_offset == ready.len() {
                 ready.clear();
+                drop(ready_charge.take());
+                drop(ready_pool.take());
                 ready_offset = 0;
                 // Defaults are a projection above the INSERT source in
                 // DuckDB: evaluate each omitted column over exactly the batch
                 // returned by one standard-vector demand. A short natural
                 // child batch remains a boundary.
-                let mut source_vector = Vec::new();
+                let mut source_vector = RowCollection::new(self.input.schema().len());
                 if !source_done {
                     let remaining_limit = context
                         .query
@@ -82,7 +86,7 @@ impl crate::execution::physical_plan::PhysicalOperator for InsertDefaults {
                             .checked_add(batch.len())
                             .ok_or_else(|| Error::Resource("result row count overflow".into()))?;
                         context.query.check_rows(source_rows)?;
-                        source_vector.extend(batch.rows());
+                        source_vector.append_with_context(&batch, context.query)?;
                     } else {
                         source_done = true;
                     }
@@ -91,13 +95,41 @@ impl crate::execution::physical_plan::PhysicalOperator for InsertDefaults {
                     return Ok(None);
                 }
 
-                ready.reserve(source_vector.len());
-                for source in source_vector {
+                ready_pool = source_vector.memory_pool().cloned();
+                if let Some(pool) = &ready_pool {
+                    let mut bytes = source_vector
+                        .len()
+                        .checked_mul(std::mem::size_of::<crate::common::Row>())
+                        .ok_or_else(|| Error::Resource("INSERT row size overflow".into()))?;
+                    for source in &source_vector {
+                        for ordinal in &self.source_ordinals {
+                            let value_bytes =
+                                ordinal.map_or(Ok(std::mem::size_of::<Value>()), |ordinal| {
+                                    crate::common::vector::materialized_value_bytes(
+                                        &source[ordinal],
+                                    )
+                                })?;
+                            bytes = bytes.checked_add(value_bytes).ok_or_else(|| {
+                                Error::Resource("INSERT row size overflow".into())
+                            })?;
+                        }
+                    }
+                    ready_charge = Some(pool.reserve(bytes, context.query)?);
+                }
+                ready
+                    .try_reserve(source_vector.len())
+                    .map_err(|_| Error::Resource("cannot allocate INSERT rows".into()))?;
+                for source in &source_vector {
                     context.query.check()?;
-                    let mut row = vec![Value::Null; self.columns.len()];
+                    let mut row = Vec::new();
+                    row.try_reserve_exact(self.columns.len())
+                        .map_err(|_| Error::Resource("cannot allocate INSERT row".into()))?;
+                    row.resize(self.columns.len(), Value::Null);
                     for (target, source_ordinal) in self.source_ordinals.iter().enumerate() {
                         if let Some(source_ordinal) = source_ordinal {
-                            row[target] = source[*source_ordinal].clone();
+                            row[target] = crate::common::vector::try_clone_materialized_value(
+                                &source[*source_ordinal],
+                            )?;
                         }
                     }
                     ready.push(row);
@@ -125,7 +157,24 @@ impl crate::execution::physical_plan::PhysicalOperator for InsertDefaults {
             }
 
             let end = ready.len().min(ready_offset.saturating_add(max_rows));
-            let chunk = crate::execution::stream::chunk(&self.schema, &ready[ready_offset..end])?;
+            let chunk = if let Some(pool) = &ready_pool {
+                let types = self
+                    .schema
+                    .iter()
+                    .map(|field| field.data_type.clone())
+                    .collect::<Vec<_>>();
+                Some(DataChunk::copy_rows_with_reservation(
+                    &types,
+                    &ready[ready_offset..end],
+                    pool,
+                    context.query,
+                )?)
+            } else {
+                crate::execution::stream::chunk(&self.schema, &ready[ready_offset..end])?
+            };
+            // The captured guard owns ready's independently copied payloads
+            // across demands, including while the output copy is admitted.
+            let _ = &ready_charge;
             ready_offset = end;
             Ok(chunk)
         }))
@@ -387,11 +436,11 @@ impl Services {
                 }
                 let has_source = source.is_some();
                 enum SourceData {
-                    Rows(Vec<crate::common::Row>),
+                    Rows(RowCollection),
                     Chunks(Vec<DataChunk>),
                 }
                 let source = match source {
-                    None => SourceData::Rows(Vec::new()),
+                    None => SourceData::Rows(RowCollection::new(definition.columns.len())),
                     Some(plan)
                         if !query.settings().verification_enabled(query)?
                             && query.settings().profiling_format(query)?.is_none() =>
@@ -403,9 +452,7 @@ impl Services {
                         })?;
                         SourceData::Chunks(chunks)
                     }
-                    Some(plan) => {
-                        SourceData::Rows(self.query(plan, transaction, query)?.rows.into_rows())
-                    }
+                    Some(plan) => SourceData::Rows(self.query(plan, transaction, query)?.rows),
                 };
                 let name = definition.name.clone();
                 transaction
@@ -413,12 +460,20 @@ impl Services {
                     .create_table(definition, if_not_exists)?;
                 let count = match source {
                     SourceData::Rows(rows) if rows.is_empty() => 0,
-                    SourceData::Rows(rows) => {
-                        transaction.storage_mut()?.insert(&name, rows, query)?
+                    SourceData::Rows(rows) => rows.with_owned_rows(query, |rows| {
+                        transaction.storage_mut()?.insert(&name, rows, query)
+                    })?,
+                    SourceData::Chunks(chunks) => {
+                        let retained = chunks
+                            .iter()
+                            .map(DataChunk::reservation_guard)
+                            .collect::<Vec<_>>();
+                        let result = transaction
+                            .storage_mut()?
+                            .insert_chunks(&name, chunks, query);
+                        drop(retained);
+                        result?
                     }
-                    SourceData::Chunks(chunks) => transaction
-                        .storage_mut()?
-                        .insert_chunks(&name, chunks, query)?,
                 };
                 if has_source {
                     QueryResult::create_table_count(count)
@@ -502,11 +557,10 @@ impl Services {
                     &self.execution_context(transaction, query, &subquery_plans),
                     &mut sink,
                 )?;
-                Ok(QueryResult::command(transaction.storage_mut()?.insert(
-                    table.name(),
-                    sink.rows.into_rows(),
-                    query,
-                )?))
+                let count = sink.rows.with_owned_rows(query, |rows| {
+                    transaction.storage_mut()?.insert(table.name(), rows, query)
+                })?;
+                Ok(QueryResult::command(count))
             }
             BoundStatement::Update {
                 table,

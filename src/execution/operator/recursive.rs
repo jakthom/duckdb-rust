@@ -100,16 +100,20 @@ impl RecursiveAlgorithm for MaterializingRecursion {
     ) -> Result<Stream<'a>> {
         context.query.check()?;
         validate(plan)?;
-        Ok(stream::deferred(plan.schema, context, move || {
-            let mut cursor = open(plan, context)?;
-            let mut rows = Vec::new();
-            while let Some(chunk) = cursor.next(context.query.batch_size())? {
-                context
-                    .query
-                    .check_rows(rows.len().saturating_add(chunk.len()))?;
-                rows.extend(chunk.rows());
+        let mut materialized = None;
+        let mut position = 0;
+        Ok(stream::from_fn(move |max_rows| {
+            if materialized.is_none() {
+                materialized = Some(stream::collect_stream_chunks(
+                    plan.schema,
+                    open(plan, context)?,
+                    context.query,
+                )?);
             }
-            Ok(rows)
+            materialized
+                .as_ref()
+                .expect("materialized recursive output")
+                .next_batch(&mut position, max_rows)
         }))
     }
 }

@@ -2,6 +2,43 @@ use std::{ops::Range, sync::Arc};
 
 use super::{DataType, Error, Result, Row, Value};
 
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn materialized_value_bytes(value: &Value) -> Result<usize> {
+    std::mem::size_of::<Value>()
+        .checked_add(match value {
+            Value::Varchar(value) => value.len(),
+            Value::Blob(value) => value.len(),
+            _ => 0,
+        })
+        .ok_or_else(|| Error::Resource("materialized value size overflow".into()))
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn try_materialized_string(value: &str) -> Result<String> {
+    let mut output = String::new();
+    output
+        .try_reserve_exact(value.len())
+        .map_err(|_| Error::Resource("cannot allocate materialized string".into()))?;
+    output.push_str(value);
+    Ok(output)
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+pub(crate) fn try_clone_materialized_value(value: &Value) -> Result<Value> {
+    Ok(match value {
+        Value::Varchar(value) => Value::Varchar(try_materialized_string(value)?),
+        Value::Blob(value) => {
+            let mut output = Vec::new();
+            output
+                .try_reserve_exact(value.len())
+                .map_err(|_| Error::Resource("cannot allocate materialized blob".into()))?;
+            output.extend_from_slice(value);
+            Value::Blob(output)
+        }
+        value => value.clone(),
+    })
+}
+
 #[derive(Clone, Debug)]
 enum Encoding {
     /// Typed all-valid flats are authoritative physical storage. Generic,
@@ -1022,6 +1059,60 @@ impl Vector {
                     .get(segment)
                     .and_then(|chunk| chunk.value(index - offsets[segment]))
             }
+        }
+    }
+    /// Bytes independently owned by materializing this logical column. Arc
+    /// payloads remain shared; VARCHAR and BLOB allocate independent bytes.
+    pub(crate) fn materialized_bytes(&self) -> Result<usize> {
+        (0..self.len()).try_fold(0usize, |bytes, index| {
+            bytes
+                .checked_add(self.materialized_value_bytes(index)?)
+                .ok_or_else(|| Error::Resource("materialized column size overflow".into()))
+        })
+    }
+
+    fn materialized_value_bytes(&self, index: usize) -> Result<usize> {
+        let physical = self.offset + index;
+        match &self.encoding {
+            Encoding::FlatValues(values) => materialized_value_bytes(&values[physical]),
+            Encoding::Constant(value) => materialized_value_bytes(value),
+            Encoding::FlatUtf8(_, ranges) => std::mem::size_of::<Value>()
+                .checked_add(ranges[physical].as_ref().map_or(0, |range| range.len()))
+                .ok_or_else(|| Error::Resource("materialized string size overflow".into())),
+            Encoding::Dictionary(parent, selection) => {
+                parent.materialized_value_bytes(selection[physical])
+            }
+            Encoding::Chunks(chunks, offsets) => {
+                let segment = offsets
+                    .partition_point(|&end| end <= physical)
+                    .saturating_sub(1);
+                chunks[segment].materialized_value_bytes(physical - offsets[segment])
+            }
+            _ => Ok(std::mem::size_of::<Value>()),
+        }
+    }
+
+    pub(crate) fn try_materialized_value(&self, index: usize) -> Result<Value> {
+        let physical = self.offset + index;
+        match &self.encoding {
+            Encoding::FlatValues(values) => try_clone_materialized_value(&values[physical]),
+            Encoding::Constant(value) => try_clone_materialized_value(value),
+            Encoding::FlatUtf8(arena, ranges) => match &ranges[physical] {
+                Some(range) => try_materialized_string(&arena[range.clone()]).map(Value::Varchar),
+                None => Ok(Value::Null),
+            },
+            Encoding::Dictionary(parent, selection) => {
+                parent.try_materialized_value(selection[physical])
+            }
+            Encoding::Chunks(chunks, offsets) => {
+                let segment = offsets
+                    .partition_point(|&end| end <= physical)
+                    .saturating_sub(1);
+                chunks[segment].try_materialized_value(physical - offsets[segment])
+            }
+            _ => self
+                .value(index)
+                .ok_or_else(|| Error::Internal("invalid materialized row index".into())),
         }
     }
     /// Borrow a VARCHAR through any validated physical encoding. Outer None
@@ -2287,6 +2378,32 @@ impl DataChunk {
         self.reservation = Some(reservation);
         self
     }
+    pub(crate) fn reservation_guard(&self) -> crate::parallel::Reservation {
+        crate::parallel::Reservation::merge(
+            self.reservation
+                .iter()
+                .cloned()
+                .chain(
+                    self.columns
+                        .iter()
+                        .filter_map(|column| column.reservation.clone()),
+                )
+                .collect(),
+        )
+    }
+    pub(crate) fn reservation_pool(&self) -> Option<&Arc<crate::parallel::MemoryPool>> {
+        self.reservation
+            .as_ref()
+            .and_then(crate::parallel::Reservation::memory_pool)
+            .or_else(|| {
+                self.columns.iter().find_map(|column| {
+                    column
+                        .reservation
+                        .as_ref()
+                        .and_then(crate::parallel::Reservation::memory_pool)
+                })
+            })
+    }
     pub fn from_rows(types: &[DataType], rows: &[Row]) -> Result<Self> {
         if rows.iter().any(|r| r.len() != types.len()) {
             return Err(Error::Internal("row width differs from schema".into()));
@@ -2297,6 +2414,48 @@ impl DataChunk {
             .map(|(i, t)| Vector::flat(t.clone(), rows.iter().map(|r| r[i].clone()).collect()))
             .collect::<Result<_>>()?;
         Self::new(columns, rows.len())
+    }
+    /// Copy participating materialized rows while retaining both source and
+    /// destination charges during the transpose. Generated scalar expressions
+    /// and enduring source storage remain outside this execution-copy domain.
+    pub(crate) fn copy_rows_with_reservation(
+        types: &[DataType],
+        rows: &[Row],
+        pool: &Arc<crate::parallel::MemoryPool>,
+        query: &crate::parallel::QueryContext,
+    ) -> Result<Self> {
+        let overflow = || Error::Resource("materialized chunk size overflow".into());
+        let bytes = rows.iter().flatten().try_fold(0usize, |bytes, value| {
+            bytes
+                .checked_add(materialized_value_bytes(value)?)
+                .ok_or_else(overflow)
+        })?;
+        let reservation = pool.reserve(bytes, query)?;
+        let slots = rows
+            .len()
+            .checked_mul(types.len())
+            .and_then(|count| count.checked_mul(std::mem::size_of::<Value>()))
+            .ok_or_else(overflow)?;
+        let row_slots = rows
+            .len()
+            .checked_mul(std::mem::size_of::<Row>())
+            .ok_or_else(overflow)?;
+        let _temporary = pool.reserve(slots.checked_add(row_slots).ok_or_else(overflow)?, query)?;
+        let mut copied = Vec::new();
+        copied
+            .try_reserve_exact(rows.len())
+            .map_err(|_| Error::Resource("cannot allocate materialized chunk rows".into()))?;
+        for row in rows {
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(row.len())
+                .map_err(|_| Error::Resource("cannot allocate materialized chunk values".into()))?;
+            for value in row {
+                values.push(try_clone_materialized_value(value)?);
+            }
+            copied.push(values);
+        }
+        Ok(Self::from_owned_rows(types, copied)?.with_reservation(reservation))
     }
     /// Transpose rows whose ownership ends at this boundary without cloning
     /// heap-owning scalar payloads. Width is checked before any row is moved;

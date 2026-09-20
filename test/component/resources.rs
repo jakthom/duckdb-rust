@@ -1,8 +1,163 @@
 use duckdb_rust::{
     DatabaseBuilder, Error, Result, Value,
+    execution::MaterializingExecutor,
     parallel::{InterruptHandle, MemoryPool, QueryContext},
 };
 use std::sync::Arc;
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn materialized_sorted_result_and_clone_keep_quota_after_connection_drop() -> Result<()> {
+    let database = DatabaseBuilder::new().build()?;
+    let mut connection = database.connect();
+    connection.execute("CREATE TABLE materialized_quota(v VARCHAR)")?;
+    connection.execute("INSERT INTO materialized_quota VALUES ('z'), ('a'), ('m')")?;
+    connection.execute("SET memory_limit='1 MB'")?;
+    let result = connection.query("SELECT v FROM materialized_quota ORDER BY v")?;
+    let retained = result.clone();
+    assert_eq!(
+        result.rows,
+        vec![
+            vec![Value::Varchar("a".into())],
+            vec![Value::Varchar("m".into())],
+            vec![Value::Varchar("z".into())]
+        ]
+    );
+    drop(connection);
+    let mut observer = database.connect();
+    assert!(matches!(
+        observer.execute("SET memory_limit='1B'"),
+        Err(Error::Resource(_))
+    ));
+    drop(result);
+    assert!(matches!(
+        observer.execute("SET memory_limit='1B'"),
+        Err(Error::Resource(_))
+    ));
+    assert_eq!(retained.rows[2], [Value::Varchar("z".into())]);
+    drop(retained);
+    observer.execute("SET memory_limit='1B'")?;
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn materializing_executor_retains_sorted_result_and_clone_quota_after_connection_drop() -> Result<()>
+{
+    let database = DatabaseBuilder::new()
+        .executor(Arc::new(MaterializingExecutor))
+        .build()?;
+    let mut connection = database.connect();
+    connection.execute("CREATE TABLE eager_materialized_quota(v VARCHAR)")?;
+    connection.execute("INSERT INTO eager_materialized_quota VALUES ('z'), ('a'), ('m')")?;
+    connection.execute("SET memory_limit='1 MB'")?;
+    let result = connection.query("SELECT v FROM eager_materialized_quota ORDER BY v")?;
+    let retained = result.clone();
+    drop(connection);
+    let mut observer = database.connect();
+    assert!(matches!(
+        observer.execute("SET memory_limit='1B'"),
+        Err(Error::Resource(_))
+    ));
+    drop(result);
+    assert!(matches!(
+        observer.execute("SET memory_limit='1B'"),
+        Err(Error::Resource(_))
+    ));
+    assert_eq!(
+        retained.rows,
+        vec![
+            vec![Value::Varchar("a".into())],
+            vec![Value::Varchar("m".into())],
+            vec![Value::Varchar("z".into())]
+        ]
+    );
+    drop(retained);
+    observer.execute("SET memory_limit='1B'")?;
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn sorted_insert_and_materialized_ctas_transfer_to_storage_without_quota_leaks() -> Result<()> {
+    let database = DatabaseBuilder::new().build()?;
+    let mut connection = database.connect();
+    connection.execute("CREATE TABLE source_quota(v VARCHAR)")?;
+    connection.execute("INSERT INTO source_quota VALUES ('z'), ('a'), ('m')")?;
+    connection.execute("CREATE TABLE inserted_quota(v VARCHAR, n INTEGER DEFAULT 42)")?;
+    connection.execute("SET memory_limit='1 MB'")?;
+    connection.execute("INSERT INTO inserted_quota(v) SELECT v FROM source_quota ORDER BY v")?;
+    // Row storage takes over at insertion return. Its enduring payload domain
+    // is outside this execution-copy accounting scope.
+    connection.execute("SET memory_limit='1B'")?;
+    assert_eq!(
+        connection.query("SELECT v, n FROM inserted_quota")?.rows,
+        vec![
+            vec![Value::Varchar("a".into()), Value::Integer(42)],
+            vec![Value::Varchar("m".into()), Value::Integer(42)],
+            vec![Value::Varchar("z".into()), Value::Integer(42)]
+        ]
+    );
+    connection.execute("SET memory_limit='1 MB'")?;
+    connection.execute("SET enable_verification=true")?;
+    connection.execute("CREATE TABLE copied_quota AS SELECT v FROM source_quota ORDER BY v")?;
+    connection.execute("SET enable_verification=false")?;
+    connection.execute("SET memory_limit='1B'")?;
+    assert_eq!(
+        connection.query("SELECT v FROM copied_quota")?.rows,
+        vec![
+            vec![Value::Varchar("a".into())],
+            vec![Value::Varchar("m".into())],
+            vec![Value::Varchar("z".into())]
+        ]
+    );
+    Ok(())
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+#[test]
+fn materializing_insert_and_ctas_transfer_charge_through_storage_handoff() -> Result<()> {
+    let database = DatabaseBuilder::new()
+        .executor(Arc::new(MaterializingExecutor))
+        .build()?;
+    let mut connection = database.connect();
+    connection.execute("CREATE TABLE eager_source_quota(v VARCHAR)")?;
+    connection.execute("INSERT INTO eager_source_quota VALUES ('z'), ('a'), ('m')")?;
+    connection.execute("CREATE TABLE eager_inserted_quota(v VARCHAR, n INTEGER DEFAULT 42)")?;
+    connection.execute("SET memory_limit='1 MB'")?;
+    connection.execute(
+        "INSERT INTO eager_inserted_quota(v) \
+         SELECT v FROM eager_source_quota ORDER BY v",
+    )?;
+    connection.execute("SET memory_limit='1B'")?;
+    assert_eq!(
+        connection
+            .query("SELECT v, n FROM eager_inserted_quota")?
+            .rows,
+        vec![
+            vec![Value::Varchar("a".into()), Value::Integer(42)],
+            vec![Value::Varchar("m".into()), Value::Integer(42)],
+            vec![Value::Varchar("z".into()), Value::Integer(42)]
+        ]
+    );
+    connection.execute("SET memory_limit='1 MB'")?;
+    connection.execute("SET enable_verification=true")?;
+    connection.execute(
+        "CREATE TABLE eager_copied_quota AS \
+         SELECT v FROM eager_source_quota ORDER BY v",
+    )?;
+    connection.execute("SET enable_verification=false")?;
+    connection.execute("SET memory_limit='1B'")?;
+    assert_eq!(
+        connection.query("SELECT v FROM eager_copied_quota")?.rows,
+        vec![
+            vec![Value::Varchar("a".into())],
+            vec![Value::Varchar("m".into())],
+            vec![Value::Varchar("z".into())]
+        ]
+    );
+    Ok(())
+}
 
 #[cfg_attr(feature = "dev", duckdb_dev::instrument)]
 #[test]

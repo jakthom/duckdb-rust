@@ -232,20 +232,25 @@ impl Executor for MaterializingExecutor {
         context: &ExecutionContext<'_>,
         sink: &mut dyn ResultSink,
     ) -> Result<ExecutionOutcome> {
-        let output = stream::collect(plan, context)?;
+        // Complete evaluation before the first delivery, while retaining the
+        // producer's immutable batches and reservation tokens. Rebuilding the
+        // output through plain rows would erase charged-result provenance.
+        let output = stream::collect_chunks(plan, context)?;
         let mut outcome = ExecutionOutcome {
             rows_delivered: 0,
             stopped_early: false,
         };
-        for rows in output.rows.chunks(
-            context
-                .query
-                .batch_size()
-                .min(context.query.max_intermediate_rows()),
-        ) {
+        let demand = context
+            .query
+            .batch_size()
+            .min(context.query.max_intermediate_rows());
+        let mut position = 0;
+        while let Some(batch) = output.next_batch(&mut position, demand)? {
             context.query.check()?;
-            let batch = stream::chunk(&output.schema, rows)?.expect("nonempty result batch");
-            outcome.rows_delivered += batch.len();
+            outcome.rows_delivered = outcome
+                .rows_delivered
+                .checked_add(batch.len())
+                .ok_or_else(|| crate::Error::Resource("result row count overflow".into()))?;
             if sink.consume(batch)? == StreamControl::Stop {
                 outcome.stopped_early = true;
                 break;
@@ -265,7 +270,7 @@ impl ResultSink for CollectingSink<'_> {
     fn consume(&mut self, chunk: DataChunk) -> Result<StreamControl> {
         self.query
             .check_rows(self.rows.len().saturating_add(chunk.len()))?;
-        self.rows.append(&chunk)?;
+        self.rows.append_with_context(&chunk, self.query)?;
         Ok(StreamControl::Continue)
     }
 }
