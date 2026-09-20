@@ -1227,6 +1227,14 @@ No new batch label waives an outstanding acceptance obligation.
 
 **Batch 5 — native buffers, selective scans and reusable SQL expressions.**
 
+- B2 reference preflight: `target/batch5/b2-oracle/{run1,run2}/` covers ten
+  histories per exact pin. Named/reordered required and default arguments work;
+  missing macro references and free columns fail at CREATE. Nested calls rebind
+  current named definitions. Legal replacement can create direct or indirect
+  recursion, which fails at invocation with the depth limit and leaves the
+  connection usable. The draft forward-reference recursion test needs correction.
+  These are reference outcomes, not Rust, codec or performance acceptance.
+
 - E2: add buffer pin/unpin, eviction, dirty-state lifetime and I/O attribution
   through native block scans. Own a dedicated storage-buffer module and tests;
   lead integrates native readers, E1 reservations and H1.1 I/O. Cover pinned
