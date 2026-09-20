@@ -112,7 +112,12 @@ impl Parser for DuckDbParser {
                 Statement::Sql(Box::new(
                     parser
                         .parse_statement()
-                        .map_err(|e| Error::Parse(e.to_string()))?,
+                        .map_err(|error| match error {
+                            sqlparser::parser::ParserError::ParserError(message) => {
+                                Error::Parse(message)
+                            }
+                            other => Error::Parse(other.to_string()),
+                        })?,
                 ))
             };
             statements.push(statement);

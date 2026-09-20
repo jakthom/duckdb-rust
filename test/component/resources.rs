@@ -326,7 +326,7 @@ fn memory_pragmas_share_global_settings_and_preserve_failed_publications() -> Re
     }
     assert!(
         matches!(first.execute("PRAGMA memory_limit()"), Err(Error::Parse(message))
-        if message.contains("syntax error at or near \")\""))
+        if message == "syntax error at or near \")\"")
     );
     Ok(())
 }
