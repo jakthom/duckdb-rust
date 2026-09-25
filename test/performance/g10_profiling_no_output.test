@@ -1,0 +1,13 @@
+# G10.4a profiling-control workload. The no_output renderer exercises the
+# operational query hook without terminal or filesystem output.
+
+statement ok
+CREATE TABLE profile_input AS SELECT i FROM range(50000) t(i)
+
+statement ok
+PRAGMA enable_profiling='no_output'
+
+query I
+SELECT sum(i) FROM profile_input
+----
+1249975000

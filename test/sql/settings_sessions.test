@@ -1,0 +1,106 @@
+# All named connections share one database but own SESSION overrides.
+
+query T a
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+query T b
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+statement ok a
+SET default_null_order=first
+
+query T b
+SELECT current_setting('default_null_order')
+----
+NULLS_FIRST
+
+statement ok b
+SET SESSION default_null_order=last
+
+query T a
+SELECT current_setting('default_null_order')
+----
+NULLS_FIRST
+
+query T b
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+statement ok a
+BEGIN; SET GLOBAL default_null_order=last; ROLLBACK
+
+query T a
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+query T c
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+statement ok c
+SET GLOBAL default_null_order=first
+
+query T b
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+statement ok b
+RESET SESSION default_null_order
+
+query T b
+SELECT current_setting('default_null_order')
+----
+NULLS_FIRST
+
+statement ok b
+BEGIN; SET SESSION default_null_order=first; ROLLBACK
+
+statement ok a
+RESET GLOBAL default_null_order
+
+query T b
+SELECT current_setting('default_null_order')
+----
+NULLS_FIRST
+
+query T d
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+statement ok b
+SET SESSION default_null_order=DEFAULT
+
+query T b
+SELECT current_setting('default_null_order')
+----
+NULLS_LAST
+
+statement ok a
+CREATE TABLE t(i INTEGER); BEGIN; INSERT INTO t VALUES (1)
+
+statement error a
+SET default_null_order='invalid'
+----
+Unrecognized parameter for option NULL_ORDER
+
+query I a
+SELECT count(*) FROM t
+----
+1
+
+statement ok a
+COMMIT
+
+query I b
+SELECT i FROM t
+----
+1

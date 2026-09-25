@@ -1,0 +1,127 @@
+# ORDER BY ALL binds projected columns after expansion and shares order settings.
+
+statement ok
+SET GLOBAL default_order='asc'; SET GLOBAL default_null_order=last
+
+statement ok
+CREATE TABLE ordered_values(a INTEGER, b INTEGER); INSERT INTO ordered_values VALUES (2,1),(1,2),(1,1),(NULL,2),(2,NULL),(NULL,NULL),(1,1)
+
+query II
+SELECT * FROM ordered_values ORDER BY ALL
+----
+1	1
+1	1
+1	2
+2	1
+2	NULL
+NULL	2
+NULL	NULL
+
+query II
+SELECT * FROM ordered_values ORDER BY ALL DESC NULLS FIRST
+----
+NULL	NULL
+NULL	2
+2	NULL
+2	1
+1	2
+1	1
+1	1
+
+query II
+SELECT b,a FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL
+----
+1	1
+1	1
+1	2
+2	1
+
+query II
+SELECT DISTINCT * FROM ordered_values ORDER BY ALL
+----
+1	1
+1	2
+2	1
+2	NULL
+NULL	2
+NULL	NULL
+
+query II
+SELECT a AS same,b AS same FROM ordered_values WHERE a IS NOT NULL AND b IS NOT NULL ORDER BY ALL
+----
+1	1
+1	1
+1	2
+2	1
+
+query II
+SELECT x.* FROM ordered_values x WHERE a=1 ORDER BY ALL DESC
+----
+1	2
+1	1
+1	1
+
+query II
+SELECT 2,1 UNION ALL SELECT 1,2 UNION ALL SELECT 1,1 ORDER BY ALL
+----
+1	1
+1	2
+2	1
+
+query II
+VALUES (2,1),(1,2),(1,1) ORDER BY ALL DESC
+----
+2	1
+1	2
+1	1
+
+query II
+SELECT * FROM ordered_values ORDER BY ALL LIMIT 2 OFFSET 2
+----
+1	2
+2	1
+
+statement ok
+SET SESSION default_order='desc'
+
+query II
+SELECT i,-i FROM range(3) t(i) ORDER BY ALL
+----
+2	-2
+1	-1
+0	0
+
+statement ok
+SET SESSION default_null_order='nulls_first_on_asc_last_on_desc'
+
+query I
+SELECT DISTINCT a FROM ordered_values ORDER BY ALL
+----
+2
+1
+NULL
+
+query I
+SELECT DISTINCT a FROM ordered_values ORDER BY ALL ASC
+----
+NULL
+1
+2
+
+statement ok
+RESET SESSION default_order
+
+query III
+SELECT a,count(*),grouping(a) FROM ordered_values GROUP BY ROLLUP(a) ORDER BY ALL
+----
+NULL	2	0
+NULL	7	1
+1	3	0
+2	2	0
+
+query I
+SELECT 1 WHERE false ORDER BY ALL
+----
+
+statement ok
+RESET GLOBAL default_order; RESET GLOBAL default_null_order

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "scope": "Frozen A4 baseline/current reports. Generator identity must be recorded before use; inputs are never generated in a timed sample.",
+  "workloads": [
+    {"name": "small", "fixture": "target/batch3/a4-fixtures/small", "cases_per_pin_configuration": 2, "required_categories": ["fresh_failure", "lost_pass_omitted", "stale"]},
+    {"name": "large", "fixture": "target/batch3/a4-fixtures/large", "cases_per_pin_configuration": 10001, "required_categories": ["fresh_failure", "lost_pass_omitted", "stale"]}
+  ]
+}

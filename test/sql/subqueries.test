@@ -1,0 +1,187 @@
+statement ok
+CREATE TABLE t(i INTEGER, s VARCHAR); INSERT INTO t VALUES(1,'one'),(2,'two'),(2,'duplicate'),(NULL,'null'); CREATE TABLE u(i INTEGER); INSERT INTO u VALUES(2),(3),(NULL);
+
+query III
+SELECT (SELECT 7), (SELECT i FROM t WHERE false), (SELECT (SELECT 9))
+----
+7	NULL	9
+
+query IIII
+SELECT NULL IN(SELECT i FROM t WHERE false), NULL NOT IN(SELECT i FROM t WHERE false), EXISTS(SELECT i FROM t WHERE false), NOT EXISTS(SELECT i FROM t WHERE false)
+----
+0	1	0	1
+
+query IIIII rowsort
+SELECT i, i IN(SELECT i FROM u), i NOT IN(SELECT i FROM u), EXISTS(SELECT * FROM u WHERE u.i=t.i), NOT EXISTS(SELECT * FROM u WHERE u.i=t.i) FROM t
+----
+1	NULL	NULL	0	1
+2	1	0	1	0
+2	1	0	1	0
+NULL	NULL	NULL	0	1
+
+query III rowsort
+SELECT i,(SELECT count(*) FROM t b WHERE b.i=a.i),(SELECT max(b.i) FROM t b WHERE b.i<a.i) FROM t a
+----
+1	1	NULL
+2	2	1
+2	2	1
+NULL	0	NULL
+
+query II rowsort
+SELECT i,(SELECT (SELECT a.i)) FROM t a
+----
+1	1
+2	2
+2	2
+NULL	NULL
+
+query II rowsort
+SELECT i,(WITH c AS(SELECT a.i x) SELECT (SELECT max(x) FROM c)) FROM t a
+----
+1	1
+2	2
+2	2
+NULL	NULL
+
+query II rowsort
+SELECT i,(SELECT max(i) FROM (SELECT 42 i) t) FROM t
+----
+1	42
+2	42
+2	42
+NULL	42
+
+query III rowsort
+SELECT i,(SELECT t.i),count(*) FROM t GROUP BY i HAVING (SELECT count(*) FROM u WHERE u.i=t.i)>0
+----
+2	2	2
+
+query III
+SELECT EXISTS(SELECT CAST('bad' AS INTEGER)), EXISTS(SELECT sum(CAST('bad' AS INTEGER)) FROM t), EXISTS(SELECT count(*) FROM t WHERE false)
+----
+1	1	1
+
+query IIII
+SELECT EXISTS(SELECT DISTINCT i FROM t OFFSET 2), EXISTS(SELECT DISTINCT i FROM t OFFSET 3), EXISTS(SELECT 1 FROM t LIMIT 0), EXISTS(SELECT 1 FROM t OFFSET 4)
+----
+1	0	0	0
+
+query I
+SELECT CASE WHEN false THEN (SELECT i FROM t) ELSE 7 END
+----
+7
+
+statement error
+SELECT coalesce(5,(SELECT i FROM t))
+----
+scalar subquery returned more than one row
+
+query I
+SELECT (SELECT i FROM t ORDER BY i DESC LIMIT 1 OFFSET 1)
+----
+2
+
+query I
+SELECT (SELECT 1 UNION ALL SELECT 2 ORDER BY 1 LIMIT 1)
+----
+1
+
+query II
+SELECT 2 IN(SELECT 1 UNION SELECT 2), 3 NOT IN(SELECT 1 UNION ALL SELECT 2)
+----
+1	1
+
+query II rowsort
+SELECT a.i ai,b.i bi FROM t a LEFT JOIN u b ON b.i=(SELECT max(c.i) FROM t c WHERE c.i=a.i)
+----
+1	NULL
+2	2
+2	2
+NULL	NULL
+
+query II rowsort
+SELECT i,(SELECT 3) FROM t ORDER BY (SELECT t.i) DESC
+----
+1	3
+2	3
+2	3
+NULL	3
+
+query I
+SELECT sum((SELECT t.i)) FROM t
+----
+5
+
+query IT rowsort
+WITH C AS(SELECT 8 i,'cte' s) SELECT i,s FROM t WHERE i=(SELECT min(i) FROM t) UNION ALL SELECT * FROM C
+----
+1	one
+8	cte
+
+statement error
+SELECT (SELECT i FROM t)
+----
+scalar subquery returned more than one row
+
+statement error
+SELECT TRY_CAST((SELECT i FROM t) AS INTEGER)
+----
+scalar subquery returned more than one row
+
+statement error
+SELECT (SELECT i,s FROM t)
+
+statement error
+SELECT 1 IN(SELECT i,s FROM t)
+
+statement error
+SELECT (SELECT i),count(*) FROM t
+
+statement error
+SELECT (SELECT i FROM u a,u b)
+
+statement error
+SELECT (SELECT missing FROM t)
+
+statement error
+SELECT EXISTS(SELECT count(*) FROM t WHERE CAST('bad' AS INTEGER)=i)
+
+statement ok
+CREATE TABLE target(i INTEGER PRIMARY KEY, v INTEGER); INSERT INTO target VALUES(1,10),(2,20),(3,30); UPDATE target SET v=(SELECT max(v) FROM target b)+i WHERE EXISTS(SELECT 1 FROM t WHERE t.i=target.i)
+
+query II rowsort
+SELECT * FROM target
+----
+1	31
+2	32
+3	30
+
+statement ok
+DELETE FROM target WHERE i NOT IN(SELECT i FROM t WHERE i IS NOT NULL); INSERT INTO target SELECT 4,(SELECT sum(v) FROM target)
+
+query II rowsort
+SELECT * FROM target
+----
+1	31
+2	32
+4	63
+
+statement error
+UPDATE target SET v=(SELECT i FROM t)
+
+query II rowsort
+SELECT * FROM target
+----
+1	31
+2	32
+4	63
+
+statement ok
+CREATE TABLE copied AS SELECT i,(SELECT v FROM target b WHERE b.i=a.i) v FROM target a
+
+query II rowsort
+SELECT * FROM copied
+----
+1	31
+2	32
+4	63

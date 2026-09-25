@@ -1,0 +1,360 @@
+# Development feedback
+
+## Project context
+
+Use `docs/parity-backlog.md` for current functionality gaps, goal groups and
+dependencies, and `docs/architecture.md` to locate implementations. Read only
+the assigned goal and relevant `specs/`/source files; do not bulk-load historical
+reports. The specs describe requirements and the pinned C++ source, not a claim
+that the Rust counterpart exists. Update the backlog in place when behavior
+changes; do not create another progress/checkpoint summary document.
+
+## Delivery order — engine first, foreign compatibility last
+
+Accepted user direction, 2026-09-18: defer the C ABI and its dependent foreign
+API/Arrow/ADBC/client integration work to the absolute final phase, after the
+core/engine is complete. Do not dispatch implementation, ABI design/inventory,
+adapter benchmarks or preparatory scaffolding for that phase while engine work
+remains. Do not repeatedly propose it as the next batch. This ordering survives
+plan/status changes; only explicit user reprioritization changes it.
+
+The backlog's core-engine exit gate covers SQL/types/functions, catalog/mutation,
+transactions/native storage/recovery/indexes, optimizer, memory/spill/parallel
+execution, table sources/formats and required engine I/O/security capabilities,
+with applicable correctness and performance acceptance. Safe Rust APIs, native
+engine contracts and engine-required built-in capabilities remain in scope.
+Foreign ABI/client/binary-extension compatibility is a separate final acceptance
+phase, not a circular prerequisite for declaring the core engine complete.
+
+## Frequent remote checkpoints
+
+Accepted user direction, 2026-09-20: snapshot and push task work frequently,
+especially near usage limits. At each cohesive source/check boundary, coordinate
+with the owning worker, commit the task files on their named worktree branch and
+push that branch to `origin`. Preserve unfinished work as explicitly labeled
+checkpoints; a commit or push is not acceptance. Record branch/revision and open
+gates in `docs/parity-backlog.md`. Keep raw validation evidence under `target/`;
+do not add it to Git. Do not rerun unchanged engine checks merely for a checkpoint.
+Use normal pushes without force and resolve any remote divergence before retrying.
+
+## Agent model budget — durable policy
+
+Accepted user direction, 2026-09-19: use lower-cost agents for routine work;
+reserve Astra for consequential design and demonstrated escalation. This section
+is authoritative for model allocation; backlog assignments must follow it.
+
+| Role | Requested model | Reasoning effort | Scope |
+| --- | --- | --- | --- |
+| Mechanical assistant | `gpt-5.6-luna` | `medium` | Case mapping, report packaging and reconciliation after contracts are fixed; owner reviews semantic conclusions. |
+| Bounded implementer/reviewer | `gpt-5.6-terra` | `medium` | Isolated implementations, reference cases, focused fixes and independent leaf review. |
+| Cross-module implementer | `gpt-5.6-sol` | `high` | Ownership, buffer/spill, binder/catalog, codecs and execution integration. |
+| Architecture/escalation owner | `gpt-6-astra` | `high` | Transaction conflict design, consequential publication/state-machine decisions, or documented escalation. Delegate routine follow-through after the contract is fixed. |
+| Independent verifier | `gpt-5.6-terra` | `low` | Exact impact-scoped checks, as configured in `.codex/agents/verifier.toml`. |
+| Measurement runner | `gpt-5.6-terra` | `low` | Execute prescribed campaigns and retain evidence; escalate substantive diagnosis separately. |
+
+### Required dispatch gate
+
+Before spawning **or assigning new work to an existing agent**, the lead must:
+
+1. Classify the task using the table and the backlog chunk assignment. Split
+   mechanical execution from semantic design when useful independent work exists.
+2. Fill `.codex/dispatch-template.md` into
+   `target/agent-dispatches/<unique-assignment-id>.md`. Declare the requested
+   model/effort, bounded brief, owned paths, baseline, acceptance scope and any
+   escalation reason. Do not copy the entire conversation into a worker brief.
+3. For new agents, explicitly supply `model` and `reasoning_effort` in the spawn
+   request, with `fork_turns="none"` or a small positive turn count. Do not use a
+   full-history fork for lower-cost work: it inherits the parent and does not
+   accept overrides. The repository default is only a fallback, not evidence.
+4. Record the returned agent ID and the actual dispatch arguments. For reused
+   agents, link the original explicit dispatch record; follow-up messages do not
+   change their model. If the assignment requires a different model, dispatch a
+   correctly configured replacement when a slot is available. Do not repeatedly
+   attempt spawns when the runtime has no capacity.
+5. Distinguish **requested configuration** from **observed runtime metadata**.
+   Record unavailable observed model/effort and token/cost data as `unknown`.
+   Never infer serving model, measured savings or billing from defaults, agent
+   self-identification, model labels in prose, or elapsed command time.
+
+An existing agent without an auditable explicit dispatch may finish its current
+bounded handoff, but must not receive new lower-cost work represented as compliant.
+Preserve its work and record the legacy assignment as `unknown`; do not fabricate
+past dispatch evidence. Runtime limitations must be reported, not worked around by
+silently moving routine work to Astra. These instructions do not grant permission
+to spawn agents where the user or higher-priority instructions prohibit delegation.
+
+### Escalation and acceptance gates
+
+Start with the chunk's assigned role. Escalate Terra to Sol or Sol to Astra only
+for a concrete unresolved contract or two documented failed correction cycles.
+Record the failing case, attempts, reason, bounded escalated task and destination
+model **before** dispatch. A direct Astra assignment for transaction/conflict
+architecture must still state that reason. Command duration, a large log, or a
+worker saying work is difficult is not an escalation justification. Return
+mechanical follow-up to Terra/Luna after the contract is settled. Never upgrade
+the configured independent verifier silently.
+
+The worker must check its assignment record before work and flag missing/mismatched
+configuration to the lead. Its handoff links that record, names the actual owned
+changes and validation evidence, and reports model/usage metadata only when exposed.
+The lead must review dispatch compliance alongside functional acceptance. Record
+`pass`, `violation`, or `unknown`; unknown legacy usage remains unknown even when
+code passes tests. Fix prospective routing without discarding valid source/test
+evidence or rerunning checks just to obtain a compliant model label.
+
+These are repository instructions and review gates, not a runtime interceptor or
+billing cap. `.codex/config.toml` supplies a default; it cannot force an explicit
+spawn or change a running lead/worker's model. Do not claim hard enforcement unless
+the execution platform independently provides it. Model-policy/configuration edits
+receive artifact checks only, never engine tests or benchmarks.
+
+## Validation scope — durable policy
+
+Accepted user clarification, 2026-09-18: **impact-scoped validation is the default
+both during implementation and at chunk completion. A full-engine sweep must
+not gate an isolated subsystem change.** This section is the source of truth
+for validation scope, independent of the changing backlog, plans and status
+reports. Those documents and agent handoffs must link to and follow this policy;
+updating them cannot reinstate a full-sweep-per-chunk requirement.
+
+- Documentation/planning/status/instruction-only changes receive artifact checks
+  only, never engine validation.
+- Bounded implementation changes receive a partial sweep: relevant formatting,
+  lint/build checks, affected tests and unchanged upstream/interop cases, and
+  affected performance workloads. Include negative/boundary cases and existing
+  consumers of changed behavior. Python-only tooling uses Python checks.
+- Shared-contract changes expand coverage to affected consumers and dependencies,
+  not automatically to the whole engine. Scope follows behavioral impact, not
+  merely changed filenames. Account for transitive consumers and build/features.
+- Full sweeps are reserved for explicit broad integration/release checkpoints
+  or changes whose impact genuinely spans the engine. Before dispatch, record
+  the concrete reason targeted coverage is insufficient. A commit, chunk label,
+  shared file, or uncertainty alone is not justification: investigate the impact
+  first. Missing scope information requires clarification, not a default full run.
+- Recovery, Kani and performance checks follow the same impact boundary.
+  Exhaustive recovery belongs to changes affecting durability/recovery contracts;
+  Kani covers affected maintained proofs/invariants. Unrelated suites do not gate
+  completion. Report omitted suites as not applicable with a scope rationale,
+  never as passed. Full checkpoints include the maintained Kani suite.
+- Reuse evidence while its tested implementation, dependencies, configuration
+  and validation inputs remain unchanged. An edit invalidates only affected
+  evidence; rerun that selection and newly affected consumers. Neither unrelated
+  edits nor a new commit hash require repeating unchanged checks.
+
+Every implementation handoff must declare: baseline and owned/changed paths;
+changed contracts and affected consumers; scope (`partial` or `full`) and reason;
+exact commands, targets/filters and case IDs; excluded suites and rationale;
+functional/performance obligations; and source/input identities for evidence.
+Review this manifest before execution. Unknown filters, zero tests, missing
+coverage and stale results cannot count as success. Broaden the manifest when
+impact grows, never shrink it to conceal failures.
+
+## Edit loop
+
+Classify the actual change before choosing validation. Documentation, plans,
+status reports, comments with no executable effect, and agent instructions
+(including instruction-only `.codex/` configuration) must NEVER trigger an
+engine build, full verifier sweep, recovery/Kani run, or benchmark campaign.
+Use only relevant diff, link, example, syntax or consistency checks. A new commit
+hash or the word "chunk" does not justify engine validation. Documentation used
+as executable input, such as a changed doctest or generated-code input, is checked
+according to that actual effect, not its file extension.
+
+At assignment, record a small validation manifest in the chunk's backlog entry
+or handoff: owned paths, fast check commands, affected test targets/filters,
+unchanged upstream case IDs, full functional acceptance commands, and the
+performance workloads/configurations that must pass at completion. Include
+negative/boundary cases and relevant shared-contract consumers. Missing coverage
+is an explicit obligation, not a reason to omit a check from the manifest.
+
+While a chunk is in progress, validate small logical edit batches, not every
+file write or tool call:
+
+- Check only the affected package/target. For library-only edits use
+  `cargo check -p duckdb-rust --lib`; check the relevant binary/test target when
+  it changes. Broaden checks when shared interfaces or dependencies change.
+- After a behavior change, run the affected test target/filter and the small
+  assigned upstream case set. A targeted `cargo test` already compiles its
+  dependencies; do not precede it with a redundant check just as a ritual.
+  Python-only edits use the affected Python unit tests, not Rust compilation.
+- Reuse worktree-local build artifacts with the same profile/features. Coalesce
+  rapid edits and permit only one validation process per worktree. A watcher, if
+  used, must debounce changes and mark an in-flight result stale if inputs change.
+  Record the tested source state, command, selected cases and outcome. Zero tests,
+  unknown filters and stale binaries cannot produce a green result.
+- Keep tracing, full-workspace tests, all-target Clippy, exhaustive recovery,
+  Kani and acceptance benchmarks out of the routine loop. Focused timing may be
+  used to diagnose a performance change; it is not completion evidence.
+
+The upstream runner supports `--debug-worker`, hash-validated selected caching,
+`--compare-release` and debounced `--watch` for continuous feedback. Use exact
+`--path-list` selections; the narrow selected cache does not stage external
+fixtures/includes, so those cases use the ordinary runner. Debug runs are
+feedback, not release acceptance. A prebuilt worker needs matching current
+source/binary/profile provenance. Stop a watcher before another validation
+process starts in the worktree. Never treat stale workers or modified cached
+inputs as current. See [testing cadence](specs/testing/parity.md#continuous-feedback-and-completion).
+
+## Chunk completion sweep — impact-scoped implementation checks
+
+This section applies to implementation changes affecting the engine or its
+build, dependencies, executable tests/harnesses, fixtures or workloads. It does
+not apply to documentation/planning/status/agent-instruction-only changes.
+Do not dispatch the verifier for those changes; if dispatched accidentally,
+the verifier must decline without starting the sweep.
+
+A chunk is an explicit goal group, feature slice, subsystem or adapter
+implementation, cross-module refactor, or other unit of work identified in the
+task plan. Several edits and commits can form one chunk. Do not infer a chunk
+boundary merely because an intermediate edit or commit is complete.
+
+An agent's "100% complete" assessment means **ready for verification**, not done.
+Freeze the integrated source tree and the chunk's validation manifest. Before
+declaring each chunk complete, delegate its impact-scoped sweep to the project
+`verifier` agent. The primary agent must not run or babysit the sweep. The
+verifier uses `gpt-5.6-terra` with low reasoning effort, as configured in
+`.codex/agents/verifier.toml`. Do not silently substitute a higher-priced model
+for verification. For partial sweeps, the verifier runs the manifest's exact
+commands progressively and fail-fast, recording stage times and selected test
+counts. Do not substitute the full runner for a partial sweep. The existing
+runner below is **full-only**, not an automatic impact selector; invoke it only
+for a justified full checkpoint:
+
+```sh
+python3 scripts/verify_chunk.py
+```
+
+The runner is progressive and fail-fast. It reports elapsed time for each stage
+and performs formatting, all-target checking, all-target Clippy, the full test
+suite except the exhaustive recovery truncation test, that exhaustive test in a
+visible final test stage, and the maintained Kani checkpoint. A chunk is not
+complete until every applicable ordinary stage has passed against its final
+implementation inputs and applicable Kani checks have been run and reported.
+If an edit affects a running check's inputs, mark that result stale and rerun
+the affected checks and any newly affected consumers, not the entire sweep.
+Unrelated documentation, planning, status or agent-instruction edits do not
+invalidate the result or require a rerun. Use
+`python3 scripts/verify_chunk.py --list` to inspect the stages without executing
+them.
+
+The scoped sweep is the regression gate, not the entire acceptance decision:
+the chunk's unchanged upstream/interop/contract cases and the performance gate
+below must also be satisfied on that final tree. Do not defer these obligations
+until the final PR or G24. Only changes to the tested implementation or relevant
+validation inputs invalidate its completion evidence. Retain the tested revision
+and scope when unrelated documentation changes land; do not pretend it was a new
+test run, and do not rerun merely to obtain a newer commit hash.
+
+## Per-chunk performance gate
+
+Every chunk validation must explicitly include **at-parity or better performance**.
+For every affected comparable workload/configuration, require
+`Rust median / min(release median, development median) <= 1.0`; throughput must
+be at least the larger reference throughput. Apply independent no-regression
+gates to relevant CPU, peak-memory and I/O costs. Faster cases cannot compensate
+for slower ones, and matching an already-slow Rust baseline is insufficient.
+
+Declare representative workloads before implementation, including affected
+existing consumers as well as the new operation. Add a comparable workload when
+none exists. Run final measurements on a quiet host using release/no-tracing
+builds, exact pinned references, equivalent semantics/settings and validated
+results. Preserve samples, both reference identities, source/binary hashes and
+failed runs under `target/`. Keep timed runs separate from builds, other agents'
+tests and the ordinary completion sweep. Existing comparable latency manifests
+use `scripts/compare_native.py` for both pins and `scripts/fastest_reference.py`
+for their joint gate; other workloads need the appropriate measurement adapter.
+
+Report performance separately as pass, fail or open. A missing benchmark,
+unexecuted/incomparable reference, unstable evidence or measured slowdown cannot
+be called at parity; affected implementation chunks remain incomplete. Only a
+strictly documentation-only change with no executable, build, configuration,
+fixture or workload effect may record "not applicable: documentation-only",
+with a reviewed diff and rationale. This is not a measured performance pass and
+does not waive an existing engine gap. Tooling/runtime changes are not exempt.
+See [acceptance](specs/testing/parity.md#per-chunk-performance-acceptance).
+
+## Exploratory checkpoints with Kani
+
+The full checkpoint runner invokes `python3 scripts/verify_kani.py` after all
+ordinary stages. Partial sweeps run only affected maintained harnesses through
+explicit manifest commands; unrelated proof coverage is not a gate. If no proof
+or proved invariant is affected, report Kani as not applicable with a rationale.
+Keep Kani out of the routine edit/check/test loop except focused proof debugging.
+Only full checkpoints require the full maintained suite through the command above.
+
+When Kani is applicable during the exploratory rewrite, the requirement is to
+run the selected proofs and report what was learned. A passing proof suite is
+not required to complete the chunk. The
+runner's nonzero status reports unsuccessful or incomplete verification; it is
+not a stage-completion verdict. Investigate counterexamples against the intended
+behavior and handle confirmed bugs through the ordinary correctness process.
+Record timeouts, unsupported code, setup failures and unproved behavior as limits;
+after a reasonable setup/retry attempt, continue exploration with those limits
+explicit. Never describe an unsuccessful or unexecuted proof as passing.
+
+Add or adapt proofs when they help clarify the emerging design. Do not reshape
+production code, restrict design choices, or require a proof for every invariant
+to satisfy Kani. Internal architecture remains provisional; revise or retire
+outdated harnesses with a reason when intended contracts change. Keep assumptions
+and bounds honest and safety checks enabled. A short checkpoint summary of the
+command, outcome, findings and limits is sufficient. Formal coverage requirements
+and proof acceptance gates can be established later. See [the policy](specs/testing/kani.md).
+
+## Development tracing
+
+`cargo dev check|test|run|build|clippy` also runs without tracing by default. Do not
+record every operation on every pass: recording can dominate database execution
+and changes the timings being investigated.
+
+Use exhaustive tracing for a focused reproduction:
+
+- `cargo dev trace run --profile dev-trace --bin duckdb-rust -- -c 'SELECT 42'`
+  prints a summary and deletes temporary telemetry when the command ends.
+- Add `--keep` immediately after `trace` for subsequent inspection:
+  `cargo dev trace --keep run --profile dev-trace --bin duckdb-rust -- -c 'SELECT 42'`.
+- `cargo dev statements` lists SQL execution IDs, hashes and trace paths.
+- `cargo dev log EXECUTION_ID` reads a small incremental summary.
+- `cargo dev sql EXECUTION_ID 'SELECT * FROM operation_stats ORDER BY total_ns DESC LIMIT 20'`
+  queries the trace with the external DuckDB v1.5.5 CLI, whose version is checked.
+- `cargo dev span PROCESS_LOG SPAN_ID` prints one operation and its descendants.
+- `cargo dev index EXECUTION_ID` imports a completed trace for repeated SQL queries.
+- `cargo dev clean` removes retained telemetry. Run it when investigation ends.
+
+Keep at most one completed trace run, under the Git-ignored `target/dev-traces/`.
+The next execution command removes the preceding run. Never commit runtime trace
+files, statement manifests, result previews or analytical caches. Do not create
+permanent telemetry archives or put trace output elsewhere in the repository.
+Recording has a 128 MiB write budget per process; larger reproductions must be
+narrowed or explicitly use `DUCKDB_DEV_MAX_BYTES`. A retained run exceeding 256 MiB
+is deleted. Abandoned runs are reclaimed by the next execution/clean command once
+their writers exit; retention needs no background service.
+
+For retained SQL evidence, start in `statements/EXECUTION_ID/statement.json`,
+`result.json`, `parameters.json`, and `trace.summary.json`. The SQL hash uses
+parser-rendered SQL; execution IDs distinguish repeated statements and parameters.
+Original SQL and parsing are in the linked request trace. Materialized results
+preview at most 20 rows and report omissions; streaming results report delivered
+rows and early termination.
+
+Summaries update every 500 ms and report bytes beyond the snapshot. Error counts
+include expected failures and propagation. Open spans, sequence gaps and malformed
+records are incomplete evidence. Use test exit status to judge correctness.
+Trace durations include instrumentation and nested work; they are unsuitable for
+performance acceptance. Compare production builds against both pinned C++ versions.
+
+Use `cargo dev coverage` when changing interfaces or adding Rust files. Missing
+attributes can be added with `cargo dev coverage --write` and then reviewed.
+Check instrumentation compatibility with an affected-package/target
+`cargo dev trace check`; use `--workspace --all-targets` only for justified broad
+checks under the validation scope policy.
+Production builds use `cargo build --release --no-default-features` and exclude tracing.
+
+## Validation artifacts
+
+Keep raw JSON, JSONL, logs, profiles and validation dumps under the Git-ignored
+`target/` directory, not under `docs/`. Keep docs to the maintained backlog,
+architecture, durable implementation notes and runbooks. Record only concise
+revision-specific outcomes in the appropriate backlog entry. Historical reports
+remain recoverable from Git history.
+
+The root README must remain exactly as on main. Do not edit README files.

@@ -1,0 +1,65 @@
+# B1 persistent-view process resource workload. Query loops validate a scalar
+# checksum, avoiding materialized-output cost. DDL loops roll back so catalog
+# growth and table reconstruction do not dominate CPU/RSS/I/O observation.
+
+statement ok
+CREATE TABLE b1_base AS SELECT i::BIGINT AS i FROM range(100000) t(i)
+
+statement ok
+CREATE VIEW b1_projected AS SELECT i + 1 AS x FROM b1_base WHERE i % 2 = 0
+
+statement ok
+CREATE VIEW b1_s1 AS SELECT i + 1 AS i FROM b1_base
+
+statement ok
+CREATE VIEW b1_s2 AS SELECT i + 1 AS i FROM b1_s1
+
+statement ok
+CREATE VIEW b1_s3 AS SELECT i + 1 AS i FROM b1_s2
+
+statement ok
+CREATE VIEW b1_s4 AS SELECT i + 1 AS i FROM b1_s3
+
+statement ok
+CREATE VIEW b1_s5 AS SELECT i + 1 AS i FROM b1_s4
+
+statement ok
+CREATE VIEW b1_s6 AS SELECT i + 1 AS i FROM b1_s5
+
+statement ok
+CREATE VIEW b1_s7 AS SELECT i + 1 AS i FROM b1_s6
+
+statement ok
+CREATE VIEW b1_s8 AS SELECT i + 1 AS i FROM b1_s7
+
+loop iteration 0 64
+
+query I
+SELECT sum(x) FROM b1_projected
+----
+2500000000
+
+query I
+SELECT sum(i) FROM b1_s8
+----
+5000750000
+
+endloop
+
+loop iteration 0 64
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+CREATE OR REPLACE VIEW b1_rollback AS SELECT i + 1 AS i FROM b1_base
+
+statement ok
+ROLLBACK
+
+endloop
+
+statement error
+SELECT * FROM b1_rollback
+----
+<REGEX>:.*(Catalog|catalog).*(b1_rollback).*

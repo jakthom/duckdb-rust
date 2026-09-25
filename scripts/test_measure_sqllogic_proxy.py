@@ -1,0 +1,813 @@
+import copy
+from contextlib import redirect_stderr, redirect_stdout
+import hashlib
+import io
+import json
+import runpy
+import sys
+import types
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import measure_sqllogic_proxy as proxy
+
+
+def command_relative(command):
+    for argument in command:
+        if argument.startswith("--once-job="):
+            return proxy.once_core.decode_job(argument.split("=", 1)[1])["path"]
+    return command[command.index("--test-dir") + 2]
+
+
+def is_proxy_command(command):
+    return any(argument.startswith("--once-job=") for argument in command)
+
+
+def observation(command, target, relative, records, metric=100):
+    if target == "proxy":
+        stdout = f"PASS {relative} ({records} records)\n{records} records passed; 0 skipped\n"
+    else:
+        stdout = f"All tests passed ({records} assertions in 1 test case)\n"
+    return {
+        "command": list(command),
+        "returncode": 0,
+        "stdout": stdout,
+        "stderr": "",
+        "wall_ns": metric,
+        "cpu_ns": metric,
+        "max_rss_bytes": metric,
+        "block_input": 1,
+        "block_output": 1,
+        "records": records,
+    }
+
+
+class ProxyEvidenceTests(unittest.TestCase):
+    def test_core_digest_uses_full_sha256_stream_and_public_fallback(self):
+        payloads = [b"", b"x", b"x" * (proxy.once_core._DIGEST_BLOCK_SIZE - 1),
+                    b"x" * proxy.once_core._DIGEST_BLOCK_SIZE,
+                    b"x" * (proxy.once_core._DIGEST_BLOCK_SIZE + 1)]
+        with tempfile.TemporaryDirectory() as directory:
+            for index, payload in enumerate(payloads):
+                path = Path(directory) / str(index)
+                path.write_bytes(payload)
+                self.assertEqual(proxy.once_core.digest(path), hashlib.sha256(payload).hexdigest())
+            with self.assertRaises(FileNotFoundError):
+                proxy.once_core.digest(Path(directory) / "missing")
+
+        def fallback(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "_sha256":
+                raise ImportError("forced fallback")
+            return __import__(name, globals, locals, fromlist, level)
+
+        fallback_sha256 = proxy.once_core.sha256_constructor(fallback)
+        self.assertIs(fallback_sha256, hashlib.sha256)
+        for payload in payloads:
+            result = fallback_sha256()
+            for offset in range(0, len(payload), proxy.once_core._DIGEST_BLOCK_SIZE):
+                result.update(payload[offset:offset + proxy.once_core._DIGEST_BLOCK_SIZE])
+            self.assertEqual(result.hexdigest(), hashlib.sha256(payload).hexdigest())
+
+        class BrokenRead:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *unused):
+                return False
+
+            def read(self, size):
+                raise OSError("forced read failure")
+
+        with patch("builtins.open", return_value=BrokenRead()):
+            with self.assertRaisesRegex(OSError, "forced read failure"):
+                proxy.once_core.digest("unreadable")
+
+    def context(self):
+        root = "/frozen/root"
+        workloads = []
+        for item in proxy.EXPECTED_WORKLOADS:
+            workloads.append(
+                {
+                    "id": item["id"],
+                    "path": item["path"],
+                    "kind": "custom_comparable",
+                    "shared_test_dir": root,
+                    "shared_workload_path": root + "/" + item["path"],
+                    "shared_workload_sha256": item["sha256"],
+                    "shared_workload_bytes": item["bytes"],
+                    "proxy_records_expected": item["proxy_records"],
+                }
+            )
+        campaign = {
+            "test_root": root,
+            "workloads": root + "/" + proxy.EXPECTED_MANIFEST,
+            "worker": root + "/target/release/duckdb-rust-test-worker",
+            "worker_provenance": root + "/target/release/duckdb-rust-test-worker.provenance.json",
+            "release_cpp": "/release/test/unittest",
+            "development_cpp": "/development/test/unittest",
+            "release_source": "/release/source",
+            "development_source": "/development/source",
+            "release_build": "/release",
+            "development_build": "/development",
+            "release_cli": "/release/duckdb",
+            "development_cli": "/development/duckdb",
+        }
+        return {
+            "campaign": campaign,
+            "workloads": workloads,
+            "references": {
+                "release": {"unittest": campaign["release_cpp"], "target": "release"},
+                "development": {"unittest": campaign["development_cpp"], "target": "development"},
+            },
+            "worker": {
+                "path": campaign["worker"],
+                "sha256": "1" * 64,
+                "provenance_path": campaign["worker_provenance"],
+                "provenance_sha256": "2" * 64,
+                "provenance": {"profile": "release", "source_sha256": "3" * 64, "binary_sha256": "1" * 64},
+            },
+            "python": {
+                "executable": "/python",
+                "binary_sha256": "4" * 64,
+                "version": "test",
+                "proxy": "/scripts/measure_sqllogic_proxy.py",
+                "proxy_sha256": "5" * 64,
+            },
+            "inputs": {"frozen": {"path": "/input", "sha256": "6" * 64, "bytes": 1}},
+        }
+
+    def report(self, proxy_metric=90):
+        context = self.context()
+        entries = []
+        for index, workload in enumerate(context["workloads"]):
+            commands = proxy.expected_commands(context, workload)
+            counts = {
+                "release": 100 + index,
+                "development": 200 + index,
+                "proxy": workload["proxy_records_expected"],
+            }
+            warmups = {}
+            measured = {}
+            for target in proxy.RUNNERS:
+                warmups[target] = []
+                measured[target] = []
+            schedule = proxy.expected_schedule()
+            for phase, populations in (("warmup_observations", warmups), ("observations", measured)):
+                for target in proxy.RUNNERS:
+                    metric = proxy_metric if target == "proxy" else 100
+                    for metadata in schedule[phase][target]:
+                        sample = observation(
+                            commands[target], target, workload["path"], counts[target], metric
+                        )
+                        sample.update(metadata)
+                        populations[target].append(sample)
+            entries.append(
+                {
+                    **workload,
+                    "warmup_observations": warmups,
+                    "observations": measured,
+                    "pass_counts": counts,
+                }
+            )
+        report = {
+            "schema": proxy.SCHEMA,
+            "recorded_at": "2026-09-19T00:00:00+00:00",
+            "platform": "test-platform",
+            "machine": "test-machine",
+            "samples": proxy.ACCEPTANCE_SAMPLES,
+            "warmups": proxy.ACCEPTANCE_WARMUPS,
+            "campaign": copy.deepcopy(context["campaign"]),
+            "requested_arguments": copy.deepcopy(context["campaign"]),
+            "references": copy.deepcopy(context["references"]),
+            "worker": copy.deepcopy(context["worker"]),
+            "python": copy.deepcopy(context["python"]),
+            "execution_configuration": copy.deepcopy(proxy.measure.SERIAL_CONFIGURATION),
+            "proxy_configuration": copy.deepcopy(proxy.PROXY_CONFIGURATION),
+            "inputs_before": copy.deepcopy(context["inputs"]),
+            "inputs_after": copy.deepcopy(context["inputs"]),
+            "order": "paired alternating release, development, proxy",
+            "workloads": entries,
+        }
+        raw = {entry["id"]: entry["observations"] for entry in entries}
+        release = {
+            "workloads": [
+                {**workload, "cpp": raw[workload["id"]]["release"], "rust": raw[workload["id"]]["proxy"]}
+                for workload in context["workloads"]
+            ]
+        }
+        development = {
+            "workloads": [
+                {**workload, "cpp": raw[workload["id"]]["development"], "rust": raw[workload["id"]]["proxy"]}
+                for workload in context["workloads"]
+            ]
+        }
+        report["gate"] = proxy.json_safe(
+            proxy.measure.gate(release, development, context["workloads"])
+        )
+        report["passed"] = report["gate"]["passed"]
+        report["at_parity_or_better_performance"] = report["gate"]["at_parity_or_better_performance"]
+        return context, report
+
+    def test_valid_report_recomputes_gate_without_equal_runner_count_units(self):
+        context, report = self.report()
+        gate = proxy.validate_report(report, context)
+        self.assertTrue(gate["passed"])
+        entry = report["workloads"][0]
+        self.assertNotEqual(entry["pass_counts"]["release"], entry["pass_counts"]["proxy"])
+        self.assertEqual(json.loads(json.dumps(report)), report)
+
+    def test_commands_are_independently_derived_and_require_worker_attestation(self):
+        context, report = self.report()
+        for phase in ("warmup_observations", "observations"):
+            for sample in report["workloads"][0][phase]["release"]:
+                sample["command"] = ["mutated", "--serial"]
+        with self.assertRaisesRegex(ValueError, "independently derived"):
+            proxy.validate_report(report, context)
+        context, report = self.report()
+        command = report["workloads"][0]["observations"]["proxy"][0]["command"]
+        self.assertEqual(len(command), 3)
+        self.assertTrue(command[2].startswith("--once-job="))
+        job = json.loads(command[2].split("=", 1)[1])
+        self.assertEqual(
+            job["attestation"],
+            {"worker_sha256": context["worker"]["sha256"],
+             "source_sha256": context["worker"]["provenance"]["source_sha256"],
+             "provenance_sha256": context["worker"]["provenance_sha256"]},
+        )
+        self.assertEqual(job["worker_provenance"], context["worker"]["provenance_path"])
+        del job["worker_provenance"]
+        command[2] = "--once-job=" + json.dumps(job)
+        with self.assertRaisesRegex(ValueError, "independently derived"):
+            proxy.validate_report(report, context)
+
+        context, report = self.report()
+        command = report["workloads"][0]["observations"]["proxy"][0]["command"]
+        job = json.loads(command[2].split("=", 1)[1])
+        job["attestation"]["source_sha256"] = "0" * 64
+        command[2] = "--once-job=" + json.dumps(job)
+        with self.assertRaisesRegex(ValueError, "independently derived"):
+            proxy.validate_report(report, context)
+
+    def test_campaign_attestation_checks_only_canonical_sidecar_and_exact_triple(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Path(directory) / "worker"
+            worker.write_bytes(b"worker bytes are prechecked outside timing")
+            provenance_path = Path(str(worker) + ".provenance.json")
+            attestation = {
+                "worker_sha256": "1" * 64,
+                "source_sha256": "2" * 64,
+                "provenance_sha256": "",
+            }
+            provenance = {
+                "profile": "release",
+                "source_sha256": attestation["source_sha256"],
+                "binary_sha256": attestation["worker_sha256"],
+            }
+            provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n")
+            attestation["provenance_sha256"] = proxy.digest(provenance_path)
+            with patch.object(
+                proxy,
+                "checked_worker_provenance",
+                side_effect=AssertionError("full source/binary hashing entered timed child"),
+            ):
+                checked_path, checked = proxy.checked_campaign_attestation(
+                    worker, provenance_path, attestation
+                )
+            self.assertEqual(checked_path, provenance_path.resolve())
+            self.assertEqual(checked, provenance)
+
+            mutations = (
+                {**attestation, "worker_sha256": "0" * 64},
+                {**attestation, "source_sha256": "0" * 64},
+                {**attestation, "provenance_sha256": "0" * 64},
+                {"worker_sha256": attestation["worker_sha256"]},
+                {**attestation, "worker_sha256": "not-a-sha"},
+            )
+            for mutated in mutations:
+                with self.subTest(mutated=mutated), self.assertRaises(ValueError):
+                    proxy.checked_campaign_attestation(
+                        worker, provenance_path, mutated
+                    )
+
+            other = Path(directory) / "other.json"
+            other.write_bytes(provenance_path.read_bytes())
+            with self.assertRaisesRegex(ValueError, "canonical"):
+                proxy.checked_campaign_attestation(worker, other, attestation)
+
+    def test_tiny_entry_delegates_exact_job_and_rejects_other_argv(self):
+        entry = Path(proxy.__file__).with_name("sqllogic_proxy_once.py")
+        received = []
+
+        def bootstrap(job):
+            received.append(job)
+            return 0
+
+        with patch.dict(sys.modules, {"proxy_once_core": types.SimpleNamespace(bootstrap=bootstrap)}), patch.object(
+            sys, "argv", [str(entry), "--once-job={\"schema\":\"sqllogic-proxy-once-v1\"}"]
+        ), self.assertRaises(SystemExit) as valid:
+            runpy.run_path(str(entry), run_name="__main__")
+        self.assertEqual(valid.exception.code, 0)
+        self.assertEqual(received, ['{"schema":"sqllogic-proxy-once-v1"}'])
+
+        # The actual core rejects malformed JSON before it can construct a worker.
+        with patch.object(sys, "argv", [str(entry), "--once-job={"]), self.assertRaises(ValueError):
+            runpy.run_path(str(entry), run_name="__main__")
+
+        for arguments in ([], ["--once-job"], ["--once-job={}", "extra"]):
+            with self.subTest(arguments=arguments), patch.object(sys, "argv", [str(entry), *arguments]), self.assertRaises(SystemExit) as rejected:
+                runpy.run_path(str(entry), run_name="__main__")
+            self.assertEqual(rejected.exception.code, "sqllogic_proxy_once requires exactly one --once-job=<JSON> argument")
+
+    def test_standalone_once_retains_full_worker_attestation(self):
+        with patch.object(proxy, "validate_workload_population", return_value=[]), patch.object(
+            proxy, "checked_worker_provenance"
+        ) as checked:
+            with self.assertRaisesRegex(ValueError, "population"):
+                proxy.once(
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker",
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker.provenance.json",
+                    proxy.ROOT,
+                    "not-present.test",
+                )
+            checked.assert_not_called()
+
+        workload = proxy.EXPECTED_WORKLOADS[0]
+        specs = [{"path": workload["path"], "proxy_records_expected": workload["proxy_records"]}]
+        with patch.object(proxy, "validate_workload_population", return_value=specs), patch.object(
+            proxy,
+            "checked_worker_provenance",
+            side_effect=RuntimeError("full attestation reached"),
+        ) as checked:
+            with self.assertRaisesRegex(RuntimeError, "full attestation reached"):
+                proxy.once(
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker",
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker.provenance.json",
+                    proxy.ROOT,
+                    workload["path"],
+                )
+            checked.assert_called_once()
+
+    def test_standalone_once_adapts_core_strings_to_path_checker(self):
+        workload = proxy.EXPECTED_WORKLOADS[0]
+        specs = [{"path": workload["path"], "proxy_records_expected": workload["proxy_records"]}]
+
+        def checker(worker, provenance):
+            self.assertIsInstance(worker, Path)
+            self.assertIsInstance(provenance, Path)
+            raise RuntimeError("path checker reached")
+
+        with patch.object(proxy, "validate_workload_population", return_value=specs), patch.object(
+            proxy, "checked_worker_provenance", side_effect=checker
+        ):
+            with self.assertRaisesRegex(RuntimeError, "path checker reached"):
+                proxy.once(
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker",
+                    proxy.ROOT / "target/release/duckdb-rust-test-worker.provenance.json",
+                    proxy.ROOT,
+                    workload["path"],
+                )
+
+    def test_once_rejects_partial_campaign_attestation_before_execution(self):
+        arguments = [
+            "--once",
+            "--worker",
+            str(proxy.ROOT / "target/release/duckdb-rust-test-worker"),
+            "--worker-provenance",
+            str(proxy.ROOT / "target/release/duckdb-rust-test-worker.provenance.json"),
+            "--test-root",
+            str(proxy.ROOT),
+            "--path",
+            proxy.EXPECTED_WORKLOADS[0]["path"],
+            "--campaign-worker-sha256",
+            "1" * 64,
+        ]
+        with self.assertRaises(SystemExit), redirect_stdout(
+            io.StringIO()
+        ), redirect_stderr(io.StringIO()):
+            proxy.main(arguments)
+
+    def test_core_preserves_runner_failure_when_close_also_fails(self):
+        workload = proxy.EXPECTED_WORKLOADS[0]
+
+        class Scratch:
+            def __enter__(self):
+                return self
+            def __exit__(self, *unused):
+                return False
+            def validate_path(self):
+                pass
+            def __fspath__(self):
+                return "/scratch"
+
+        class Engine:
+            def close(self):
+                raise RuntimeError("cleanup failed")
+
+        class Runner:
+            def __init__(self, *unused):
+                pass
+            def run(self, records):
+                raise ValueError("runner failed")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worker = root / "target/release/duckdb-rust-test-worker"
+            worker.parent.mkdir(parents=True)
+            worker.write_bytes(b"worker")
+            provenance = Path(str(worker) + ".provenance.json")
+            provenance.write_text("{}")
+            path = root / workload["path"]
+            path.parent.mkdir(parents=True)
+            path.write_text("statement ok\nSELECT 1;\n")
+            job = proxy.once_core.make_job(worker, provenance, root, workload["path"])
+            specs = [{"path": workload["path"], "proxy_records_expected": workload["proxy_records"]}]
+            with patch.object(proxy.once_core, "ROOT", str(root)), patch.object(
+                proxy.once_core, "ScratchDirectory", return_value=Scratch()
+            ), patch.object(proxy.once_core, "RustEngine", return_value=Engine()), patch.object(
+                proxy.once_core.sqllogic, "parse", return_value=[]
+            ), patch.object(proxy.once_core.sqllogic, "Runner", Runner), self.assertRaisesRegex(
+                ValueError, "runner failed"
+            ) as raised:
+                proxy.once_core.run(
+                    job,
+                    standalone_provenance=lambda worker, provenance: (provenance, {}),
+                    workload_validator=lambda manifest, root: specs,
+                )
+        self.assertIsInstance(raised.exception.__cause__, RuntimeError)
+        self.assertEqual(str(raised.exception.__cause__), "cleanup failed")
+
+
+    def test_once_job_envelope_rejects_before_worker(self):
+        job = {
+            "schema": proxy.once_core.JOB_SCHEMA,
+            "worker": "worker", "worker_provenance": "worker.provenance.json",
+            "test_root": "root", "path": proxy.EXPECTED_WORKLOADS[0]["path"],
+            "timeout": 60, "attestation": None,
+        }
+        encoded = proxy.once_core.encode_job(job)
+        self.assertEqual(proxy.once_core.decode_job(encoded), job)
+        invalid_utf8 = {**job, "path": "\ud800"}
+        for encoded in (
+            '{"schema":"sqllogic-proxy-once-v1","schema":"sqllogic-proxy-once-v1"}',
+            json.dumps({**job, "unknown": "field"}),
+            json.dumps({**job, "schema": "other"}),
+            json.dumps({**job, "attestation": {"worker_sha256": "1" * 64}}),
+            json.dumps({**job, "timeout": "60"}),
+            json.dumps(invalid_utf8),
+        ):
+            with self.subTest(encoded=encoded), self.assertRaises(ValueError):
+                proxy.once_core.decode_job(encoded)
+
+    def test_public_once_delegates_to_shared_core(self):
+        workload = proxy.EXPECTED_WORKLOADS[0]
+        with patch.object(proxy.once_core, "run", return_value=workload["proxy_records"]) as run:
+            count = proxy.once("worker", "worker.provenance.json", "root", workload["path"])
+        self.assertEqual(count, workload["proxy_records"])
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0]["path"], workload["path"])
+
+    def test_proxy_command_uses_strict_internal_job(self):
+        context = self.context()
+        command = proxy.proxy_command(context, context["workloads"][0]["path"])
+        self.assertEqual(len(command), 3)
+        self.assertTrue(command[-1].startswith("--once-job="))
+        job = proxy.once_core.decode_job(command[-1].split("=", 1)[1])
+        self.assertEqual(job["path"], context["workloads"][0]["path"])
+        self.assertEqual(job["attestation"], proxy.campaign_attestation(context))
+
+    def test_missing_duplicate_reordered_and_changed_workloads_fail(self):
+        for mutate in (
+            lambda workloads: workloads.pop(),
+            lambda workloads: workloads.append(copy.deepcopy(workloads[0])),
+            lambda workloads: workloads.reverse(),
+            lambda workloads: workloads[0].update(path="other.test"),
+        ):
+            context, report = self.report()
+            mutate(report["workloads"])
+            with self.subTest(mutate=mutate), self.assertRaisesRegex(ValueError, "workload"):
+                proxy.validate_report(report, context)
+
+    def test_manifest_and_workload_hashes_are_frozen(self):
+        self.assertEqual(
+            set(proxy.HELPERS),
+            {
+                "measure_sqllogic_proxy.py",
+                "sqllogic_proxy_once.py",
+                "proxy_once_core.py",
+                "secure_scratch.py",
+                "measure_sqllogic_performance.py",
+                "run_upstream.py",
+                "sqllogic.py",
+                "source_identity.py",
+                "reference_version.py",
+                "upstream_suite.py",
+                "worker_protocol.py",
+                "startup_json.py",
+            },
+        )
+        workloads = proxy.validate_workload_population(
+            proxy.ROOT / proxy.EXPECTED_MANIFEST, proxy.ROOT
+        )
+        self.assertEqual([item["proxy_records_expected"] for item in workloads], [5, 5000, 16, 4, 2002])
+        with patch.object(proxy.once_core, "digest", return_value="0" * 64):
+            with self.assertRaisesRegex(ValueError, "frozen five-workload"):
+                proxy.validate_workload_population(proxy.ROOT / proxy.EXPECTED_MANIFEST, proxy.ROOT)
+        with tempfile.TemporaryDirectory() as directory:
+            copied = Path(directory) / "workloads.json"
+            copied.write_bytes((proxy.ROOT / proxy.EXPECTED_MANIFEST).read_bytes())
+            with self.assertRaisesRegex(ValueError, "frozen five-workload"):
+                proxy.validate_workload_population(copied, proxy.ROOT)
+
+        def missing_protocol(path):
+            if Path(path).name == "worker_protocol.py":
+                raise ValueError("worker protocol helper is missing")
+            return {"path": str(path), "sha256": "0" * 64, "bytes": 1}
+
+        with patch.object(proxy, "file_identity", side_effect=missing_protocol):
+            with self.assertRaisesRegex(ValueError, "protocol helper"):
+                proxy.snapshot_inputs(
+                    {"workloads": proxy.ROOT / proxy.EXPECTED_MANIFEST},
+                    [], {}, Path("worker"), Path("provenance"), {},
+                )
+
+    def test_actual_input_snapshots_and_all_top_level_identities_are_required(self):
+        mutations = (
+            lambda report: report["inputs_before"]["frozen"].update(sha256="0" * 64),
+            lambda report: report["inputs_after"]["frozen"].update(bytes=2),
+            lambda report: report["worker"].update(sha256="0" * 64),
+            lambda report: report["python"].update(binary_sha256="0" * 64),
+            lambda report: report["references"]["release"].update(target="other"),
+            lambda report: report["campaign"].update(worker="/other-worker"),
+            lambda report: report["requested_arguments"].update(worker_provenance="/other-provenance"),
+        )
+        for mutate in mutations:
+            context, report = self.report()
+            mutate(report)
+            with self.subTest(mutate=mutate), self.assertRaisesRegex(ValueError, "identity|input|arguments"):
+                proxy.validate_report(report, context)
+
+    def test_stdout_markers_are_reparsed_and_claims_must_match(self):
+        context, report = self.report()
+        sample = report["workloads"][0]["observations"]["proxy"][0]
+        sample["stdout"] = "PASS path (6 records)\n6 records passed; 0 skipped\n"
+        with self.assertRaisesRegex(ValueError, "stdout"):
+            proxy.validate_report(report, context)
+        context, report = self.report()
+        sample = report["workloads"][0]["warmup_observations"]["release"][0]
+        sample["stdout"] = "No tests ran\n"
+        with self.assertRaises(ValueError):
+            proxy.validate_report(report, context)
+
+    def test_warmups_and_samples_are_complete_stable_and_nonzero(self):
+        mutations = (
+            lambda entry: entry["warmup_observations"]["proxy"].pop(),
+            lambda entry: entry["observations"]["development"].pop(),
+            lambda entry: entry["warmup_observations"]["proxy"][0].update(records=0),
+            lambda entry: entry["observations"]["release"][1].update(records=999),
+            lambda entry: entry["pass_counts"].update(proxy=999),
+        )
+        for mutate in mutations:
+            context, report = self.report()
+            mutate(report["workloads"][0])
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError):
+                proxy.validate_report(report, context)
+
+    def test_proxy_expected_counts_are_independent_of_cpp_assertion_counts(self):
+        context, report = self.report()
+        entry = report["workloads"][1]
+        for phase in ("warmup_observations", "observations"):
+            for sample in entry[phase]["proxy"]:
+                sample["records"] = 4999
+                sample["stdout"] = (
+                    f"PASS {entry['path']} (4999 records)\n4999 records passed; 0 skipped\n"
+                )
+        entry["pass_counts"]["proxy"] = 4999
+        with self.assertRaisesRegex(ValueError, "proxy PASS count changed"):
+            proxy.validate_report(report, context)
+
+    def test_configuration_errors_and_failed_reports_never_validate(self):
+        mutations = (
+            lambda report: report.update(samples=9),
+            lambda report: report.update(warmups=2),
+            lambda report: report["execution_configuration"]["cpp"].update(threads=2),
+            lambda report: report.update(proxy_configuration={}),
+            lambda report: report.update(error="failed"),
+            lambda report: report.update(error=""),
+            lambda report: report.update(failed_invocation={"command": ["x"]}),
+            lambda report: report.update(failed_invocation={}),
+            lambda report: report.update(failure_phase="sample"),
+            lambda report: report.update(failure_phase=""),
+            lambda report: report.update(unexpected="field"),
+        )
+        for mutate in mutations:
+            context, report = self.report()
+            mutate(report)
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError):
+                proxy.validate_report(report, context)
+
+    def test_matched_serial_schedule_is_replayed(self):
+        context, report = self.report()
+        sample = report["workloads"][0]["observations"]["proxy"][0]
+        sample["sequence"] += 1
+        with self.assertRaisesRegex(ValueError, "serial schedule"):
+            proxy.validate_report(report, context)
+
+    def test_unexpected_self_declared_commands_and_nonfinite_gate_are_fail_closed(self):
+        context, report = self.report()
+        report["workloads"][0]["commands"] = {"release": ["mutated"]}
+        with self.assertRaisesRegex(ValueError, "unsupported fields"):
+            proxy.validate_report(report, context)
+
+        context, report = self.report()
+        for entry in report["workloads"]:
+            for phase in ("warmup_observations", "observations"):
+                for sample in entry[phase]["release"] + entry[phase]["development"]:
+                    sample["block_input"] = 0
+                for sample in entry[phase]["proxy"]:
+                    sample["block_input"] = 1
+        raw = {entry["id"]: entry["observations"] for entry in report["workloads"]}
+        release = {"workloads": [
+            {**workload, "cpp": raw[workload["id"]]["release"], "rust": raw[workload["id"]]["proxy"]}
+            for workload in context["workloads"]
+        ]}
+        development = {"workloads": [
+            {**workload, "cpp": raw[workload["id"]]["development"], "rust": raw[workload["id"]]["proxy"]}
+            for workload in context["workloads"]
+        ]}
+        report["gate"] = proxy.json_safe(
+            proxy.measure.gate(release, development, context["workloads"])
+        )
+        report["passed"] = False
+        report["at_parity_or_better_performance"] = False
+        self.assertFalse(proxy.validate_report(report, context)["passed"])
+        json.dumps(report, allow_nan=False)
+
+    def test_gate_and_verdict_are_recomputed_for_pass_and_failure(self):
+        context, report = self.report()
+        report["gate"]["workloads"][0]["passed"] = False
+        with self.assertRaisesRegex(ValueError, "recomputed"):
+            proxy.validate_report(report, context)
+        context, failed = self.report(proxy_metric=110)
+        gate = proxy.validate_report(failed, context)
+        self.assertFalse(gate["passed"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "failed.json"
+            path.write_text(json.dumps(failed))
+            with patch.object(proxy, "context_from_report", return_value=context):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(proxy.main(["--validate", str(path)]), 1)
+
+    def test_validate_cli_rejects_malformed_and_stale_reports(self):
+        context, report = self.report()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.json"
+            path.write_text("not json")
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(proxy.main(["--validate", str(path)]), 1)
+            path.write_text(json.dumps(report))
+            stale = copy.deepcopy(context)
+            stale["inputs"] = {"changed": True}
+            with patch.object(proxy, "context_from_report", return_value=stale):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(proxy.main(["--validate", str(path)]), 1)
+
+    def campaign_args(self, report):
+        values = {
+            name: Path("/requested") / name
+            for name in proxy.CAMPAIGN_ARGUMENTS
+        }
+        values.update(
+            {
+                "report": report,
+                "samples": proxy.ACCEPTANCE_SAMPLES,
+                "warmups": proxy.ACCEPTANCE_WARMUPS,
+            }
+        )
+        return type("Args", (), values)()
+
+    def test_campaign_serializes_paths_warmups_and_full_observations(self):
+        context = self.context()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.json"
+            args = self.campaign_args(path)
+
+            def timed(command, label):
+                command = list(command)
+                relative = command_relative(command)
+                workload = next(item for item in context["workloads"] if item["path"] == relative)
+                target = "proxy" if is_proxy_command(command) else (
+                    "release" if command[0] == context["references"]["release"]["unittest"] else "development"
+                )
+                records = workload["proxy_records_expected"] if target == "proxy" else (100 if target == "release" else 200)
+                metric = 90 if target == "proxy" else 100
+                return observation(command, target, relative, records, metric)
+
+            with patch.object(proxy.measure, "active_peers", return_value=[]), patch.object(
+                proxy, "build_context", side_effect=[context, context]
+            ) as context_builder, patch.object(
+                proxy.measure, "run_timed", side_effect=timed
+            ):
+                result = proxy.campaign(args)
+            disk = json.loads(path.read_text())
+            self.assertTrue(result["passed"], result.get("error"))
+            self.assertEqual(disk, result)
+            self.assertEqual(
+                len(disk["workloads"][0]["warmup_observations"]["proxy"]),
+                proxy.ACCEPTANCE_WARMUPS,
+            )
+            self.assertEqual(
+                len(disk["workloads"][0]["observations"]["proxy"]),
+                proxy.ACCEPTANCE_SAMPLES,
+            )
+            self.assertEqual(context_builder.call_count, 2)
+            self.assertTrue(proxy.validate_report(disk, context)["passed"])
+
+    def test_changed_or_missing_post_campaign_attestation_cannot_pass(self):
+        context = self.context()
+        changed = copy.deepcopy(context)
+        changed["worker"]["sha256"] = "0" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "changed.json"
+            args = self.campaign_args(path)
+
+            def timed(command, label):
+                relative = command_relative(command)
+                workload = next(
+                    item for item in context["workloads"] if item["path"] == relative
+                )
+                target = "proxy" if is_proxy_command(command) else "release"
+                records = (
+                    workload["proxy_records_expected"] if target == "proxy" else 100
+                )
+                return observation(command, target, relative, records)
+
+            with patch.object(
+                proxy.measure, "active_peers", return_value=[]
+            ), patch.object(
+                proxy, "build_context", side_effect=[context, changed]
+            ) as context_builder, patch.object(
+                proxy.measure, "run_timed", side_effect=timed
+            ):
+                result = proxy.campaign(args)
+            self.assertEqual(context_builder.call_count, 2)
+            self.assertFalse(result["passed"])
+            self.assertEqual(result["failure_phase"], "input-revalidation")
+            self.assertIn("changed during measurement", result["error"])
+            with self.assertRaisesRegex(ValueError, "failed or partial"):
+                proxy.validate_report(result, context)
+
+    def test_partial_invocation_and_setup_failures_are_persisted(self):
+        context = self.context()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "partial.json"
+            args = self.campaign_args(path)
+            commands = proxy.expected_commands(context, context["workloads"][0])
+            calls = 0
+
+            def timed(command, label):
+                nonlocal calls
+                calls += 1
+                if calls == 5:
+                    raise proxy.measure.SampleFailure("boom", {"command": list(command), "returncode": 2})
+                target = "proxy" if is_proxy_command(command) else (
+                    "release" if command[0] == commands["release"][0] else "development"
+                )
+                records = 5 if target == "proxy" else 100
+                return observation(command, target, context["workloads"][0]["path"], records)
+
+            with patch.object(proxy.measure, "active_peers", return_value=[]), patch.object(
+                proxy, "build_context", return_value=context
+            ), patch.object(proxy.measure, "run_timed", side_effect=timed):
+                result = proxy.campaign(args)
+            disk = json.loads(path.read_text())
+            self.assertFalse(result["passed"])
+            self.assertEqual(disk["failed_invocation"]["returncode"], 2)
+            self.assertEqual(sum(len(values) for values in disk["workloads"][0]["warmup_observations"].values()), 4)
+            with self.assertRaisesRegex(ValueError, "failed or partial"):
+                proxy.validate_report(disk, context)
+
+            setup_path = Path(directory) / "setup.json"
+            setup_args = self.campaign_args(setup_path)
+            with patch.object(proxy.measure, "active_peers", return_value=[]), patch.object(
+                proxy, "build_context", side_effect=ValueError("bad identity")
+            ):
+                setup = proxy.campaign(setup_args)
+            self.assertEqual(setup["failure_phase"], "setup")
+            self.assertIn("bad identity", json.loads(setup_path.read_text())["error"])
+
+    def test_existing_report_is_refused_before_setup_or_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "existing.json"
+            path.write_text("preserve")
+            args = self.campaign_args(path)
+            with patch.object(proxy.measure, "active_peers") as peers:
+                with self.assertRaises(FileExistsError):
+                    proxy.campaign(args)
+                peers.assert_not_called()
+            self.assertEqual(path.read_text(), "preserve")
+
+
+if __name__ == "__main__":
+    unittest.main()

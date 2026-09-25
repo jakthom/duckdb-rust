@@ -24,13 +24,162 @@ Sources: [LogicalType declarations](../../../duckdb/src/include/duckdb/common/ty
 
 Binding selects common types and inserts casts before most physical execution. `MaxLogicalType`, `TryGetMaxLogicalType`, and related helpers expose common-type selection; context-free `Default*` variants use built-in behavior and must not be assumed equivalent to context-aware resolution when extensions add type behavior. SQL overload resolution, assignment, and explicit casts have different acceptance requirements.
 
+The provisional selected common-type contract accepts optional integer-literal
+provenance separately from declared types. It does not evaluate an expression
+to manufacture a literal, grant a global implicit narrowing cast, or attach
+literal identity to stored values. Full hints use an owned
+`IntegerLiteral::Signed(i128)` or `Unsigned(u128)` and must match both the
+representation and range of their underlying type before adapter dispatch.
+Builtin signed and exact-numeric adapters can propose a fitting integral target
+for one literal and one concrete type; two literals combine their underlying
+types. Ordinary no-hint inference is unchanged. Existing replacement adapters
+default to their registry-aware proposal, and each hint moves with its operand
+when a distinct-family proposal reverses roles. The signed Option<i128> API is
+retained as a compatibility wrapper. A new selected full-literal hook forwards
+signed-only requests to that adapter's old signed hook; if either operand hint
+is unsigned, its default invokes the selected ordinary proposal instead of
+dropping one hint, wrapping, or narrowing it. Full-aware adapters override the
+new hook. No-hint calls retain ordinary dispatch. Conflicts and invalid returned
+metadata still reject binding. A template binder separately owns the source's
+ordered identical-literal/NULL rules described in the expression specification.
+
 `Value::CastAs` and `TryCastAs` use a cast-function set and context where provided. The default variants provide context-free conversions. The throwing and optional-result APIs encode distinct failure contracts; callers must not replace failed conversion with a legitimate SQL NULL unless that is the intended SQL operation. Vectorized casts apply the corresponding conversion semantics across a batch, including NULL propagation and per-value conversion errors.
+
+Source provenance can affect accepted text independently of explicit/implicit
+conversion and error recovery. Development's VARIANT fallback invokes
+`DefaultTryCastAs` with strict input conversion. TIME/TIME_NS then require a
+complete clock string, reject a final one-digit minute without seconds, and do
+not retry timestamp text. TIMETZ deliberately parses its clock fields
+non-strictly, but strictly consumes the offset and disables timestamp fallback.
+Timestamp cast entry points do not forward that strict argument; do not infer
+one universal temporal policy. DATE has separate strict year-length and suffix
+rules. These are source observations, not a claim that every Rust path is
+implemented. A selected-adapter implementation must preserve its replacement,
+validation, cancellation and failure-provenance contracts when carrying such
+context through nested extraction.
+
+Sources: [VARIANT fallback](../../../duckdb/src/function/cast/variant/from_variant.cpp),
+[clock parsing](../../../duckdb/src/common/types/time.cpp),
+[cast entry points](../../../duckdb/src/common/operator/cast_operators.cpp),
+[calendar parsing](../../../duckdb/src/common/types/date.cpp).
+
+Ordinary DATE casting validates a timestamp suffix but returns the original
+calendar date, including for a 24:00 clock. A DATE outside the timestamp range
+must not be rejected solely because timestamp construction overflows: the
+development cast retries suffix validation with a placeholder calendar date.
+This conversion policy is distinct from fully consuming calendar-only parsing
+and strict VARIANT parsing. Implementations may reuse the parsed suffix without
+copying an unbounded input string, but must retain clock validity, checked
+arithmetic, cancellation and the format/range diagnostic distinction.
+
+Source observation: a non-window call whose final qualified identifier is
+`date` (case-insensitive, including quoted names) becomes a DATE cast during
+parsing. The development transformer checks one argument and discards argument
+names, DISTINCT, local ordering, FILTER, WITHIN GROUP and null-treatment
+modifiers. OVER takes an earlier window-function branch and is not cast sugar.
+The implementation must retain normal cast selection rather than introducing a
+scalar catalog entry or bypassing a selected adapter. A single infix colon is
+invalid syntax; dictionary, named-argument and slice colons have separate grammar
+roles and must not be rejected globally.
+
+Source: [expression transformer](../../../duckdb/src/parser/peg/transformer/transform_expression.cpp).
 
 Decimal arithmetic must preserve both precision and scale constraints; temporal types have units and semantic distinctions that cannot be recovered from an integer's width alone. String and binary values differ even when both have byte storage. LIST and fixed-size ARRAY differ in shape constraints. MAP and UNION add semantic structure over nested storage. These are engineering obligations derived from the type model, not permission to interchange physically similar types.
 
 ## Cross-component invariants
 
 The parser can represent an unresolved type expression; binding resolves it into a concrete `LogicalType`; physical planning and vector allocation depend on that resolved type. Serialization must retain the metadata needed to reconstruct the same type. Arrow and public APIs must express supported logical distinctions or reject unsupported conversions explicitly. Extension-defined type identity and lifetime must survive catalog lookup and prepared execution.
+
+### Timestamp payload validity and native NULLs
+
+Source observation: every `timestamp_base_t<P,Z>` variant holds the complete
+signed 64-bit physical domain. Only positive/negative `INT64_MAX` denote
+infinities; `INT64_MIN` is finite. Constructor/API acceptance, checked precision
+conversion, calendar arithmetic and SQL text rendering are separate contracts.
+A supported operation can produce a valid minimum payload even when a subsequent
+VARCHAR cast or result renderer fails. Infallible diagnostic Display must not
+silently substitute for that selected SQL rendering contract. Identical-unit
+scaling preserves the raw value; changing units retains checked source semantics.
+This observation does not widen TIME, TIME_NS, TIMETZ or DATE domains.
+
+Native fixed-size numeric storage can write the signed minimum as a NULL-row
+placeholder for debugging, but column validity determines whether that payload
+is NULL. Readers must not erase a valid timestamp minimum before applying its
+independent validity metadata. A codec with genuinely inline NULLs requires its
+own explicit interpretation; this is not a blanket sentinel-removal policy.
+Writers must retain enough validity information to distinguish a typed minimum
+from a typed NULL through scalar, nested, checkpoint and WAL paths.
+
+Sources: [timestamp base](../../../duckdb/src/include/duckdb/common/types/timestamp_base.hpp),
+[fixed-size uncompressed storage](../../../duckdb/src/storage/compression/fixed_size_uncompressed.cpp),
+[column validity](../../../duckdb/src/storage/table/standard_column_data.cpp).
+
+### Dynamic VARIANT storage and reconstruction
+
+Source observation: VARIANT logical ID109 carries canonical physical children
+`keys VARCHAR[]`, `children STRUCT(keys_index UINTEGER, values_index UINTEGER)[]`,
+`values STRUCT(type_id UTINYINT, byte_offset UINTEGER)[]`, and `data BLOB`.
+Persistent columns have independent root validity and unshredded children; an
+optional ordinary typed tree describes shredded values. This physical STRUCT
+layout does not turn the logical column into a user STRUCT.
+
+Shredded wrappers distinguish a missing OBJECT field (NULL typed value and
+leftover index zero), a present NULL (NULL typed value and NULL leftover index),
+and an unshredded leftover (one-based index). A present typed primitive or ARRAY
+does not consult its unused leftover index. OBJECT reconstruction merges typed
+and leftover fields. Development's canonical shredded-vector reconstruction
+emits OBJECT keys lexicographically, including leftover subtrees; an ordinary
+unshredded column retains its stored member ordering. Root NULL uses row validity,
+not the nested VARIANT_NULL tag.
+
+The canonical builder emits value descriptors in preorder and reserves each
+container's contiguous child-reference range before recursively emitting its
+children. Payload offsets are relative to the row's byte buffer. Counts, child
+starts and variable-length scalar lengths use bounded UINT32 varints. A nested
+VARIANT_NULL tag carries no declared scalar type: an INTEGER NULL child and a
+VARCHAR NULL child have the same dynamic wire category. Retaining non-NULL
+scalar widths and temporal units must not be confused with preserving those
+pre-cast typed-NULL hints.
+
+JSON-to-VARIANT conversion retains empty keys and case-distinct keys, and
+collapses only exact duplicate keys, keeping the last value. Engineering
+implication: a dynamic OBJECT representation must not silently inherit ordinary
+SQL STRUCT's nonempty, case-insensitively unique field-name restrictions.
+Readers must retain declared scalar widths and units, validate offsets and child
+references before following them, and bound depth, repeated visits and logical
+materialization independently. Publication compatibility is a separate
+requirement from recognizing a read-side layout.
+
+Engineering implication for checkpoint layout validation: native canonicalization
+can replace a retained STRUCT with OBJECT metadata, normalize LIST/ARRAY/TUPLE
+to a dynamic ARRAY, resolve UNION/VARIANT wrappers, map ENUM labels to VARCHAR,
+and erase pre-cast typed-NULL hints. Exact content equivalence may recognize
+these changes only. It must preserve non-NULL scalar tags and widths, decimal
+precision/scale/coefficient, floating payload bits (including signed zero and
+NaN payloads), BIGNUM negative zero, BIT length, temporal physical fields,
+ordered exact OBJECT names, child NULLs and root row validity. SQL VARIANT
+comparison or equality keys are not a suitable oracle: they intentionally
+equate several representation-distinct scalar values. Retained selected type
+validation remains required before a bounded native-content traversal; no
+implicit cast or ambient adapter replacement is authorized by this equivalence.
+
+Source observation for WAL: VARIANT vectors serialize through the ordinary
+physical STRUCT case, with outer row validity (fields 100/101) and the four
+canonical child vectors (field 103). There is no additional logical STRUCT
+envelope or checkpoint shredding metadata in this vector representation.
+Constant/dictionary vector framing and recursively serialized LIST entries still
+apply. Development storage v2 additionally changes VARCHAR/BLOB vector byte
+framing; readers must distinguish it from the release string-list format.
+Engineering implication: canonical logical decoding must preserve shared WAL
+depth/visit limits, selected validation, cancellation and exact payload tags.
+Implementing this codec does not authorize publication into an older checkpoint.
+Source: [vector serialization](../../../duckdb/src/common/types/vector.cpp).
+
+Sources: [canonical types](../../../duckdb/src/common/types.cpp),
+[VARIANT column storage](../../../duckdb/src/storage/table/variant_column_data.cpp),
+[iterators](../../../duckdb/src/common/types/variant/variant_iterator.cpp),
+[canonical builder](../../../duckdb/src/include/duckdb/common/types/variant/variant_builder.hpp),
+[JSON conversion](../../../duckdb/src/include/duckdb/function/cast/variant/json_to_variant.hpp).
 
 ## Verification requirements
 

@@ -1,0 +1,24 @@
+{
+  "workloads": [
+    {
+      "id": "g07_3b_from_first_filtered_aggregation_6_4m_row_visits",
+      "path": "test/performance/g07_from_first_process.test"
+    },
+    {
+      "id": "g07_3b_ctas_from_values_repeated_cycles",
+      "path": "test/performance/g07_from_first_ctas_process.test"
+    },
+    {
+      "id": "g06_1f_formatting_6_4m_row_visits",
+      "path": "test/performance/g06_formatting_process.test"
+    },
+    {
+      "id": "g06_2b_regex_replace_6_4m_row_visits",
+      "path": "test/performance/g06_regex_replace_process.test"
+    },
+    {
+      "id": "g06_2b_regex_extract_dynamic_6_4m_row_visits",
+      "path": "test/performance/g06_regex_extract_process.test"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE g06_1e_2a_reverse AS SELECT CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v FROM range(50000) t(i); CREATE TABLE g06_1e_2a_strlen AS SELECT i::VARCHAR || CASE i % 4 WHEN 0 THEN 'á👩🏽‍💻Z' WHEN 1 THEN '🇺🇳x' WHEN 2 THEN '♥️é' ELSE '' END AS v FROM range(50000) t(i); CREATE TABLE g06_1e_2a_regex AS SELECT i::VARCHAR || CASE i % 4 WHEN 0 THEN 'alpha' WHEN 1 THEN 'beta' WHEN 2 THEN 'gamma' ELSE 'delta' END AS haystack, CASE i % 4 WHEN 0 THEN 'alpha$' WHEN 1 THEN 'beta$' WHEN 2 THEN 'gamma$' ELSE 'delta$' END AS pattern FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "g06_1e_reverse_grapheme_length_low_cardinality_50k",
+      "sql": "SELECT sum(length_grapheme(reverse(v))) FROM g06_1e_2a_reverse",
+      "rows": 1,
+      "sum": "87500"
+    },
+    {
+      "name": "g06_1e_strlen_high_cardinality_50k",
+      "sql": "SELECT sum(strlen(v)) FROM g06_1e_2a_strlen",
+      "rows": 1,
+      "sum": "701390"
+    },
+    {
+      "name": "g06_2a_regexp_matches_constant_case_insensitive_filter_50k",
+      "sql": "SELECT count(*) FILTER (WHERE regexp_matches(haystack, 'ALPHA$', 'i')) FROM g06_1e_2a_regex",
+      "rows": 1,
+      "sum": "12500"
+    },
+    {
+      "name": "g06_2a_regexp_matches_dynamic_pattern_filter_50k",
+      "sql": "SELECT count(*) FILTER (WHERE regexp_matches(haystack, pattern)) FROM g06_1e_2a_regex",
+      "rows": 1,
+      "sum": "50000"
+    }
+  ]
+}

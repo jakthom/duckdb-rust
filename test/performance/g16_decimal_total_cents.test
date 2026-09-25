@@ -1,0 +1,12 @@
+# G16.3a.1 stored DECIMAL total-cents workload. The table uses the same
+# DECIMAL(12,2) physical domain as the native latency manifest at a substantial
+# row count so process CPU/RSS/I/O measurements retain the affected scan and
+# ungrouped SUM consumer.
+
+statement ok
+CREATE TABLE g16_decimal_total AS SELECT (i/100.0)::DECIMAL(12,2) AS d FROM range(1000000) t(i)
+
+query I
+SELECT (sum(d)*100)::BIGINT FROM g16_decimal_total
+----
+499999500000

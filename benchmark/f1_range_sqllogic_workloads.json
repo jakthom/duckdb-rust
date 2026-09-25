@@ -1,0 +1,12 @@
+{
+  "workloads": [
+    {
+      "id": "f1_range_scan_aggregate_rebind",
+      "path": "test/performance/f1_range_scan_process.test"
+    },
+    {
+      "id": "f1_range_early_limit_cleanup",
+      "path": "test/performance/f1_range_limit_process.test"
+    }
+  ]
+}

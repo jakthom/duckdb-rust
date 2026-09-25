@@ -1,0 +1,18 @@
+# G06.2b dynamic-pattern scalar extraction workload: 128 * 50k = 6.4m
+# stored-column row visits through the SQLLogic runner.
+statement ok
+CREATE TABLE g06_regex_extract_process AS
+SELECT i,
+       i::VARCHAR || '-' || CASE i % 4 WHEN 0 THEN 'alpha' WHEN 1 THEN 'beta' WHEN 2 THEN 'gamma' ELSE 'delta' END AS v,
+       CASE i % 4 WHEN 0 THEN '^([0-9]+)-alpha$' WHEN 1 THEN '^([0-9]+)-beta$' WHEN 2 THEN '^([0-9]+)-gamma$' ELSE '^([0-9]+)-delta$' END AS pattern
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query I
+SELECT sum(regexp_extract(v, pattern, 1)::BIGINT)
+FROM g06_regex_extract_process;
+----
+1249975000
+
+endloop

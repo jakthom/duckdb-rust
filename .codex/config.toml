@@ -1,0 +1,5 @@
+# Fallback only: explicit dispatch and audit gates are required by
+# AGENTS.md#agent-model-budget--durable-policy. Full-history forks inherit.
+[agents]
+default_subagent_model = "gpt-5.6-terra"
+default_subagent_reasoning_effort = "low"

@@ -1,0 +1,17 @@
+# G06.1h normalization workload: 128 * 50k = 6.4m stored rows through
+# strip_accents and pinned NFC composition.
+statement ok
+CREATE TABLE g06_normalization_process AS
+SELECT 'hännës mühlëïsën' AS accented, chr(101) || chr(769) AS decomposed
+FROM range(50000);
+
+loop iteration 0 128
+
+query II
+SELECT sum(length(strip_accents(accented))),
+       sum(length(nfc_normalize(decomposed)))
+FROM g06_normalization_process;
+----
+800000	50000
+
+endloop

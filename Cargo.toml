@@ -1,0 +1,269 @@
+[package]
+name = "duckdb-rust"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "An experimental, composable database engine implemented in Rust"
+
+[workspace]
+members = ["dev", "dev/macros"]
+default-members = ["."]
+exclude = ["third_party/sqlparser", "vendor/utf8proc-sys"]
+resolver = "3"
+
+[patch.crates-io]
+sqlparser = { path = "third_party/sqlparser" }
+utf8proc-sys = { path = "vendor/utf8proc-sys" }
+
+[features]
+default = []
+dev = ["dep:duckdb-dev"]
+
+[lib]
+name = "duckdb_rust"
+
+[[bin]]
+name = "duckdb-rust"
+path = "tools/shell/main.rs"
+
+[[bin]]
+name = "sqllogictest"
+path = "test/runner/main.rs"
+
+[[bin]]
+name = "duckdb-rust-benchmark"
+path = "benchmark/main.rs"
+
+[[bin]]
+name = "duckdb-rust-measure"
+path = "benchmark/native.rs"
+
+[[bin]]
+name = "g01-api-lifecycle"
+path = "benchmark/g01_api_lifecycle.rs"
+
+[[bin]]
+name = "duckdb-rust-test-worker"
+path = "test/runner/worker.rs"
+
+[[test]]
+name = "contracts"
+path = "test/contracts.rs"
+
+[[test]]
+name = "sql"
+path = "test/sql.rs"
+
+[[test]]
+name = "sqllogic_runner"
+path = "test/sqllogic_runner.rs"
+
+[[test]]
+name = "dev_tracing"
+path = "test/dev_tracing.rs"
+required-features = ["dev"]
+
+[[test]]
+name = "settings"
+path = "test/component/settings.rs"
+
+[[test]]
+name = "resources"
+path = "test/component/resources.rs"
+
+[[test]]
+name = "compatibility"
+path = "test/compatibility.rs"
+
+[[test]]
+name = "indexes"
+path = "test/component/indexes.rs"
+
+[[test]]
+name = "execution"
+path = "test/component/execution.rs"
+
+[[test]]
+name = "table_functions"
+path = "test/component/table_functions.rs"
+
+[[test]]
+name = "compression"
+path = "test/component/compression.rs"
+
+[[test]]
+name = "floating"
+path = "test/component/floating.rs"
+
+[[test]]
+name = "text_caseconvert"
+path = "test/component/text_caseconvert.rs"
+
+[[test]]
+name = "text_substring"
+path = "test/component/text_substring.rs"
+
+[[test]]
+name = "text_search"
+path = "test/component/text_search.rs"
+
+[[test]]
+name = "text_grapheme"
+path = "test/component/text_grapheme.rs"
+
+[[test]]
+name = "text_codepoint"
+path = "test/component/text_codepoint.rs"
+
+[[test]]
+name = "text_metrics_reverse"
+path = "test/component/text_metrics_reverse.rs"
+
+[[test]]
+name = "text_regex"
+path = "test/component/text_regex.rs"
+
+[[test]]
+name = "text_regex_value"
+path = "test/component/text_regex_value.rs"
+
+[[test]]
+name = "text_formatting"
+path = "test/component/text_formatting.rs"
+
+[[test]]
+name = "from_first"
+path = "test/component/from_first.rs"
+
+[[test]]
+name = "casts"
+path = "test/component/casts.rs"
+
+[[test]]
+name = "types"
+path = "test/component/types.rs"
+
+[[test]]
+name = "numeric"
+path = "test/component/numeric.rs"
+
+[[test]]
+name = "binary_scalars"
+path = "test/component/binary_scalars.rs"
+
+[[test]]
+name = "bit"
+path = "test/component/bit.rs"
+
+[[test]]
+name = "bignum"
+path = "test/component/bignum.rs"
+
+[[test]]
+name = "enumeration"
+path = "test/component/enumeration.rs"
+
+[[test]]
+name = "nested"
+path = "test/component/nested.rs"
+
+[[test]]
+name = "optimizer"
+path = "test/component/optimizer.rs"
+
+[[test]]
+name = "dates"
+path = "test/component/dates.rs"
+
+[[test]]
+name = "temporal"
+path = "test/component/temporal.rs"
+
+[[test]]
+name = "operators"
+path = "test/component/operators.rs"
+
+[[test]]
+name = "recovery"
+path = "test/component/recovery.rs"
+
+[[test]]
+name = "logging"
+path = "test/component/logging.rs"
+
+[[test]]
+name = "checkpointing"
+path = "test/component/checkpointing.rs"
+
+[[test]]
+name = "subqueries"
+path = "test/component/subqueries.rs"
+
+[[test]]
+name = "recursive"
+path = "test/component/recursive.rs"
+
+[[test]]
+name = "grouping"
+path = "test/component/grouping.rs"
+
+[[test]]
+name = "alter"
+path = "test/component/alter.rs"
+
+[[test]]
+name = "adversarial"
+path = "test/component/adversarial.rs"
+
+[[test]]
+name = "views"
+path = "test/component/views.rs"
+
+[dependencies]
+duckdb-dev = { path = "dev", optional = true }
+serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_json = { version = "1.0.150", features = ["arbitrary_precision"] }
+sha2 = "0.10.9"
+sqlparser = { version = "0.62.0", default-features = false, features = ["std"] }
+thiserror = "2.0.18"
+crc32fast = "1.5.0"
+flate2 = "1.1.9"
+utf8proc = "0.1.2"
+utf8proc-sys = "0.1.2"
+libm = "0.2.16"
+memchr = "2.8.1"
+# Both pinned DuckDB references vendor RE2 2023-02-01 and its Unicode 15.0
+# tables. Keep the complete Rust regex stack on the last Unicode-15 releases so
+# character properties and case folding cannot drift from the parity oracle.
+regex = "=1.10.6"
+regex-automata = "=0.4.7"
+regex-syntax = "=0.8.4"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.dev-trace]
+inherits = "release"
+debug = true
+debug-assertions = true
+lto = false
+codegen-units = 16
+
+[lints.rust]
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[package.metadata.kani.flags]
+# Harnesses with loops must declare and justify their own unwind bounds.
+default-unwind = "1"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"

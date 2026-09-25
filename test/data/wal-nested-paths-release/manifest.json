@@ -1,0 +1,215 @@
+{
+  "writer": "v1.5.5 (Variegata) d8cdaa33fd",
+  "reference_identity": {
+    "target": "release",
+    "required_version": "1.5.5",
+    "required_revision": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+    "reported_source_id": "d8cdaa33fd",
+    "version": "v1.5.5 (Variegata) d8cdaa33fd",
+    "path": "/Users/jacobthomas/code/ddb/duckdb-v1.5.5/build/rewrite-reference/duckdb",
+    "sha256": "145afb035aa126da7f455290a1068c9870cbed838f5a649a601aa11201905aa9"
+  },
+  "cases": {
+    "nested_paths": {
+      "setup": "CREATE TABLE t(i INTEGER,s STRUCT(a INTEGER,b STRUCT(x VARCHAR,d DECIMAL(12,2))));\n        INSERT INTO t VALUES(0,{'a':1,'b':{'x':'old','d':1.25}}),(1,NULL),(2,{'a':NULL,'b':NULL}); CHECKPOINT;",
+      "transactions": [
+        "UPDATE t SET s={'a':7,'b':{'x':'changed','d':2.50}} WHERE i=0;",
+        "BEGIN; UPDATE t SET s={'a':8,'b':{'x':'materialized','d':3.75}} WHERE i=1; UPDATE t SET s=NULL WHERE i=0; COMMIT;",
+        "UPDATE t SET s={'a':NULL,'b':{'x':'nested','d':NULL}} WHERE i=2;",
+        "UPDATE t SET s={'a':7,'b':{'x':'changed','d':2.50}} WHERE i=0;",
+        "BEGIN; UPDATE t SET s=NULL WHERE i=1; UPDATE t SET s={'a':8,'b':{'x':'materialized','d':3.75}} WHERE i=1; COMMIT;"
+      ],
+      "query": "SELECT i,s::VARCHAR s FROM t ORDER BY i",
+      "checkpoint_sha256": "b130bf742eeeee0061f3663fbd54840f86b389753558f77e1749e275ca24bf3c",
+      "wal_sha256": "14c404534b1d145479846618738c1c3b3a1ba9947689e4f2726fa38a8af0e28d",
+      "states": [
+        {
+          "end": 0,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'a': 1, 'b': {'x': old, 'd': 1.25}}"
+            },
+            {
+              "i": 1,
+              "s": null
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': NULL}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 316,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'a': 7, 'b': {'x': changed, 'd': 2.50}}"
+            },
+            {
+              "i": 1,
+              "s": null
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': NULL}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 1105,
+          "rows": [
+            {
+              "i": 0,
+              "s": null
+            },
+            {
+              "i": 1,
+              "s": "{'a': 8, 'b': {'x': materialized, 'd': 3.75}}"
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': NULL}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 1670,
+          "rows": [
+            {
+              "i": 0,
+              "s": null
+            },
+            {
+              "i": 1,
+              "s": "{'a': 8, 'b': {'x': materialized, 'd': 3.75}}"
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': {'x': nested, 'd': NULL}}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 2376,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'a': 7, 'b': {'x': changed, 'd': 2.50}}"
+            },
+            {
+              "i": 1,
+              "s": "{'a': 8, 'b': {'x': materialized, 'd': 3.75}}"
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': {'x': nested, 'd': NULL}}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        },
+        {
+          "end": 3087,
+          "rows": [
+            {
+              "i": 0,
+              "s": "{'a': 7, 'b': {'x': changed, 'd': 2.50}}"
+            },
+            {
+              "i": 1,
+              "s": "{'a': 8, 'b': {'x': materialized, 'd': 3.75}}"
+            },
+            {
+              "i": 2,
+              "s": "{'a': NULL, 'b': {'x': nested, 'd': NULL}}"
+            }
+          ],
+          "identities": [
+            {
+              "row_id": 0,
+              "i": 0
+            },
+            {
+              "row_id": 1,
+              "i": 1
+            },
+            {
+              "row_id": 2,
+              "i": 2
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

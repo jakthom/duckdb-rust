@@ -1,0 +1,21 @@
+# G06.1a Unicode case-conversion workload. Keep the two input populations
+# balanced: MotörHead exercises ordinary multi-byte casing, and sharp-s makes
+# utf8proc's one-code-point uppercase mapping observable. The dotted-I term
+# separately detects lower-case expansion versus the pinned simple mapping.
+
+statement ok
+CREATE TABLE g06_caseconvert AS
+SELECT CASE WHEN i % 2 = 0 THEN 'MotörHead' ELSE 'ß' END AS value
+FROM range(50000) values(i)
+
+query I
+SELECT sum(length(lower(value))) + sum(length(upper(value))) + sum(length(lcase(value))) + sum(length(ucase(value))) + length(lower('İ')) FROM g06_caseconvert
+----
+1000001
+
+# These code points gained simple mappings after the pins' Unicode 15.1 table.
+# Exact pinning leaves them unchanged through both canonical names and aliases.
+query TTTT
+SELECT upper('ƛɤᲉꟋ𐵐𖺼'), lower('ƛɤᲉꟋ𐵐𖺼'), ucase('ƛɤᲉꟋ𐵐𖺼'), lcase('ƛɤᲉꟋ𐵐𖺼')
+----
+ƛɤᲉꟋ𐵐𖺼	ƛɤᲉꟋ𐵐𖺼	ƛɤᲉꟋ𐵐𖺼	ƛɤᲉꟋ𐵐𖺼

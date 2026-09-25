@@ -1,0 +1,45 @@
+# Process-level resource workload for the native grouping shapes. Each outer
+# checksum consumes SUM, COUNT, and GROUPING so the inner aggregates remain
+# observable to the optimizer.
+statement ok
+CREATE TABLE t AS SELECT i FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query IIII
+SELECT count(*), sum(sum_value), sum(count_value), sum(grouping_value)
+FROM (
+    SELECT sum(i) AS sum_value,
+           count(*) AS count_value,
+           grouping(i%64) AS grouping_value
+    FROM t
+    GROUP BY i%64
+) grouped;
+----
+64	1249975000	50000	0
+
+query IIII
+SELECT count(*), sum(sum_value), sum(count_value), sum(grouping_value)
+FROM (
+    SELECT sum(i) AS sum_value,
+           count(*) AS count_value,
+           grouping(i%64) AS grouping_value
+    FROM t
+    GROUP BY ROLLUP(i%64)
+) rollup;
+----
+65	2499950000	100000	1
+
+query IIII
+SELECT count(*), sum(sum_value), sum(count_value), sum(grouping_value)
+FROM (
+    SELECT sum(i) AS sum_value,
+           count(*) AS count_value,
+           grouping(i%64, i%8) AS grouping_value
+    FROM t
+    GROUP BY CUBE(i%64, i%8)
+) cube;
+----
+137	4999900000	200000	83
+
+endloop

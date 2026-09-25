@@ -1,0 +1,19 @@
+# G06.2c constant/dynamic list extraction workload: 128 * 50k = 6.4m
+# stored rows through LIST(VARCHAR) construction and list_position consumption.
+statement ok
+CREATE TABLE g06_regex_extract_all_process AS
+SELECT i,
+       i::VARCHAR || '-alpha ' || (i + 1)::VARCHAR || '-beta' AS v,
+       CASE i % 2 WHEN 0 THEN '([0-9]+)' ELSE '([0-9]+)-[a-z]+' END AS pattern
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query II
+SELECT sum(list_position(regexp_extract_all(v, '([0-9]+)', 1), i::VARCHAR)),
+       sum(list_position(regexp_extract_all(v, pattern, 1), i::VARCHAR))
+FROM g06_regex_extract_all_process;
+----
+50000	50000
+
+endloop

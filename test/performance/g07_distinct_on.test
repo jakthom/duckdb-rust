@@ -1,0 +1,18 @@
+# G07.3a Gate P: 100k rows, 10k DISTINCT ON keys, deterministic survivor.
+# Each key has ten rows with the same v.  The p ascending tie-breaker chooses
+# p=k; sum(p) distinguishes it from every later duplicate generation.
+
+statement ok
+CREATE TABLE g07_distinct_on AS
+SELECT range % 10000 AS k, (range * 37) % 1000 AS v, range AS p
+FROM range(100000)
+
+query IIII
+SELECT count(*), sum(k), sum(v), sum(p)
+FROM (
+    SELECT DISTINCT ON (k) k, v, p
+    FROM g07_distinct_on
+    ORDER BY k, v DESC, p
+)
+----
+10000	49995000	4995000	49995000

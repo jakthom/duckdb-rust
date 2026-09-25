@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "source_ids": {
+        "development": "test/api/test_api.cpp:73:1",
+        "release": "test/api/test_api.cpp:70:1"
+      },
+      "rust_test": "transactional_ddl_constraints_and_abandonment",
+      "invariant_category": "destruction",
+      "public_api_evidence": "test/contracts.rs uses Database::memory, Database::connect, Connection::execute, and Connection::query; its abandoned connection drops with an open transaction and a surviving connection reads the pre-delete state."
+    }
+  ],
+  "expected_mapped": 1,
+  "expected_unmapped": {"development": 10570, "release": 5367}
+}

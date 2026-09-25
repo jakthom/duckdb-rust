@@ -1,0 +1,134 @@
+# Merged SQL keys retain qualified source identities and ordinary row schemas.
+query III
+SELECT k,a.k,b.k FROM (VALUES (1),(2),(NULL))a(k) FULL JOIN (VALUES(2),(3),(NULL))b(k) USING(k) ORDER BY 1 NULLS LAST,2 NULLS LAST,3 NULLS LAST
+----
+1	1	NULL
+2	2	2
+3	NULL	3
+NULL	NULL	NULL
+NULL	NULL	NULL
+
+query TIIT
+SELECT * FROM (VALUES ('left',1,9))a(v,k,z) JOIN (VALUES(1,'right'))b(k,w) USING(k)
+----
+left	1	9	right
+
+query ITIT
+SELECT a.*,b.* FROM (VALUES(1,'left'))a(k,v) FULL JOIN (VALUES(2,'right'))b(k,w) USING(k) ORDER BY coalesce(a.k,b.k)
+----
+1	left	NULL	NULL
+NULL	NULL	2	right
+
+query IIII
+SELECT k,a.k,b.k,c.k FROM (VALUES(1))a(k) FULL JOIN (VALUES(2))b(k) USING(k) FULL JOIN (VALUES(2),(3))c(k) USING(k) ORDER BY k
+----
+1	1	NULL	NULL
+2	NULL	2	2
+3	NULL	NULL	3
+
+query I
+SELECT * FROM (VALUES(1))a(k) JOIN (VALUES(1))b(k) USING(k,k)
+----
+1
+
+query III
+SELECT * FROM (VALUES(1,2))a(k,v) NATURAL JOIN (VALUES(1,3),(2,4))b(k,w)
+----
+1	2	3
+
+query III
+SELECT * FROM (VALUES(1,2))a(k,v) NATURAL LEFT JOIN (VALUES(2,3))b(k,w)
+----
+1	2	NULL
+
+query III
+SELECT * FROM (VALUES(1,2))a(k,v) NATURAL RIGHT JOIN (VALUES(2,3))b(k,w)
+----
+2	NULL	3
+
+query III
+SELECT * FROM (VALUES(1,2))a(k,v) NATURAL FULL JOIN (VALUES(2,3))b(k,w) ORDER BY k
+----
+1	2	NULL
+2	NULL	3
+
+query I
+SELECT * FROM (VALUES(1),(2),(NULL))a(k) SEMI JOIN (VALUES(2),(2),(NULL))b(k) USING(k)
+----
+2
+
+query I
+SELECT * FROM (VALUES(1),(2),(NULL))a(k) ANTI JOIN (VALUES(2),(NULL))b(k) USING(k) ORDER BY k
+----
+1
+NULL
+
+query II
+SELECT * FROM (VALUES(1))a(k) JOIN (VALUES(1))b(k) USING(k) JOIN (VALUES(9))c(k) ON true
+----
+1	9
+
+query I
+SELECT k FROM (VALUES(1))a(k) JOIN (VALUES(1))b(k) USING(k) JOIN (VALUES(9))c(k) ON true
+----
+1
+
+query II
+SELECT k,count(*) FROM (VALUES(1),(2))a(k) FULL JOIN (VALUES(2),(3))b(k) USING(k) GROUP BY k ORDER BY k
+----
+1	1
+2	1
+3	1
+
+query II
+SELECT k,(SELECT k+10) FROM (VALUES(1))a(k) FULL JOIN (VALUES(2))b(k) USING(k) GROUP BY k ORDER BY k
+----
+1	11
+2	12
+
+query II
+SELECT k,(SELECT a.k) FROM (VALUES(1))a(k) FULL JOIN (VALUES(2))b(k) USING(k) ORDER BY k
+----
+1	1
+2	NULL
+
+query II
+SELECT * FROM (VALUES(1))a(k) FULL JOIN (VALUES(2))b(k) USING(k) JOIN (VALUES(9))c(k) ON true GROUP BY 1,2 ORDER BY 1
+----
+1	9
+2	9
+
+query I
+SELECT j.x FROM (SELECT * FROM (VALUES(1))a(k) FULL JOIN (VALUES(2))b(k) USING(k))j(x) ORDER BY x
+----
+1
+2
+
+query III
+SELECT * FROM (VALUES(1,2))a(k,v) JOIN ((VALUES(1))b(k) JOIN (VALUES(1,3))c(k,w) USING(k)) USING(k)
+----
+1	2	3
+
+statement error
+SELECT * FROM (VALUES(1))a(x) NATURAL JOIN (VALUES(1))b(y)
+
+statement error
+SELECT b.k FROM (VALUES(1))a(k) SEMI JOIN (VALUES(1))b(k) USING(k)
+
+statement error
+SELECT * FROM (VALUES(1))a(x) JOIN (VALUES(1))b(k) USING(k)
+
+statement error
+SELECT * FROM (VALUES(1))a(k) JOIN (VALUES(1))b(x) USING(k)
+
+statement error
+SELECT * FROM (VALUES(1))a(k) JOIN (VALUES(1))b(k) ON true JOIN (VALUES(1))c(k) USING(k)
+
+statement error
+SELECT * FROM (VALUES(1))a(k) JOIN ((VALUES(1))b(k) JOIN (VALUES(1))c(k) ON true) USING(k)
+
+statement error
+SELECT k FROM ((VALUES(1))a(k) JOIN (VALUES(1))b(k) USING(k)), ((VALUES(2))c(k) JOIN (VALUES(2))d(k) USING(k))
+
+statement error
+SELECT k,(SELECT a.k) FROM (VALUES(1))a(k) FULL JOIN (VALUES(2))b(k) USING(k) GROUP BY k

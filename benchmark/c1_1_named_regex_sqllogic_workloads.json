@@ -1,0 +1,20 @@
+{
+  "workloads": [
+    {
+      "id": "c1_1_named_regex_struct_6_4m_row_visits",
+      "path": "test/performance/c1_1_named_regex_struct_process.test"
+    },
+    {
+      "id": "c1_1_named_regex_list_struct_6_4m_row_visits",
+      "path": "test/performance/c1_1_named_regex_process.test"
+    },
+    {
+      "id": "c1_1_regexp_extract_all_scalar_group_consumer_6_4m_row_visits",
+      "path": "test/performance/g06_regex_extract_all_process.test"
+    },
+    {
+      "id": "c1_1_regexp_replace_consumer_6_4m_row_visits",
+      "path": "test/performance/g06_regex_replace_process.test"
+    }
+  ]
+}

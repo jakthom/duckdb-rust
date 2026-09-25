@@ -1,0 +1,17 @@
+# G06.2a process-level per-row-pattern regex filter: 128 * 50k = 6.4m
+# stored-column row-visits through the SQLLogic runner.
+statement ok
+CREATE TABLE g06_regex_dynamic_process AS
+SELECT i::VARCHAR || CASE i % 4 WHEN 0 THEN 'alpha' WHEN 1 THEN 'beta' WHEN 2 THEN 'gamma' ELSE 'delta' END AS haystack,
+       CASE i % 4 WHEN 0 THEN 'alpha$' WHEN 1 THEN 'beta$' WHEN 2 THEN 'gamma$' ELSE 'delta$' END AS pattern
+FROM range(50000) t(i);
+
+loop iteration 0 128
+
+query I
+SELECT count(*) FILTER (WHERE regexp_matches(haystack, pattern))
+FROM g06_regex_dynamic_process;
+----
+50000
+
+endloop

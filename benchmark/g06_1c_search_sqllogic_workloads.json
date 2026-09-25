@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g06_1c_search_aggregate_consumers_6_4m_row_visits",
+      "path": "test/performance/g06_search_process.test"
+    }
+  ]
+}

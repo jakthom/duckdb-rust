@@ -1,0 +1,15 @@
+# G16.3a.2 ordinary ungrouped aggregation resource workload. This process-level
+# case is intentionally distinct from the 50,000-row prepared native latency case.
+
+statement ok
+CREATE TABLE g16_ordinary_sum AS SELECT i FROM range(1000000) t(i)
+
+query I
+SELECT sum(i) FROM g16_ordinary_sum
+----
+499999500000
+
+query I
+SELECT count(*) FROM g16_ordinary_sum
+----
+1000000

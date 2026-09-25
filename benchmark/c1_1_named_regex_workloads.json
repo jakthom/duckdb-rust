@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE c1_1_named_regex AS SELECT i, i::VARCHAR || '-alpha ' || (i + 1)::VARCHAR || '-beta' AS v, CASE i % 2 WHEN 0 THEN '([0-9]+)' ELSE '([0-9]+)-[a-z]+' END AS pattern FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "c1_1_regexp_extract_named_struct_50k",
+      "sql": "SELECT sum(CASE WHEN x IS NOT DISTINCT FROM struct_pack(number := i::VARCHAR, word := 'alpha') THEN 1 ELSE 0 END) FROM (SELECT i, regexp_extract(v, '([0-9]+)-([a-z]+)', ['number','word']) AS x FROM c1_1_named_regex) t",
+      "rows": 1,
+      "sum": "50000"
+    },
+    {
+      "name": "c1_1_regexp_extract_all_named_list_struct_50k",
+      "sql": "SELECT sum(CASE WHEN x IS NOT DISTINCT FROM [struct_pack(number := i::VARCHAR, word := 'alpha'), struct_pack(number := (i + 1)::VARCHAR, word := 'beta')] THEN 1 ELSE 0 END) FROM (SELECT i, regexp_extract_all(v, '([0-9]+)-([a-z]+)', ['number','word']) AS x FROM c1_1_named_regex) t",
+      "rows": 1,
+      "sum": "50000"
+    },
+    {
+      "name": "c1_1_regexp_extract_all_scalar_group_consumer_50k",
+      "sql": "SELECT sum(list_position(regexp_extract_all(v, '([0-9]+)', 1), i::VARCHAR)) FROM c1_1_named_regex",
+      "rows": 1,
+      "sum": "50000"
+    },
+    {
+      "name": "c1_1_regexp_replace_consumer_50k",
+      "sql": "SELECT sum(length(regexp_replace(v, '[0-9]', 'X', 'g'))) FROM c1_1_named_regex",
+      "rows": 1,
+      "sum": "1077784"
+    },
+    {
+      "name": "c1_1_group_by_all_dependency_50k",
+      "sql": "SELECT count(*) FROM (SELECT i % 32, sum(i) FROM c1_1_named_regex GROUP BY ALL) t",
+      "rows": 1,
+      "sum": "32"
+    },
+    {
+      "name": "c1_1_explicit_group_consumer_50k",
+      "sql": "SELECT count(*) FROM (SELECT i % 32, sum(i) FROM c1_1_named_regex GROUP BY i % 32) t",
+      "rows": 1,
+      "sum": "32"
+    }
+  ]
+}

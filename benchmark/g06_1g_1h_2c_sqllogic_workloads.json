@@ -1,0 +1,24 @@
+{
+  "workloads": [
+    {
+      "id": "g06_1g_escaped_literal_repeated_parse_bind",
+      "path": "test/performance/g06_escaped_literal_process.test"
+    },
+    {
+      "id": "g06_1h_normalization_6_4m_row_visits",
+      "path": "test/performance/g06_normalization_process.test"
+    },
+    {
+      "id": "g06_2c_regexp_extract_all_6_4m_row_visits",
+      "path": "test/performance/g06_regex_extract_all_process.test"
+    },
+    {
+      "id": "g06_2b_regexp_extract_dynamic_consumer_6_4m_row_visits",
+      "path": "test/performance/g06_regex_extract_process.test"
+    },
+    {
+      "id": "g06_2b_regexp_replace_consumer_6_4m_row_visits",
+      "path": "test/performance/g06_regex_replace_process.test"
+    }
+  ]
+}

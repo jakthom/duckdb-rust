@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "grouping_grouped_rollup_cube_19_2m_row_visits",
+      "path": "test/performance/grouping_process.test"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+# G11.3a source-equivalent ADD COLUMN resource workload.
+#
+# Keep one 50,000-row table resident, then roll back each repeated ADD so table
+# construction does not dominate the process-level CPU/RSS/I/O observation and
+# DROP COLUMN does not enter the repeated operation. The final committed ADD and
+# query verify the same literal default and row count as the focused latency gate.
+
+statement ok
+CREATE TABLE g11_add_column AS SELECT i::BIGINT AS id FROM range(50000) values(i)
+
+loop iteration 0 128
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+ALTER TABLE g11_add_column ADD COLUMN added BIGINT DEFAULT 7
+
+statement ok
+ROLLBACK
+
+endloop
+
+statement ok
+ALTER TABLE g11_add_column ADD COLUMN added BIGINT DEFAULT 7
+
+query IIIII
+SELECT count(*), count(added), min(added), max(added), sum(added) FROM g11_add_column
+----
+50000	50000	7	7	350000

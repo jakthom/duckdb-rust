@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "b1_view_durable_native",
+  "rows": 10000,
+  "checksum": 49995000,
+  "samples": 21,
+  "warmups": 3,
+  "metrics": ["wall_ns", "cpu_ns", "max_rss_bytes", "block_input", "block_output", "throughput"],
+  "seed_table": "b1_seed",
+  "column": "i",
+  "configurations": ["checkpoint", "wal"],
+  "workloads": ["view_cycle", "direct_table_publication"]
+}

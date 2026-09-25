@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE n AS SELECT i, i::UBIGINT AS u, (i/100.0)::DECIMAL(12,2) AS d FROM range(50000) t(i)",
+  "workloads": [
+    {"name":"unsigned_scan","sql":"SELECT u FROM n","rows":50000,"sum":"1249975000"},
+    {"name":"unsigned_filter","sql":"SELECT u FROM n WHERE u%2=0","rows":25000,"sum":"624975000"},
+    {"name":"unsigned_sum","sql":"SELECT sum(u) FROM n","rows":1,"sum":"1249975000"},
+    {"name":"decimal_filter","sql":"SELECT count(*) FROM n WHERE d>=250.00","rows":1,"sum":"25000"},
+    {"name":"decimal_total_cents","sql":"SELECT (sum(d)*100)::BIGINT FROM n","rows":1,"sum":"1249975000"},
+    {"name":"decimal_grouped_cents","sql":"SELECT (u%128)::BIGINT,(sum(d)*100)::BIGINT FROM n GROUP BY u%128","rows":128,"sum":"1249983128"},
+    {"name":"decimal_equality_join","sql":"SELECT count(*) FROM n a JOIN n b ON a.d=b.d","rows":1,"sum":"50000"},
+    {"name":"decimal_window_cents","sql":"SELECT (sum(d) OVER (PARTITION BY u%128)*100)::BIGINT FROM n","rows":50000,"sum":"488272234360"}
+  ]
+}

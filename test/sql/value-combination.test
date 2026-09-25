@@ -1,0 +1,120 @@
+# Common-type combination is distinct from implicit function overloading.
+# Pinned development types.cpp and bind_case_expression.cpp retain conversions
+# after common selection, including BOOLEAN/integral combinations.
+
+statement ok
+CREATE TABLE t(id INTEGER PRIMARY KEY, b BOOLEAN)
+
+statement ok
+INSERT INTO t VALUES (1,true),(2,false),(3,NULL)
+
+query IT
+SELECT CASE WHEN id<3 THEN b ELSE 7 END, typeof(CASE WHEN id<3 THEN b ELSE 7 END) FROM t ORDER BY id
+----
+1	INTEGER
+0	INTEGER
+7	INTEGER
+
+query IT
+SELECT CASE WHEN id=3 THEN 7 ELSE b END, typeof(CASE WHEN id=3 THEN 7 ELSE b END) FROM t ORDER BY id
+----
+1	INTEGER
+0	INTEGER
+7	INTEGER
+
+query IT
+SELECT CASE WHEN id<3 THEN b ELSE 7::UTINYINT END, typeof(CASE WHEN id<3 THEN b ELSE 7::UTINYINT END) FROM t ORDER BY id
+----
+1	UTINYINT
+0	UTINYINT
+7	UTINYINT
+
+query IT
+SELECT CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END, typeof(CASE WHEN id=3 THEN 7::UHUGEINT ELSE b END) FROM t ORDER BY id
+----
+1	UHUGEINT
+0	UHUGEINT
+7	UHUGEINT
+
+query I
+SELECT x FROM (VALUES (true),(false),(2),(NULL)) v(x) ORDER BY x NULLS LAST
+----
+0
+1
+2
+NULL
+
+query I
+SELECT b AS x FROM t UNION SELECT 2 ORDER BY x NULLS LAST
+----
+0
+1
+2
+NULL
+
+query I
+SELECT 2 AS x UNION ALL SELECT b FROM t ORDER BY x NULLS LAST
+----
+0
+1
+2
+NULL
+
+query I
+SELECT b AS x FROM t INTERSECT SELECT 1 ORDER BY x
+----
+1
+
+query I
+SELECT b AS x FROM t EXCEPT SELECT 1 ORDER BY x NULLS LAST
+----
+0
+NULL
+
+statement ok
+CREATE TABLE combined AS SELECT CASE WHEN id<3 THEN b ELSE 7 END AS x FROM t
+
+query II
+SELECT x,sum(x) OVER (ORDER BY x) FROM combined ORDER BY x
+----
+0	0
+1	1
+7	8
+
+query II
+SELECT c.x,count(*) FROM combined c JOIN t ON c.x=CASE WHEN t.id<3 THEN t.b ELSE 7 END GROUP BY c.x ORDER BY c.x
+----
+0	1
+1	1
+7	1
+
+statement ok
+BEGIN
+
+statement ok
+UPDATE combined SET x=9 WHERE x=1
+
+statement ok
+ROLLBACK
+
+query I
+SELECT x FROM combined ORDER BY x
+----
+0
+1
+7
+
+statement error
+SELECT CASE WHEN true THEN true ELSE 1.0::DOUBLE END
+----
+Binder Error
+
+statement error
+SELECT CASE WHEN true THEN 1.0::DECIMAL(2,1) ELSE false END
+----
+Binder Error
+
+statement error
+SELECT abs(b) FROM t
+----
+Binder Error

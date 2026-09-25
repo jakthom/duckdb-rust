@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "rows": 50000,
+  "threads": 1,
+  "setup": "CREATE TABLE n AS SELECT i, i::UBIGINT AS u, (i/100.0)::DECIMAL(12,2) AS d FROM range(50000) t(i)",
+  "workloads": [
+    {
+      "name": "decimal_total_cents",
+      "sql": "SELECT (sum(d)*100)::BIGINT FROM n",
+      "rows": 1,
+      "sum": "1249975000"
+    }
+  ]
+}

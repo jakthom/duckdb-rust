@@ -1,0 +1,187 @@
+# Default-configuration replay of unchanged assertions extracted from:
+# development 99063af test/sql/aggregate/aggregates/test_string_agg.test
+# SHA-256 4daef48d48ad105c139d4d121f405f74481170c68e0123d29b43ca4d3d540329
+# release d8cdaa33 test/sql/aggregate/aggregates/test_string_agg.test
+# SHA-256 b05ba3a811ddf93f0775de8bd48089d999e2f3bac66c61e639261f3bad55ed34
+# development grouped DISTINCT SHA-256
+# ebfc970139ef0af433b803ae95009a116e02f88fab6c1836543498eee67e1eba
+# release grouped DISTINCT SHA-256
+# a0458aa9c90a1a4b761d7edd90c349860fcacb3c8c63793bbce29aa41f8c249b
+# External/spill, parallel, correlation, list_position, random, and
+# changed-order-setting modes remain separate prerequisites and are not replayed
+# by this default-mode fixture.
+
+statement ok
+SET default_null_order='nulls_first';
+
+statement error
+SELECT STRING_AGG()
+----
+
+statement error
+SELECT STRING_AGG('a', 'b', 'c')
+----
+
+statement error
+SELECT STRING_AGG(STRING_AGG('a',','))
+----
+
+query T
+SELECT STRING_AGG('a',',')
+----
+a
+
+query TTTT
+SELECT STRING_AGG('a',','), STRING_AGG(NULL,','), STRING_AGG('a', NULL), STRING_AGG(NULL,NULL)
+----
+a
+NULL
+NULL
+NULL
+
+statement ok
+CREATE TABLE strings(g INTEGER, x VARCHAR, y VARCHAR);
+
+statement ok
+INSERT INTO strings VALUES (1,'a','/'), (1,'b','-'), (2,'i','/'), (2,NULL,'-'), (2,'j','+'), (3,'p','/'), (4,'x','/'), (4,'y','-'), (4,'z','+')
+
+statement error
+SELECT STRING_AGG(x,','), STRING_AGG(x,y) FROM strings
+----
+
+query II
+SELECT g, STRING_AGG(x,'|') FROM strings GROUP BY g ORDER BY g
+----
+1	a|b
+2	i|j
+3	p
+4	x|y|z
+
+query T
+SELECT STRING_AGG(x,',') FROM strings WHERE g > 100
+----
+NULL
+
+statement error
+SELECT STRING_AGG(1, 2)
+----
+No function matches
+
+query T
+SELECT GROUP_CONCAT('a', ',')
+----
+a
+
+query T
+SELECT GROUP_CONCAT('a')
+----
+a
+
+query TT
+SELECT g, GROUP_CONCAT(x) FROM strings GROUP BY g ORDER BY g
+----
+1	a,b
+2	i,j
+3	p
+4	x,y,z
+
+query TT
+SELECT STRING_AGG(x ORDER BY x ASC), STRING_AGG(x, '|' ORDER BY x ASC) FROM strings
+----
+a,b,i,j,p,x,y,z
+a|b|i|j|p|x|y|z
+
+query TT
+SELECT STRING_AGG(x ORDER BY x DESC), STRING_AGG(x,'|' ORDER BY x DESC) FROM strings
+----
+z,y,x,p,j,i,b,a
+z|y|x|p|j|i|b|a
+
+query III
+SELECT g, STRING_AGG(x ORDER BY x ASC), STRING_AGG(x, '|' ORDER BY x ASC) FROM strings GROUP BY g ORDER BY 1
+----
+1	a,b	a|b
+2	i,j	i|j
+3	p	p
+4	x,y,z	x|y|z
+
+query III
+SELECT g, STRING_AGG(x ORDER BY x DESC), STRING_AGG(x, '|' ORDER BY x DESC) FROM strings GROUP BY g ORDER BY 1
+----
+1	b,a	b|a
+2	j,i	j|i
+3	p	p
+4	z,y,x	z|y|x
+
+statement error
+SELECT g, STRING_AGG(x, y ORDER BY x ASC) FROM strings GROUP BY g ORDER BY 1
+----
+
+statement error
+SELECT g, STRING_AGG(x, y ORDER BY x DESC) FROM strings GROUP BY g ORDER BY 1
+----
+
+query I
+SELECT STRING_AGG(g::VARCHAR, ',' ORDER BY CONCAT(x, y) ASC) FROM strings ORDER BY 1
+----
+2,1,1,2,2,3,4,4,4
+
+query I
+SELECT STRING_AGG(g::VARCHAR, ',' ORDER BY x, y) FROM strings ORDER BY 1
+----
+2,1,1,2,2,3,4,4,4
+
+query II
+SELECT STRING_AGG(x, ',' ORDER BY x DESC), STRING_AGG(x, ',' ORDER BY x ASC) FROM strings;
+----
+z,y,x,p,j,i,b,a	a,b,i,j,p,x,y,z
+
+query II
+SELECT y, STRING_AGG(x, ',' ORDER BY x DESC) FILTER (WHERE g < 3)
+FROM strings
+GROUP BY y
+ORDER BY 1
+----
++	j
+-	b
+/	i,a
+
+statement error
+SELECT g, STRING_AGG(DISTINCT y, ',' ORDER BY x DESC) FILTER (WHERE g < 4)
+FROM strings
+GROUP BY g
+ORDER BY 1
+----
+Binder Error: In a DISTINCT aggregate, ORDER BY expressions must appear in the argument list
+
+# Default serial replay from grouped DISTINCT source. Parallel verification and
+# the enabled side of the order_by_non_integer_literal setting remain open.
+query II
+SELECT g, STRING_AGG(DISTINCT y, ',' ORDER BY y DESC) FILTER (WHERE g < 4)
+FROM strings
+GROUP BY g
+ORDER BY 1
+----
+1	/,-
+2	/,-,+
+3	/
+4	NULL
+
+query IIII
+SELECT g, count(y), STRING_AGG(DISTINCT y, ',' ORDER BY y DESC) FILTER (WHERE g < 4), sum(1)
+FROM strings
+GROUP BY g
+ORDER BY 1
+----
+1	2	/,-	2
+2	3	/,-,+	3
+3	1	/	1
+4	3	NULL	3
+
+statement error
+SELECT g, STRING_AGG(DISTINCT y ORDER BY y, '_' ) FILTER (WHERE g < 4)
+FROM strings
+GROUP BY g
+ORDER BY 1
+----
+ORDER BY non-integer literal has no effect

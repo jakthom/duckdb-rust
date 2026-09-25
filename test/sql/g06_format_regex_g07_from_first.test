@@ -1,0 +1,44 @@
+# G06.1f/G06.2b/G07.3b public composition coverage. Detailed binding,
+# encoding, error-order and cancellation cases live in the focused targets.
+statement ok
+CREATE TABLE g07_from_first_local AS
+FROM VALUES (2, 'beta'), (1, 'alpha'), (3, 'gamma') rows(i, v);
+
+query IT rowsort
+FROM g07_from_first_local
+WHERE i >= 2
+----
+2	beta
+3	gamma
+
+query IT
+FROM g07_from_first_local
+SELECT i, v
+WHERE i = 1;
+----
+1	alpha
+
+query TT
+SELECT printf('%04d:%s', 7, 'a' || chr(0) || 'b'),
+       format('{}:{}', 'duck', 42);
+----
+0007:a\0b	duck:42
+
+query TTT
+SELECT regexp_replace('a1b2', '[0-9]', 'X', 'g'),
+       regexp_extract('abc-123', '([a-z]+)-([0-9]+)', 2),
+       regexp_escape('a+b?');
+----
+aXbX	123	a\+b\?
+
+query TT
+SELECT regexp_extract('no digits', '([0-9]+)', 1, 'k'),
+       printf('%s', regexp_replace('x' || chr(0) || 'y', chr(0), '-'));
+----
+no digits	x-y
+
+statement error
+SELECT regexp_replace('a', '(', 'x');
+
+statement error
+SELECT printf('%s');

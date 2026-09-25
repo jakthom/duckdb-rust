@@ -1,0 +1,139 @@
+//! Aggregation algorithms consume the same bound grouping and function contract.
+use super::super::subquery::PreparedExpression;
+use super::super::{ExecutionContext, stream::BatchStream};
+use crate::{
+    common::{Error, Result, Row, vector::DataChunk},
+    planner::{BoundExpr, ExprKind, aggregation::Aggregation, logical::AggregateExpr},
+};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Debug,
+};
+
+mod batched;
+mod grouped;
+
+/// Owned blocking output. Column transport avoids rebuilding rows for engines
+/// that already finish grouped states as columns; legacy adapters keep rows.
+#[derive(Debug)]
+pub enum AggregateResult {
+    Rows(Vec<Row>),
+    Columns(DataChunk),
+}
+
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+/// Consumes a validated input stream once and owns all group, aggregate and
+/// DISTINCT state until completion. Each set has independent state; group
+/// expressions and each aggregate's arguments/filter are evaluated once per
+/// input row, regardless of set count. Function updates retain input order.
+/// Output order is unspecified. Failure/cancellation discards all state and
+/// publishes no partial result; retained groups obey the query row budget.
+pub trait AggregationAlgorithm: Debug + Send + Sync {
+    fn name(&self) -> &'static str;
+    fn aggregate_result(
+        &self,
+        input: &mut dyn BatchStream,
+        aggregation: &Aggregation,
+        context: &ExecutionContext<'_>,
+    ) -> Result<AggregateResult> {
+        self.aggregate(input, aggregation, context)
+            .map(AggregateResult::Rows)
+    }
+    fn aggregate(
+        &self,
+        input: &mut dyn BatchStream,
+        aggregation: &Aggregation,
+        context: &ExecutionContext<'_>,
+    ) -> Result<Vec<Row>>;
+}
+
+#[derive(Debug, Default)]
+pub struct HashAggregation;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregationAlgorithm for HashAggregation {
+    fn name(&self) -> &'static str {
+        "hash-aggregation"
+    }
+    fn aggregate(
+        &self,
+        input: &mut dyn BatchStream,
+        aggregation: &Aggregation,
+        context: &ExecutionContext<'_>,
+    ) -> Result<Vec<Row>> {
+        match self.aggregate_result(input, aggregation, context)? {
+            AggregateResult::Rows(rows) => Ok(rows),
+            AggregateResult::Columns(columns) => Ok(columns.rows().collect()),
+        }
+    }
+    fn aggregate_result(
+        &self,
+        input: &mut dyn BatchStream,
+        aggregation: &Aggregation,
+        context: &ExecutionContext<'_>,
+    ) -> Result<AggregateResult> {
+        if let Some(result) = batched::try_run(input, aggregation, context)? {
+            return Ok(result);
+        }
+        grouped::run::<HashMap<Vec<u8>, usize>>(input, aggregation, context)
+            .map(AggregateResult::Rows)
+    }
+}
+
+/// Ordered key storage is an independent grouping index with the same key
+/// semantics and emission contract. Byte ordering does not define SQL ordering.
+#[derive(Debug, Default)]
+pub struct OrderedAggregation;
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+impl AggregationAlgorithm for OrderedAggregation {
+    fn name(&self) -> &'static str {
+        "ordered-aggregation"
+    }
+    fn aggregate(
+        &self,
+        input: &mut dyn BatchStream,
+        aggregation: &Aggregation,
+        context: &ExecutionContext<'_>,
+    ) -> Result<Vec<Row>> {
+        grouped::run::<BTreeMap<Vec<u8>, usize>>(input, aggregation, context)
+    }
+}
+#[cfg_attr(feature = "dev", duckdb_dev::instrument)]
+fn ungrouped(
+    input: &mut dyn BatchStream,
+    aggregate: &AggregateExpr,
+    context: &ExecutionContext<'_>,
+) -> Result<Vec<Row>> {
+    let types = aggregate
+        .arguments
+        .iter()
+        .map(|argument| argument.data_type.clone())
+        .collect::<Vec<_>>();
+    let mut state = aggregate
+        .function
+        .create_state(&types, context.query.types())?;
+    let arguments = aggregate
+        .arguments
+        .iter()
+        .map(PreparedExpression::new)
+        .collect::<Vec<_>>();
+    while let Some(batch) = input.next(context.query.batch_size())? {
+        if let [argument] = aggregate.arguments.as_slice()
+            && let ExprKind::Column(index) = argument.kind
+        {
+            let column = batch
+                .columns()
+                .get(index)
+                .ok_or_else(|| Error::Internal("aggregate column outside input".into()))?;
+            state.update_column(column, context.query)?;
+            context.query.check()?;
+            continue;
+        }
+        let columns = arguments
+            .iter()
+            .map(|argument| argument.evaluate_batch(&batch, context))
+            .collect::<Result<_>>()?;
+        state.update_batch(&DataChunk::new(columns, batch.len())?, context.query)?;
+        context.query.check()?;
+    }
+    Ok(vec![vec![state.finish()?]])
+}

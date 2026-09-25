@@ -1,0 +1,16 @@
+{
+  "workloads": [
+    {
+      "id": "g03_enum_range_boundary",
+      "path": "test/performance/g03_enum_range_boundary.test"
+    },
+    {
+      "id": "g04_make_date_struct",
+      "path": "test/performance/g04_make_date_struct.test"
+    },
+    {
+      "id": "g10_profiling_no_output",
+      "path": "test/performance/g10_profiling_no_output.test"
+    }
+  ]
+}

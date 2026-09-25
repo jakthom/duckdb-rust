@@ -1,0 +1,268 @@
+# Grouping sets preserve subtotal identity independently of SQL NULL.
+
+statement ok
+CREATE TABLE sales(a INTEGER, b INTEGER, v INTEGER)
+
+statement ok
+INSERT INTO sales VALUES (1,10,2),(1,10,3),(1,NULL,5),(2,10,NULL),(NULL,10,7)
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),(b),())
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	10	4	12	2
+NULL	NULL	1	5	2
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b)
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP((a,b))
+----
+1	10	2	5	0
+1	NULL	1	5	0
+2	10	1	NULL	0
+NULL	10	1	7	0
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b)
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	10	4	12	2
+NULL	NULL	1	5	2
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a), ROLLUP(b)
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	10	4	12	2
+NULL	NULL	1	5	2
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a),(a),(),(b),())
+----
+1	NULL	3	10	1
+1	NULL	3	10	1
+2	NULL	1	NULL	1
+2	NULL	1	NULL	1
+NULL	10	4	12	2
+NULL	NULL	1	5	2
+NULL	NULL	1	7	1
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS (ROLLUP(a),CUBE(b),GROUPING SETS((a,b),()))
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	10	4	12	2
+NULL	NULL	1	5	2
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+NULL	NULL	5	17	3
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY a,CUBE(b)
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	NULL	1	7	1
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY ROLLUP(a,b,a)
+----
+1	10	2	5	0
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	10	1	7	0
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY GROUPING SETS ((a,b),(a),())
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT sales.a,sales.b,count(*),sum(v),grouping_id(sales.a,b) FROM sales GROUP BY CUBE(a,sales.b)
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	10	4	12	2
+NULL	NULL	1	5	2
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a AS x,b AS y,count(*),sum(v),grouping(x,y) FROM sales GROUP BY CUBE(x,y)
+----
+1	10	2	5	0
+1	NULL	1	5	0
+1	NULL	3	10	1
+2	10	1	NULL	0
+2	NULL	1	NULL	1
+NULL	10	1	7	0
+NULL	10	4	12	2
+NULL	NULL	1	5	2
+NULL	NULL	1	7	1
+NULL	NULL	5	17	3
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales WHERE false GROUP BY GROUPING SETS ((a,b),(),(),(a))
+----
+NULL	NULL	0	NULL	3
+NULL	NULL	0	NULL	3
+
+query I rowsort
+SELECT count(*) FROM sales WHERE false GROUP BY GROUPING SETS ((),())
+----
+0
+0
+
+query I rowsort
+SELECT 7 FROM sales WHERE false GROUP BY ()
+----
+7
+
+query I rowsort
+SELECT 7 FROM sales WHERE false GROUP BY (a)
+----
+
+
+query I rowsort
+SELECT count(*) FROM sales WHERE false GROUP BY (a)
+----
+
+
+query II rowsort
+SELECT count(*),sum(v) FROM sales GROUP BY ()
+----
+5	17
+
+query III rowsort
+SELECT a,count(*),grouping(a) FROM sales GROUP BY (),a,()
+----
+1	3	0
+2	1	0
+NULL	1	0
+
+query III rowsort
+SELECT a,count(*),grouping(a) FROM sales GROUP BY a HAVING grouping(a)=0
+----
+1	3	0
+2	1	0
+NULL	1	0
+
+query IIIII rowsort
+SELECT a,b,count(*),sum(v),grouping(a,b) FROM sales GROUP BY CUBE(a,b) HAVING grouping(a,b)=3
+----
+NULL	NULL	5	17	3
+
+query II rowsort
+SELECT count(*),grouping(a,a,a) FROM sales GROUP BY GROUPING SETS ((a),())
+----
+1	0
+1	0
+3	0
+5	7
+
+query I rowsort
+SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY GROUPING SETS ((),()) LIMIT 1 OFFSET 1)
+----
+1
+
+query I rowsort
+SELECT EXISTS(SELECT 1 FROM sales WHERE false GROUP BY a)
+----
+0
+
+query III rowsort
+SELECT count(DISTINCT v) FILTER (WHERE v>2),sum(v) FILTER (WHERE false),grouping(a) FROM sales GROUP BY GROUPING SETS ((a),())
+----
+0	NULL	0
+1	NULL	0
+2	NULL	0
+3	NULL	1
+
+statement error
+SELECT GROUPING(a) FROM sales
+
+statement error
+SELECT GROUPING(a) FROM sales GROUP BY ()
+
+statement error
+SELECT GROUPING(v) FROM sales GROUP BY a
+
+statement error
+SELECT a FROM sales GROUP BY GROUPING SETS ((b),())
+
+statement error
+SELECT GROUPING(a) FROM sales WHERE GROUPING(a)=0 GROUP BY a
+
+statement error
+SELECT SUM(GROUPING(a)) FROM sales GROUP BY a
+
+statement error
+SELECT a FROM sales GROUP BY SUM(v)
+
+statement error
+SELECT grouping(DISTINCT a) FROM sales GROUP BY a

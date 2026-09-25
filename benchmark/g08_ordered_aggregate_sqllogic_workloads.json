@@ -1,0 +1,8 @@
+{
+  "workloads": [
+    {
+      "id": "g08_2a_ordered_aggregate_19_2m_row_visits",
+      "path": "test/performance/g08_ordered_aggregate_process.test"
+    }
+  ]
+}

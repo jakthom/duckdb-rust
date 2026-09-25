@@ -1,0 +1,10 @@
+# G06.1g parser workload: repeated parse, bind and execute cycles over escaped
+# newline, quote and backslash forms through the SQLLogic runner.
+loop iteration 0 8192
+
+query I
+SELECT length(E'alpha\nbeta') + length(E'quote:\' slash:\\');
+----
+25
+
+endloop

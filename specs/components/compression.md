@@ -22,6 +22,19 @@ Not every codec implements every fast path. Dispatch must use a supported callba
 
 Source: [compression_function.hpp](../../../duckdb/src/include/duckdb/function/compression_function.hpp), [compression metadata](../../../duckdb/src/include/duckdb/function/compression_info.hpp).
 
+Development DICT_FSST (wire codec 15) can choose dictionary-only, combined
+dictionary/FSST, or FSST-only layouts. Dictionary entry zero carries SQL NULL.
+It declares `NO_VALIDITY_REQUIRED`, causing the checkpointer to select
+EMPTY_VALIDITY (wire codec 14) for its separate validity stream. That codec's
+scan/fetch callbacks are no-ops: they preserve the base-data decoder's validity,
+including NULLs, rather than asserting all rows are valid. A reader must preserve
+this distinction even if its internal interface materializes validity separately.
+
+Sources: [DICT_FSST registration](../../../duckdb/src/storage/compression/dict_fsst.cpp),
+[native layout](../../../duckdb/src/include/duckdb/storage/compression/dict_fsst/common.hpp),
+[EMPTY_VALIDITY](../../../duckdb/src/include/duckdb/storage/compression/empty_validity.hpp),
+[checkpoint selection](../../../duckdb/src/storage/table/column_data_checkpointer.cpp).
+
 ## Statistics and pruning boundary
 
 Compression analysis estimates encoding suitability; optimizer statistics estimate query properties; storage segment statistics support pruning. These may consume related data but have different correctness roles. A suboptimal codec or a poor cardinality estimate can make a query slow. An invalid min/max or NULL summary that eliminates a qualifying row makes the query wrong.
